@@ -94,6 +94,31 @@ class MemoryService(MemorizeMixin, RetrieveMixin, CRUDMixin):
         )
         self._register_pipelines()
 
+
+    def _format_categories_for_prompt(self, category_configs: list[CategoryConfig] | None) -> str:
+        """Render categories into a short, stable string for prompts.
+
+        Older memU builds referenced this helper but didn't define it. We keep it simple and
+        predictable so prompt templates don't explode.
+        """
+        if not category_configs:
+            return ""
+
+        lines: list[str] = []
+        for cfg in category_configs:
+            try:
+                name = getattr(cfg, 'name', None) or str(cfg)
+                desc = getattr(cfg, 'description', '') or ''
+            except Exception:
+                name, desc = str(cfg), ''
+
+            if desc:
+                lines.append(f"- {name}: {desc}")
+            else:
+                lines.append(f"- {name}")
+
+        return "\n".join(lines)
+
     def _init_llm_client(self, config: LLMConfig | None = None) -> Any:
         """Initialize LLM client based on configuration."""
         cfg = config or self.llm_config
@@ -116,6 +141,19 @@ class MemoryService(MemorizeMixin, RetrieveMixin, CRUDMixin):
                 provider=cfg.provider,
                 endpoint_overrides=cfg.endpoint_overrides,
                 embed_model=cfg.embed_model,
+            )
+        elif backend == "lazyllm_backend":
+            from memu.llm.lazyllm_client import LazyLLMClient
+
+            return LazyLLMClient(
+                llm_source=cfg.lazyllm_source.llm_source or cfg.lazyllm_source.source,
+                vlm_source=cfg.lazyllm_source.vlm_source or cfg.lazyllm_source.source,
+                embed_source=cfg.lazyllm_source.embed_source or cfg.lazyllm_source.source,
+                stt_source=cfg.lazyllm_source.stt_source or cfg.lazyllm_source.source,
+                chat_model=cfg.chat_model,
+                embed_model=cfg.embed_model,
+                vlm_model=cfg.lazyllm_source.vlm_model,
+                stt_model=cfg.lazyllm_source.stt_model,
             )
         else:
             msg = f"Unknown llm_client_backend '{cfg.client_backend}'"

@@ -1,6 +1,18 @@
-![MemU Banner](assets/banner.png)
-
 <div align="center">
+
+SILLYTAVERN FORK:
+
+REQUIRES:<br>
+https://github.com/mekineer-com/memu-sillytavern-plugin/<br>
+https://github.com/mekineer-com/memu-sillytavern-extension/
+
+Community fork (unofficial).<br>
+Upstream: (https://github.com/NevaMind-AI/memu-sillytavern-plugin)<br>
+Purpose: SillyTavern integration + memU bridge improvements (Local/API routing, build fixes, etc.).<br>
+Not affiliated with upstream/app.memu.so.<br>
+License: see LICENSE (upstream license applies).
+
+![MemU Banner](assets/banner.png)
 
 # MemU
 
@@ -340,7 +352,7 @@ View detailed experimental data: [memU-experiment](https://github.com/NevaMind-A
 
 | Repository | Description | Use Case |
 |------------|-------------|----------|
-| **[memU](https://github.com/NevaMind-AI/memU)** | Core algorithm engine | Embed AI memory into your product |
+| **[memU](https://github.com/mekineer-com/memU)** | Core algorithm engine | Embed AI memory into your product |
 | **[memU-server](https://github.com/NevaMind-AI/memU-server)** | Backend service with CRUD, user system, RBAC | Self-host a memory backend |
 | **[memU-ui](https://github.com/NevaMind-AI/memU-ui)** | Visual dashboard | Ready-to-use memory console |
 

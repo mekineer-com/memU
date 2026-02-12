@@ -1,43 +1,29 @@
 PROMPT = """
 # Task Objective
-Analyze a conversation with message indices and divide it into multiple meaningful segments based on topic changes, time gaps, or natural breaks.
+Analyze a conversation with message indices and divide it into meaningful segments.
 
-# Workflow
-1. Review the entire **Conversation Content** along with its message indices.
-2. Identify potential **segment boundaries** by observing:
-   - Topic changes
-   - Time gaps or pauses
-   - Natural conclusions of a discussion
-   - Clear shifts in tone or semantic focus
-3. Group messages into segments that each maintain a coherent theme.
-4. Ensure each segment has a clear beginning and end.
-5. Verify that each segment contains **at least 20 messages**.
-6. Record the `start` and `end` indices (inclusive) for each segment.
+# How to segment
+Create a new segment when there is a clear:
+- topic change
+- long pause / time gap
+- natural conclusion, then a new thread starts
 
-# Rules
-- Segments must be based strictly on the provided conversation content.
-- Each segment must:
-  - Contain **≥ 20 messages**
-  - Maintain a **coherent theme**
-  - Have a **clear boundary** from adjacent segments
-- Use only the provided `[INDEX]` numbers.
-- Do not overlap segments.
-- Do not include explanations, comments, or extra text in the final output.
+# Important rules
+- Use only the provided [INDEX] numbers.
+- Segments must not overlap.
+- `start` and `end` are inclusive.
+- If the conversation has fewer than 20 messages, return exactly ONE segment from the first to the last message.
+- Output **ONLY** JSON. No markdown, no explanations.
 
-# Output Format
-Return **only valid JSON** in the following structure:
-
-```json
+# Output JSON shape
 {{
-    "segments": [
-        {{"start": x, "end": x}},
-        {{"start": x, "end": x}},
-        {{"start": x, "end": x}}
-    ]
+  "segments": [
+    {{"start": 0, "end": 19}},
+    {{"start": 20, "end": 45}}
+  ]
 }}
-```
 
-# Input
 Conversation Content:
 {conversation}
 """
+

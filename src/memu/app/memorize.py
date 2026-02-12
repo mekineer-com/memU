@@ -513,30 +513,40 @@ class MemorizeMixin:
         if not memory_types:
             return []
         client = llm_client or self._get_llm_client()
-        prompts = [
-            self._build_memory_type_prompt(
+        pairs: list[tuple[MemoryType, str]] = []
+        for mtype in memory_types:
+            prompt_text = self._build_memory_type_prompt(
                 memory_type=mtype,
                 resource_text=resource_text,
                 categories_str=categories_prompt_str,
             )
-            for mtype in memory_types
-        ]
-        valid_prompts = [prompt for prompt in prompts if prompt.strip()]
-        tasks = [client.summarize(prompt_text) for prompt_text in valid_prompts]
+            if prompt_text and prompt_text.strip():
+                pairs.append((mtype, prompt_text))
+
+        if not pairs:
+            return []
+
+        tasks = [client.summarize(prompt_text) for (_, prompt_text) in pairs]
         responses = await asyncio.gather(*tasks)
-        return self._parse_structured_entries(memory_types, responses)
+        return self._parse_structured_entries([m for (m, _) in pairs], responses)
 
     def _parse_structured_entries(
         self, memory_types: list[MemoryType], responses: Sequence[str]
     ) -> list[tuple[MemoryType, str, list[str]]]:
         entries: list[tuple[MemoryType, str, list[str]]] = []
         for mtype, response in zip(memory_types, responses, strict=True):
-            parsed = self._parse_memory_type_response_xml(response)
-            # if not parsed:
-            #     fallback_entry = response.strip()
-            #     if fallback_entry:
-            #         entries.append((mtype, fallback_entry, []))
-            #     continue
+            # Upstream memU prompts often return JSON (memories_items). Some models also emit XML-ish blocks.
+            parsed = self._parse_memory_type_response(response)
+            if (not parsed) and ("<memory" in (response or "")):
+                parsed = self._parse_memory_type_response_xml(response)
+
+            # Last-resort fallback: store the whole response as one memory item.
+            if not parsed:
+                fallback_entry = (response or '').strip()
+                if fallback_entry:
+                    entries.append((mtype, fallback_entry, []))
+                continue
+
             for entry in parsed:
                 content = (entry.get("content") or "").strip()
                 if not content:
@@ -751,6 +761,26 @@ class MemorizeMixin:
     def _modality_requires_text(self, modality: str) -> bool:
         return modality in ("conversation", "document")
 
+
+    def _safe_format_prompt_template(self, template: str, **kwargs: str) -> str:
+        """Format prompt templates defensively.
+
+        Some memU prompt templates include literal JSON examples with `{}` braces.
+        Using `str.format()` on such templates can raise KeyError/ValueError. When that happens,
+        fall back to a simple placeholder replacement for known keys (e.g. `{conversation}`).
+        """
+        try:
+            return template.format(**kwargs)
+        except (KeyError, ValueError) as e:
+            logger.warning(
+                "Prompt template .format() failed (%s). Falling back to placeholder replacement.",
+                e,
+            )
+            out = template
+            for k, v in kwargs.items():
+                out = out.replace("{" + k + "}", v)
+            return out
+
     async def _dispatch_preprocessor(
         self,
         *,
@@ -777,7 +807,10 @@ class MemorizeMixin:
     ) -> list[dict[str, str | None]]:
         """Preprocess conversation data with segmentation, returns list of resources (one per segment)."""
         preprocessed_text = format_conversation_for_preprocess(text)
-        prompt = template.format(conversation=self._escape_prompt_value(preprocessed_text))
+        prompt = self._safe_format_prompt_template(
+            template,
+            conversation=self._escape_prompt_value(preprocessed_text),
+        )
         client = llm_client or self._get_llm_client()
         processed = await client.summarize(prompt, system_prompt=None)
         _conv, segments = self._parse_conversation_preprocess_with_segments(processed, preprocessed_text)
@@ -893,7 +926,10 @@ Summary:"""
         self, text: str, template: str, llm_client: Any | None = None
     ) -> list[dict[str, str | None]]:
         """Preprocess document data - condense and extract caption"""
-        prompt = template.format(document_text=self._escape_prompt_value(text))
+        prompt = self._safe_format_prompt_template(
+            template,
+            document_text=self._escape_prompt_value(text),
+        )
         client = llm_client or self._get_llm_client()
         processed = await client.summarize(prompt, system_prompt=None)
         processed_content, caption = self._parse_multimodal_response(processed, "processed_content", "caption")
@@ -903,7 +939,10 @@ Summary:"""
         self, text: str, template: str, llm_client: Any | None = None
     ) -> list[dict[str, str | None]]:
         """Preprocess audio data - format transcription and extract caption"""
-        prompt = template.format(transcription=self._escape_prompt_value(text))
+        prompt = self._safe_format_prompt_template(
+            template,
+            transcription=self._escape_prompt_value(text),
+        )
         client = llm_client or self._get_llm_client()
         processed = await client.summarize(prompt, system_prompt=None)
         processed_content, caption = self._parse_multimodal_response(processed, "processed_content", "caption")
@@ -1058,15 +1097,37 @@ Summary:"""
         return conversation, segments
 
     def _extract_segments_with_fallback(self, raw: str) -> list[dict[str, int | str]] | None:
+        """Best-effort extraction of segment JSON.
+
+        We keep the segmenter, but treat its output as optional:
+        - If it returns valid JSON of the expected schema, we use it.
+        - If it returns non-JSON / malformed output, we skip segmentation and continue.
+        """
+        if not raw:
+            return None
+
         segments = self._segments_from_json_payload(raw)
         if segments is not None:
             return segments
+
         try:
             blob = self._extract_json_blob(raw)
-        except Exception:
-            logging.exception("Failed to extract segments from conversation preprocess response")
+        except Exception as e:
+            logger.warning(
+                "Conversation preprocess segmenter returned non-JSON; skipping segmentation (%s). Raw head=%r",
+                e,
+                raw[:200],
+            )
             return None
-        return self._segments_from_json_payload(blob)
+
+        segments = self._segments_from_json_payload(blob)
+        if segments is None:
+            logger.warning(
+                "Conversation preprocess segmenter JSON did not match expected schema; skipping segmentation. Blob head=%r",
+                blob[:200],
+            )
+        return segments
+
 
     def _segments_from_json_payload(self, payload: str) -> list[dict[str, int | str]] | None:
         try:
@@ -1183,12 +1244,23 @@ Summary:"""
 
         try:
             boundaries = self._find_xml_boundaries(raw)
-            if boundaries is None:
-                logger.warning("Could not find valid root tag in XML response")
-                return []
 
-            start_idx, end_idx, end_tag = boundaries
-            xml_content = raw[start_idx : end_idx + len(end_tag)]
+            if boundaries is None:
+                # Many models omit the expected root tag but still produce <memory>...</memory> blocks.
+                # In that case, wrap the memory blocks in a synthetic root and parse those.
+                memory_blocks = re.findall(r"<memory\b[\s\S]*?</memory>", raw)
+                if memory_blocks:
+                    xml_content = "<root>" + "".join(memory_blocks) + "</root>"
+                else:
+                    if not getattr(self, "_xml_root_warned", False):
+                        # logger.warning("Could not find valid root tag in XML response")
+                        setattr(self, "_xml_root_warned", True)
+                    return []
+            else:
+                start_idx, end_idx, end_tag = boundaries
+                xml_content = raw[start_idx : end_idx + len(end_tag)]
+
+            # XML requires & be escaped if it appears in text nodes.
             xml_content = xml_content.replace("&", "&amp;")
 
             root = ET.fromstring(xml_content)
