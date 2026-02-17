@@ -1,7 +1,7 @@
 <div align="center">
 
 Deprecated<br>
-No longer needed in newer extension.
+No longer needed in newer [extension](https://github.com/mekineer-com/memu-sillytavern-extension).
 
 SILLYTAVERN FORK:
 
