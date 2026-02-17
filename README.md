@@ -1,10 +1,13 @@
 <div align="center">
 
+Deprecated<br>
+No longer needed in newer extension.
+
 SILLYTAVERN FORK:
 
 REQUIRES:<br>
-https://github.com/mekineer-com/memu-sillytavern-plugin/<br>
-https://github.com/mekineer-com/memu-sillytavern-extension/
+[https://github.com/mekineer-com/memu-sillytavern-plugin/](https://github.com/mekineer-com/memu-sillytavern-plugin/releases/tag/v0.0.2-buildfix)<br>
+[https://github.com/mekineer-com/memu-sillytavern-extension/](https://github.com/mekineer-com/memu-sillytavern-extension/releases/tag/v0.0.2-buildfix)
 
 Community fork (unofficial).<br>
 Upstream: (https://github.com/NevaMind-AI/memu-sillytavern-plugin)<br>
