@@ -61,6 +61,29 @@ class SQLiteRepoBase:
             logger.debug("Could not normalize embedding %s", embedding)
             return None
 
+    def _get_row_embedding(self, row: Any) -> Any:
+        """Read embedding from a row, tolerating both old and new field names.
+
+        We may have either (or both):
+          - embedding: JSON column storing a list[float]
+          - embedding_json: TEXT column storing a JSON string
+        Prefer `embedding` when present and non-null; otherwise fall back to
+        `embedding_json`.
+        """
+        if hasattr(row, "embedding"):
+            v = getattr(row, "embedding")
+            if v is not None:
+                return v
+        return getattr(row, "embedding_json", None)
+
+    def _set_row_embedding(self, row: Any, embedding: list[float] | None) -> None:
+        """Write embedding to the primary column, with legacy-only fallback."""
+        prepared = self._prepare_embedding(embedding)
+        if hasattr(row, "embedding"):
+            setattr(row, "embedding", prepared)
+        elif hasattr(row, "embedding_json"):
+            setattr(row, "embedding_json", prepared)
+
     def _prepare_embedding(self, embedding: list[float] | None) -> str | None:
         """Serialize embedding to JSON string for SQLite storage."""
         if embedding is None:

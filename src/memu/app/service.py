@@ -44,6 +44,8 @@ class Context:
     category_ids: list[str] = field(default_factory=list)
     category_name_to_id: dict[str, str] = field(default_factory=dict)
     category_init_task: asyncio.Task | None = None
+    category_scope_key: str | None = None
+    category_init_scope_key: str | None = None
 
 
 class MemoryService(MemorizeMixin, RetrieveMixin, CRUDMixin):

@@ -123,11 +123,105 @@ class SQLiteStore(Database):
         self.categories = self._state.categories
         self.relations = self._state.relations
 
+    def _ensure_embedding_json_columns(self) -> None:
+        """Best-effort schema patch for legacy SQLite embedding compatibility.
+
+        We no longer mirror writes into `embedding_json`, but we keep the
+        legacy column available so older DB layouts continue to load cleanly.
+        """
+        tables = ["memu_resources", "memu_memory_items", "memu_memory_categories"]
+        try:
+            with self._sessions.engine.begin() as conn:
+                for tname in tables:
+                    rows = conn.exec_driver_sql(f"PRAGMA table_info({tname})").fetchall()
+                    cols = [r[1] for r in rows] if rows else []
+                    if not cols:
+                        continue
+                    if "embedding_json" not in cols:
+                        conn.exec_driver_sql(f"ALTER TABLE {tname} ADD COLUMN embedding_json TEXT")
+        except Exception:
+            # Best-effort only; don't block startup.
+            return
+
+    @staticmethod
+    def _table_columns(conn: Any, table_name: str) -> list[str]:
+        rows = conn.exec_driver_sql(f"PRAGMA table_info({table_name})").fetchall()
+        return [r[1] for r in rows] if rows else []
+
+    def _add_column_if_missing(self, conn: Any, table_name: str, column_name: str, ddl: str) -> bool:
+        cols = self._table_columns(conn, table_name)
+        if not cols or column_name in cols:
+            return False
+        conn.exec_driver_sql(f"ALTER TABLE {table_name} ADD COLUMN {ddl}")
+        return True
+
+    def _ensure_memory_item_provenance_columns(self) -> None:
+        """Best-effort migration for Phase 1 provenance columns."""
+        try:
+            with self._sessions.engine.begin() as conn:
+                self._add_column_if_missing(conn, "memu_memory_items", "source_role", "source_role VARCHAR")
+                self._add_column_if_missing(conn, "memu_memory_items", "confidence", "confidence REAL")
+                self._add_column_if_missing(conn, "memu_memory_items", "conversation_id", "conversation_id VARCHAR")
+                self._add_column_if_missing(conn, "memu_memory_items", "merged_into", "merged_into VARCHAR")
+
+                cols = self._table_columns(conn, "memu_memory_items")
+                # Backfill conversation_id from legacy session_id when available.
+                if "conversation_id" in cols and "session_id" in cols:
+                    conn.exec_driver_sql(
+                        "UPDATE memu_memory_items "
+                        "SET conversation_id = session_id "
+                        "WHERE (conversation_id IS NULL OR TRIM(conversation_id) = '') "
+                        "AND session_id IS NOT NULL AND TRIM(session_id) <> ''"
+                    )
+        except Exception:
+            return
+
+    def _ensure_conversation_state_table(self) -> None:
+        """Create/patch service-level conversation state table."""
+        create_sql = """
+CREATE TABLE IF NOT EXISTS memu_conversation_state (
+    conversation_id VARCHAR PRIMARY KEY,
+    agent_id VARCHAR,
+    user_id VARCHAR,
+    digest_cursor INTEGER DEFAULT 0,
+    working_note TEXT,
+    active_intentions JSON,
+    last_retrieval_ids JSON,
+    last_memorize_at DATETIME,
+    updated_at DATETIME
+)
+"""
+        try:
+            with self._sessions.engine.begin() as conn:
+                conn.exec_driver_sql(create_sql)
+                self._add_column_if_missing(conn, "memu_conversation_state", "agent_id", "agent_id VARCHAR")
+                self._add_column_if_missing(conn, "memu_conversation_state", "user_id", "user_id VARCHAR")
+                self._add_column_if_missing(
+                    conn, "memu_conversation_state", "digest_cursor", "digest_cursor INTEGER DEFAULT 0"
+                )
+                self._add_column_if_missing(conn, "memu_conversation_state", "working_note", "working_note TEXT")
+                self._add_column_if_missing(
+                    conn, "memu_conversation_state", "active_intentions", "active_intentions JSON"
+                )
+                self._add_column_if_missing(
+                    conn, "memu_conversation_state", "last_retrieval_ids", "last_retrieval_ids JSON"
+                )
+                self._add_column_if_missing(
+                    conn, "memu_conversation_state", "last_memorize_at", "last_memorize_at DATETIME"
+                )
+                self._add_column_if_missing(conn, "memu_conversation_state", "updated_at", "updated_at DATETIME")
+        except Exception:
+            return
+
     def _create_tables(self) -> None:
         """Create SQLite tables if they don't exist."""
         SQLModel.metadata.create_all(self._sessions.engine)
         # Also create tables from our custom metadata
         self._sqla_models.Base.metadata.create_all(self._sessions.engine)
+        # Patch up mixed embedding columns on existing DBs.
+        self._ensure_embedding_json_columns()
+        self._ensure_memory_item_provenance_columns()
+        self._ensure_conversation_state_table()
         logger.debug("SQLite tables created/verified")
 
     def close(self) -> None:

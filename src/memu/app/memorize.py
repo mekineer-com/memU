@@ -286,7 +286,7 @@ class MemorizeMixin:
             return state
 
         store = state["store"]
-        # Pull from repository (embedding_json-backed rows) and only active items.
+        # Pull from repository and only active items.
         active_pool = dict(store.memory_item_repo.list_items(dedupe_scope))
         if len(active_pool) < 2:
             return state
@@ -317,6 +317,16 @@ class MemorizeMixin:
         merged_map: dict[str, str] = {}
         dedupe_embed_client: Any | None = None
         dedupe_embed_cache: dict[str, list[float] | None] = {}
+        summary_tokens: dict[str, set[str]] = {}
+        token_index: dict[str, set[str]] = {}
+        token_freq: dict[str, int] = {}
+
+        for pool_item_id, pool_item in active_pool.items():
+            tokens = self._dedupe_summary_tokens(getattr(pool_item, "summary", ""))
+            summary_tokens[pool_item_id] = tokens
+            for token in tokens:
+                token_index.setdefault(token, set()).add(pool_item_id)
+                token_freq[token] = token_freq.get(token, 0) + 1
 
         for new_item_id in new_item_ids:
             anchor = active_pool.get(new_item_id)
@@ -327,10 +337,18 @@ class MemorizeMixin:
                 continue
 
             candidates: list[tuple[float, str]] = []
-            for candidate_id, candidate in active_pool.items():
-                if candidate_id == new_item_id or candidate_id in merged_map:
-                    continue
-                if self._is_merged_item(candidate):
+            candidate_ids = self._prefilter_dedupe_candidate_ids(
+                anchor_id=new_item_id,
+                anchor=anchor,
+                active_pool=active_pool,
+                merged_map=merged_map,
+                summary_tokens=summary_tokens,
+                token_index=token_index,
+                token_freq=token_freq,
+            )
+            for candidate_id in candidate_ids:
+                candidate = active_pool.get(candidate_id)
+                if candidate is None:
                     continue
                 candidate_embedding = self._item_embedding(candidate)
                 compare_anchor = anchor_embedding
@@ -542,6 +560,83 @@ class MemorizeMixin:
             if kept:
                 filtered[str(category_id)] = kept
         return filtered
+
+    @staticmethod
+    def _dedupe_summary_tokens(summary: Any) -> set[str]:
+        text = str(summary or "").lower()
+        if not text:
+            return set()
+        stopwords = {
+            "about", "after", "before", "being", "during", "from", "have", "just",
+            "said", "some", "still", "that", "their", "them", "then", "there",
+            "they", "this", "through", "very", "when", "where", "while", "with",
+            "would",
+        }
+        out: set[str] = set()
+        for token in re.findall(r"[a-z0-9]{4,}", text):
+            if token in stopwords:
+                continue
+            out.add(token)
+        return out
+
+    @staticmethod
+    def _dedupe_source_role(item: Any) -> str | None:
+        raw = getattr(item, "source_role", None)
+        if not isinstance(raw, str):
+            return None
+        value = raw.strip()
+        return value or None
+
+    def _prefilter_dedupe_candidate_ids(
+        self,
+        *,
+        anchor_id: str,
+        anchor: MemoryItem,
+        active_pool: Mapping[str, MemoryItem],
+        merged_map: Mapping[str, str],
+        summary_tokens: Mapping[str, set[str]],
+        token_index: Mapping[str, set[str]],
+        token_freq: Mapping[str, int],
+    ) -> list[str]:
+        anchor_role = self._dedupe_source_role(anchor)
+        anchor_tokens = summary_tokens.get(anchor_id) or set()
+        candidate_scores: dict[str, int] = {}
+
+        selected_tokens = sorted(
+            anchor_tokens,
+            key=lambda token: (token_freq.get(token, 0), -len(token), token),
+        )[:4]
+
+        for token in selected_tokens:
+            for candidate_id in token_index.get(token, set()):
+                if candidate_id == anchor_id or candidate_id in merged_map:
+                    continue
+                candidate = active_pool.get(candidate_id)
+                if candidate is None or self._is_merged_item(candidate):
+                    continue
+                candidate_role = self._dedupe_source_role(candidate)
+                if anchor_role and candidate_role and anchor_role != candidate_role:
+                    continue
+                overlap = len(anchor_tokens & (summary_tokens.get(candidate_id) or set()))
+                if overlap <= 0:
+                    continue
+                prev = candidate_scores.get(candidate_id, 0)
+                if overlap > prev:
+                    candidate_scores[candidate_id] = overlap
+
+        if not candidate_scores:
+            for candidate_id, candidate in active_pool.items():
+                if candidate_id == anchor_id or candidate_id in merged_map:
+                    continue
+                if self._is_merged_item(candidate):
+                    continue
+                candidate_role = self._dedupe_source_role(candidate)
+                if anchor_role and candidate_role and anchor_role != candidate_role:
+                    continue
+                candidate_scores[candidate_id] = 0
+
+        ordered = sorted(candidate_scores.items(), key=lambda row: (-row[1], row[0]))
+        return [candidate_id for candidate_id, _score in ordered[:64]]
 
     async def _memorize_categorize_items(self, state: WorkflowState, step_context: Any) -> WorkflowState:
         embed_client = self._get_step_embedding_client(step_context)
@@ -1121,6 +1216,7 @@ Decide which candidates should map into existing categories, and which (if any) 
 
         mapping: dict[str, str] = {}
         new_defs: dict[str, str] = {}  # normalized_name -> description
+        planner_fallback_reason: str | None = None
 
         def _valid_new_name(raw: str) -> bool:
             raw = (raw or '').strip()
@@ -1142,6 +1238,8 @@ Decide which candidates should map into existing categories, and which (if any) 
                 import json
 
                 plan = json.loads(m.group(0))
+            else:
+                planner_fallback_reason = "planner_no_json"
 
             if isinstance(plan, dict):
                 # Create directives
@@ -1191,11 +1289,21 @@ Decide which candidates should map into existing categories, and which (if any) 
                         continue
                     if tgt and (tgt in ctx.category_name_to_id or tgt in new_defs):
                         mapping[src] = tgt
+            elif planner_fallback_reason is None:
+                planner_fallback_reason = "planner_invalid_plan"
         except Exception:
-            pass
+            planner_fallback_reason = "planner_exception"
+            logger.warning("dynamic-category planner failed; using heuristic fallback", exc_info=True)
 
         # Fallback: create frequent candidates directly (no LLM)
         if not new_defs and not mapping:
+            if planner_fallback_reason is None:
+                planner_fallback_reason = "planner_no_usable_directives"
+            logger.warning(
+                "dynamic-category planner fallback active (%s); applying heuristic category creation for %d candidates",
+                planner_fallback_reason,
+                len(candidates_sorted),
+            )
             for cand, cnt in candidates_sorted:
                 if cnt < min_mentions:
                     continue
@@ -1300,36 +1408,72 @@ Decide which candidates should map into existing categories, and which (if any) 
 
         return items, rels, category_memory_updates
 
-    def _start_category_initialization(self, ctx: Context, store: Database) -> None:
-        if ctx.categories_ready:
+    @staticmethod
+    def _category_scope_key(user_scope: Mapping[str, Any] | None) -> str:
+        if not isinstance(user_scope, Mapping):
+            return "__global__"
+        user_id = str(user_scope.get("user_id") or user_scope.get("userId") or "").strip()
+        soul_id = str(
+            user_scope.get("soul_id")
+            or user_scope.get("soulId")
+            or user_scope.get("agent_id")
+            or user_scope.get("agentId")
+            or ""
+        ).strip()
+        if not user_id and not soul_id:
+            return "__global__"
+        return f"user={user_id}|soul={soul_id}"
+
+    def _start_category_initialization(
+        self,
+        ctx: Context,
+        store: Database,
+        user_scope: Mapping[str, Any] | None = None,
+    ) -> None:
+        scope_key = self._category_scope_key(user_scope)
+        if ctx.categories_ready and ctx.category_scope_key == scope_key:
             return
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
             loop = None
         if loop:
-            ctx.category_init_task = loop.create_task(self._initialize_categories(ctx, store))
+            ctx.category_init_scope_key = scope_key
+            ctx.category_init_task = loop.create_task(
+                self._initialize_categories(ctx, store, user_scope, scope_key=scope_key)
+            )
         else:
-            asyncio.run(self._initialize_categories(ctx, store))
+            asyncio.run(self._initialize_categories(ctx, store, user_scope, scope_key=scope_key))
 
     async def _ensure_categories_ready(
         self, ctx: Context, store: Database, user_scope: Mapping[str, Any] | None = None
     ) -> None:
-        if ctx.categories_ready:
+        scope_key = self._category_scope_key(user_scope)
+        if ctx.categories_ready and ctx.category_scope_key == scope_key:
             return
         if ctx.category_init_task:
             await ctx.category_init_task
             ctx.category_init_task = None
-            return
-        await self._initialize_categories(ctx, store, user_scope)
+            ctx.category_init_scope_key = None
+            if ctx.categories_ready and ctx.category_scope_key == scope_key:
+                return
+        await self._initialize_categories(ctx, store, user_scope, scope_key=scope_key)
 
     async def _initialize_categories(
-        self, ctx: Context, store: Database, user: Mapping[str, Any] | None = None
+        self,
+        ctx: Context,
+        store: Database,
+        user: Mapping[str, Any] | None = None,
+        *,
+        scope_key: str | None = None,
     ) -> None:
-        if ctx.categories_ready:
+        resolved_scope_key = scope_key or self._category_scope_key(user)
+        if ctx.categories_ready and ctx.category_scope_key == resolved_scope_key:
             return
         if not self.category_configs:
             ctx.categories_ready = True
+            ctx.category_scope_key = resolved_scope_key
+            ctx.category_init_scope_key = None
             return
         cat_texts = [self._category_embedding_text(cfg) for cfg in self.category_configs]
         cat_vecs = await self._get_llm_client("embedding").embed(cat_texts)
@@ -1344,6 +1488,8 @@ Decide which candidates should map into existing categories, and which (if any) 
             ctx.category_ids.append(cat.id)
             ctx.category_name_to_id[name.lower()] = cat.id
         ctx.categories_ready = True
+        ctx.category_scope_key = resolved_scope_key
+        ctx.category_init_scope_key = None
 
     @staticmethod
     def _category_embedding_text(cat: CategoryConfig) -> str:
@@ -1493,6 +1639,7 @@ Decide which candidates should map into existing categories, and which (if any) 
         lines = conversation_text.split("\n")
         max_idx = len(lines) - 1
         resources: list[dict[str, str | None]] = []
+        pending_captions: list[tuple[int, str]] = []
 
         for segment in segments:
             start = int(segment.get("start", 0))
@@ -1502,8 +1649,26 @@ Decide which candidates should map into existing categories, and which (if any) 
             segment_text = "\n".join(lines[start : end + 1])
 
             if segment_text.strip():
-                caption = await self._summarize_segment(segment_text, llm_client=client)
-                resources.append({"text": segment_text, "caption": caption})
+                caption_raw = segment.get("caption")
+                caption = str(caption_raw).strip() if isinstance(caption_raw, str) else ""
+                resources.append({"text": segment_text, "caption": caption or None})
+                if not caption:
+                    pending_captions.append((len(resources) - 1, segment_text))
+
+        if pending_captions:
+            max_parallel = min(4, len(pending_captions))
+            limiter = asyncio.Semaphore(max_parallel)
+
+            async def summarize_one(resource_idx: int, segment_text: str) -> tuple[int, str | None]:
+                async with limiter:
+                    caption = await self._summarize_segment(segment_text, llm_client=client)
+                    return resource_idx, caption
+
+            caption_results = await asyncio.gather(
+                *(summarize_one(resource_idx, segment_text) for resource_idx, segment_text in pending_captions)
+            )
+            for resource_idx, caption in caption_results:
+                resources[resource_idx]["caption"] = caption
         return resources if resources else [{"text": conversation_text, "caption": None}]
 
     async def _summarize_segment(self, segment_text: str, llm_client: Any | None = None) -> str | None:
