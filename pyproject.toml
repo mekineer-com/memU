@@ -7,7 +7,7 @@ authors = [
 description = "AI Memory and Conversation Management Framework - Simple as mem0, Powerful as MemU"
 readme = "README.md"
 license = {file = "LICENSE.txt"}
-# Historical note: upstream targeted Python 3.13; Alpine-tested target here is 3.12.
+    #    requires-python = ">=3.13"
 requires-python = ">=3.12"
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -16,8 +16,7 @@ classifiers = [
 
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    # Historical upstream classifier:
-    # "Programming Language :: Python :: 3.13",
+    #    "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.12",
 ]
 keywords = ["ai", "memory", "conversation", "llm", "chatbot", "agent"]
@@ -26,13 +25,12 @@ dependencies = [
     "httpx>=0.28.1",
     "numpy>=2.3.4",
     "openai>=2.8.0",
-    # Alpine-tested floor:
-    # "pydantic>=2.12.4",
+    #    "pydantic>=2.12.4",
     "pydantic>=2.12.3",
     "sqlmodel>=0.0.27",
-    # "alembic>=1.14.0",
+    #    "alembic>=1.14.0",
     "alembic>=1.13.1",
-    # "pendulum>=3.1.0",
+    #    "pendulum>=3.1.0",
     "pendulum>=2.1.2",
     "langchain-core>=1.2.7",
     "lazyllm>=0.7.3",
@@ -93,8 +91,7 @@ DEP002 = ["claude-agent-sdk"]
 
 [tool.mypy]
 files = ["src", "tests"]
-# Historical upstream target:
-# python_version = "3.13"
+    #    python_version = "3.13"
 python_version = "3.12"
 disallow_untyped_defs = true
 disallow_any_unimported = true
@@ -125,8 +122,7 @@ disallow_untyped_defs = false
 warn_return_any = false
 
 [tool.ruff]
-# Historical upstream target:
-# target-version = "py313"
+    #    target-version = "py313"
 target-version = "py312"
 line-length = 120
 fix = true
