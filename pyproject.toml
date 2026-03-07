@@ -6,12 +6,13 @@ authors = [
 ]
 description = "AI Memory and Conversation Management Framework - Simple as mem0, Powerful as MemU"
 readme = "README.md"
-# license = {file = "LICENSE"}
+license = {file = "LICENSE.txt"}
     #    requires-python = ">=3.13"
 requires-python = ">=3.12"
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
 
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",

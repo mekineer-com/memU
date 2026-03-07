@@ -1,4 +1,7 @@
 include README.md
+include LICENSE.txt
+include LICENSE-APACHE.txt
+include NOTICE
 recursive-include memu *.py
 prune example
 include setup_postgres_env.sh

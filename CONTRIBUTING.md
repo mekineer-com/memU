@@ -208,7 +208,8 @@ We're currently focusing on:
 ## 📄 License and Attribution
 
 By contributing to MemU, you agree that:
-- Your contributions will be licensed under the **Apache License 2.0**
+- New contributions to this fork will be licensed under the **GPLv3**
+- Upstream-derived Apache 2.0 attribution remains preserved; see `NOTICE` and `LICENSE-APACHE.txt`
 - You have the right to contribute the code/content
 - Your contribution doesn't violate any third-party rights
 
