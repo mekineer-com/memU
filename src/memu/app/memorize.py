@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import pathlib
 import re
 from collections.abc import Awaitable, Callable, Mapping, Sequence
@@ -37,6 +38,8 @@ from memu.workflow.step import WorkflowState, WorkflowStep
 
 logger = logging.getLogger(__name__)
 
+StructuredMemoryEntry = tuple[MemoryType, str, list[str], str | None, float | None]
+
 if TYPE_CHECKING:
     from memu.app.service import Context
     from memu.app.settings import MemorizeConfig
@@ -68,11 +71,40 @@ class MemorizeMixin:
         resource_url: str,
         modality: str,
         user: dict[str, Any] | None = None,
+        raw_text: str | None = None,
+        local_path: str | None = None,
     ) -> dict[str, Any]:
         ctx = self._get_context()
         store = self._get_database()
         user_scope = self.user_model(**user).model_dump() if user is not None else None
         await self._ensure_categories_ready(ctx, store, user_scope)
+
+        conversation_id: str | None = None
+        if isinstance(user, dict):
+            for key in (
+                "conversation_id",
+                "conversationId",
+                "conversationID",
+                "conversationid",
+                "session_id",
+                "sessionId",
+                "sessionID",
+                "sessionid",
+                "session_date",
+                "sessionDate",
+                "sessiondate",
+            ):
+                raw = user.get(key)
+                if raw is None:
+                    continue
+                candidate = str(raw).strip()
+                if candidate:
+                    conversation_id = candidate
+                    break
+        if not conversation_id and isinstance(user_scope, dict):
+            raw_sid = user_scope.get("session_id")
+            if isinstance(raw_sid, str) and raw_sid.strip():
+                conversation_id = raw_sid.strip()
 
         memory_types = self._resolve_memory_types()
 
@@ -85,7 +117,15 @@ class MemorizeMixin:
             "store": store,
             "category_ids": list(ctx.category_ids),
             "user": user_scope,
+            "conversation_id": conversation_id,
         }
+
+        # Optional fast path for callers that already have the resource text.
+        # This avoids forcing the caller to write a temporary file and avoids
+        # duplicating local files into blob_config.resources_dir.
+        if raw_text is not None:
+            state["raw_text"] = raw_text
+            state["local_path"] = local_path or resource_url
 
         result = await self._run_workflow("memorize", state)
         response = cast(dict[str, Any] | None, result.get("response"))
@@ -129,14 +169,6 @@ class MemorizeMixin:
                 config={"chat_llm_profile": self.memorize_config.memory_extract_llm_profile},
             ),
             WorkflowStep(
-                step_id="dedupe_merge",
-                role="dedupe_merge",
-                handler=self._memorize_dedupe_merge,
-                requires={"resource_plans"},
-                produces={"resource_plans"},
-                capabilities=set(),
-            ),
-            WorkflowStep(
                 step_id="categorize_items",
                 role="categorize",
                 handler=self._memorize_categorize_items,
@@ -144,6 +176,14 @@ class MemorizeMixin:
                 produces={"resources", "items", "relations", "category_updates"},
                 capabilities={"db", "vector"},
                 config={"embed_llm_profile": "embedding"},
+            ),
+            WorkflowStep(
+                step_id="dedupe_merge",
+                role="dedupe_merge",
+                handler=self._memorize_dedupe_merge,
+                requires={"items", "relations", "category_updates", "store", "user"},
+                produces={"items", "relations", "category_updates"},
+                capabilities={"db"},
             ),
             WorkflowStep(
                 step_id="persist_index",
@@ -179,6 +219,10 @@ class MemorizeMixin:
         }
 
     async def _memorize_ingest_resource(self, state: WorkflowState, step_context: Any) -> WorkflowState:
+        # If a caller pre-provided the resource contents, don't fetch/copy anything.
+        if state.get("raw_text") is not None and state.get("local_path") is not None:
+            return state
+
         local_path, raw_text = await self.fs.fetch(state["resource_url"], state["modality"])
         state.update({"local_path": local_path, "raw_text": raw_text})
         return state
@@ -226,10 +270,278 @@ class MemorizeMixin:
         state["resource_plans"] = resource_plans
         return state
 
-    def _memorize_dedupe_merge(self, state: WorkflowState, step_context: Any) -> WorkflowState:
-        # Placeholder for future dedup/merge logic
-        state["resource_plans"] = state.get("resource_plans", [])
+    async def _memorize_dedupe_merge(self, state: WorkflowState, step_context: Any) -> WorkflowState:
+        _ = step_context
+        items = list(state.get("items") or [])
+        state["items"] = items
+
+        if not self.memorize_config.semantic_dedupe_enabled:
+            return state
+        if len(items) < 1:
+            return state
+
+        dedupe_scope = self._build_semantic_dedupe_scope(state.get("user"))
+        if dedupe_scope is None:
+            logger.info("dedupe: skipped (missing agent_id/user_id scope)")
+            return state
+
+        store = state["store"]
+        # Pull from repository (embedding_json-backed rows) and only active items.
+        active_pool = dict(store.memory_item_repo.list_items(dedupe_scope))
+        if len(active_pool) < 2:
+            return state
+
+        new_item_ids: list[str] = []
+        seen_new: set[str] = set()
+        for item in items:
+            item_id = getattr(item, "id", None)
+            if not isinstance(item_id, str) or not item_id or item_id in seen_new:
+                continue
+            seen_new.add(item_id)
+            pool_item = active_pool.get(item_id)
+            if pool_item is None:
+                continue
+            if self._is_merged_item(pool_item):
+                continue
+            if self._item_embedding(pool_item) is None:
+                continue
+            new_item_ids.append(item_id)
+        if not new_item_ids:
+            return state
+
+        try:
+            threshold = float(self.memorize_config.semantic_dedupe_similarity_threshold)
+        except Exception:
+            threshold = 0.89
+        threshold = max(0.0, min(1.0, threshold))
+        merged_map: dict[str, str] = {}
+        dedupe_embed_client: Any | None = None
+        dedupe_embed_cache: dict[str, list[float] | None] = {}
+
+        for new_item_id in new_item_ids:
+            anchor = active_pool.get(new_item_id)
+            if anchor is None or self._is_merged_item(anchor):
+                continue
+            anchor_embedding = self._item_embedding(anchor)
+            if anchor_embedding is None:
+                continue
+
+            candidates: list[tuple[float, str]] = []
+            for candidate_id, candidate in active_pool.items():
+                if candidate_id == new_item_id or candidate_id in merged_map:
+                    continue
+                if self._is_merged_item(candidate):
+                    continue
+                candidate_embedding = self._item_embedding(candidate)
+                compare_anchor = anchor_embedding
+                compare_candidate = candidate_embedding
+
+                # Old rows may have vectors from a different embedding model/dimension.
+                # Re-embed summaries on-demand so dedupe still works after model changes.
+                if candidate_embedding is None or len(anchor_embedding) != len(candidate_embedding):
+                    if dedupe_embed_client is None:
+                        dedupe_embed_client = self._get_llm_client("embedding")
+                    compare_anchor = await self._dedupe_reembed_for_similarity(
+                        item=anchor,
+                        embed_client=dedupe_embed_client,
+                        cache=dedupe_embed_cache,
+                    )
+                    compare_candidate = await self._dedupe_reembed_for_similarity(
+                        item=candidate,
+                        embed_client=dedupe_embed_client,
+                        cache=dedupe_embed_cache,
+                    )
+                if (
+                    compare_anchor is None
+                    or compare_candidate is None
+                    or len(compare_anchor) != len(compare_candidate)
+                ):
+                    continue
+                similarity = self._cosine_similarity(compare_anchor, compare_candidate)
+                if similarity >= threshold:
+                    candidates.append((similarity, candidate_id))
+            if not candidates:
+                continue
+
+            # Deterministic order: highest similarity first, then stable by id.
+            candidates.sort(key=lambda row: (-row[0], row[1]))
+            for similarity, candidate_id in candidates:
+                current_anchor = active_pool.get(new_item_id)
+                candidate = active_pool.get(candidate_id)
+                if current_anchor is None or candidate is None:
+                    continue
+                if self._is_merged_item(current_anchor) or self._is_merged_item(candidate):
+                    continue
+
+                survivor, redundant = self._choose_survivor_and_redundant(current_anchor, candidate)
+                if survivor.id == redundant.id:
+                    continue
+
+                store.memory_item_repo.update_item(item_id=redundant.id, merged_into=survivor.id)
+                merged_map[redundant.id] = survivor.id
+                active_pool.pop(redundant.id, None)
+                logger.info("dedupe: merged %s into %s (sim=%.3f)", redundant.id, survivor.id, similarity)
+
+                # Once a new item is merged into an existing survivor, stop comparing it.
+                if redundant.id == new_item_id:
+                    break
+
+        if not merged_map:
+            return state
+
+        merged_ids = set(merged_map.keys())
+        state["items"] = [item for item in items if getattr(item, "id", None) not in merged_ids]
+        state["relations"] = [
+            rel for rel in (state.get("relations") or []) if getattr(rel, "item_id", None) not in merged_ids
+        ]
+        state["category_updates"] = self._filter_merged_from_category_updates(
+            state.get("category_updates"), merged_ids
+        )
         return state
+
+    @staticmethod
+    def _extract_scope_field(
+        scope: Mapping[str, Any],
+        *,
+        keys: Sequence[str],
+    ) -> tuple[str, str] | None:
+        for key in keys:
+            raw = scope.get(key)
+            if raw is None:
+                continue
+            value = str(raw).strip()
+            if value:
+                return key, value
+        return None
+
+    def _build_semantic_dedupe_scope(self, scope: Mapping[str, Any] | None) -> dict[str, str] | None:
+        if not isinstance(scope, Mapping):
+            return None
+        user_field = self._extract_scope_field(scope, keys=("user_id", "userId"))
+        agent_field = self._extract_scope_field(scope, keys=("agent_id", "agentId"))
+        if user_field is None or agent_field is None:
+            return None
+        user_key, user_value = user_field
+        agent_key, agent_value = agent_field
+        return {
+            user_key: user_value,
+            agent_key: agent_value,
+        }
+
+    @staticmethod
+    def _is_merged_item(item: Any) -> bool:
+        merged_into = getattr(item, "merged_into", None)
+        return isinstance(merged_into, str) and merged_into.strip() != ""
+
+    @staticmethod
+    def _item_embedding(item: Any) -> list[float] | None:
+        embedding = getattr(item, "embedding", None)
+        if not isinstance(embedding, Sequence):
+            return None
+        if isinstance(embedding, (str, bytes, bytearray)):
+            return None
+        normalized: list[float] = []
+        for value in embedding:
+            try:
+                normalized.append(float(value))
+            except (TypeError, ValueError):
+                return None
+        return normalized if normalized else None
+
+    async def _dedupe_reembed_for_similarity(
+        self,
+        *,
+        item: Any,
+        embed_client: Any,
+        cache: dict[str, list[float] | None],
+    ) -> list[float] | None:
+        item_id = str(getattr(item, "id", "")).strip()
+        summary = str(getattr(item, "summary", "")).strip()
+        cache_key = item_id or summary
+        if not cache_key:
+            return None
+        if cache_key in cache:
+            return cache[cache_key]
+        if not summary:
+            cache[cache_key] = None
+            return None
+
+        try:
+            vectors = await embed_client.embed([summary])
+        except Exception:
+            logger.warning("dedupe: fallback re-embed failed for %s", item_id or "<no-id>", exc_info=True)
+            cache[cache_key] = None
+            return None
+
+        vector: list[float] | None = None
+        if isinstance(vectors, list) and vectors:
+            raw = vectors[0]
+            if isinstance(raw, Sequence) and not isinstance(raw, (str, bytes, bytearray)):
+                normalized: list[float] = []
+                for value in raw:
+                    try:
+                        normalized.append(float(value))
+                    except (TypeError, ValueError):
+                        normalized = []
+                        break
+                if normalized:
+                    vector = normalized
+
+        cache[cache_key] = vector
+        return vector
+
+    @staticmethod
+    def _summary_len(item: Any) -> int:
+        summary = getattr(item, "summary", "")
+        return len(str(summary).strip())
+
+    def _choose_survivor_and_redundant(self, left: MemoryItem, right: MemoryItem) -> tuple[MemoryItem, MemoryItem]:
+        left_len = self._summary_len(left)
+        right_len = self._summary_len(right)
+        if left_len > right_len:
+            return left, right
+        if right_len > left_len:
+            return right, left
+        left_id = str(getattr(left, "id", ""))
+        right_id = str(getattr(right, "id", ""))
+        if left_id <= right_id:
+            return left, right
+        return right, left
+
+    @staticmethod
+    def _cosine_similarity(a: Sequence[float], b: Sequence[float]) -> float:
+        if not a or not b or len(a) != len(b):
+            return 0.0
+        dot = sum(x * y for x, y in zip(a, b, strict=True))
+        norm_a = math.sqrt(sum(x * x for x in a))
+        norm_b = math.sqrt(sum(y * y for y in b))
+        if norm_a <= 0.0 or norm_b <= 0.0:
+            return 0.0
+        return dot / (norm_a * norm_b)
+
+    @staticmethod
+    def _filter_merged_from_category_updates(
+        updates: Any,
+        merged_ids: set[str],
+    ) -> dict[str, list[tuple[str, str]]]:
+        if not isinstance(updates, dict):
+            return {}
+        filtered: dict[str, list[tuple[str, str]]] = {}
+        for category_id, item_tuples in updates.items():
+            if not isinstance(item_tuples, list):
+                continue
+            kept: list[tuple[str, str]] = []
+            for entry in item_tuples:
+                if not isinstance(entry, (tuple, list)) or len(entry) != 2:
+                    continue
+                item_id = str(entry[0]).strip()
+                summary = str(entry[1])
+                if not item_id or item_id in merged_ids:
+                    continue
+                kept.append((item_id, summary))
+            if kept:
+                filtered[str(category_id)] = kept
+        return filtered
 
     async def _memorize_categorize_items(self, state: WorkflowState, step_context: Any) -> WorkflowState:
         embed_client = self._get_step_embedding_client(step_context)
@@ -243,34 +555,75 @@ class MemorizeMixin:
         category_updates: dict[str, list[tuple[str, str]]] = {}
         user_scope = state.get("user", {})
 
-        for plan in state.get("resource_plans", []):
-            res = await self._create_resource_with_caption(
-                resource_url=plan["resource_url"],
-                modality=modality,
-                local_path=local_path,
-                caption=plan.get("caption"),
-                store=store,
-                embed_client=embed_client,
-                user=user_scope,
-            )
-            resources.append(res)
+        session_cm = self._sqlite_write_session(store)
+        if session_cm is not None:
+            with session_cm as session:
+                try:
+                    for plan in state.get("resource_plans", []):
+                        res = await self._create_resource_with_caption(
+                            resource_url=plan["resource_url"],
+                            modality=modality,
+                            local_path=local_path,
+                            caption=plan.get("caption"),
+                            store=store,
+                            embed_client=embed_client,
+                            user=user_scope,
+                            session=session,
+                        )
+                        resources.append(res)
 
-            entries = plan.get("entries") or []
-            if not entries:
-                continue
+                        entries = plan.get("entries") or []
+                        if not entries:
+                            continue
 
-            mem_items, rels, cat_updates = await self._persist_memory_items(
-                resource_id=res.id,
-                structured_entries=entries,
-                ctx=ctx,
-                store=store,
-                embed_client=embed_client,
-                user=user_scope,
-            )
-            items.extend(mem_items)
-            relations.extend(rels)
-            for cat_id, mems in cat_updates.items():
-                category_updates.setdefault(cat_id, []).extend(mems)
+                        mem_items, rels, cat_updates = await self._persist_memory_items(
+                            resource_id=res.id,
+                            structured_entries=entries,
+                            ctx=ctx,
+                            store=store,
+                            embed_client=embed_client,
+                            user=user_scope,
+                            conversation_id=state.get("conversation_id"),
+                            session=session,
+                        )
+                        items.extend(mem_items)
+                        relations.extend(rels)
+                        for cat_id, mems in cat_updates.items():
+                            category_updates.setdefault(cat_id, []).extend(mems)
+                    session.commit()
+                except Exception:
+                    session.rollback()
+                    raise
+        else:
+            for plan in state.get("resource_plans", []):
+                res = await self._create_resource_with_caption(
+                    resource_url=plan["resource_url"],
+                    modality=modality,
+                    local_path=local_path,
+                    caption=plan.get("caption"),
+                    store=store,
+                    embed_client=embed_client,
+                    user=user_scope,
+                )
+                resources.append(res)
+
+                entries = plan.get("entries") or []
+                if not entries:
+                    continue
+
+                mem_items, rels, cat_updates = await self._persist_memory_items(
+                    resource_id=res.id,
+                    structured_entries=entries,
+                    ctx=ctx,
+                    store=store,
+                    embed_client=embed_client,
+                    user=user_scope,
+                    conversation_id=state.get("conversation_id"),
+                )
+                items.extend(mem_items)
+                relations.extend(rels)
+                for cat_id, mems in cat_updates.items():
+                    category_updates.setdefault(cat_id, []).extend(mems)
 
         state.update({
             "resources": resources,
@@ -287,6 +640,7 @@ class MemorizeMixin:
             ctx=state["ctx"],
             store=state["store"],
             llm_client=llm_client,
+            user=state.get("user"),
         )
         if self.memorize_config.enable_item_references:
             await self._persist_item_references(
@@ -300,8 +654,14 @@ class MemorizeMixin:
         ctx = state["ctx"]
         store = state["store"]
         resources = [self._model_dump_without_embeddings(r) for r in state.get("resources", [])]
-        items = [self._model_dump_without_embeddings(item) for item in state.get("items", [])]
-        relations = [rel.model_dump() for rel in state.get("relations", [])]
+        active_items = [item for item in state.get("items", []) if not self._is_merged_item(item)]
+        active_item_ids = {getattr(item, "id", None) for item in active_items}
+        items = [self._model_dump_without_embeddings(item) for item in active_items]
+        relations = [
+            rel.model_dump()
+            for rel in state.get("relations", [])
+            if getattr(rel, "item_id", None) in active_item_ids
+        ]
         category_ids = state.get("category_ids") or list(ctx.category_ids)
         categories = [
             self._model_dump_without_embeddings(store.memory_category_repo.categories[c]) for c in category_ids
@@ -359,22 +719,27 @@ class MemorizeMixin:
         store: Database,
         embed_client: Any | None = None,
         user: Mapping[str, Any] | None = None,
+        session: Any | None = None,
     ) -> Resource:
         caption_text = caption.strip() if caption else None
         if caption_text:
-            client = embed_client or self._get_llm_client()
+            client = embed_client or self._get_llm_client("embedding")
             caption_embedding = (await client.embed([caption_text]))[0]
         else:
             caption_embedding = None
 
-        res = store.resource_repo.create_resource(
-            url=resource_url,
-            modality=modality,
-            local_path=local_path,
-            caption=caption_text,
-            embedding=caption_embedding,
-            user_data=dict(user or {}),
-        )
+        resource_kwargs = {
+            "url": resource_url,
+            "modality": modality,
+            "local_path": local_path,
+            "caption": caption_text,
+            "embedding": caption_embedding,
+            "user_data": dict(user or {}),
+        }
+        if session is not None:
+            res = cast(Any, store.resource_repo).create_resource(**resource_kwargs, session=session)
+        else:
+            res = store.resource_repo.create_resource(**resource_kwargs)
         # if caption:
         #     caption_text = caption.strip()
         #     if caption_text:
@@ -383,6 +748,16 @@ class MemorizeMixin:
         #         res.embedding = (await client.embed([caption_text]))[0]
         #         res.updated_at = pendulum.now()
         return res
+
+    @staticmethod
+    def _sqlite_write_session(store: Database) -> Any | None:
+        try:
+            from memu.database.sqlite.sqlite import SQLiteStore
+        except Exception:
+            return None
+        if isinstance(store, SQLiteStore):
+            return store._sessions.session()
+        return None
 
     def _resolve_memory_types(self) -> list[MemoryType]:
         configured_types = self.memorize_config.memory_types or DEFAULT_MEMORY_TYPES
@@ -431,7 +806,7 @@ class MemorizeMixin:
         categories_prompt_str: str,
         segments: list[dict[str, int | str]] | None = None,
         llm_client: Any | None = None,
-    ) -> list[tuple[MemoryType, str, list[str]]]:
+    ) -> list[StructuredMemoryEntry]:
         if not memory_types:
             return []
 
@@ -463,7 +838,7 @@ class MemorizeMixin:
         categories_prompt_str: str,
         segments: list[dict[str, int | str]] | None,
         llm_client: Any | None = None,
-    ) -> list[tuple[MemoryType, str, list[str]]]:
+    ) -> list[StructuredMemoryEntry]:
         if modality == "conversation" and segments:
             segment_entries = await self._generate_entries_for_segments(
                 resource_text=resource_text,
@@ -489,8 +864,8 @@ class MemorizeMixin:
         memory_types: list[MemoryType],
         categories_prompt_str: str,
         llm_client: Any | None = None,
-    ) -> list[tuple[MemoryType, str, list[str]]]:
-        entries: list[tuple[MemoryType, str, list[str]]] = []
+    ) -> list[StructuredMemoryEntry]:
+        entries: list[StructuredMemoryEntry] = []
         lines = resource_text.split("\n")
         max_idx = len(lines) - 1
         for segment in segments:
@@ -515,7 +890,7 @@ class MemorizeMixin:
         memory_types: list[MemoryType],
         categories_prompt_str: str,
         llm_client: Any | None = None,
-    ) -> list[tuple[MemoryType, str, list[str]]]:
+    ) -> list[StructuredMemoryEntry]:
         if not memory_types:
             return []
         client = llm_client or self._get_llm_client()
@@ -533,10 +908,22 @@ class MemorizeMixin:
         responses = await asyncio.gather(*tasks)
         return self._parse_structured_entries(memory_types, responses)
 
+
+    @staticmethod
+    def _normalize_category_name(raw: str) -> str | None:
+        if not isinstance(raw, str):
+            return None
+        s = raw.strip().lower()
+        if not s:
+            return None
+        # Normalize common human labels into stable snake_case names.
+        s = re.sub(r"[^a-z0-9]+", "_", s).strip("_")
+        return s or None
+
     def _parse_structured_entries(
         self, memory_types: list[MemoryType], responses: Sequence[str]
-    ) -> list[tuple[MemoryType, str, list[str]]]:
-        entries: list[tuple[MemoryType, str, list[str]]] = []
+    ) -> list[StructuredMemoryEntry]:
+        entries: list[StructuredMemoryEntry] = []
         for mtype, response in zip(memory_types, responses, strict=True):
             parsed = self._parse_memory_type_response_xml(response)
             # if not parsed:
@@ -548,8 +935,32 @@ class MemorizeMixin:
                 content = (entry.get("content") or "").strip()
                 if not content:
                     continue
-                cat_names = [c.strip() for c in entry.get("categories", []) if isinstance(c, str) and c.strip()]
-                entries.append((mtype, content, cat_names))
+                source_role_raw = entry.get("source_role")
+                source_role = None
+                if isinstance(source_role_raw, str):
+                    normalized_role = source_role_raw.strip().lower()
+                    if normalized_role in {"soul", "user", "environment"}:
+                        source_role = normalized_role
+
+                confidence = None
+                confidence_raw = entry.get("confidence")
+                if confidence_raw is not None:
+                    try:
+                        parsed_confidence = float(confidence_raw)
+                    except (TypeError, ValueError):
+                        parsed_confidence = None
+                    if parsed_confidence is not None and 0.0 <= parsed_confidence <= 1.0:
+                        confidence = parsed_confidence
+
+                raw_cats = [c for c in (entry.get("categories", []) or []) if isinstance(c, str)]
+                cat_names = []
+                seen = set()
+                for c in raw_cats:
+                    n = self._normalize_category_name(c)
+                    if n and n not in seen:
+                        cat_names.append(n)
+                        seen.add(n)
+                entries.append((mtype, content, cat_names, source_role, confidence))
         return entries
 
     def _extract_segment_text(self, lines: list[str], start_idx: int, end_idx: int) -> str | None:
@@ -565,25 +976,277 @@ class MemorizeMixin:
 
     def _build_no_text_fallback(
         self, memory_types: list[MemoryType], resource_url: str, modality: str
-    ) -> list[tuple[MemoryType, str, list[str]]]:
+    ) -> list[StructuredMemoryEntry]:
         fallback = f"Resource {resource_url} ({modality}) stored. No text summary in v0."
-        return [(mtype, f"{fallback} (memory type: {mtype}).", []) for mtype in memory_types]
+        return [(mtype, f"{fallback} (memory type: {mtype}).", [], None, None) for mtype in memory_types]
 
     def _build_no_result_fallback(
         self, memory_type: MemoryType, resource_url: str, modality: str
-    ) -> tuple[MemoryType, str, list[str]]:
+    ) -> StructuredMemoryEntry:
         fallback = f"Resource {resource_url} ({modality}) stored. No structured memories generated."
-        return memory_type, fallback, []
+        return memory_type, fallback, [], None, None
+
+
+    async def _maybe_create_dynamic_categories(
+        self,
+        *,
+        structured_entries: list[StructuredMemoryEntry],
+        ctx: Context,
+        store: Database,
+        embed_client: Any,
+        user: Mapping[str, Any] | None = None,
+    ) -> list[StructuredMemoryEntry]:
+        """Resolve category names, optionally creating new *main* categories.
+
+        Inspired by memU v0.1.8 cluster logic:
+        - First, only accept existing categories.
+        - Then, in a separate step, propose NEW categories under strict rules.
+
+        Returns a new structured_entries list with category names mapped to existing/new categories.
+        """
+
+        if not getattr(self.memorize_config, 'allow_dynamic_categories', False):
+            return structured_entries
+
+        await self._ensure_categories_ready(ctx, store, user)
+
+        max_total = int(getattr(self.memorize_config, 'max_categories_total', 0) or 0)
+        min_mentions = int(getattr(self.memorize_config, 'dynamic_category_min_mentions', 10) or 10)
+        policy = str(getattr(self.memorize_config, 'dynamic_category_policy', '') or '').strip()
+        default_desc = str(getattr(self.memorize_config, 'dynamic_category_description', '') or '').strip()
+
+        cur_total = len(getattr(ctx, 'category_ids', []) or [])
+        remaining = (max_total - cur_total) if max_total else None
+        if remaining is not None and remaining <= 0:
+            # No capacity for new categories; drop unknowns.
+            filtered: list[StructuredMemoryEntry] = []
+            for mtype, content, cats, source_role, confidence in structured_entries:
+                kept = [c for c in (cats or []) if c in ctx.category_name_to_id]
+                filtered.append((mtype, content, kept, source_role, confidence))
+            return filtered
+
+        # Split known vs unknown categories, while counting unknown mentions.
+        unknown_counts: dict[str, int] = {}
+        unknown_examples: dict[str, list[str]] = {}
+        per_entry_unknowns: list[list[str]] = []
+        filtered_entries: list[StructuredMemoryEntry] = []
+
+        for mtype, content, cats, source_role, confidence in structured_entries:
+            known: list[str] = []
+            unknown: list[str] = []
+            for c in (cats or []):
+                n = self._normalize_category_name(c)
+                if not n:
+                    continue
+                if n in ctx.category_name_to_id:
+                    known.append(n)
+                else:
+                    unknown.append(n)
+                    unknown_counts[n] = unknown_counts.get(n, 0) + 1
+                    ex_list = unknown_examples.setdefault(n, [])
+                    if len(ex_list) < 3:
+                        ex_list.append(content)
+
+            # Deduplicate known while preserving order.
+            seen: set[str] = set()
+            known_dedup: list[str] = []
+            for k in known:
+                if k not in seen:
+                    known_dedup.append(k)
+                    seen.add(k)
+            filtered_entries.append((mtype, content, known_dedup, source_role, confidence))
+            per_entry_unknowns.append(unknown)
+
+        if not unknown_counts:
+            return filtered_entries
+
+        # Limit prompt size: keep top candidates by count.
+        candidates_sorted = sorted(unknown_counts.items(), key=lambda kv: (-kv[1], kv[0]))
+        top_candidates = [name for name, _ in candidates_sorted[:30]]
+
+        # Build planning prompt context.
+        existing_lines: list[str] = []
+        for cfg in (self.memorize_config.memory_categories or []):
+            nm = (cfg.name or '').strip()
+            if not nm:
+                continue
+            desc = (cfg.description or '').strip()
+            existing_lines.append(f"- {nm}: {desc}" if desc else f"- {nm}")
+        existing_block = "\n".join(existing_lines) if existing_lines else "(none)"
+
+        cand_lines: list[str] = []
+        for cand in top_candidates:
+            cnt = unknown_counts.get(cand, 0)
+            examples = unknown_examples.get(cand, [])
+            ex_block = "\n".join(f"    - {e}" for e in examples) if examples else ""
+            cand_lines.append(f"- {cand} (count={cnt})\n{ex_block}" if ex_block else f"- {cand} (count={cnt})")
+        candidates_block = "\n".join(cand_lines)
+        desc_line = default_desc or (
+            "Categories are life domains and are thus broad by nature. "
+            "Life domains are the core, interconnected areas of a being's existence—such as health, relationships, work, and finances."
+        )
+        policy_block = (
+            f"""
+
+Extra guidance (optional):
+{policy}
+""".strip()
+            if policy else ""
+        )
+
+        system_prompt = f"""You are organizing memory categories.
+
+{desc_line}
+
+{policy_block}
+
+Rules:
+- Prefer mapping candidates into EXISTING categories.
+- Only propose NEW categories if the topic is a broad life domain AND it is mentioned at least {min_mentions} times across the extracted memories OR it is clearly important.
+- If multiple close candidates (e.g., health/medical) should be merged, merge them and accumulate the count.
+- New category names must be 1-3 words, letters/spaces only (no underscores); we will normalize to snake_case later.
+- Do not recreate an existing category under a new name.
+
+Output ONLY valid JSON with this shape:
+{{"create": [{{"name": "...", "description": "...", "from": ["candidate1", "candidate2"], "important": true|false}}], "map": [{{"from": "candidate", "to": "existing_category"}}]}}
+""".strip()
+
+        user_prompt = f"""EXISTING CATEGORIES:
+{existing_block}
+
+CANDIDATE CATEGORY LABELS (from extraction, not in existing list):
+{candidates_block}
+
+Decide which candidates should map into existing categories, and which (if any) justify creating a NEW life-domain category.""".strip()
+
+        mapping: dict[str, str] = {}
+        new_defs: dict[str, str] = {}  # normalized_name -> description
+
+        def _valid_new_name(raw: str) -> bool:
+            raw = (raw or '').strip()
+            if not raw:
+                return False
+            if len(raw.split()) > 3:
+                return False
+            return bool(re.fullmatch(r"[A-Za-z ]+", raw))
+
+        # Ask the LLM to produce a plan; fall back to count-only if it fails.
+        try:
+            planner_profile = getattr(self.memorize_config, 'category_update_llm_profile', 'default')
+            planner = self._get_llm_client(planner_profile)
+            resp = await planner.chat(user_prompt, system_prompt=system_prompt, temperature=0.2)
+
+            m = re.search(r"\{[\s\S]*\}", resp or "")
+            plan = None
+            if m:
+                import json
+
+                plan = json.loads(m.group(0))
+
+            if isinstance(plan, dict):
+                # Create directives
+                for entry in plan.get('create', []) or []:
+                    if not isinstance(entry, dict):
+                        continue
+                    raw_name = str(entry.get('name', '') or '').strip()
+                    if not _valid_new_name(raw_name):
+                        continue
+                    desc = str(entry.get('description', '') or '').strip() or default_desc
+                    important = bool(entry.get('important', False))
+                    src = entry.get('from', []) or []
+                    if not isinstance(src, list):
+                        src = [src]
+                    src_norm: list[str] = []
+                    for s in src:
+                        if isinstance(s, str):
+                            sn = self._normalize_category_name(s)
+                            if sn and sn in unknown_counts:
+                                src_norm.append(sn)
+                    if not src_norm:
+                        continue
+
+                    total = sum(unknown_counts.get(s, 0) for s in src_norm)
+                    if total < min_mentions and not important:
+                        continue
+
+                    norm_name = self._normalize_category_name(raw_name)
+                    if not norm_name:
+                        continue
+                    if norm_name in ctx.category_name_to_id:
+                        for s in src_norm:
+                            mapping[s] = norm_name
+                        continue
+
+                    new_defs.setdefault(norm_name, desc)
+                    for s in src_norm:
+                        mapping[s] = norm_name
+
+                # Map directives
+                for entry in plan.get('map', []) or []:
+                    if not isinstance(entry, dict):
+                        continue
+                    src = self._normalize_category_name(str(entry.get('from', '') or ''))
+                    tgt = self._normalize_category_name(str(entry.get('to', '') or ''))
+                    if not src or src not in unknown_counts:
+                        continue
+                    if tgt and (tgt in ctx.category_name_to_id or tgt in new_defs):
+                        mapping[src] = tgt
+        except Exception:
+            pass
+
+        # Fallback: create frequent candidates directly (no LLM)
+        if not new_defs and not mapping:
+            for cand, cnt in candidates_sorted:
+                if cnt < min_mentions:
+                    continue
+                mapping[cand] = cand
+                new_defs.setdefault(cand, default_desc)
+
+        # Apply capacity limits.
+        to_create = [name for name in new_defs.keys() if name not in ctx.category_name_to_id]
+        if remaining is not None:
+            to_create = to_create[:remaining]
+
+        if to_create:
+            texts = [f"{name}: {new_defs.get(name, default_desc)}" for name in to_create]
+            vecs = await embed_client.embed(texts)
+            for name, vec in zip(to_create, vecs, strict=True):
+                desc = new_defs.get(name, default_desc)
+                cat = store.memory_category_repo.get_or_create_category(
+                    name=name,
+                    description=desc or '',
+                    embedding=vec,
+                    user_data=dict(user or {}),
+                )
+                ctx.category_ids.append(cat.id)
+                ctx.category_name_to_id[name.lower()] = cat.id
+
+        # Rebuild entries with mapped categories.
+        updated: list[StructuredMemoryEntry] = []
+        for (mtype, content, known, source_role, confidence), unk in zip(filtered_entries, per_entry_unknowns, strict=True):
+            cats = list(known)
+            for u in (unk or []):
+                tgt = mapping.get(u)
+                if not tgt:
+                    continue
+                tn = self._normalize_category_name(tgt)
+                if tn and tn in ctx.category_name_to_id and tn not in cats:
+                    cats.append(tn)
+            updated.append((mtype, content, cats, source_role, confidence))
+
+        return updated
 
     async def _persist_memory_items(
         self,
         *,
         resource_id: str,
-        structured_entries: list[tuple[MemoryType, str, list[str]]],
+        structured_entries: list[StructuredMemoryEntry],
         ctx: Context,
         store: Database,
         embed_client: Any | None = None,
         user: Mapping[str, Any] | None = None,
+        conversation_id: str | None = None,
+        session: Any | None = None,
     ) -> tuple[list[MemoryItem], list[CategoryItem], dict[str, list[tuple[str, str]]]]:
         """
         Persist memory items and track category updates.
@@ -592,7 +1255,7 @@ class MemorizeMixin:
             Tuple of (items, relations, category_updates)
             where category_updates maps category_id -> list of (item_id, summary) tuples
         """
-        summary_payloads = [content for _, content, _ in structured_entries]
+        summary_payloads = [content for _, content, _, _, _ in structured_entries]
         client = embed_client or self._get_llm_client()
         item_embeddings = await client.embed(summary_payloads) if summary_payloads else []
         items: list[MemoryItem] = []
@@ -601,22 +1264,37 @@ class MemorizeMixin:
         category_memory_updates: dict[str, list[tuple[str, str]]] = {}
 
         reinforce = self.memorize_config.enable_item_reinforcement
-        for (memory_type, summary_text, cat_names), emb in zip(structured_entries, item_embeddings, strict=True):
-            item = store.memory_item_repo.create_item(
-                resource_id=resource_id,
-                memory_type=memory_type,
-                summary=summary_text,
-                embedding=emb,
-                user_data=dict(user or {}),
-                reinforce=reinforce,
-            )
+        structured_entries = await self._maybe_create_dynamic_categories(structured_entries=structured_entries, ctx=ctx, store=store, embed_client=client, user=user)
+        for (memory_type, summary_text, cat_names, source_role, confidence), emb in zip(
+            structured_entries, item_embeddings, strict=True
+        ):
+            item_kwargs = {
+                "resource_id": resource_id,
+                "memory_type": memory_type,
+                "summary": summary_text,
+                "embedding": emb,
+                "user_data": dict(user or {}),
+                "reinforce": reinforce,
+                "source_role": source_role,
+                "confidence": confidence,
+                "conversation_id": conversation_id,
+            }
+            if session is not None:
+                item = cast(Any, store.memory_item_repo).create_item(**item_kwargs, session=session)
+            else:
+                item = store.memory_item_repo.create_item(**item_kwargs)
             items.append(item)
             if reinforce and item.extra.get("reinforcement_count", 1) > 1:
                 # existing item
                 continue
             mapped_cat_ids = self._map_category_names_to_ids(cat_names, ctx)
             for cid in mapped_cat_ids:
-                rels.append(store.category_item_repo.link_item_category(item.id, cid, user_data=dict(user or {})))
+                rel_kwargs = {"item_id": item.id, "category_id": cid, "user_data": dict(user or {})}
+                if session is not None:
+                    rel = cast(Any, store.category_item_repo).link_item_category(**rel_kwargs, session=session)
+                else:
+                    rel = store.category_item_repo.link_item_category(**rel_kwargs)
+                rels.append(rel)
                 # Store (item_id, summary) tuple for reference support
                 category_memory_updates.setdefault(cid, []).append((item.id, summary_text))
 
@@ -929,13 +1607,30 @@ class MemorizeMixin:
 
     def _format_categories_for_prompt(self, categories: list[CategoryConfig]) -> str:
         if not categories:
-            return "No categories provided."
-        lines = []
-        for cat in categories:
-            name = cat.name.strip() or "Untitled"
-            desc = cat.description.strip()
-            lines.append(f"- {name}: {desc}" if desc else f"- {name}")
-        return "\n".join(lines)
+            base = "No categories provided."
+        else:
+            lines = []
+            for cat in categories:
+                name = cat.name.strip() or "Untitled"
+                desc = cat.description.strip()
+                lines.append(f"- {name}: {desc}" if desc else f"- {name}")
+            base = "\n".join(lines)
+
+        # If enabled, tell the model it's allowed to propose new categories.
+        try:
+            if getattr(self.memorize_config, 'allow_dynamic_categories', False):
+                max_total = int(getattr(self.memorize_config, 'max_categories_total', 0) or 0)
+                policy = str(getattr(self.memorize_config, 'dynamic_category_policy', '') or '').strip()
+                note = "\n\n" + (policy + "\n\n" if policy else "")
+                note += (
+                    "If none of the existing categories fit, you may propose a NEW category name. "
+                    "Keep it broad (a life domain), not a specific event. "
+                    f"Max total categories: {max_total or 'unlimited'}."
+                )
+                return base + note
+        except Exception:
+            pass
+        return base
 
     def _add_conversation_indices(self, conversation: str) -> str:
         """
@@ -974,6 +1669,10 @@ class MemorizeMixin:
             )
         if not template:
             return resource_text
+
+        # When dynamic categories are enabled, remove the legacy hard-stop instruction.
+        if getattr(self.memorize_config, 'allow_dynamic_categories', False):
+            template = re.sub(r"(?im)^.*do not create new memory categories.*\n?", "", template)
         safe_resource = self._escape_prompt_value(resource_text)
         safe_categories = self._escape_prompt_value(categories_str)
         return template.format(resource=safe_resource, categories_str=safe_categories)
@@ -1040,6 +1739,7 @@ class MemorizeMixin:
         *,
         category: MemoryCategory,
         new_memories: list[str] | list[tuple[str, str]],
+        user: dict[str, Any] | None = None,
     ) -> str:
         """
         Build the prompt for updating a category summary.
@@ -1090,11 +1790,34 @@ class MemorizeMixin:
         target_length = (
             category_config and category_config.target_length
         ) or self.memorize_config.default_category_summary_target_length
+        # Prefer human-readable names for summaries.
+        # user scope varies by integration; accept common keys.
+        user_scope = user or {}
+        raw_user = (
+            user_scope.get("user_name")
+            or user_scope.get("userName")
+            or user_scope.get("user_id")
+            or user_scope.get("userId")
+        )
+        raw_agent = (
+            user_scope.get("agent_name")
+            or user_scope.get("agentName")
+            or user_scope.get("agent_id")
+            or user_scope.get("agentId")
+        )
+        user_name = str(raw_user).strip() if raw_user else "the user"
+        agent_name = str(raw_agent).strip() if raw_agent else "the assistant"
+        # Strip ST timestamp suffixes like "Siri - 2026-...Z".
+        if " - " in agent_name:
+            agent_name = agent_name.split(" - ", 1)[0].strip() or agent_name
+
         return prompt.format(
             category=self._escape_prompt_value(category.name),
             original_content=self._escape_prompt_value(original or ""),
             new_memory_items_text=self._escape_prompt_value(new_items_text or "No new memory items."),
             target_length=target_length,
+            user_name=self._escape_prompt_value(user_name),
+            agent_name=self._escape_prompt_value(agent_name),
         )
 
     async def _update_category_summaries(
@@ -1103,6 +1826,7 @@ class MemorizeMixin:
         ctx: Context,
         store: Database,
         llm_client: Any | None = None,
+        user: dict[str, Any] | None = None,
     ) -> dict[str, str]:
         """
         Update category summaries based on new memory items.
@@ -1120,7 +1844,7 @@ class MemorizeMixin:
             cat = store.memory_category_repo.categories.get(cid)
             if not cat or not memories:
                 continue
-            prompt = self._build_category_summary_prompt(category=cat, new_memories=memories)
+            prompt = self._build_category_summary_prompt(category=cat, new_memories=memories, user=user)
             tasks.append(client.chat(prompt))
             target_ids.append(cid)
         if not tasks:
@@ -1131,6 +1855,23 @@ class MemorizeMixin:
             if not cat:
                 continue
             cleaned_summary = summary.replace("```markdown", "").replace("```", "").strip()
+            # If prompts still output "The user ...", rewrite to the real user name.
+            user_scope = user or {}
+            raw_user = (
+                user_scope.get("user_name")
+                or user_scope.get("userName")
+                or user_scope.get("user_id")
+                or user_scope.get("userId")
+            )
+            user_name = str(raw_user).strip() if raw_user else ""
+            if user_name and user_name.lower() not in ("user", "the user"):
+                import re
+                cleaned_summary = re.sub(
+                    r"(?m)^(\s*[-*]\s*)(?:The user|the user|User|user)\b",
+                    r"\1" + user_name,
+                    cleaned_summary,
+                )
+
             store.memory_category_repo.update_category(
                 category_id=cid,
                 summary=cleaned_summary,
@@ -1283,6 +2024,21 @@ class MemorizeMixin:
             categories = [cat_elem.text.strip() for cat_elem in categories_elem.findall("category") if cat_elem.text]
             memory_dict["categories"] = categories
 
+        source_role_elem = memory_elem.find("source_role")
+        if source_role_elem is not None and source_role_elem.text:
+            raw_role = source_role_elem.text.strip().lower()
+            if raw_role in {"soul", "user", "environment"}:
+                memory_dict["source_role"] = raw_role
+
+        confidence_elem = memory_elem.find("confidence")
+        if confidence_elem is not None and confidence_elem.text:
+            try:
+                confidence = float(confidence_elem.text.strip())
+            except (TypeError, ValueError):
+                confidence = None
+            if confidence is not None and 0.0 <= confidence <= 1.0:
+                memory_dict["confidence"] = confidence
+
         if memory_dict.get("content") and memory_dict.get("categories"):
             return memory_dict
         return None
@@ -1298,6 +2054,8 @@ class MemorizeMixin:
                 <categories>
                     <category>...</category>
                 </categories>
+                <source_role>soul|user|environment</source_role>  <!-- optional -->
+                <confidence>0.0-1.0</confidence>                 <!-- optional -->
             </memory>
         </...>
         """

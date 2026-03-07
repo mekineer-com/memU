@@ -76,7 +76,7 @@ class SQLiteResourceRepo(SQLiteRepoBase, ResourceRepo):
                 modality=row.modality,
                 local_path=row.local_path,
                 caption=row.caption,
-                embedding=self._normalize_embedding(row.embedding_json),
+                embedding=self._normalize_embedding(self._get_row_embedding(row)),
                 created_at=row.created_at,
                 updated_at=row.updated_at,
                 **self._scope_kwargs_from(row),
@@ -111,7 +111,7 @@ class SQLiteResourceRepo(SQLiteRepoBase, ResourceRepo):
                     modality=row.modality,
                     local_path=row.local_path,
                     caption=row.caption,
-                    embedding=self._normalize_embedding(row.embedding_json),
+                    embedding=self._normalize_embedding(self._get_row_embedding(row)),
                     created_at=row.created_at,
                     updated_at=row.updated_at,
                     **self._scope_kwargs_from(row),
@@ -143,6 +143,7 @@ class SQLiteResourceRepo(SQLiteRepoBase, ResourceRepo):
         caption: str | None,
         embedding: list[float] | None,
         user_data: dict[str, Any],
+        session: Any | None = None,
     ) -> Resource:
         """Create a new resource record.
 
@@ -157,20 +158,56 @@ class SQLiteResourceRepo(SQLiteRepoBase, ResourceRepo):
         Returns:
             Created Resource object.
         """
+        # Dedupe incrementals: reuse a Resource when (url, modality, scope) already exists.
+        # This keeps "Resources → Items → Categories" traceability without ballooning resources.
+        if session is None:
+            with self._sessions.session() as session:
+                res = self.create_resource(
+                    url=url,
+                    modality=modality,
+                    local_path=local_path,
+                    caption=caption,
+                    embedding=embedding,
+                    user_data=user_data,
+                    session=session,
+                )
+                session.commit()
+                return res
+
         now = self._now()
-        row = self._resource_model(
-            url=url,
-            modality=modality,
-            local_path=local_path,
-            caption=caption,
-            embedding_json=self._prepare_embedding(embedding),
-            created_at=now,
-            updated_at=now,
-            **user_data,
-        )
-        with self._sessions.session() as session:
+        where = {"url": url, "modality": modality, **(user_data or {})}
+        stmt = select(self._resource_model)
+        filters = self._build_filters(self._resource_model, where)
+        if filters:
+            stmt = stmt.where(*filters)
+        existing = session.exec(stmt).first()
+
+        if existing is not None:
+            existing.local_path = local_path
+            if caption is not None:
+                existing.caption = caption
+            # Only overwrite embedding if provided; avoid wiping a previously computed vector.
+            if embedding is not None:
+                self._set_row_embedding(existing, embedding)
+            existing.updated_at = now
+            session.add(existing)
+            session.flush()
+            session.refresh(existing)
+            row = existing
+        else:
+            row = self._resource_model(
+                url=url,
+                modality=modality,
+                local_path=local_path,
+                caption=caption,
+                embedding=None,
+                created_at=now,
+                updated_at=now,
+                **user_data,
+            )
+            self._set_row_embedding(row, embedding)
             session.add(row)
-            session.commit()
+            session.flush()
             session.refresh(row)
 
         res = Resource(
@@ -179,7 +216,7 @@ class SQLiteResourceRepo(SQLiteRepoBase, ResourceRepo):
             modality=row.modality,
             local_path=row.local_path,
             caption=row.caption,
-            embedding=embedding,
+            embedding=self._normalize_embedding(self._get_row_embedding(row)),
             created_at=row.created_at,
             updated_at=row.updated_at,
             **user_data,

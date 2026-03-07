@@ -81,7 +81,13 @@ class SQLiteCategoryItemRepo(SQLiteRepoBase, CategoryItemRepo):
 
         return result
 
-    def link_item_category(self, item_id: str, category_id: str, user_data: dict[str, Any]) -> CategoryItem:
+    def link_item_category(
+        self,
+        item_id: str,
+        category_id: str,
+        user_data: dict[str, Any],
+        session: Any | None = None,
+    ) -> CategoryItem:
         """Create a link between an item and a category.
 
         Args:
@@ -92,42 +98,52 @@ class SQLiteCategoryItemRepo(SQLiteRepoBase, CategoryItemRepo):
         Returns:
             Created CategoryItem relation.
         """
+        if session is None:
+            with self._sessions.session() as session:
+                rel = self.link_item_category(
+                    item_id=item_id,
+                    category_id=category_id,
+                    user_data=user_data,
+                    session=session,
+                )
+                session.commit()
+                return rel
+
         # Check if relation already exists
         where: dict[str, Any] = {
             "item_id": item_id,
             "category_id": category_id,
             **user_data,
         }
-        with self._sessions.session() as session:
-            stmt = select(self._category_item_model)
-            filters = self._build_filters(self._category_item_model, where)
-            if filters:
-                stmt = stmt.where(*filters)
-            existing = session.exec(stmt).first()
+        stmt = select(self._category_item_model)
+        filters = self._build_filters(self._category_item_model, where)
+        if filters:
+            stmt = stmt.where(*filters)
+        existing = session.exec(stmt).first()
 
-            if existing:
-                rel = CategoryItem(
-                    id=existing.id,
-                    item_id=existing.item_id,
-                    category_id=existing.category_id,
-                    created_at=existing.created_at,
-                    updated_at=existing.updated_at,
-                    **self._scope_kwargs_from(existing),
-                )
-                return rel
-
-            # Create new relation
-            now = self._now()
-            row = self._category_item_model(
-                item_id=item_id,
-                category_id=category_id,
-                created_at=now,
-                updated_at=now,
-                **user_data,
+        if existing:
+            rel = CategoryItem(
+                id=existing.id,
+                item_id=existing.item_id,
+                category_id=existing.category_id,
+                created_at=existing.created_at,
+                updated_at=existing.updated_at,
+                **self._scope_kwargs_from(existing),
             )
-            session.add(row)
-            session.commit()
-            session.refresh(row)
+            return rel
+
+        # Create new relation
+        now = self._now()
+        row = self._category_item_model(
+            item_id=item_id,
+            category_id=category_id,
+            created_at=now,
+            updated_at=now,
+            **user_data,
+        )
+        session.add(row)
+        session.flush()
+        session.refresh(row)
 
         rel = CategoryItem(
             id=row.id,

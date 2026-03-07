@@ -50,6 +50,51 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
         self._memory_item_model = memory_item_model
         self.items = self._state.items
 
+    @staticmethod
+    def _resolve_conversation_id(conversation_id: str | None, user_data: Mapping[str, Any]) -> str | None:
+        if isinstance(conversation_id, str) and conversation_id.strip():
+            return conversation_id.strip()
+        raw = user_data.get("conversation_id")
+        if isinstance(raw, str) and raw.strip():
+            return raw.strip()
+        legacy = user_data.get("session_id")
+        if isinstance(legacy, str) and legacy.strip():
+            return legacy.strip()
+        return None
+
+    @staticmethod
+    def _active_item_filter(model: Any) -> Any | None:
+        merged_into_col = getattr(model, "merged_into", None)
+        if merged_into_col is None:
+            return None
+        from sqlalchemy import func, or_
+
+        return or_(merged_into_col.is_(None), func.trim(merged_into_col) == "")
+
+    def _to_memory_item(
+        self,
+        row: Any,
+        *,
+        embedding: list[float] | None = None,
+        scope: Mapping[str, Any] | None = None,
+    ) -> MemoryItem:
+        return MemoryItem(
+            id=row.id,
+            resource_id=row.resource_id,
+            memory_type=row.memory_type,
+            summary=row.summary,
+            embedding=embedding if embedding is not None else self._normalize_embedding(self._get_row_embedding(row)),
+            happened_at=getattr(row, "happened_at", None),
+            source_role=getattr(row, "source_role", None),
+            confidence=getattr(row, "confidence", None),
+            conversation_id=getattr(row, "conversation_id", None),
+            merged_into=getattr(row, "merged_into", None),
+            extra=getattr(row, "extra", {}) or {},
+            created_at=row.created_at,
+            updated_at=row.updated_at,
+            **(dict(scope) if scope is not None else self._scope_kwargs_from(row)),
+        )
+
     def get_item(self, item_id: str) -> MemoryItem | None:
         """Get a memory item by ID.
 
@@ -64,22 +109,17 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
             return self.items[item_id]
 
         with self._sessions.session() as session:
-            stmt = select(self._memory_item_model).where(self._memory_item_model.id == item_id)
+            filters = [self._memory_item_model.id == item_id]
+            active_filter = self._active_item_filter(self._memory_item_model)
+            if active_filter is not None:
+                filters.append(active_filter)
+            stmt = select(self._memory_item_model).where(*filters)
             row = session.exec(stmt).first()
 
         if row is None:
             return None
 
-        item = MemoryItem(
-            id=row.id,
-            resource_id=row.resource_id,
-            memory_type=row.memory_type,
-            summary=row.summary,
-            embedding=self._normalize_embedding(row.embedding_json),
-            created_at=row.created_at,
-            updated_at=row.updated_at,
-            **self._scope_kwargs_from(row),
-        )
+        item = self._to_memory_item(row)
         self.items[row.id] = item
         return item
 
@@ -95,22 +135,16 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
         with self._sessions.session() as session:
             stmt = select(self._memory_item_model)
             filters = self._build_filters(self._memory_item_model, where)
+            active_filter = self._active_item_filter(self._memory_item_model)
+            if active_filter is not None:
+                filters.append(active_filter)
             if filters:
                 stmt = stmt.where(*filters)
             rows = session.exec(stmt).all()
 
         result: dict[str, MemoryItem] = {}
         for row in rows:
-            item = MemoryItem(
-                id=row.id,
-                resource_id=row.resource_id,
-                memory_type=row.memory_type,
-                summary=row.summary,
-                embedding=self._normalize_embedding(row.embedding_json),
-                created_at=row.created_at,
-                updated_at=row.updated_at,
-                **self._scope_kwargs_from(row),
-            )
+            item = self._to_memory_item(row)
             result[row.id] = item
             self.items[row.id] = item
 
@@ -136,6 +170,9 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
         with self._sessions.session() as session:
             stmt = select(self._memory_item_model)
             filters = self._build_filters(self._memory_item_model, where)
+            active_filter = self._active_item_filter(self._memory_item_model)
+            if active_filter is not None:
+                filters.append(active_filter)
             # Add filter for json_extract(extra, '$.ref_id') IN ref_ids (only rows with ref_id key)
             ref_id_col = func.json_extract(self._memory_item_model.extra, "$.ref_id")
             filters.append(ref_id_col.isnot(None))
@@ -146,16 +183,7 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
 
         result: dict[str, MemoryItem] = {}
         for row in rows:
-            item = MemoryItem(
-                id=row.id,
-                resource_id=row.resource_id,
-                memory_type=row.memory_type,
-                summary=row.summary,
-                embedding=self._normalize_embedding(row.embedding_json),
-                created_at=row.created_at,
-                updated_at=row.updated_at,
-                **self._scope_kwargs_from(row),
-            )
+            item = self._to_memory_item(row)
             result[row.id] = item
             self.items[row.id] = item
 
@@ -180,16 +208,7 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
 
             deleted: dict[str, MemoryItem] = {}
             for row in rows:
-                item = MemoryItem(
-                    id=row.id,
-                    resource_id=row.resource_id,
-                    memory_type=row.memory_type,
-                    summary=row.summary,
-                    embedding=self._normalize_embedding(row.embedding_json),
-                    created_at=row.created_at,
-                    updated_at=row.updated_at,
-                    **self._scope_kwargs_from(row),
-                )
+                item = self._to_memory_item(row)
                 deleted[row.id] = item
 
             if not deleted:
@@ -218,6 +237,10 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
         user_data: dict[str, Any],
         reinforce: bool = False,
         tool_record: dict[str, Any] | None = None,
+        source_role: str | None = None,
+        confidence: float | None = None,
+        conversation_id: str | None = None,
+        session: Any | None = None,
     ) -> MemoryItem:
         """Create a new memory item.
 
@@ -240,7 +263,29 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
                 summary=summary,
                 embedding=embedding,
                 user_data=user_data,
+                source_role=source_role,
+                confidence=confidence,
+                conversation_id=conversation_id,
+                session=session,
             )
+
+        if session is None:
+            with self._sessions.session() as session:
+                item = self.create_item(
+                    resource_id=resource_id,
+                    memory_type=memory_type,
+                    summary=summary,
+                    embedding=embedding,
+                    user_data=user_data,
+                    reinforce=reinforce,
+                    tool_record=tool_record,
+                    source_role=source_role,
+                    confidence=confidence,
+                    conversation_id=conversation_id,
+                    session=session,
+                )
+                session.commit()
+                return item
 
         # Build extra dict with tool_record fields at top level
         extra: dict[str, Any] = {}
@@ -252,33 +297,27 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
             if tool_record.get("tool_calls") is not None:
                 extra["tool_calls"] = tool_record["tool_calls"]
 
+        conv_id = self._resolve_conversation_id(conversation_id, user_data)
         now = self._now()
         row = self._memory_item_model(
             resource_id=resource_id,
             memory_type=memory_type,
             summary=summary,
-            embedding_json=self._prepare_embedding(embedding),
+            embedding=None,
+            source_role=source_role,
+            confidence=confidence,
+            conversation_id=conv_id,
             extra=extra if extra else {},
             created_at=now,
             updated_at=now,
             **user_data,
         )
-        with self._sessions.session() as session:
-            session.add(row)
-            session.commit()
-            session.refresh(row)
+        self._set_row_embedding(row, embedding)
+        session.add(row)
+        session.flush()
+        session.refresh(row)
 
-        item = MemoryItem(
-            id=row.id,
-            resource_id=row.resource_id,
-            memory_type=row.memory_type,
-            summary=row.summary,
-            embedding=embedding,
-            extra=row.extra,
-            created_at=row.created_at,
-            updated_at=row.updated_at,
-            **user_data,
-        )
+        item = self._to_memory_item(row, embedding=embedding, scope=user_data)
         self.items[row.id] = item
         return item
 
@@ -290,6 +329,10 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
         summary: str,
         embedding: list[float],
         user_data: dict[str, Any],
+        source_role: str | None = None,
+        confidence: float | None = None,
+        conversation_id: str | None = None,
+        session: Any | None = None,
     ) -> MemoryItem:
         """Create or reinforce a memory item with deduplication.
 
@@ -309,79 +352,88 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
         from sqlalchemy import func
 
         content_hash = compute_content_hash(summary, memory_type)
+        conv_id = self._resolve_conversation_id(conversation_id, user_data)
 
-        with self._sessions.session() as session:
-            # Check for existing item with same hash in same scope (deduplication)
-            # Use json_extract(extra, '$.content_hash') for query
-            content_hash_col = func.json_extract(self._memory_item_model.extra, "$.content_hash")
-            filters = [content_hash_col == content_hash]
-            filters.extend(self._build_filters(self._memory_item_model, user_data))
-
-            existing = session.exec(select(self._memory_item_model).where(*filters)).first()
-
-            if existing:
-                # Reinforce existing memory instead of creating duplicate
-                current_extra = existing.extra or {}
-                current_count = current_extra.get("reinforcement_count", 1)
-                existing.extra = {
-                    **current_extra,
-                    "reinforcement_count": current_count + 1,
-                    "last_reinforced_at": self._now().isoformat(),
-                }
-                existing.updated_at = self._now()
-                session.add(existing)
-                session.commit()
-                session.refresh(existing)
-
-                item = MemoryItem(
-                    id=existing.id,
-                    resource_id=existing.resource_id,
-                    memory_type=existing.memory_type,
-                    summary=existing.summary,
-                    embedding=self._normalize_embedding(existing.embedding_json),
-                    created_at=existing.created_at,
-                    updated_at=existing.updated_at,
-                    extra=existing.extra,
-                    **self._scope_kwargs_from(existing),
+        if session is None:
+            with self._sessions.session() as session:
+                item = self.create_item_reinforce(
+                    resource_id=resource_id,
+                    memory_type=memory_type,
+                    summary=summary,
+                    embedding=embedding,
+                    user_data=user_data,
+                    source_role=source_role,
+                    confidence=confidence,
+                    conversation_id=conversation_id,
+                    session=session,
                 )
-                self.items[existing.id] = item
+                session.commit()
                 return item
 
-            # Create new item with salience tracking in extra
-            now = self._now()
-            item_extra = user_data.pop("extra", {}) if "extra" in user_data else {}
-            item_extra.update({
-                "content_hash": content_hash,
-                "reinforcement_count": 1,
-                "last_reinforced_at": now.isoformat(),
-            })
+        # Check for existing item with same hash in same scope (deduplication)
+        # Use json_extract(extra, '$.content_hash') for query
+        content_hash_col = func.json_extract(self._memory_item_model.extra, "$.content_hash")
+        filters = [content_hash_col == content_hash]
+        filters.extend(self._build_filters(self._memory_item_model, user_data))
+        active_filter = self._active_item_filter(self._memory_item_model)
+        if active_filter is not None:
+            filters.append(active_filter)
 
-            row = self._memory_item_model(
-                resource_id=resource_id,
-                memory_type=memory_type,
-                summary=summary,
-                embedding_json=self._prepare_embedding(embedding),
-                extra=item_extra,
-                created_at=now,
-                updated_at=now,
-                **user_data,
-            )
+        existing = session.exec(select(self._memory_item_model).where(*filters)).first()
 
-            session.add(row)
-            session.commit()
-            session.refresh(row)
+        if existing:
+            # Reinforce existing memory instead of creating duplicate
+            current_extra = existing.extra or {}
+            current_count = current_extra.get("reinforcement_count", 1)
+            existing.extra = {
+                **current_extra,
+                "reinforcement_count": current_count + 1,
+                "last_reinforced_at": self._now().isoformat(),
+            }
+            if source_role is not None:
+                existing.source_role = source_role
+            if confidence is not None:
+                existing.confidence = confidence
+            if conv_id is not None:
+                existing.conversation_id = conv_id
+            existing.updated_at = self._now()
+            session.add(existing)
+            session.flush()
+            session.refresh(existing)
+            item = self._to_memory_item(existing)
+            self.items[existing.id] = item
+            return item
 
-        item = MemoryItem(
-            id=row.id,
-            resource_id=row.resource_id,
-            memory_type=row.memory_type,
-            summary=row.summary,
-            embedding=embedding,
-            created_at=row.created_at,
-            updated_at=row.updated_at,
-            extra=row.extra,
-            **self._scope_kwargs_from(row),
+        # Create new item with salience tracking in extra
+        now = self._now()
+        create_user_data = dict(user_data or {})
+        item_extra = create_user_data.pop("extra", {}) if "extra" in create_user_data else {}
+        item_extra.update({
+            "content_hash": content_hash,
+            "reinforcement_count": 1,
+            "last_reinforced_at": now.isoformat(),
+        })
+
+        row = self._memory_item_model(
+            resource_id=resource_id,
+            memory_type=memory_type,
+            summary=summary,
+            embedding=None,
+            source_role=source_role,
+            confidence=confidence,
+            conversation_id=conv_id,
+            extra=item_extra,
+            created_at=now,
+            updated_at=now,
+            **create_user_data,
         )
+        self._set_row_embedding(row, embedding)
+
+        session.add(row)
+        session.flush()
+        session.refresh(row)
+
+        item = self._to_memory_item(row, embedding=embedding)
         self.items[row.id] = item
         return item
 
@@ -394,6 +446,7 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
         embedding: list[float] | None = None,
         extra: dict[str, Any] | None = None,
         tool_record: dict[str, Any] | None = None,
+        merged_into: str | None = None,
     ) -> MemoryItem:
         """Update an existing memory item.
 
@@ -424,7 +477,9 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
             if summary is not None:
                 row.summary = summary
             if embedding is not None:
-                row.embedding_json = self._prepare_embedding(embedding)
+                self._set_row_embedding(row, embedding)
+            if merged_into is not None:
+                row.merged_into = merged_into
 
             # Merge extra and tool_record into existing extra dict
             current_extra = row.extra or {}
@@ -444,17 +499,7 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
             session.commit()
             session.refresh(row)
 
-        item = MemoryItem(
-            id=row.id,
-            resource_id=row.resource_id,
-            memory_type=row.memory_type,
-            summary=row.summary,
-            embedding=self._normalize_embedding(row.embedding_json),
-            extra=row.extra,
-            created_at=row.created_at,
-            updated_at=row.updated_at,
-            **self._scope_kwargs_from(row),
-        )
+        item = self._to_memory_item(row)
         self.items[row.id] = item
         return item
 
