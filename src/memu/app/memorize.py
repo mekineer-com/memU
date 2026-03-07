@@ -282,7 +282,7 @@ class MemorizeMixin:
 
         dedupe_scope = self._build_semantic_dedupe_scope(state.get("user"))
         if dedupe_scope is None:
-            logger.info("dedupe: skipped (missing agent_id/user_id scope)")
+            logger.info("dedupe: skipped (missing soul_id/user_id scope)")
             return state
 
         store = state["store"]
@@ -436,14 +436,14 @@ class MemorizeMixin:
         if not isinstance(scope, Mapping):
             return None
         user_field = self._extract_scope_field(scope, keys=("user_id", "userId"))
-        agent_field = self._extract_scope_field(scope, keys=("agent_id", "agentId"))
-        if user_field is None or agent_field is None:
+        soul_field = self._extract_scope_field(scope, keys=("soul_id", "soulId"))
+        if user_field is None or soul_field is None:
             return None
-        user_key, user_value = user_field
-        agent_key, agent_value = agent_field
+        _user_key, user_value = user_field
+        _soul_key, soul_value = soul_field
         return {
-            user_key: user_value,
-            agent_key: agent_value,
+            "user_id": user_value,
+            "soul_id": soul_value,
         }
 
     @staticmethod
@@ -1416,8 +1416,6 @@ Decide which candidates should map into existing categories, and which (if any) 
         soul_id = str(
             user_scope.get("soul_id")
             or user_scope.get("soulId")
-            or user_scope.get("agent_id")
-            or user_scope.get("agentId")
             or ""
         ).strip()
         if not user_id and not soul_id:
@@ -1965,10 +1963,12 @@ Decide which candidates should map into existing categories, and which (if any) 
             or user_scope.get("userId")
         )
         raw_agent = (
-            user_scope.get("agent_name")
-            or user_scope.get("agentName")
-            or user_scope.get("agent_id")
-            or user_scope.get("agentId")
+            user_scope.get("soul_name")
+            or user_scope.get("soulName")
+            or user_scope.get("character_name")
+            or user_scope.get("characterName")
+            or user_scope.get("soul_id")
+            or user_scope.get("soulId")
         )
         user_name = str(raw_user).strip() if raw_user else "the user"
         agent_name = str(raw_agent).strip() if raw_agent else "the assistant"

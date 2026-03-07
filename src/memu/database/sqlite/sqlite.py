@@ -181,7 +181,7 @@ class SQLiteStore(Database):
         create_sql = """
 CREATE TABLE IF NOT EXISTS memu_conversation_state (
     conversation_id VARCHAR PRIMARY KEY,
-    agent_id VARCHAR,
+    soul_id VARCHAR,
     user_id VARCHAR,
     digest_cursor INTEGER DEFAULT 0,
     working_note TEXT,
@@ -194,7 +194,7 @@ CREATE TABLE IF NOT EXISTS memu_conversation_state (
         try:
             with self._sessions.engine.begin() as conn:
                 conn.exec_driver_sql(create_sql)
-                self._add_column_if_missing(conn, "memu_conversation_state", "agent_id", "agent_id VARCHAR")
+                self._add_column_if_missing(conn, "memu_conversation_state", "soul_id", "soul_id VARCHAR")
                 self._add_column_if_missing(conn, "memu_conversation_state", "user_id", "user_id VARCHAR")
                 self._add_column_if_missing(
                     conn, "memu_conversation_state", "digest_cursor", "digest_cursor INTEGER DEFAULT 0"

@@ -105,12 +105,12 @@ class TestMemuOpenAIWrapper:
             mock_client,
             mock_service,
             user_id="user123",
-            agent_id="bot1",
+            soul_id="bot1",
             ranking="salience",
             top_k=3,
         )
 
-        assert wrapped._user_data == {"user_id": "user123", "agent_id": "bot1"}
+        assert wrapped._user_data == {"user_id": "user123", "soul_id": "bot1"}
         assert wrapped._ranking == "salience"
         assert wrapped._top_k == 3
 
