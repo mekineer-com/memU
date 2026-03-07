@@ -18,7 +18,7 @@ We welcome all types of contributions:
 ## 🚀 Quick Start for Contributors
 
 ### Prerequisites
-- Python 3.13+
+- Python 3.12+
 - Git
 - [uv](https://github.com/astral-sh/uv) (Python package manager)
 - A code editor (VS Code recommended)

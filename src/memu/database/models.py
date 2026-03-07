@@ -79,6 +79,15 @@ class MemoryItem(BaseRecord):
     summary: str
     embedding: list[float] | None = None
     happened_at: datetime | None = None
+    # Provenance fields for retrieval control and auditability.
+    # source_role vocabulary is fixed: soul | user | environment.
+    source_role: str | None = None
+    confidence: float | None = None
+    # Conversation/session anchor (mapped from session_id when available).
+    conversation_id: str | None = None
+    # Soft-merge marker for conservative semantic dedupe.
+    # When set, this item is treated as merged into another canonical item.
+    merged_into: str | None = None
     extra: dict[str, Any] = {}
     # extra may contain:
     # # reinforcement tracking fields

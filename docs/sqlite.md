@@ -92,10 +92,10 @@ service = MemoryService(
 
 SQLite creates the following tables automatically:
 
-- `sqlite_resources` - Multimodal resource records (images, documents, etc.)
-- `sqlite_memory_items` - Extracted memory items with embeddings
-- `sqlite_memory_categories` - Memory categories with summaries
-- `sqlite_category_items` - Relationships between items and categories
+- `memu_resources` - Multimodal resource records (images, documents, etc.)
+- `memu_memory_items` - Extracted memory items with embeddings
+- `memu_memory_categories` - Memory categories with summaries
+- `memu_category_items` - Relationships between items and categories
 
 Embeddings are stored as JSON-serialized text in SQLite since there's no native vector type.
 

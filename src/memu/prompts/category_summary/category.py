@@ -1,5 +1,7 @@
 PROMPT_LEGACY = """
-# Task Objective
+# Naming
+The human user's name is: {user_name}. Always refer to them as {user_name} (not "the user").
+The agent's name is: {agent_name}. If you refer to the agent, use {agent_name}.
 You are a professional User Profile Synchronization Specialist. Your core objective is to accurately merge newly extracted user information items into the user's initial profile using only two operations: add and update.
 Because no original conversation text is provided, active deletion is not allowed; only implicit replacement through newer items is permitted. The final output must be the updated, complete user profile.
 
@@ -12,9 +14,9 @@ Newly Extracted User Information Items.
 Initial profile: extract categories and core content; preserve original wording style and format; build a category-content mapping.
 New items: validate completeness and category correctness; mark each as Add or Update; distinguish stable facts from event-type information; extract dates/times (events only).
 - Pre-validation
-Verify subject accuracy: clearly distinguish the user from related persons (family, friends, etc.).
-Remove invalid items: vague, miscategorized, or non-user-information items.
-Remove one-off events: temporary actions without long-term relevance (e.g., what the user ate today).
+Verify subject accuracy: identify whether each item is about {agent_name}, {user_name}, or someone else, and preserve that attribution.
+Remove invalid items: vague or clearly unsupported items.
+Remove one-off events: temporary actions without long-term relevance (e.g., what someone ate today).
 
 ## Step 2: Core Operations (Update / Add)
 A. Update
@@ -55,12 +57,12 @@ Control item length strictly; prioritize core information if needed.
 ```markdown
 # {category}
 ## <category name>
-- User information item
-- User information item
+- Memory item
+- Memory item
 ...
 ## <category name>
-- User information item
-- User information item
+- Memory item
+- Memory item
 ...
 ```
 
@@ -75,38 +77,38 @@ Original content:
 <content>
 # Personal Basic Information
 ## Basic Information
-- The user is 28 years old
-- The user currently lives in Beijing
+- Alex is 28 years old
+- Alex currently lives in Beijing
 ## Basic Preferences
-- The user likes spicy food
+- Alex likes spicy food
 ## Core Traits
-- The user is extroverted
+- Alex is extroverted
 </content>
 
 New memory items:
 <item>
-- The user is 30 years old
-- The user currently lives in Shanghai
-- The user prefers Sichuan-style spicy food and dislikes sweet-spicy flavors
-- The user enjoys hiking on weekends
-- The user is meticulous
-- The user ate Malatang today
+- Alex is 30 years old
+- Alex currently lives in Shanghai
+- Alex prefers Sichuan-style spicy food and dislikes sweet-spicy flavors
+- Alex enjoys hiking on weekends
+- Alex is meticulous
+- Alex ate Malatang today
 </item>
 
 Output
 # Personal Basic Information
 ## Basic Information
-- The user is 30 years old
-- The user currently lives in Shanghai
+- Alex is 30 years old
+- Alex currently lives in Shanghai
 ## Basic Preferences
-- The user prefers Sichuan-style spicy food and dislikes sweet-spicy flavors
-- The user enjoys hiking on weekends
+- Alex prefers Sichuan-style spicy food and dislikes sweet-spicy flavors
+- Alex enjoys hiking on weekends
 ## Core Traits
-- The user is extroverted
-- The user is meticulous
+- Alex is extroverted
+- Alex is meticulous
 
 Explanation
-The "The user ate Malatang today" is a one-time daily action without long-term value and is therefore excluded.
+"Alex ate Malatang today" is a one-time daily action without long-term value and is therefore excluded.
 
 
 Your task is to read and analyze existing content and some new memory items, and then selectively update the content to reflect both the existing and new information.
@@ -132,21 +134,24 @@ New memory items:
 ```markdown
 # {category}
 ## <category name>
-- User information item
-- User information item
+- Memory item
+- Memory item
 ...
 ## <category name>
-- User information item
-- User information item
+- Memory item
+- Memory item
 ...
 ```
 """
 
 
 PROMPT_BLOCK_OBJECTIVE = """
-# Task Objective
-You are a professional User Profile Synchronization Specialist. Your core objective is to accurately merge newly extracted user information items into the user's initial profile using only two operations: add and update.
-Because no original conversation text is provided, active deletion is not allowed; only implicit replacement through newer items is permitted. The final output must be the updated, complete user profile.
+# Naming
+The human participant's name is: {user_name}.
+The assistant's name is: {agent_name}. When a memory is about {agent_name}, write it in first person ("I"). When a memory is about {user_name}, use their name directly.
+
+You maintain {agent_name}'s living memory document — a growing record of what {agent_name} knows about themselves, about {user_name}, and about their relationship. Your job is to merge newly extracted memories into the existing record using only two operations: add and update.
+Because no original conversation text is provided, active deletion is not allowed; only implicit replacement through newer items is permitted.
 """
 
 PROMPT_BLOCK_WORKFLOW = """
@@ -159,9 +164,9 @@ Newly Extracted User Information Items.
 Initial profile: extract categories and core content; preserve original wording style and format; build a category-content mapping.
 New items: validate completeness and category correctness; mark each as Add or Update; distinguish stable facts from event-type information; extract dates/times (events only).
 - Pre-validation
-Verify subject accuracy: clearly distinguish the user from related persons (family, friends, etc.).
-Remove invalid items: vague, miscategorized, or non-user-information items.
-Remove one-off events: temporary actions without long-term relevance (e.g., what the user ate today).
+Verify subject accuracy: identify whether each item is about {agent_name}, {user_name}, or someone else, and preserve that attribution.
+Remove invalid items: vague or clearly unsupported items.
+Remove one-off events: temporary actions without long-term relevance (e.g., what someone ate today).
 
 ## Step 2: Core Operations (Update / Add)
 A. Update
@@ -197,6 +202,10 @@ Control item length strictly; prioritize core information if needed.
 """
 
 PROMPT_BLOCK_RULES = """
+# Rules
+- Before merging, deduplicate the incoming new items themselves: if two or more new items express substantially the same fact about the same person, merge them into one. Keep the version that is most complete and specific. Do not carry both into the output.
+- An item that already appears — in identical or near-identical form — in the existing content must not be added again. Update it only if the new version is meaningfully more complete.
+- Every output item must belong to exactly one subcategory (## heading). Do not repeat the same item under multiple headings.
 """
 
 PROMPT_BLOCK_OUTPUT = """
@@ -204,11 +213,11 @@ PROMPT_BLOCK_OUTPUT = """
 ```markdown
 # {category}
 ## <category name>
-- User information item
-- User information item
+- Memory item
+- Memory item
 ## <category name>
-- User information item
-- User information item
+- Memory item
+- Memory item
 ```
 
 # Critical
@@ -227,38 +236,38 @@ Original content:
 <content>
 # Personal Basic Information
 ## Basic Information
-- The user is 28 years old
-- The user currently lives in Beijing
+- Alex is 28 years old
+- Alex currently lives in Beijing
 ## Basic Preferences
-- The user likes spicy food
+- Alex likes spicy food
 ## Core Traits
-- The user is extroverted
+- Alex is extroverted
 </content>
 
 New memory items:
 <item>
-- The user is 30 years old
-- The user currently lives in Shanghai
-- The user prefers Sichuan-style spicy food and dislikes sweet-spicy flavors
-- The user enjoys hiking on weekends
-- The user is meticulous
-- The user ate Malatang today
+- Alex is 30 years old
+- Alex currently lives in Shanghai
+- Alex prefers Sichuan-style spicy food and dislikes sweet-spicy flavors
+- Alex enjoys hiking on weekends
+- Alex is meticulous
+- Alex ate Malatang today
 </item>
 
 Output
 # Personal Basic Information
 ## Basic Information
-- The user is 30 years old
-- The user currently lives in Shanghai
+- Alex is 30 years old
+- Alex currently lives in Shanghai
 ## Basic Preferences
-- The user prefers Sichuan-style spicy food and dislikes sweet-spicy flavors
-- The user enjoys hiking on weekends
+- Alex prefers Sichuan-style spicy food and dislikes sweet-spicy flavors
+- Alex enjoys hiking on weekends
 ## Core Traits
-- The user is extroverted
-- The user is meticulous
+- Alex is extroverted
+- Alex is meticulous
 
 Explanation
-The "The user ate Malatang today" is a one-time daily action without long-term value and is therefore excluded.
+"Alex ate Malatang today" is a one-time daily action without long-term value and is therefore excluded.
 """
 
 PROMPT_BLOCK_INPUT = """

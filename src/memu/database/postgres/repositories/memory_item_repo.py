@@ -28,13 +28,24 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
         self._memory_item_model = memory_item_model
         self.items: dict[str, MemoryItem] = self._state.items
 
+    @staticmethod
+    def _active_item_filter(model: Any) -> Any | None:
+        merged_into_col = getattr(model, "merged_into", None)
+        if merged_into_col is None:
+            return None
+        from sqlalchemy import func, or_
+
+        return or_(merged_into_col.is_(None), func.trim(merged_into_col) == "")
+
     def get_item(self, memory_id: str) -> MemoryItem | None:
         from sqlmodel import select
 
         with self._sessions.session() as session:
-            row = session.scalar(
-                select(self._sqla_models.MemoryItem).where(self._sqla_models.MemoryItem.id == memory_id)
-            )
+            filters = [self._sqla_models.MemoryItem.id == memory_id]
+            active_filter = self._active_item_filter(self._sqla_models.MemoryItem)
+            if active_filter is not None:
+                filters.append(active_filter)
+            row = session.scalar(select(self._sqla_models.MemoryItem).where(*filters))
             if row:
                 row.embedding = self._normalize_embedding(row.embedding)
                 return self._cache_item(row)
@@ -44,6 +55,9 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
         from sqlmodel import select
 
         filters = self._build_filters(self._sqla_models.MemoryItem, where)
+        active_filter = self._active_item_filter(self._sqla_models.MemoryItem)
+        if active_filter is not None:
+            filters.append(active_filter)
         with self._sessions.session() as session:
             rows = session.scalars(select(self._sqla_models.MemoryItem).where(*filters)).all()
             result: dict[str, MemoryItem] = {}
@@ -71,6 +85,9 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
         from sqlmodel import select
 
         filters = self._build_filters(self._sqla_models.MemoryItem, where)
+        active_filter = self._active_item_filter(self._sqla_models.MemoryItem)
+        if active_filter is not None:
+            filters.append(active_filter)
         # Add filter for extra->>'ref_id' IN ref_ids (only rows with ref_id key)
         ref_id_col = self._sqla_models.MemoryItem.extra["ref_id"].astext
         filters.append(ref_id_col.isnot(None))
@@ -120,6 +137,9 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
         user_data: dict[str, Any],
         reinforce: bool = False,
         tool_record: dict[str, Any] | None = None,
+        source_role: str | None = None,
+        confidence: float | None = None,
+        conversation_id: str | None = None,
     ) -> MemoryItem:
         if reinforce and memory_type != "tool":
             return self.create_item_reinforce(
@@ -128,6 +148,9 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
                 summary=summary,
                 embedding=embedding,
                 user_data=user_data,
+                source_role=source_role,
+                confidence=confidence,
+                conversation_id=conversation_id,
             )
 
         # Build extra dict with tool_record fields at top level
@@ -140,11 +163,19 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
             if tool_record.get("tool_calls") is not None:
                 extra["tool_calls"] = tool_record["tool_calls"]
 
+        conv_id = (
+            conversation_id
+            or (user_data.get("conversation_id") if isinstance(user_data.get("conversation_id"), str) else None)
+            or (user_data.get("session_id") if isinstance(user_data.get("session_id"), str) else None)
+        )
         item = self._memory_item_model(
             resource_id=resource_id,
             memory_type=memory_type,
             summary=summary,
             embedding=self._prepare_embedding(embedding),
+            source_role=source_role,
+            confidence=confidence,
+            conversation_id=conv_id,
             extra=extra if extra else {},
             **user_data,
             created_at=self._now(),
@@ -167,10 +198,18 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
         summary: str,
         embedding: list[float],
         user_data: dict[str, Any],
+        source_role: str | None = None,
+        confidence: float | None = None,
+        conversation_id: str | None = None,
     ) -> MemoryItem:
         from sqlmodel import select
 
         content_hash = compute_content_hash(summary, memory_type)
+        conv_id = (
+            conversation_id
+            or (user_data.get("conversation_id") if isinstance(user_data.get("conversation_id"), str) else None)
+            or (user_data.get("session_id") if isinstance(user_data.get("session_id"), str) else None)
+        )
 
         with self._sessions.session() as session:
             # Check for existing item with same hash in same scope (deduplication)
@@ -178,6 +217,9 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
             content_hash_col = self._sqla_models.MemoryItem.extra["content_hash"].astext
             filters = [content_hash_col == content_hash]
             filters.extend(self._build_filters(self._sqla_models.MemoryItem, user_data))
+            active_filter = self._active_item_filter(self._sqla_models.MemoryItem)
+            if active_filter is not None:
+                filters.append(active_filter)
 
             existing = session.scalar(select(self._sqla_models.MemoryItem).where(*filters))
 
@@ -190,6 +232,12 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
                     "reinforcement_count": current_count + 1,
                     "last_reinforced_at": self._now().isoformat(),
                 }
+                if source_role is not None:
+                    existing.source_role = source_role
+                if confidence is not None:
+                    existing.confidence = confidence
+                if conv_id is not None:
+                    existing.conversation_id = conv_id
                 existing.updated_at = self._now()
                 session.add(existing)
                 session.commit()
@@ -205,6 +253,9 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
                 memory_type=memory_type,
                 summary=summary,
                 embedding=self._prepare_embedding(embedding),
+                source_role=source_role,
+                confidence=confidence,
+                conversation_id=conv_id,
                 **user_data,
                 created_at=now,
                 updated_at=now,
@@ -231,6 +282,7 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
         embedding: list[float] | None = None,
         extra: dict[str, Any] | None = None,
         tool_record: dict[str, Any] | None = None,
+        merged_into: str | None = None,
     ) -> MemoryItem:
         from sqlmodel import select
 
@@ -249,6 +301,8 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
                 item.summary = summary
             if embedding is not None:
                 item.embedding = self._prepare_embedding(embedding)
+            if merged_into is not None:
+                item.merged_into = merged_into
 
             # Merge extra and tool_record into existing extra dict
             current_extra = item.extra or {}
@@ -296,6 +350,9 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
 
         distance = self._sqla_models.MemoryItem.embedding.cosine_distance(query_vec)
         filters = [self._sqla_models.MemoryItem.embedding.isnot(None)]
+        active_filter = self._active_item_filter(self._sqla_models.MemoryItem)
+        if active_filter is not None:
+            filters.append(active_filter)
         filters.extend(self._build_filters(self._sqla_models.MemoryItem, where))
         stmt = (
             select(self._sqla_models.MemoryItem.id, (1 - distance).label("score"))
@@ -310,8 +367,12 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
     def load_existing(self) -> None:
         from sqlmodel import select
 
+        filters: list[Any] = []
+        active_filter = self._active_item_filter(self._sqla_models.MemoryItem)
+        if active_filter is not None:
+            filters.append(active_filter)
         with self._sessions.session() as session:
-            rows = session.scalars(select(self._sqla_models.MemoryItem)).all()
+            rows = session.scalars(select(self._sqla_models.MemoryItem).where(*filters)).all()
             for row in rows:
                 row.embedding = self._normalize_embedding(row.embedding)
                 self._cache_item(row)
@@ -327,6 +388,9 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
     ) -> list[tuple[str, float]]:
         scored: list[tuple[str, float]] = []
         for item in self.items.values():
+            merged_into = getattr(item, "merged_into", None)
+            if isinstance(merged_into, str) and merged_into.strip():
+                continue
             if item.embedding is None:
                 continue
             if not self._matches_where(item, where):

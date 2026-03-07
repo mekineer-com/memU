@@ -49,28 +49,32 @@ def get_sqlite_sqlalchemy_models(*, scope_model: type[BaseModel] | None = None) 
 
     metadata_obj = MetaData()
 
+    # NOTE: SQLite reserves the "sqlite_" prefix for internal schema objects.
+    # Creating any table/index/view/trigger with that prefix fails with:
+    #   sqlite3.OperationalError: object name reserved for internal use
+    # Use a MemU-specific prefix instead.
     resource_model = build_sqlite_table_model(
         scope,
         SQLiteResourceModel,
-        tablename="sqlite_resources",
+        tablename="memu_resources",
         metadata=metadata_obj,
     )
     memory_category_model = build_sqlite_table_model(
         scope,
         SQLiteMemoryCategoryModel,
-        tablename="sqlite_memory_categories",
+        tablename="memu_memory_categories",
         metadata=metadata_obj,
     )
     memory_item_model = build_sqlite_table_model(
         scope,
         SQLiteMemoryItemModel,
-        tablename="sqlite_memory_items",
+        tablename="memu_memory_items",
         metadata=metadata_obj,
     )
     category_item_model = build_sqlite_table_model(
         scope,
         SQLiteCategoryItemModel,
-        tablename="sqlite_category_items",
+        tablename="memu_category_items",
         metadata=metadata_obj,
     )
 

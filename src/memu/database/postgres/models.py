@@ -57,6 +57,7 @@ class MemoryItemModel(BaseModelMixin, MemoryItem):
     summary: str = Field(sa_column=Column(Text, nullable=False))
     embedding: list[float] | None = Field(default=None, sa_column=Column(Vector(), nullable=True))
     happened_at: datetime | None = Field(default=None, sa_column=Column(DateTime, nullable=True))
+    merged_into: str | None = Field(default=None, sa_column=Column(String, nullable=True))
     extra: dict[str, Any] = Field(default={}, sa_column=Column(JSONB, nullable=True))
 
 

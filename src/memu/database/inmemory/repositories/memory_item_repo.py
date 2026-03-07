@@ -19,10 +19,19 @@ class InMemoryMemoryItemRepository(MemoryItemRepo):
         self.memory_item_model = memory_item_model
         self.items: dict[str, MemoryItem] = self._state.items
 
+    @staticmethod
+    def _is_active_item(item: MemoryItem) -> bool:
+        merged_into = getattr(item, "merged_into", None)
+        return not (isinstance(merged_into, str) and merged_into.strip())
+
     def list_items(self, where: Mapping[str, Any] | None = None) -> dict[str, MemoryItem]:
         if not where:
-            return dict(self.items)
-        return {mid: item for mid, item in self.items.items() if matches_where(item, where)}
+            return {mid: item for mid, item in self.items.items() if self._is_active_item(item)}
+        return {
+            mid: item
+            for mid, item in self.items.items()
+            if self._is_active_item(item) and matches_where(item, where)
+        }
 
     def list_items_by_ref_ids(
         self, ref_ids: list[str], where: Mapping[str, Any] | None = None
@@ -41,6 +50,8 @@ class InMemoryMemoryItemRepository(MemoryItemRepo):
         ref_id_set = set(ref_ids)
         result: dict[str, MemoryItem] = {}
         for mid, item in self.items.items():
+            if not self._is_active_item(item):
+                continue
             # Check where filter first
             if where and not matches_where(item, where):
                 continue
@@ -67,11 +78,13 @@ class InMemoryMemoryItemRepository(MemoryItemRepo):
         we reinforce it instead of creating a duplicate.
         """
         for item in self.items.values():
+            if not self._is_active_item(item):
+                continue
             # Read content_hash from extra dict
             item_hash = (item.extra or {}).get("content_hash")
             if item_hash != content_hash:
                 continue
-            # Check scope match (user_id, agent_id, etc.)
+            # Check scope match (user_id, soul_id, etc.)
             if matches_where(item, user_data):
                 return item
         return None
@@ -86,6 +99,9 @@ class InMemoryMemoryItemRepository(MemoryItemRepo):
         user_data: dict[str, Any],
         reinforce: bool = False,
         tool_record: dict[str, Any] | None = None,
+        source_role: str | None = None,
+        confidence: float | None = None,
+        conversation_id: str | None = None,
     ) -> MemoryItem:
         if reinforce and memory_type != "tool":
             return self.create_item_reinforce(
@@ -94,6 +110,9 @@ class InMemoryMemoryItemRepository(MemoryItemRepo):
                 summary=summary,
                 embedding=embedding,
                 user_data=user_data,
+                source_role=source_role,
+                confidence=confidence,
+                conversation_id=conversation_id,
             )
 
         # Build extra dict with tool_record fields at top level
@@ -106,6 +125,11 @@ class InMemoryMemoryItemRepository(MemoryItemRepo):
             if tool_record.get("tool_calls") is not None:
                 extra["tool_calls"] = tool_record["tool_calls"]
 
+        conv_id = (
+            conversation_id
+            or (user_data.get("conversation_id") if isinstance(user_data.get("conversation_id"), str) else None)
+            or (user_data.get("session_id") if isinstance(user_data.get("session_id"), str) else None)
+        )
         mid = str(uuid.uuid4())
         it = self.memory_item_model(
             id=mid,
@@ -113,6 +137,9 @@ class InMemoryMemoryItemRepository(MemoryItemRepo):
             memory_type=memory_type,
             summary=summary,
             embedding=embedding,
+            source_role=source_role,
+            confidence=confidence,
+            conversation_id=conv_id,
             extra=extra if extra else {},
             **user_data,
         )
@@ -128,8 +155,16 @@ class InMemoryMemoryItemRepository(MemoryItemRepo):
         embedding: list[float],
         user_data: dict[str, Any],
         reinforce: bool = False,
+        source_role: str | None = None,
+        confidence: float | None = None,
+        conversation_id: str | None = None,
     ) -> MemoryItem:
         content_hash = compute_content_hash(summary, memory_type)
+        conv_id = (
+            conversation_id
+            or (user_data.get("conversation_id") if isinstance(user_data.get("conversation_id"), str) else None)
+            or (user_data.get("session_id") if isinstance(user_data.get("session_id"), str) else None)
+        )
 
         # Check for existing item with same hash in same scope (deduplication)
         existing = self._find_by_hash(content_hash, user_data)
@@ -142,6 +177,12 @@ class InMemoryMemoryItemRepository(MemoryItemRepo):
                 "reinforcement_count": current_count + 1,
                 "last_reinforced_at": pendulum.now("UTC").isoformat(),
             }
+            if source_role is not None:
+                existing.source_role = source_role
+            if confidence is not None:
+                existing.confidence = confidence
+            if conv_id is not None:
+                existing.conversation_id = conv_id
             existing.updated_at = pendulum.now("UTC")
             return existing
 
@@ -160,6 +201,9 @@ class InMemoryMemoryItemRepository(MemoryItemRepo):
             memory_type=memory_type,
             summary=summary,
             embedding=embedding,
+            source_role=source_role,
+            confidence=confidence,
+            conversation_id=conv_id,
             extra=item_extra,
             **user_data,
         )
@@ -199,7 +243,10 @@ class InMemoryMemoryItemRepository(MemoryItemRepo):
         return None
 
     def get_item(self, item_id: str) -> MemoryItem | None:
-        return self.items.get(item_id)
+        item = self.items.get(item_id)
+        if item is None or not self._is_active_item(item):
+            return None
+        return item
 
     @staticmethod
     def _parse_datetime(dt_str: str | None) -> pendulum.DateTime | None:
@@ -230,6 +277,7 @@ class InMemoryMemoryItemRepository(MemoryItemRepo):
         embedding: list[float] | None = None,
         extra: dict[str, Any] | None = None,
         tool_record: dict[str, Any] | None = None,
+        merged_into: str | None = None,
     ) -> MemoryItem:
         item = self.items.get(item_id)
         if item is None:
@@ -242,6 +290,8 @@ class InMemoryMemoryItemRepository(MemoryItemRepo):
             item.summary = summary
         if embedding is not None:
             item.embedding = embedding
+        if merged_into is not None:
+            item.merged_into = merged_into
 
         # Merge extra and tool_record into existing extra dict
         current_extra = item.extra or {}

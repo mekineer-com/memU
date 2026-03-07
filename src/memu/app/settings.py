@@ -75,16 +75,25 @@ def _default_memory_categories() -> list[CategoryConfig]:
     return [
         CategoryConfig.model_validate(cat)
         for cat in (
-            {"name": "personal_info", "description": "Personal information about the user"},
-            {"name": "preferences", "description": "User preferences, likes and dislikes"},
-            {"name": "relationships", "description": "Information about relationships with others"},
-            {"name": "activities", "description": "Activities, hobbies, and interests"},
-            {"name": "goals", "description": "Goals, aspirations, and objectives"},
-            {"name": "experiences", "description": "Past experiences and events"},
-            {"name": "knowledge", "description": "Knowledge, facts, and learned information"},
-            {"name": "opinions", "description": "Opinions, viewpoints, and perspectives"},
-            {"name": "habits", "description": "Habits, routines, and patterns"},
-            {"name": "work_life", "description": "Work-related information and professional life"},
+            {
+                "name": "participant_profiles",
+                "description": "Stable profile information about participants (user, assistant, or others).",
+            },
+            {
+                "name": "participant_preferences",
+                "description": "Preferences, likes, and dislikes expressed by participants.",
+            },
+            {
+                "name": "relationship_dynamics",
+                "description": "Relationship context, role asymmetries, and interaction patterns between participants.",
+            },
+            {"name": "activities", "description": "Activities, hobbies, and interests."},
+            {"name": "goals", "description": "Goals, commitments, and objectives."},
+            {"name": "experiences", "description": "Past experiences and events."},
+            {"name": "knowledge", "description": "Knowledge, facts, and learned information."},
+            {"name": "opinions", "description": "Opinions, viewpoints, and perspectives."},
+            {"name": "habits", "description": "Habits, routines, and patterns."},
+            {"name": "work_life", "description": "Work or project-related information."},
         )
     ]
 
@@ -221,6 +230,31 @@ class MemorizeConfig(BaseModel):
         default_factory=_default_memory_categories,
         description="Global memory category definitions embedded at service startup.",
     )
+    # Category policy: allow the model to introduce new category names at runtime (they will be created on first use)
+    allow_dynamic_categories: bool = Field(
+        default=False,
+        description="If true, unknown category names returned by the model will be created automatically (up to max_categories_total).",
+    )
+    dynamic_category_min_mentions: int = Field(
+        default=10,
+        description="Minimum number of times an unknown category must be mentioned in extracted memories before it can be auto-created (unless clearly important).",
+    )
+    max_categories_total: int = Field(
+        default=12,
+        description="Maximum total number of categories allowed (configured + dynamically created).",
+    )
+    dynamic_category_description: str = Field(
+        default=(
+            "Categories are life domains and are thus broad by nature. "
+            "Life domains are the core, interconnected areas of a being's existence—such as health, relationships, work, and finances."
+        ),
+        description="Default description for dynamically created categories.",
+    )
+
+    dynamic_category_policy: str = Field(
+        default="",
+        description="Optional extra guidance used when proposing/creating new categories. Leave empty to use only dynamic_category_description + rules.",
+    )
     # default_category_summary_prompt: str | CustomPrompt = Field(
     default_category_summary_prompt: str | Annotated[CustomPrompt, CompleteCategoryPrompt] = Field(
         default=CATEGORY_SUMMARY_PROMPT,
@@ -240,6 +274,26 @@ class MemorizeConfig(BaseModel):
         default=False,
         description="Enable reinforcement tracking for memory items.",
     )
+    semantic_dedupe_enabled: bool = Field(
+        default=True,
+        description="Enable conservative post-persist semantic dedupe in memorize workflow.",
+    )
+    semantic_dedupe_similarity_threshold: float = Field(
+        default=0.89,
+        description="Cosine similarity threshold for semantic dedupe auto-merge decisions.",
+    )
+    semantic_dedupe_apply_deletes: bool = Field(
+        default=False,
+        description="Legacy flag kept for backward-compatible config parsing.",
+    )
+    semantic_dedupe_log_file: str = Field(
+        default="./data/logs/memu_dedupe_review.log",
+        description="Legacy setting kept for backward-compatible config parsing.",
+    )
+    semantic_dedupe_embed_profile: str = Field(
+        default="embedding",
+        description="Legacy setting kept for backward-compatible config parsing.",
+    )
 
 
 class PatchConfig(BaseModel):
@@ -248,8 +302,8 @@ class PatchConfig(BaseModel):
 
 class DefaultUserModel(BaseModel):
     user_id: str | None = None
-    # Agent/session scoping for multi-agent and multi-session memory filtering
-    # agent_id: str | None = None
+    # Soul/session scoping for multi-soul and multi-session memory filtering
+    # soul_id: str | None = None
     # session_id: str | None = None
 
 

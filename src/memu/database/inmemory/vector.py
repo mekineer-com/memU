@@ -59,12 +59,17 @@ def cosine_topk(
     k: int = 5,
 ) -> list[tuple[str, float]]:
     # Filter out None vectors and collect valid entries
+    query_dim = len(query_vec)
     ids: list[str] = []
     vecs: list[list[float]] = []
     for _id, vec in corpus:
-        if vec is not None:
-            ids.append(_id)
-            vecs.append(cast(list[float], vec))
+        if vec is None:
+            continue
+        vec_list = cast(list[float], vec)
+        if len(vec_list) != query_dim:
+            continue
+        ids.append(_id)
+        vecs.append(vec_list)
 
     if not vecs:
         return []
@@ -111,6 +116,7 @@ def cosine_topk_salience(
     Returns:
         List of (id, salience_score) tuples, sorted by score descending
     """
+    query_dim = len(query_vec)
     q = np.array(query_vec, dtype=np.float32)
     scored: list[tuple[str, float]] = []
 
@@ -118,6 +124,8 @@ def cosine_topk_salience(
         if vec is None:
             continue
         vec_list = cast(list[float], vec)
+        if len(vec_list) != query_dim:
+            continue
         v = np.array(vec_list, dtype=np.float32)
         similarity = _cosine(q, v)
         score = salience_score(similarity, reinforcement_count, last_reinforced_at, recency_decay_days)

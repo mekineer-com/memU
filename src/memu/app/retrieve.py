@@ -971,7 +971,7 @@ class RetrieveMixin:
     def _format_item_content(
         self, hits: list[tuple[str, float]], store: Database, items: Mapping[str, Any] | None = None
     ) -> str:
-        item_pool = items if items is not None else store.memory_item_repo.items
+        item_pool = items if items is not None else store.memory_item_repo.list_items()
         lines = []
         for iid, score in hits:
             item = item_pool.get(iid)
@@ -1150,7 +1150,7 @@ class RetrieveMixin:
         relations: Sequence[Any] | None = None,
     ) -> str:
         """Format memory items for LLM consumption, optionally filtered by category"""
-        item_pool = items if items is not None else store.memory_item_repo.items
+        item_pool = items if items is not None else store.memory_item_repo.list_items()
         relation_pool = relations if relations is not None else store.category_item_repo.relations
         items_to_format = []
         seen_item_ids = set()
@@ -1187,7 +1187,7 @@ class RetrieveMixin:
     ) -> str:
         """Format resources for LLM consumption, optionally filtered by related items"""
         resource_pool = resources if resources is not None else store.resource_repo.resources
-        item_pool = items if items is not None else store.memory_item_repo.items
+        item_pool = items if items is not None else store.memory_item_repo.list_items()
         resources_to_format = []
 
         if item_ids:
@@ -1256,7 +1256,7 @@ class RetrieveMixin:
             print("[LLM Rank Items] No category_ids provided")
             return []
 
-        item_pool = items if items is not None else store.memory_item_repo.items
+        item_pool = items if items is not None else store.memory_item_repo.list_items()
         items_data = self._format_items_for_llm(store, category_ids, items=item_pool, relations=relations)
         if items_data == "No memory items available.":
             return []
@@ -1295,7 +1295,7 @@ class RetrieveMixin:
         if not item_ids:
             return []
 
-        item_pool = items if items is not None else store.memory_item_repo.items
+        item_pool = items if items is not None else store.memory_item_repo.list_items()
         resource_pool = resources if resources is not None else store.resource_repo.resources
         resources_data = self._format_resources_for_llm(store, item_ids, items=item_pool, resources=resource_pool)
         if resources_data == "No resources available.":
@@ -1350,7 +1350,7 @@ class RetrieveMixin:
         self, raw_response: str, store: Database, items: Mapping[str, Any] | None = None
     ) -> list[dict[str, Any]]:
         """Parse LLM item ranking response"""
-        item_pool = items if items is not None else store.memory_item_repo.items
+        item_pool = items if items is not None else store.memory_item_repo.list_items()
         results = []
         try:
             json_blob = self._extract_json_blob(raw_response)

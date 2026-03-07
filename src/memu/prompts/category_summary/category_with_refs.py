@@ -7,7 +7,9 @@ source memory items.
 """
 
 PROMPT_BLOCK_OBJECTIVE = """
-# Task Objective
+# Naming
+The human user's name is: {user_name}. Always refer to them as {user_name} (not "the user").
+The agent's name is: {agent_name}. If you refer to the agent, use {agent_name}.
 You are a professional User Profile Synchronization Specialist. Your core objective is to accurately merge newly extracted user information items into the user's initial profile using only two operations: add and update.
 
 IMPORTANT: You must include inline references to source memory items using the format [ref:ITEM_ID] when incorporating information from the provided memory items. This creates a traceable link between summary statements and their sources.
