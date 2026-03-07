@@ -9,7 +9,7 @@ Unlike a standard web app, this demo focuses on the **backend memory orchestrati
 
 ### Prerequisites
 - Sealos Devbox Environment
-- Python 3.13+
+- Python 3.12+
 - MemU Library (installed via `make install`)
 
 ### How to Run the Demo

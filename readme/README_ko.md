@@ -8,7 +8,7 @@
 
 [![PyPI version](https://badge.fury.io/py/memu-py.svg)](https://badge.fury.io/py/memu-py)
 [![License: GPLv3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0.en.html)
-[![Python 3.13+](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![Discord](https://img.shields.io/badge/Discord-Join%20Chat-5865F2?logo=discord&logoColor=white)](https://discord.gg/memu)
 [![Twitter](https://img.shields.io/badge/Twitter-Follow-1DA1F2?logo=x&logoColor=white)](https://x.com/memU_ai)
 
@@ -280,7 +280,7 @@ pip install -e .
 
 #### 기본 예제
 
-> **요구사항**: Python 3.13+ 및 OpenAI API 키
+> **요구사항**: Python 3.12+ 및 OpenAI API 키
 
 **지속 학습 테스트** (인메모리):
 ```bash
@@ -596,7 +596,7 @@ MemU는 모든 추론 작업에서 Locomo 벤치마크에서 **92.09% 평균 정
 MemU에 기여하려면 개발 환경을 설정해야 합니다:
 
 #### 사전 요구사항
-- Python 3.13+
+- Python 3.12+
 - [uv](https://github.com/astral-sh/uv) (Python 패키지 관리자)
 - Git
 

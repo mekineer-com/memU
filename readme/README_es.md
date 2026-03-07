@@ -8,7 +8,7 @@
 
 [![PyPI version](https://badge.fury.io/py/memu-py.svg)](https://badge.fury.io/py/memu-py)
 [![License: GPLv3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0.en.html)
-[![Python 3.13+](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![Discord](https://img.shields.io/badge/Discord-Join%20Chat-5865F2?logo=discord&logoColor=white)](https://discord.gg/memu)
 [![Twitter](https://img.shields.io/badge/Twitter-Follow-1DA1F2?logo=x&logoColor=white)](https://x.com/memU_ai)
 
@@ -280,7 +280,7 @@ pip install -e .
 
 #### Ejemplo Básico
 
-> **Requisitos**: Python 3.13+ y una clave API de OpenAI
+> **Requisitos**: Python 3.12+ y una clave API de OpenAI
 
 **Probar Aprendizaje Continuo** (en memoria):
 ```bash
@@ -596,7 +596,7 @@ Ver datos experimentales detallados: [memU-experiment](https://github.com/NevaMi
 Para empezar a contribuir a MemU, necesitarás configurar tu entorno de desarrollo:
 
 #### Prerrequisitos
-- Python 3.13+
+- Python 3.12+
 - [uv](https://github.com/astral-sh/uv) (gestor de paquetes Python)
 - Git
 

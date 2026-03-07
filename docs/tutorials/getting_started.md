@@ -6,7 +6,7 @@ Welcome to MemU! This guide will help you add robust long-term memory capabiliti
 
 Before we begin, ensure you have the following:
 
--   **Python 3.13+**: MemU takes advantage of modern Python features.
+-   **Python 3.12+**: MemU takes advantage of modern Python features.
 -   **OpenAI API Key**: This quickstart uses OpenAI's models (`gpt-4o-mini`). You will need a valid API key.
 
 ## Step-by-Step Guide
