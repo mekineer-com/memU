@@ -17,7 +17,13 @@ class MemoryCategoryRepo(Protocol):
     def clear_categories(self, where: Mapping[str, Any] | None = None) -> dict[str, MemoryCategory]: ...
 
     def get_or_create_category(
-        self, *, name: str, description: str, embedding: list[float], user_data: dict[str, Any]
+        self,
+        *,
+        name: str,
+        description: str,
+        embedding: list[float],
+        user_data: dict[str, Any],
+        session: Any | None = None,
     ) -> MemoryCategory: ...
 
     def update_category(

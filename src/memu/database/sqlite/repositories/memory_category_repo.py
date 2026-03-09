@@ -129,7 +129,13 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
         return deleted
 
     def get_or_create_category(
-        self, *, name: str, description: str, embedding: list[float], user_data: dict[str, Any]
+        self,
+        *,
+        name: str,
+        description: str,
+        embedding: list[float],
+        user_data: dict[str, Any],
+        session: Any | None = None,
     ) -> MemoryCategory:
         """Get existing category by name or create a new one.
 
@@ -144,7 +150,17 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
         """
         # Check for existing category with same name and scope
         where: dict[str, Any] = {"name": name, **user_data}
-        with self._sessions.session() as session:
+        if session is None:
+            with self._sessions.session() as session:
+                return self.get_or_create_category(
+                    name=name,
+                    description=description,
+                    embedding=embedding,
+                    user_data=user_data,
+                    session=session,
+                )
+
+        with session.no_autoflush:
             stmt = select(self._memory_category_model)
             filters = self._build_filters(self._memory_category_model, where)
             if filters:
@@ -178,7 +194,7 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
             )
             self._set_row_embedding(row, embedding)
             session.add(row)
-            session.commit()
+            session.flush()
             session.refresh(row)
 
         cat = MemoryCategory(

@@ -1090,6 +1090,7 @@ class MemorizeMixin:
         store: Database,
         embed_client: Any,
         user: Mapping[str, Any] | None = None,
+        session: Any | None = None,
     ) -> list[StructuredMemoryEntry]:
         """Resolve category names, optionally creating new *main* categories.
 
@@ -1325,6 +1326,7 @@ Decide which candidates should map into existing categories, and which (if any) 
                     description=desc or '',
                     embedding=vec,
                     user_data=dict(user or {}),
+                    session=session,
                 )
                 ctx.category_ids.append(cat.id)
                 ctx.category_name_to_id[name.lower()] = cat.id
@@ -1372,7 +1374,14 @@ Decide which candidates should map into existing categories, and which (if any) 
         category_memory_updates: dict[str, list[tuple[str, str]]] = {}
 
         reinforce = self.memorize_config.enable_item_reinforcement
-        structured_entries = await self._maybe_create_dynamic_categories(structured_entries=structured_entries, ctx=ctx, store=store, embed_client=client, user=user)
+        structured_entries = await self._maybe_create_dynamic_categories(
+            structured_entries=structured_entries,
+            ctx=ctx,
+            store=store,
+            embed_client=client,
+            user=user,
+            session=session,
+        )
         for (memory_type, summary_text, cat_names, source_role, confidence), emb in zip(
             structured_entries, item_embeddings, strict=True
         ):

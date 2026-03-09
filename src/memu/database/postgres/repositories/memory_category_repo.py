@@ -69,11 +69,22 @@ class PostgresMemoryCategoryRepo(PostgresRepoBase, MemoryCategoryRepo):
         description: str,
         embedding: list[float],
         user_data: dict[str, Any],
+        session: Any | None = None,
     ) -> MemoryCategory:
         from sqlmodel import select
 
         now = self._now()
-        with self._sessions.session() as session:
+        if session is None:
+            with self._sessions.session() as session:
+                return self.get_or_create_category(
+                    name=name,
+                    description=description,
+                    embedding=embedding,
+                    user_data=user_data,
+                    session=session,
+                )
+
+        with session.no_autoflush:
             filters = [self._sqla_models.MemoryCategory.name == name]
             for key, value in user_data.items():
                 filters.append(getattr(self._sqla_models.MemoryCategory, key) == value)
@@ -90,7 +101,7 @@ class PostgresMemoryCategoryRepo(PostgresRepoBase, MemoryCategoryRepo):
                 if updated:
                     existing.updated_at = now
                     session.add(existing)
-                    session.commit()
+                    session.flush()
                     session.refresh(existing)
                 return self._cache_category(existing)
 
@@ -103,7 +114,7 @@ class PostgresMemoryCategoryRepo(PostgresRepoBase, MemoryCategoryRepo):
                 **user_data,
             )
             session.add(cat)
-            session.commit()
+            session.flush()
             session.refresh(cat)
 
         return self._cache_category(cat)

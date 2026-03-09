@@ -33,7 +33,13 @@ class InMemoryMemoryCategoryRepository(MemoryCategoryRepoProtocol):
         return matches
 
     def get_or_create_category(
-        self, *, name: str, description: str, embedding: list[float], user_data: dict[str, Any]
+        self,
+        *,
+        name: str,
+        description: str,
+        embedding: list[float],
+        user_data: dict[str, Any],
+        session: Any | None = None,
     ) -> MemoryCategory:
         for c in self.categories.values():
             if c.name == name and all(getattr(c, k) == v for k, v in user_data.items()):
