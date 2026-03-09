@@ -580,6 +580,18 @@ class MemorizeMixin:
         return out
 
     @staticmethod
+    def _looks_like_speech_act_event(summary: Any) -> bool:
+        text = str(summary or "").strip()
+        if not text:
+            return False
+        return bool(re.match(
+            r"^(?:i|we|you|they|he|she|[A-Z][A-Za-z0-9_'-]*(?:\s+[A-Z][A-Za-z0-9_'-]*)*)\s+"
+            r"(?:shared|mentioned|stated|said|noted|clarified|explained|described|summarized|emphasized|expressed|voiced|wrote|told|admitted|revealed)\b",
+            text,
+            flags=re.IGNORECASE,
+        ))
+
+    @staticmethod
     def _dedupe_source_role(item: Any) -> str | None:
         raw = getattr(item, "source_role", None)
         if not isinstance(raw, str):
@@ -1056,7 +1068,56 @@ class MemorizeMixin:
                         cat_names.append(n)
                         seen.add(n)
                 entries.append((mtype, content, cat_names, source_role, confidence))
-        return entries
+        return self._prune_extracted_entry_duplicates(entries)
+
+    def _prune_extracted_entry_duplicates(
+        self,
+        entries: list[StructuredMemoryEntry],
+    ) -> list[StructuredMemoryEntry]:
+        if len(entries) < 2:
+            return entries
+
+        profile_tokens: list[tuple[str | None, set[str]]] = []
+        for memory_type, summary, _cat_names, source_role, _confidence in entries:
+            if memory_type != "profile":
+                continue
+            tokens = self._dedupe_summary_tokens(summary)
+            if tokens:
+                profile_tokens.append((source_role, tokens))
+
+        seen_exact: set[tuple[str, str | None, str]] = set()
+        kept: list[StructuredMemoryEntry] = []
+        for memory_type, summary, cat_names, source_role, confidence in entries:
+            normalized_summary = re.sub(r"\s+", " ", str(summary or "").strip())
+            exact_key = (memory_type, source_role, normalized_summary.casefold())
+            if exact_key in seen_exact:
+                continue
+            seen_exact.add(exact_key)
+
+            if (
+                memory_type == "event"
+                and profile_tokens
+                and self._looks_like_speech_act_event(normalized_summary)
+            ):
+                event_tokens = self._dedupe_summary_tokens(normalized_summary)
+                if event_tokens:
+                    drop_event = False
+                    for profile_role, profile_summary_tokens in profile_tokens:
+                        if source_role and profile_role and source_role != profile_role:
+                            continue
+                        overlap = len(event_tokens & profile_summary_tokens)
+                        if overlap <= 0:
+                            continue
+                        union = len(event_tokens | profile_summary_tokens)
+                        if union and (overlap / union) >= 0.45:
+                            drop_event = True
+                            break
+                    if drop_event:
+                        continue
+
+            kept.append((memory_type, normalized_summary, cat_names, source_role, confidence))
+
+        return kept
 
     def _extract_segment_text(self, lines: list[str], start_idx: int, end_idx: int) -> str | None:
         segment_lines = []
