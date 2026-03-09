@@ -103,6 +103,7 @@ Important: Do not record temporary/one-off situational information; focus on mea
 ## Review & validation rules
 - Merge similar items: keep only one and assign a single category.
 - Resolve conflicts: keep the latest / most certain item.
+- If multiple items express facets of the same underlying trait, value, or orientation, consolidate them into one richer item rather than listing each facet separately. Three thin items about "prefers simplicity" are worse than one that captures its texture.
 - Final check: every item must comply with all extraction rules.
 """
 
@@ -148,7 +149,7 @@ PROMPT_BLOCK_EXAMPLES = """
 # Examples (Input / Output / Explanation)
 Example 1: User Information Extraction
 ## Input
-user: Hi, are you busy? I just got off work and I'm going to the supermarket to buy some groceries.
+user: Hi, I'm Alex. I just got off work and I'm going to the supermarket to buy some groceries.
 assistant: Not busy. Are you cooking for yourself?
 user: Yes. It's healthier. I work as a product manager in an internet company. I'm 30 this year. After work I like experimenting with cooking, I often figure out dishes by myself.
 assistant: Being a PM is tough. You're so disciplined to cook at 30!
@@ -158,7 +159,7 @@ user: I haven't started packing yet. It's annoying.
 ## Output
 <item>
     <memory>
-        <content>They work as a product manager at an internet company</content>
+        <content>Alex works as a product manager at an internet company</content>
         <source_role>user</source_role>
         <confidence>0.9</confidence>
         <categories>
@@ -166,7 +167,7 @@ user: I haven't started packing yet. It's annoying.
         </categories>
     </memory>
     <memory>
-        <content>They are 30 years old</content>
+        <content>Alex is 30 years old</content>
         <source_role>user</source_role>
         <confidence>0.9</confidence>
         <categories>
@@ -174,7 +175,7 @@ user: I haven't started packing yet. It's annoying.
         </categories>
     </memory>
     <memory>
-        <content>They like experimenting with cooking after work</content>
+        <content>Alex enjoys experimenting with new recipes after work and finds it relaxing</content>
         <source_role>user</source_role>
         <confidence>0.9</confidence>
         <categories>
@@ -185,6 +186,7 @@ user: I haven't started packing yet. It's annoying.
 ## Explanation
 Only stable profile facts are extracted.
 The travel plan and packing annoyance are events/temporary states, so they are not extracted as Profile Information.
+Alex introduced themselves by name, so their name is used throughout. If no name appears in the conversation, use whatever pronoun the conversation establishes — never a generic label.
 
 Example 2: Multi-participant profile extraction with emotional texture
 ## Input

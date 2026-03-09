@@ -5,6 +5,7 @@ import json
 import logging
 import math
 import pathlib
+import random
 import re
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from typing import TYPE_CHECKING, Any, cast
@@ -32,6 +33,7 @@ from memu.prompts.memory_type import (
     PROMPTS as MEMORY_TYPE_PROMPTS,
 )
 from memu.prompts.preprocess import PROMPTS as PREPROCESS_PROMPTS
+from memu.prompts.router import PROMPT as ROUTER_PROMPT
 from memu.utils.conversation import format_conversation_for_preprocess
 from memu.utils.video import VideoFrameExtractor
 from memu.workflow.step import WorkflowState, WorkflowStep
@@ -981,14 +983,59 @@ class MemorizeMixin:
             segment_text = self._extract_segment_text(lines, start_idx, end_idx)
             if not segment_text:
                 continue
+            applicable_types = await self._route_segment(segment_text, memory_types, llm_client)
+            if not applicable_types:
+                continue
             segment_entries = await self._generate_entries_from_text(
                 resource_text=segment_text,
-                memory_types=memory_types,
+                memory_types=applicable_types,
                 categories_prompt_str=categories_prompt_str,
                 llm_client=llm_client,
             )
+            random.shuffle(segment_entries)
+            segment_entries = sorted(
+                segment_entries,
+                key=lambda entry: entry[4] if entry[4] is not None else 0.0,
+                reverse=True,
+            )[:3]
             entries.extend(segment_entries)
         return entries
+
+    async def _route_segment(
+        self,
+        segment_text: str,
+        memory_types: list[MemoryType],
+        llm_client: Any | None = None,
+    ) -> list[MemoryType]:
+        if not memory_types:
+            return []
+        client = llm_client or self._get_llm_client()
+        prompt = ROUTER_PROMPT.format(
+            segment=segment_text,
+            allowed_types=[mtype.value for mtype in memory_types],
+        )
+        raw = await client.chat(prompt)
+        if isinstance(raw, str):
+            raw = re.sub(r"^\s*```(?:json)?\s*", "", raw, count=1, flags=re.IGNORECASE)
+            raw = re.sub(r"\s*```\s*$", "", raw, count=1)
+        try:
+            payload = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            try:
+                payload = json.loads(self._extract_json_blob(raw))
+            except Exception:
+                return memory_types
+        if not isinstance(payload, dict):
+            return memory_types
+        routed_types = payload.get("types")
+        if not isinstance(routed_types, list):
+            return memory_types
+        allowed_types = {
+            routed_type
+            for routed_type in routed_types
+            if isinstance(routed_type, str) and routed_type in {mtype.value for mtype in memory_types}
+        }
+        return [mtype for mtype in memory_types if mtype.value in allowed_types]
 
     async def _generate_entries_from_text(
         self,
@@ -1446,6 +1493,8 @@ Decide which candidates should map into existing categories, and which (if any) 
         for (memory_type, summary_text, cat_names, source_role, confidence), emb in zip(
             structured_entries, item_embeddings, strict=True
         ):
+            if confidence is not None and confidence < 0.6:
+                continue
             item_kwargs = {
                 "resource_id": resource_id,
                 "memory_type": memory_type,

@@ -60,7 +60,7 @@ def _extract_messages(payload: Any) -> list[dict[str, Any]] | None:
 def _format_messages(messages: list[dict[str, Any]]) -> str:
     out: list[str] = []
     for idx, msg in enumerate(messages):
-        role = str(msg.get("role") or "user").strip() or "user"
+        role = str(msg.get("name") or msg.get("role") or "user").strip() or "user"
         content = msg.get("content")
         text = _extract_text_content(content)
         created_at = _extract_created_at(msg)

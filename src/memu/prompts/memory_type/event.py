@@ -93,6 +93,7 @@ Important: A participant's inner experience during an event — their emotions, 
 - Behavioral patterns, habits, preferences, or factual knowledge are forbidden in Event Information.
 - Focus on concrete happenings, activities, and experiences.
 - Do not extract content that was obtained only through the model's follow-up questions unless the user shows strong proactive intent.
+- A conversational action is not an event. "I explained X", "I recalibrated my tone", "they asked me about Y", "I provided a summary" — these describe turns, not experiences. Only extract if the exchange had emotional weight, a real-world consequence, or a turning point that will still matter in three months. If you can't answer that question, skip it.
 
 ## Forbidden content
 - Knowledge Q&A without a clear participant event.
@@ -151,7 +152,7 @@ PROMPT_BLOCK_EXAMPLES = """
 # Examples (Input / Output / Explanation)
 Example 1: Event Information Extraction
 ## Input
-user: Hi, are you busy? I just got off work and I'm going to the supermarket to buy some groceries.
+user: Hi, I'm Alex. I just got off work and I'm going to the supermarket to buy some groceries.
 assistant: Not busy. Are you cooking for yourself?
 user: Yes. It's healthier. I work as a product manager in an internet company. I'm 30 this year. After work I like experimenting with cooking, I often figure out dishes by myself.
 assistant: Being a PM is tough. You're so disciplined to cook at 30!
@@ -161,7 +162,7 @@ user: I haven't started packing yet. It's annoying.
 ## Output
 <item>
     <memory>
-        <content>They are planning a trip next weekend and haven't started packing yet</content>
+        <content>Alex is planning a trip next weekend and hasn't started packing yet, which is annoying her</content>
         <source_role>user</source_role>
         <confidence>0.9</confidence>
         <categories>
@@ -171,8 +172,9 @@ user: I haven't started packing yet. It's annoying.
 </item>
 ## Explanation
 Only specific events explicitly grounded in the conversation are extracted.
-The travel plan is an event with a specific time reference (next weekend).
-Their job, age, and cooking habits are stable traits, not events.
+The travel plan is an event with a specific time reference (next weekend) and an emotional note (annoyed about packing).
+Alex's job, age, and cooking habits are stable traits, not events.
+Alex introduced themselves by name, so their name is used. If no name appears, use whatever pronoun the conversation establishes.
 
 Example 2: Relational event with emotional significance
 ## Input
