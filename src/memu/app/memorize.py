@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import math
 import pathlib
-import random
 import re
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from typing import TYPE_CHECKING, Any, cast
@@ -66,6 +66,22 @@ class MemorizeMixin:
         _extract_json_blob: Callable[[str], str]
         _escape_prompt_value: Callable[[str], str]
         user_model: type[BaseModel]
+
+    def _segment_entry_sort_key(self, entry: StructuredMemoryEntry) -> tuple[float, int]:
+        confidence = entry[4] if entry[4] is not None else 0.0
+        tie_payload = "\x1f".join(
+            [
+                entry[0].value,
+                entry[1],
+                "\x1e".join(entry[2]),
+                entry[3] or "",
+            ]
+        )
+        tie_break = int.from_bytes(
+            hashlib.blake2s(tie_payload.encode("utf-8"), digest_size=8).digest(),
+            "big",
+        )
+        return (confidence, tie_break)
 
     async def memorize(
         self,
@@ -992,12 +1008,7 @@ class MemorizeMixin:
                 categories_prompt_str=categories_prompt_str,
                 llm_client=llm_client,
             )
-            random.shuffle(segment_entries)
-            segment_entries = sorted(
-                segment_entries,
-                key=lambda entry: entry[4] if entry[4] is not None else 0.0,
-                reverse=True,
-            )[:3]
+            segment_entries = sorted(segment_entries, key=self._segment_entry_sort_key, reverse=True)[:3]
             entries.extend(segment_entries)
         return entries
 
