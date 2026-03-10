@@ -28,9 +28,7 @@ class InMemoryMemoryItemRepository(MemoryItemRepo):
         if not where:
             return {mid: item for mid, item in self.items.items() if self._is_active_item(item)}
         return {
-            mid: item
-            for mid, item in self.items.items()
-            if self._is_active_item(item) and matches_where(item, where)
+            mid: item for mid, item in self.items.items() if self._is_active_item(item) and matches_where(item, where)
         }
 
     def list_items_by_ref_ids(

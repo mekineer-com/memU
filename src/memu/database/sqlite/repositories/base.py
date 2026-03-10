@@ -71,7 +71,7 @@ class SQLiteRepoBase:
         `embedding_json`.
         """
         if hasattr(row, "embedding"):
-            v = getattr(row, "embedding")
+            v = row.embedding
             if v is not None:
                 return v
         return getattr(row, "embedding_json", None)
@@ -80,9 +80,9 @@ class SQLiteRepoBase:
         """Write embedding to the primary column, with legacy-only fallback."""
         prepared = self._prepare_embedding(embedding)
         if hasattr(row, "embedding"):
-            setattr(row, "embedding", prepared)
+            row.embedding = prepared
         elif hasattr(row, "embedding_json"):
-            setattr(row, "embedding_json", prepared)
+            row.embedding_json = prepared
 
     def _prepare_embedding(self, embedding: list[float] | None) -> str | None:
         """Serialize embedding to JSON string for SQLite storage."""
