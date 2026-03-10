@@ -78,6 +78,8 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
         embedding: list[float] | None = None,
         scope: Mapping[str, Any] | None = None,
     ) -> MemoryItem:
+        item_scope = dict(scope) if scope is not None else self._scope_kwargs_from(row)
+        item_scope.pop("conversation_id", None)
         return MemoryItem(
             id=row.id,
             resource_id=row.resource_id,
@@ -88,11 +90,13 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
             source_role=getattr(row, "source_role", None),
             confidence=getattr(row, "confidence", None),
             conversation_id=getattr(row, "conversation_id", None),
+            affective_tags=getattr(row, "affective_tags", None),
+            unresolved=getattr(row, "unresolved", None),
             merged_into=getattr(row, "merged_into", None),
             extra=getattr(row, "extra", {}) or {},
             created_at=row.created_at,
             updated_at=row.updated_at,
-            **(dict(scope) if scope is not None else self._scope_kwargs_from(row)),
+            **item_scope,
         )
 
     def get_item(self, item_id: str) -> MemoryItem | None:
@@ -230,7 +234,7 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
     def create_item(
         self,
         *,
-        resource_id: str,
+        resource_id: str | None = None,
         memory_type: MemoryType,
         summary: str,
         embedding: list[float],
@@ -240,6 +244,8 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
         source_role: str | None = None,
         confidence: float | None = None,
         conversation_id: str | None = None,
+        affective_tags: dict[str, Any] | None = None,
+        unresolved: str | None = None,
         session: Any | None = None,
     ) -> MemoryItem:
         """Create a new memory item.
@@ -266,6 +272,8 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
                 source_role=source_role,
                 confidence=confidence,
                 conversation_id=conversation_id,
+                affective_tags=affective_tags,
+                unresolved=unresolved,
                 session=session,
             )
 
@@ -282,6 +290,8 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
                     source_role=source_role,
                     confidence=confidence,
                     conversation_id=conversation_id,
+                    affective_tags=affective_tags,
+                    unresolved=unresolved,
                     session=session,
                 )
                 session.commit()
@@ -297,6 +307,8 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
             if tool_record.get("tool_calls") is not None:
                 extra["tool_calls"] = tool_record["tool_calls"]
 
+        create_user_data = dict(user_data or {})
+        create_user_data.pop("conversation_id", None)
         conv_id = self._resolve_conversation_id(conversation_id, user_data)
         now = self._now()
         row = self._memory_item_model(
@@ -307,10 +319,12 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
             source_role=source_role,
             confidence=confidence,
             conversation_id=conv_id,
+            affective_tags=affective_tags,
+            unresolved=unresolved,
             extra=extra if extra else {},
             created_at=now,
             updated_at=now,
-            **user_data,
+            **create_user_data,
         )
         self._set_row_embedding(row, embedding)
         session.add(row)
@@ -324,7 +338,7 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
     def create_item_reinforce(
         self,
         *,
-        resource_id: str,
+        resource_id: str | None = None,
         memory_type: MemoryType,
         summary: str,
         embedding: list[float],
@@ -332,6 +346,8 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
         source_role: str | None = None,
         confidence: float | None = None,
         conversation_id: str | None = None,
+        affective_tags: dict[str, Any] | None = None,
+        unresolved: str | None = None,
         session: Any | None = None,
     ) -> MemoryItem:
         """Create or reinforce a memory item with deduplication.
@@ -365,6 +381,8 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
                     source_role=source_role,
                     confidence=confidence,
                     conversation_id=conversation_id,
+                    affective_tags=affective_tags,
+                    unresolved=unresolved,
                     session=session,
                 )
                 session.commit()
@@ -396,6 +414,10 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
                 existing.confidence = confidence
             if conv_id is not None:
                 existing.conversation_id = conv_id
+            if affective_tags is not None:
+                existing.affective_tags = affective_tags
+            if unresolved is not None:
+                existing.unresolved = unresolved
             existing.updated_at = self._now()
             session.add(existing)
             session.flush()
@@ -407,6 +429,7 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
         # Create new item with salience tracking in extra
         now = self._now()
         create_user_data = dict(user_data or {})
+        create_user_data.pop("conversation_id", None)
         item_extra = create_user_data.pop("extra", {}) if "extra" in create_user_data else {}
         item_extra.update({
             "content_hash": content_hash,
@@ -422,6 +445,8 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
             source_role=source_role,
             confidence=confidence,
             conversation_id=conv_id,
+            affective_tags=affective_tags,
+            unresolved=unresolved,
             extra=item_extra,
             created_at=now,
             updated_at=now,
@@ -447,6 +472,8 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
         extra: dict[str, Any] | None = None,
         tool_record: dict[str, Any] | None = None,
         merged_into: str | None = None,
+        affective_tags: dict[str, Any] | None = None,
+        unresolved: str | None = None,
     ) -> MemoryItem:
         """Update an existing memory item.
 
@@ -480,6 +507,10 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
                 self._set_row_embedding(row, embedding)
             if merged_into is not None:
                 row.merged_into = merged_into
+            if affective_tags is not None:
+                row.affective_tags = affective_tags
+            if unresolved is not None:
+                row.unresolved = unresolved
 
             # Merge extra and tool_record into existing extra dict
             current_extra = row.extra or {}

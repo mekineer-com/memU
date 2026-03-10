@@ -152,13 +152,15 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
         where: dict[str, Any] = {"name": name, **user_data}
         if session is None:
             with self._sessions.session() as session:
-                return self.get_or_create_category(
+                cat = self.get_or_create_category(
                     name=name,
                     description=description,
                     embedding=embedding,
                     user_data=user_data,
                     session=session,
                 )
+                session.commit()
+                return cat
 
         with session.no_autoflush:
             stmt = select(self._memory_category_model)

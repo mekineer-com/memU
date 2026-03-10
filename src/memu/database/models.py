@@ -9,7 +9,7 @@ from typing import Any, Literal
 import pendulum
 from pydantic import BaseModel, ConfigDict, Field
 
-MemoryType = Literal["profile", "event", "knowledge", "behavior", "skill", "tool"]
+MemoryType = Literal["profile", "event", "knowledge", "behavior", "skill", "tool", "diary"]
 
 
 def compute_content_hash(summary: str, memory_type: str) -> str:
@@ -85,6 +85,8 @@ class MemoryItem(BaseRecord):
     confidence: float | None = None
     # Conversation/session anchor (mapped from session_id when available).
     conversation_id: str | None = None
+    affective_tags: dict[str, Any] | None = None
+    unresolved: str | None = None
     # Soft-merge marker for conservative semantic dedupe.
     # When set, this item is treated as merged into another canonical item.
     merged_into: str | None = None

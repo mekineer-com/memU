@@ -113,6 +113,7 @@ Important: A participant's inner experience during an event — their emotions, 
 PROMPT_BLOCK_CATEGORY = """
 ## Memory Categories:
 {categories_str}
+If a memory item clearly doesn't belong in any category above, you may propose a new one — write its name in the `<category>` field. Name it as a broad life or relationship domain, not a narrow topic. Use this sparingly; most items should find a home in the existing set.
 """
 
 PROMPT_BLOCK_OUTPUT = """

@@ -92,7 +92,7 @@ class InMemoryMemoryItemRepository(MemoryItemRepo):
     def create_item(
         self,
         *,
-        resource_id: str,
+        resource_id: str | None = None,
         memory_type: MemoryType,
         summary: str,
         embedding: list[float],
@@ -102,6 +102,8 @@ class InMemoryMemoryItemRepository(MemoryItemRepo):
         source_role: str | None = None,
         confidence: float | None = None,
         conversation_id: str | None = None,
+        affective_tags: dict[str, Any] | None = None,
+        unresolved: str | None = None,
     ) -> MemoryItem:
         if reinforce and memory_type != "tool":
             return self.create_item_reinforce(
@@ -113,6 +115,8 @@ class InMemoryMemoryItemRepository(MemoryItemRepo):
                 source_role=source_role,
                 confidence=confidence,
                 conversation_id=conversation_id,
+                affective_tags=affective_tags,
+                unresolved=unresolved,
             )
 
         # Build extra dict with tool_record fields at top level
@@ -140,6 +144,8 @@ class InMemoryMemoryItemRepository(MemoryItemRepo):
             source_role=source_role,
             confidence=confidence,
             conversation_id=conv_id,
+            affective_tags=affective_tags,
+            unresolved=unresolved,
             extra=extra if extra else {},
             **user_data,
         )
@@ -149,7 +155,7 @@ class InMemoryMemoryItemRepository(MemoryItemRepo):
     def create_item_reinforce(
         self,
         *,
-        resource_id: str,
+        resource_id: str | None = None,
         memory_type: MemoryType,
         summary: str,
         embedding: list[float],
@@ -158,6 +164,8 @@ class InMemoryMemoryItemRepository(MemoryItemRepo):
         source_role: str | None = None,
         confidence: float | None = None,
         conversation_id: str | None = None,
+        affective_tags: dict[str, Any] | None = None,
+        unresolved: str | None = None,
     ) -> MemoryItem:
         content_hash = compute_content_hash(summary, memory_type)
         conv_id = (
@@ -183,6 +191,10 @@ class InMemoryMemoryItemRepository(MemoryItemRepo):
                 existing.confidence = confidence
             if conv_id is not None:
                 existing.conversation_id = conv_id
+            if affective_tags is not None:
+                existing.affective_tags = affective_tags
+            if unresolved is not None:
+                existing.unresolved = unresolved
             existing.updated_at = pendulum.now("UTC")
             return existing
 
@@ -204,6 +216,8 @@ class InMemoryMemoryItemRepository(MemoryItemRepo):
             source_role=source_role,
             confidence=confidence,
             conversation_id=conv_id,
+            affective_tags=affective_tags,
+            unresolved=unresolved,
             extra=item_extra,
             **user_data,
         )
@@ -278,6 +292,8 @@ class InMemoryMemoryItemRepository(MemoryItemRepo):
         extra: dict[str, Any] | None = None,
         tool_record: dict[str, Any] | None = None,
         merged_into: str | None = None,
+        affective_tags: dict[str, Any] | None = None,
+        unresolved: str | None = None,
     ) -> MemoryItem:
         item = self.items.get(item_id)
         if item is None:
@@ -292,6 +308,10 @@ class InMemoryMemoryItemRepository(MemoryItemRepo):
             item.embedding = embedding
         if merged_into is not None:
             item.merged_into = merged_into
+        if affective_tags is not None:
+            item.affective_tags = affective_tags
+        if unresolved is not None:
+            item.unresolved = unresolved
 
         # Merge extra and tool_record into existing extra dict
         current_extra = item.extra or {}

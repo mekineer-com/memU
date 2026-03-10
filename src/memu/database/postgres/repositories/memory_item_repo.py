@@ -140,6 +140,8 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
         source_role: str | None = None,
         confidence: float | None = None,
         conversation_id: str | None = None,
+        affective_tags: dict[str, Any] | None = None,
+        unresolved: str | None = None,
     ) -> MemoryItem:
         if reinforce and memory_type != "tool":
             return self.create_item_reinforce(
@@ -151,6 +153,8 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
                 source_role=source_role,
                 confidence=confidence,
                 conversation_id=conversation_id,
+                affective_tags=affective_tags,
+                unresolved=unresolved,
             )
 
         # Build extra dict with tool_record fields at top level
@@ -163,6 +167,8 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
             if tool_record.get("tool_calls") is not None:
                 extra["tool_calls"] = tool_record["tool_calls"]
 
+        create_user_data = dict(user_data or {})
+        create_user_data.pop("conversation_id", None)
         conv_id = (
             conversation_id
             or (user_data.get("conversation_id") if isinstance(user_data.get("conversation_id"), str) else None)
@@ -176,8 +182,10 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
             source_role=source_role,
             confidence=confidence,
             conversation_id=conv_id,
+            affective_tags=affective_tags,
+            unresolved=unresolved,
             extra=extra if extra else {},
-            **user_data,
+            **create_user_data,
             created_at=self._now(),
             updated_at=self._now(),
         )
@@ -201,6 +209,8 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
         source_role: str | None = None,
         confidence: float | None = None,
         conversation_id: str | None = None,
+        affective_tags: dict[str, Any] | None = None,
+        unresolved: str | None = None,
     ) -> MemoryItem:
         from sqlmodel import select
 
@@ -238,6 +248,10 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
                     existing.confidence = confidence
                 if conv_id is not None:
                     existing.conversation_id = conv_id
+                if affective_tags is not None:
+                    existing.affective_tags = affective_tags
+                if unresolved is not None:
+                    existing.unresolved = unresolved
                 existing.updated_at = self._now()
                 session.add(existing)
                 session.commit()
@@ -248,6 +262,8 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
             # Create new item with salience tracking in extra
             now = self._now()
 
+            create_user_data = dict(user_data or {})
+            create_user_data.pop("conversation_id", None)
             item = self._memory_item_model(
                 resource_id=resource_id,
                 memory_type=memory_type,
@@ -256,7 +272,9 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
                 source_role=source_role,
                 confidence=confidence,
                 conversation_id=conv_id,
-                **user_data,
+                affective_tags=affective_tags,
+                unresolved=unresolved,
+                **create_user_data,
                 created_at=now,
                 updated_at=now,
                 extra={
@@ -283,6 +301,8 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
         extra: dict[str, Any] | None = None,
         tool_record: dict[str, Any] | None = None,
         merged_into: str | None = None,
+        affective_tags: dict[str, Any] | None = None,
+        unresolved: str | None = None,
     ) -> MemoryItem:
         from sqlmodel import select
 
@@ -303,6 +323,10 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
                 item.embedding = self._prepare_embedding(embedding)
             if merged_into is not None:
                 item.merged_into = merged_into
+            if affective_tags is not None:
+                item.affective_tags = affective_tags
+            if unresolved is not None:
+                item.unresolved = unresolved
 
             # Merge extra and tool_record into existing extra dict
             current_extra = item.extra or {}

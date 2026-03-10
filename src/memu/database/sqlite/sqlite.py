@@ -162,6 +162,8 @@ class SQLiteStore(Database):
                 self._add_column_if_missing(conn, "memu_memory_items", "source_role", "source_role VARCHAR")
                 self._add_column_if_missing(conn, "memu_memory_items", "confidence", "confidence REAL")
                 self._add_column_if_missing(conn, "memu_memory_items", "conversation_id", "conversation_id VARCHAR")
+                self._add_column_if_missing(conn, "memu_memory_items", "affective_tags", "affective_tags JSON")
+                self._add_column_if_missing(conn, "memu_memory_items", "unresolved", "unresolved TEXT")
                 self._add_column_if_missing(conn, "memu_memory_items", "merged_into", "merged_into VARCHAR")
 
                 cols = self._table_columns(conn, "memu_memory_items")
@@ -186,6 +188,8 @@ CREATE TABLE IF NOT EXISTS memu_conversation_state (
     digest_cursor INTEGER DEFAULT 0,
     working_note TEXT,
     active_intentions JSON,
+    diary_worthy_ids JSON DEFAULT '[]',
+    self_model_id VARCHAR,
     last_retrieval_ids JSON,
     last_memorize_at DATETIME,
     updated_at DATETIME
@@ -204,12 +208,52 @@ CREATE TABLE IF NOT EXISTS memu_conversation_state (
                     conn, "memu_conversation_state", "active_intentions", "active_intentions JSON"
                 )
                 self._add_column_if_missing(
+                    conn, "memu_conversation_state", "diary_worthy_ids", "diary_worthy_ids JSON DEFAULT '[]'"
+                )
+                self._add_column_if_missing(conn, "memu_conversation_state", "self_model_id", "self_model_id VARCHAR")
+                self._add_column_if_missing(
                     conn, "memu_conversation_state", "last_retrieval_ids", "last_retrieval_ids JSON"
                 )
                 self._add_column_if_missing(
                     conn, "memu_conversation_state", "last_memorize_at", "last_memorize_at DATETIME"
                 )
                 self._add_column_if_missing(conn, "memu_conversation_state", "updated_at", "updated_at DATETIME")
+        except Exception:
+            return
+
+    def _ensure_diary_tables(self) -> None:
+        try:
+            with self._sessions.engine.begin() as conn:
+                conn.exec_driver_sql(
+                    """
+CREATE TABLE IF NOT EXISTS memu_self_model (
+    id TEXT PRIMARY KEY,
+    soul_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    trait_invariants TEXT,
+    narrative_self TEXT,
+    contextual_state TEXT,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+)
+"""
+                )
+                conn.exec_driver_sql(
+                    """
+CREATE TABLE IF NOT EXISTS memu_intentions (
+    id TEXT PRIMARY KEY,
+    soul_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    description TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active',
+    source TEXT,
+    confidence REAL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    target_date TEXT,
+    related_memory_ids TEXT,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+)
+"""
+                )
         except Exception:
             return
 
@@ -222,6 +266,7 @@ CREATE TABLE IF NOT EXISTS memu_conversation_state (
         self._ensure_embedding_json_columns()
         self._ensure_memory_item_provenance_columns()
         self._ensure_conversation_state_table()
+        self._ensure_diary_tables()
         logger.debug("SQLite tables created/verified")
 
     def close(self) -> None:

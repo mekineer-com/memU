@@ -239,6 +239,14 @@ class MemorizeConfig(BaseModel):
         default=10,
         description="Minimum number of times an unknown category must be mentioned in extracted memories before it can be auto-created (unless clearly important).",
     )
+    category_centroid_threshold: float = Field(
+        default=0.65,
+        description="Minimum cosine similarity to any existing category centroid before keeping an existing-category assignment.",
+    )
+    homeless_trigger_count: int = Field(
+        default=20,
+        description="Operator-facing threshold for watching unassigned category candidates accumulate in logs.",
+    )
     max_categories_total: int = Field(
         default=12,
         description="Maximum total number of categories allowed (configured + dynamically created).",

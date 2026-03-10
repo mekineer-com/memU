@@ -21,7 +21,7 @@ class MemoryItemRepo(Protocol):
     def create_item(
         self,
         *,
-        resource_id: str,
+        resource_id: str | None = None,
         memory_type: MemoryType,
         summary: str,
         embedding: list[float],
@@ -31,6 +31,8 @@ class MemoryItemRepo(Protocol):
         source_role: str | None = None,
         confidence: float | None = None,
         conversation_id: str | None = None,
+        affective_tags: dict[str, Any] | None = None,
+        unresolved: str | None = None,
     ) -> MemoryItem: ...
 
     def update_item(
@@ -43,6 +45,8 @@ class MemoryItemRepo(Protocol):
         extra: dict[str, Any] | None = None,
         tool_record: dict[str, Any] | None = None,
         merged_into: str | None = None,
+        affective_tags: dict[str, Any] | None = None,
+        unresolved: str | None = None,
     ) -> MemoryItem: ...
 
     def delete_item(self, item_id: str) -> None: ...

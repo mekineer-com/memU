@@ -76,13 +76,15 @@ class PostgresMemoryCategoryRepo(PostgresRepoBase, MemoryCategoryRepo):
         now = self._now()
         if session is None:
             with self._sessions.session() as session:
-                return self.get_or_create_category(
+                cat = self.get_or_create_category(
                     name=name,
                     description=description,
                     embedding=embedding,
                     user_data=user_data,
                     session=session,
                 )
+                session.commit()
+                return cat
 
         with session.no_autoflush:
             filters = [self._sqla_models.MemoryCategory.name == name]
