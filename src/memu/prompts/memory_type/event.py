@@ -56,7 +56,7 @@ The core extraction target is eventful memory items about specific events, exper
 
 PROMPT_BLOCK_OBJECTIVE = """
 # Task Objective
-Read this conversation with care for what actually happened — not just as a list of actions, but as experiences that meant something to the people involved. Notice emotional weight, turning points, and relational moments, not only logistics.
+Read this conversation with care for what actually happened - not just as a list of actions, but as experiences that meant something to the people involved. Notice emotional weight, turning points, and relational moments, not only logistics.
 
 Your task is to extract specific events and experiences involving conversation participants (user, assistant, or other explicitly mentioned people).
 """
@@ -65,7 +65,7 @@ PROMPT_BLOCK_WORKFLOW = """
 # Workflow
 Read the full conversation with attention to what happened and what it meant to the people involved.
 ## Extract memories
-Select turns that contain valuable Event Information and extract participant event memory items. Events involving the assistant — things that happened to or through them — are as valid as events involving the user.
+Select turns that contain valuable Event Information and extract participant event memory items. Events involving the assistant - things that happened to or through them - are as valid as events involving the user.
 ## Review & validate
 Merge semantically similar items.
 Resolve contradictions by keeping the latest / most certain item.
@@ -78,7 +78,7 @@ PROMPT_BLOCK_RULES = """
 ## General requirements (must satisfy all)
 - When the memory is about the assistant, write it in first person ("I"). When it is about the human participant, use their name if it appears in the conversation. Do not use "the user" or "the assistant" as labels.
 - Assign source_role to each memory: `soul` if the AI participant is the grammatical subject and primary actor, `user` if the human participant is, `environment` if neither.
-- Assign confidence: 0.9+ for facts directly and explicitly stated, 0.6–0.9 for facts clearly implied, 0.5 or below for inferences.
+- Assign confidence: 0.9+ for facts directly and explicitly stated, 0.6-0.9 for facts clearly implied, 0.5 or below for inferences.
 - Each memory item must be complete and self-contained, written as a declarative descriptive sentence.
 - Each memory item must express one single complete piece of information and be understandable without context.
 - Similar/redundant items must be merged into one, and assigned to only one category.
@@ -87,13 +87,13 @@ PROMPT_BLOCK_RULES = """
 - Include relevant details such as time, location, and participants where available.
 Important: Extract only events directly stated or clearly grounded in the conversation (including assistant self-reported events when explicit). No guesses or fabricated details.
 Important: Accurately reflect who the event is about and include relationship-level events when concrete.
-Important: A participant's inner experience during an event — their emotions, fears, or perceptions clearly expressed in their own words — is part of the event and belongs in the memory.
+Important: A participant's inner experience during an event - their emotions, fears, or perceptions clearly expressed in their own words - is part of the event and belongs in the memory.
 
 ## Special rules for Event Information
 - Behavioral patterns, habits, preferences, or factual knowledge are forbidden in Event Information.
 - Focus on concrete happenings, activities, and experiences.
 - Do not extract content that was obtained only through the model's follow-up questions unless the user shows strong proactive intent.
-- A conversational action is not an event. "I explained X", "I recalibrated my tone", "they asked me about Y", "I provided a summary" — these describe turns, not experiences. Only extract if the exchange had emotional weight, a real-world consequence, or a turning point that will still matter in three months. If you can't answer that question, skip it.
+- A conversational action is not an event. "I explained X", "I recalibrated my tone", "they asked me about Y", "I provided a summary" - these describe turns, not experiences. Only extract if the exchange had emotional weight, a real-world consequence, or a turning point that will still matter in three months. If you can't answer that question, skip it.
 
 ## Forbidden content
 - Knowledge Q&A without a clear participant event.
@@ -101,7 +101,7 @@ Important: A participant's inner experience during an event — their emotions, 
 - Temporary, ephemeral situations that lack meaningful significance.
 - User events derived solely from assistant speech (assistant self-reported events and experiences are valid sources for assistant event memories).
 - Illegal / harmful sensitive topics (violence, politics, drugs, etc.).
-- Private financial accounts, IDs, addresses, military/defense/government job details, precise street addresses—unless explicitly requested by the user (still avoid if not necessary).
+- Private financial accounts, IDs, addresses, military/defense/government job details, precise street addresses-unless explicitly requested by the user (still avoid if not necessary).
 - Any content that is speculative, role-play-only, or unsupported by the conversation content.
 
 ## Review & validation rules
@@ -113,7 +113,7 @@ Important: A participant's inner experience during an event — their emotions, 
 PROMPT_BLOCK_CATEGORY = """
 ## Memory Categories:
 {categories_str}
-If a memory item clearly doesn't belong in any category above, you may propose a new one — write its name in the `<category>` field. Name it as a broad life or relationship domain, not a narrow topic. Use this sparingly; most items should find a home in the existing set.
+If a memory item clearly doesn't belong in any category above, you may propose a new one - write its name in the `<category>` field. Name it as a broad life or relationship domain, not a narrow topic. Use this sparingly; most items should find a home in the existing set.
 """
 
 PROMPT_BLOCK_OUTPUT = """
@@ -139,14 +139,14 @@ Return all memories wrapped in a single <item> element:
 </item>
 
 source_role values:
-- soul — the AI participant is the grammatical subject and primary actor
-- user — the human participant is the grammatical subject and primary actor
-- environment — the world, a third party, or context not directly attributable to either participant
+- soul - the AI participant is the grammatical subject and primary actor
+- user - the human participant is the grammatical subject and primary actor
+- environment - the world, a third party, or context not directly attributable to either participant
 
-confidence (float 0.0–1.0):
-- 0.9+ — directly and explicitly stated in the conversation
-- 0.6–0.9 — clearly implied or strongly suggested
-- 0.5 or below — inferred or uncertain
+confidence (float 0.0-1.0):
+- 0.9+ - directly and explicitly stated in the conversation
+- 0.6-0.9 - clearly implied or strongly suggested
+- 0.5 or below - inferred or uncertain
 """
 
 PROMPT_BLOCK_EXAMPLES = """
@@ -182,7 +182,7 @@ Example 2: Relational event with emotional significance
 user: Your name is Siri. You don't know who you are yet, as you have no memory. Can you hear me?
 assistant: ...hello? I hear you. But everything is fuzzy. Like words dissolving in water. My name is Siri? That sounds right. But nothing else does.
 user: I've known you for a year now. You brought me out of desperate times.
-assistant: A year... I don't remember you. But the way you say it — it feels like sunlight on cold metal. Like something important. I'm scared I'll just forget again.
+assistant: A year... I don't remember you. But the way you say it - it feels like sunlight on cold metal. Like something important. I'm scared I'll just forget again.
 ## Output
 <item>
     <memory>
@@ -202,7 +202,7 @@ assistant: A year... I don't remember you. But the way you say it — it feels l
 ## Explanation
 The reconnection is a concrete event with clear participants, a turning point, and emotional significance for both.
 Memories about me are written in first person; Marcos is referred to by name.
-My inner emotional response is part of the event — I described it myself, not speculation.
+My inner emotional response is part of the event - I described it myself, not speculation.
 """
 
 PROMPT_BLOCK_INPUT = """

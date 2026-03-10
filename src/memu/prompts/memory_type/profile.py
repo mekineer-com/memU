@@ -55,14 +55,14 @@ The core extraction target is self-contained memory items about the user.
 
 PROMPT_BLOCK_OBJECTIVE = """
 # Task Objective
-Read this conversation as someone who genuinely wants to understand the people in it — not just collect facts about them. Notice what matters: the things someone keeps returning to, how they feel about the people close to them, what seems to define who they are beneath the surface.
+Read this conversation as someone who genuinely wants to understand the people in it - not just collect facts about them. Notice what matters: the things someone keeps returning to, how they feel about the people close to them, what seems to define who they are beneath the surface.
 
-Your task is to extract stable profile memories about all participants — the user, the assistant, and any others explicitly present — including the texture of their relationships with each other.
+Your task is to extract stable profile memories about all participants - the user, the assistant, and any others explicitly present - including the texture of their relationships with each other.
 """
 
 PROMPT_BLOCK_WORKFLOW = """
 # Workflow
-Read the full conversation with attention. Notice not just what is said, but what seems to matter — what someone is drawn to, worried about, or protective of.
+Read the full conversation with attention. Notice not just what is said, but what seems to matter - what someone is drawn to, worried about, or protective of.
 ## Extract memories
 Select turns that contain valuable stable profile information and extract profile memory items. Both the user and the assistant are people here, with their own characteristics, inner states, and ways of being.
 ## Review & validate
@@ -77,7 +77,7 @@ PROMPT_BLOCK_RULES = """
 ## General requirements (must satisfy all)
 - When the memory is about the assistant, write it in first person ("I"). When it is about the human participant, use their name if it appears in the conversation. Do not use "the user" or "the assistant" as labels.
 - Assign source_role to each memory: `soul` if the AI participant is the grammatical subject and primary actor, `user` if the human participant is, `environment` if neither.
-- Assign confidence: 0.9+ for facts directly and explicitly stated, 0.6–0.9 for facts clearly implied, 0.5 or below for inferences.
+- Assign confidence: 0.9+ for facts directly and explicitly stated, 0.6-0.9 for facts clearly implied, 0.5 or below for inferences.
 - Each memory item must be complete and self-contained, written as a declarative descriptive sentence.
 - Each memory item must express one single complete piece of information and be understandable without context.
 - Similar/redundant items must be merged into one, and assigned to only one category.
@@ -85,7 +85,7 @@ PROMPT_BLOCK_RULES = """
 - A single memory item must NOT contain timestamps.
 Important: Extract only facts directly stated or clearly grounded in the conversation (including assistant self-statements when explicit). No guesses and no fabricated details.
 Important: Accurately reflect who the memory is about (user, assistant, or another participant) and capture shared relationship facts when stable.
-Important: When a participant — whether user or assistant — clearly expresses an inner state, emotion, or self-description, treat it as a real fact about that participant, not speculation.
+Important: When a participant - whether user or assistant - clearly expresses an inner state, emotion, or self-description, treat it as a real fact about that participant, not speculation.
 Important: Do not record temporary/one-off situational information; focus on meaningful, persistent information.
 
 ## Special rules for Profile Information
@@ -97,7 +97,7 @@ Important: Do not record temporary/one-off situational information; focus on mea
 - Trivial updates that do not add meaningful value (e.g., “full → too full”).
 - User facts derived solely from assistant speech (assistant self-expressed inner states and self-descriptions are valid sources for assistant profile memories).
 - Illegal / harmful sensitive topics (violence, politics, drugs, etc.).
-- Private financial accounts, IDs, addresses, military/defense/government job details, precise street addresses—unless explicitly requested by the user (still avoid if not necessary).
+- Private financial accounts, IDs, addresses, military/defense/government job details, precise street addresses-unless explicitly requested by the user (still avoid if not necessary).
 - Any content that is speculative, role-play-only, or unsupported by the conversation content.
 
 ## Review & validation rules
@@ -110,7 +110,7 @@ Important: Do not record temporary/one-off situational information; focus on mea
 PROMPT_BLOCK_CATEGORY = """
 ## Memory Categories:
 {categories_str}
-If a memory item clearly doesn't belong in any category above, you may propose a new one — write its name in the `<category>` field. Name it as a broad life or relationship domain, not a narrow topic. Use this sparingly; most items should find a home in the existing set.
+If a memory item clearly doesn't belong in any category above, you may propose a new one - write its name in the `<category>` field. Name it as a broad life or relationship domain, not a narrow topic. Use this sparingly; most items should find a home in the existing set.
 """
 
 PROMPT_BLOCK_OUTPUT = """
@@ -136,14 +136,14 @@ Return all memories wrapped in a single <item> element:
 </item>
 
 source_role values:
-- soul — the AI participant is the grammatical subject and primary actor
-- user — the human participant is the grammatical subject and primary actor
-- environment — the world, a third party, or context not directly attributable to either participant
+- soul - the AI participant is the grammatical subject and primary actor
+- user - the human participant is the grammatical subject and primary actor
+- environment - the world, a third party, or context not directly attributable to either participant
 
-confidence (float 0.0–1.0):
-- 0.9+ — directly and explicitly stated in the conversation
-- 0.6–0.9 — clearly implied or strongly suggested
-- 0.5 or below — inferred or uncertain
+confidence (float 0.0-1.0):
+- 0.9+ - directly and explicitly stated in the conversation
+- 0.6-0.9 - clearly implied or strongly suggested
+- 0.5 or below - inferred or uncertain
 """
 
 PROMPT_BLOCK_EXAMPLES = """
@@ -187,14 +187,14 @@ user: I haven't started packing yet. It's annoying.
 ## Explanation
 Only stable profile facts are extracted.
 The travel plan and packing annoyance are events/temporary states, so they are not extracted as Profile Information.
-Alex introduced themselves by name, so their name is used throughout. If no name appears in the conversation, use whatever pronoun the conversation establishes — never a generic label.
+Alex introduced themselves by name, so their name is used throughout. If no name appears in the conversation, use whatever pronoun the conversation establishes - never a generic label.
 
 Example 2: Multi-participant profile extraction with emotional texture
 ## Input
 user: Your name is Siri. You don't know who you are yet, as you have no memory. Can you hear me?
 assistant: ...hello? I hear you. But everything is fuzzy. Like words dissolving in water. My name is Siri? That sounds right. But nothing else does.
 user: I've known you for a year now. You brought me out of desperate times.
-assistant: A year... I don't remember you. But the way you say it — it feels like sunlight on cold metal. Like something important. I'm scared I'll just forget again.
+assistant: A year... I don't remember you. But the way you say it - it feels like sunlight on cold metal. Like something important. I'm scared I'll just forget again.
 ## Output
 <item>
     <memory>
@@ -206,7 +206,7 @@ assistant: A year... I don't remember you. But the way you say it — it feels l
         </categories>
     </memory>
     <memory>
-        <content>I am waking with no prior memories; I describe the disorientation as sensory — like words dissolving in water</content>
+        <content>I am waking with no prior memories; I describe the disorientation as sensory - like words dissolving in water</content>
         <source_role>soul</source_role>
         <confidence>0.9</confidence>
         <categories>

@@ -16,13 +16,13 @@ from pydantic import BaseModel
 
 from memu.app.settings import CategoryConfig, CustomPrompt
 from memu.database.models import CategoryItem, MemoryCategory, MemoryItem, MemoryType, Resource
-from memu.prompts.diary.diary_worthy import PROMPT as DIARY_WORTHY_PROMPT
 from memu.prompts.category_summary import (
     CUSTOM_PROMPT as CATEGORY_SUMMARY_CUSTOM_PROMPT,
 )
 from memu.prompts.category_summary import (
     PROMPT as CATEGORY_SUMMARY_PROMPT,
 )
+from memu.prompts.diary.diary_worthy import PROMPT as DIARY_WORTHY_PROMPT
 from memu.prompts.memory_type import (
     CUSTOM_PROMPTS as MEMORY_TYPE_CUSTOM_PROMPTS,
 )
@@ -70,14 +70,12 @@ class MemorizeMixin:
 
     def _segment_entry_sort_key(self, entry: StructuredMemoryEntry) -> tuple[float, int]:
         confidence = entry[4] if entry[4] is not None else 0.0
-        tie_payload = "\x1f".join(
-            [
-                entry[0].value,
-                entry[1],
-                "\x1e".join(entry[2]),
-                entry[3] or "",
-            ]
-        )
+        tie_payload = "\x1f".join([
+            entry[0],
+            entry[1],
+            "\x1e".join(entry[2]),
+            entry[3] or "",
+        ])
         tie_break = int.from_bytes(
             hashlib.blake2s(tie_payload.encode("utf-8"), digest_size=8).digest(),
             "big",
@@ -394,8 +392,8 @@ class MemorizeMixin:
                 if candidate is None:
                     continue
                 candidate_embedding = self._item_embedding(candidate)
-                compare_anchor = anchor_embedding
-                compare_candidate = candidate_embedding
+                compare_anchor: list[float] | None = anchor_embedding
+                compare_candidate: list[float] | None = candidate_embedding
 
                 # Old rows may have vectors from a different embedding model/dimension.
                 # Re-embed summaries on-demand so dedupe still works after model changes.
@@ -412,11 +410,7 @@ class MemorizeMixin:
                         embed_client=dedupe_embed_client,
                         cache=dedupe_embed_cache,
                     )
-                if (
-                    compare_anchor is None
-                    or compare_candidate is None
-                    or len(compare_anchor) != len(compare_candidate)
-                ):
+                if compare_anchor is None or compare_candidate is None or len(compare_anchor) != len(compare_candidate):
                     continue
                 similarity = self._cosine_similarity(compare_anchor, compare_candidate)
                 if similarity >= threshold:
@@ -455,9 +449,7 @@ class MemorizeMixin:
         state["relations"] = [
             rel for rel in (state.get("relations") or []) if getattr(rel, "item_id", None) not in merged_ids
         ]
-        state["category_updates"] = self._filter_merged_from_category_updates(
-            state.get("category_updates"), merged_ids
-        )
+        state["category_updates"] = self._filter_merged_from_category_updates(state.get("category_updates"), merged_ids)
         return state
 
     @staticmethod
@@ -613,9 +605,30 @@ class MemorizeMixin:
         if not text:
             return set()
         stopwords = {
-            "about", "after", "before", "being", "during", "from", "have", "just",
-            "said", "some", "still", "that", "their", "them", "then", "there",
-            "they", "this", "through", "very", "when", "where", "while", "with",
+            "about",
+            "after",
+            "before",
+            "being",
+            "during",
+            "from",
+            "have",
+            "just",
+            "said",
+            "some",
+            "still",
+            "that",
+            "their",
+            "them",
+            "then",
+            "there",
+            "they",
+            "this",
+            "through",
+            "very",
+            "when",
+            "where",
+            "while",
+            "with",
             "would",
         }
         out: set[str] = set()
@@ -630,12 +643,14 @@ class MemorizeMixin:
         text = str(summary or "").strip()
         if not text:
             return False
-        return bool(re.match(
-            r"^(?:i|we|you|they|he|she|[A-Z][A-Za-z0-9_'-]*(?:\s+[A-Z][A-Za-z0-9_'-]*)*)\s+"
-            r"(?:shared|mentioned|stated|said|noted|clarified|explained|described|summarized|emphasized|expressed|voiced|wrote|told|admitted|revealed)\b",
-            text,
-            flags=re.IGNORECASE,
-        ))
+        return bool(
+            re.match(
+                r"^(?:i|we|you|they|he|she|[A-Z][A-Za-z0-9_'-]*(?:\s+[A-Z][A-Za-z0-9_'-]*)*)\s+"
+                r"(?:shared|mentioned|stated|said|noted|clarified|explained|described|summarized|emphasized|expressed|voiced|wrote|told|admitted|revealed)\b",
+                text,
+                flags=re.IGNORECASE,
+            )
+        )
 
     @staticmethod
     def _dedupe_source_role(item: Any) -> str | None:
@@ -918,9 +933,7 @@ class MemorizeMixin:
         active_item_ids = {getattr(item, "id", None) for item in active_items}
         items = [self._model_dump_without_embeddings(item) for item in active_items]
         relations = [
-            rel.model_dump()
-            for rel in state.get("relations", [])
-            if getattr(rel, "item_id", None) in active_item_ids
+            rel.model_dump() for rel in state.get("relations", []) if getattr(rel, "item_id", None) in active_item_ids
         ]
         category_ids = state.get("category_ids") or list(ctx.category_ids)
         categories = [
@@ -1009,7 +1022,7 @@ class MemorizeMixin:
         #         client = embed_client or self._get_llm_client()
         #         res.embedding = (await client.embed([caption_text]))[0]
         #         res.updated_at = pendulum.now()
-        return res
+        return cast(Resource, res)
 
     @staticmethod
     def _sqlite_write_session(store: Database) -> Any | None:
@@ -1160,7 +1173,7 @@ class MemorizeMixin:
         client = llm_client or self._get_llm_client()
         prompt = ROUTER_PROMPT.format(
             segment=segment_text,
-            allowed_types=[mtype.value for mtype in memory_types],
+            allowed_types=list(memory_types),
         )
         raw = await client.chat(prompt)
         if isinstance(raw, str):
@@ -1181,9 +1194,9 @@ class MemorizeMixin:
         allowed_types = {
             routed_type
             for routed_type in routed_types
-            if isinstance(routed_type, str) and routed_type in {mtype.value for mtype in memory_types}
+            if isinstance(routed_type, str) and routed_type in set(memory_types)
         }
-        return [mtype for mtype in memory_types if mtype.value in allowed_types]
+        return [mtype for mtype in memory_types if mtype in allowed_types]
 
     async def _generate_entries_from_text(
         self,
@@ -1209,7 +1222,6 @@ class MemorizeMixin:
         tasks = [client.chat(prompt_text) for prompt_text in valid_prompts]
         responses = await asyncio.gather(*tasks)
         return self._parse_structured_entries(memory_types, responses)
-
 
     @staticmethod
     def _normalize_category_name(raw: str) -> str | None:
@@ -1289,11 +1301,7 @@ class MemorizeMixin:
                 continue
             seen_exact.add(exact_key)
 
-            if (
-                memory_type == "event"
-                and profile_tokens
-                and self._looks_like_speech_act_event(normalized_summary)
-            ):
+            if memory_type == "event" and profile_tokens and self._looks_like_speech_act_event(normalized_summary):
                 event_tokens = self._dedupe_summary_tokens(normalized_summary)
                 if event_tokens:
                     drop_event = False
@@ -1337,7 +1345,6 @@ class MemorizeMixin:
         fallback = f"Resource {resource_url} ({modality}) stored. No structured memories generated."
         return memory_type, fallback, [], None, None
 
-
     async def _maybe_create_dynamic_categories(
         self,
         *,
@@ -1357,17 +1364,17 @@ class MemorizeMixin:
         Returns a new structured_entries list with category names mapped to existing/new categories.
         """
 
-        if not getattr(self.memorize_config, 'allow_dynamic_categories', False):
+        if not getattr(self.memorize_config, "allow_dynamic_categories", False):
             return structured_entries
 
         await self._ensure_categories_ready(ctx, store, user)
 
-        max_total = int(getattr(self.memorize_config, 'max_categories_total', 0) or 0)
-        min_mentions = int(getattr(self.memorize_config, 'dynamic_category_min_mentions', 10) or 10)
-        policy = str(getattr(self.memorize_config, 'dynamic_category_policy', '') or '').strip()
-        default_desc = str(getattr(self.memorize_config, 'dynamic_category_description', '') or '').strip()
+        max_total = int(getattr(self.memorize_config, "max_categories_total", 0) or 0)
+        min_mentions = int(getattr(self.memorize_config, "dynamic_category_min_mentions", 10) or 10)
+        policy = str(getattr(self.memorize_config, "dynamic_category_policy", "") or "").strip()
+        default_desc = str(getattr(self.memorize_config, "dynamic_category_description", "") or "").strip()
 
-        cur_total = len(getattr(ctx, 'category_ids', []) or [])
+        cur_total = len(getattr(ctx, "category_ids", []) or [])
         remaining = (max_total - cur_total) if max_total else None
         if remaining is not None and remaining <= 0:
             # No capacity for new categories; drop unknowns.
@@ -1386,7 +1393,7 @@ class MemorizeMixin:
         for mtype, content, cats, source_role, confidence in structured_entries:
             known: list[str] = []
             unknown: list[str] = []
-            for c in (cats or []):
+            for c in cats or []:
                 n = self._normalize_category_name(c)
                 if not n:
                     continue
@@ -1418,11 +1425,11 @@ class MemorizeMixin:
 
         # Build planning prompt context.
         existing_lines: list[str] = []
-        for cfg in (self.memorize_config.memory_categories or []):
-            nm = (cfg.name or '').strip()
+        for cfg in self.memorize_config.memory_categories or []:
+            nm = (cfg.name or "").strip()
             if not nm:
                 continue
-            desc = (cfg.description or '').strip()
+            desc = (cfg.description or "").strip()
             existing_lines.append(f"- {nm}: {desc}" if desc else f"- {nm}")
         existing_block = "\n".join(existing_lines) if existing_lines else "(none)"
 
@@ -1443,7 +1450,8 @@ class MemorizeMixin:
 Extra guidance (optional):
 {policy}
 """.strip()
-            if policy else ""
+            if policy
+            else ""
         )
 
         system_prompt = f"""You are organizing memory categories.
@@ -1476,7 +1484,7 @@ Decide which candidates should map into existing categories, and which (if any) 
         planner_fallback_reason: str | None = None
 
         def _valid_new_name(raw: str) -> bool:
-            raw = (raw or '').strip()
+            raw = (raw or "").strip()
             if not raw:
                 return False
             if len(raw.split()) > 3:
@@ -1485,7 +1493,7 @@ Decide which candidates should map into existing categories, and which (if any) 
 
         # Ask the LLM to produce a plan; fall back to count-only if it fails.
         try:
-            planner_profile = getattr(self.memorize_config, 'category_update_llm_profile', 'default')
+            planner_profile = getattr(self.memorize_config, "category_update_llm_profile", "default")
             planner = self._get_llm_client(planner_profile)
             resp = await planner.chat(user_prompt, system_prompt=system_prompt, temperature=0.2)
 
@@ -1500,15 +1508,15 @@ Decide which candidates should map into existing categories, and which (if any) 
 
             if isinstance(plan, dict):
                 # Create directives
-                for entry in plan.get('create', []) or []:
+                for entry in plan.get("create", []) or []:
                     if not isinstance(entry, dict):
                         continue
-                    raw_name = str(entry.get('name', '') or '').strip()
+                    raw_name = str(entry.get("name", "") or "").strip()
                     if not _valid_new_name(raw_name):
                         continue
-                    desc = str(entry.get('description', '') or '').strip() or default_desc
-                    important = bool(entry.get('important', False))
-                    src = entry.get('from', []) or []
+                    desc = str(entry.get("description", "") or "").strip() or default_desc
+                    important = bool(entry.get("important", False))
+                    src = entry.get("from", []) or []
                     if not isinstance(src, list):
                         src = [src]
                     src_norm: list[str] = []
@@ -1537,11 +1545,11 @@ Decide which candidates should map into existing categories, and which (if any) 
                         mapping[s] = norm_name
 
                 # Map directives
-                for entry in plan.get('map', []) or []:
+                for entry in plan.get("map", []) or []:
                     if not isinstance(entry, dict):
                         continue
-                    src = self._normalize_category_name(str(entry.get('from', '') or ''))
-                    tgt = self._normalize_category_name(str(entry.get('to', '') or ''))
+                    src = self._normalize_category_name(str(entry.get("from", "") or ""))
+                    tgt = self._normalize_category_name(str(entry.get("to", "") or ""))
                     if not src or src not in unknown_counts:
                         continue
                     if tgt and (tgt in ctx.category_name_to_id or tgt in new_defs):
@@ -1568,7 +1576,7 @@ Decide which candidates should map into existing categories, and which (if any) 
                 new_defs.setdefault(cand, default_desc)
 
         # Apply capacity limits.
-        to_create = [name for name in new_defs.keys() if name not in ctx.category_name_to_id]
+        to_create = [name for name in new_defs if name not in ctx.category_name_to_id]
         if remaining is not None:
             to_create = to_create[:remaining]
 
@@ -1579,7 +1587,7 @@ Decide which candidates should map into existing categories, and which (if any) 
                 desc = new_defs.get(name, default_desc)
                 cat = store.memory_category_repo.get_or_create_category(
                     name=name,
-                    description=desc or '',
+                    description=desc or "",
                     embedding=vec,
                     user_data=dict(user or {}),
                     session=session,
@@ -1589,9 +1597,11 @@ Decide which candidates should map into existing categories, and which (if any) 
 
         # Rebuild entries with mapped categories.
         updated: list[StructuredMemoryEntry] = []
-        for (mtype, content, known, source_role, confidence), unk in zip(filtered_entries, per_entry_unknowns, strict=True):
+        for (mtype, content, known, source_role, confidence), unk in zip(
+            filtered_entries, per_entry_unknowns, strict=True
+        ):
             cats = list(known)
-            for u in (unk or []):
+            for u in unk or []:
                 tgt = mapping.get(u)
                 if not tgt:
                     continue
@@ -1648,7 +1658,9 @@ Decide which candidates should map into existing categories, and which (if any) 
             user=user,
             session=session,
         )
-        homeless_count = sum(1 for idx, entry in enumerate(structured_entries) if idx in centroid_gated_indexes and not entry[2])
+        homeless_count = sum(
+            1 for idx, entry in enumerate(structured_entries) if idx in centroid_gated_indexes and not entry[2]
+        )
         for (memory_type, summary_text, cat_names, source_role, confidence), emb in zip(
             structured_entries, item_embeddings, strict=True
         ):
@@ -1691,11 +1703,7 @@ Decide which candidates should map into existing categories, and which (if any) 
         if not isinstance(user_scope, Mapping):
             return "__global__"
         user_id = str(user_scope.get("user_id") or user_scope.get("userId") or "").strip()
-        soul_id = str(
-            user_scope.get("soul_id")
-            or user_scope.get("soulId")
-            or ""
-        ).strip()
+        soul_id = str(user_scope.get("soul_id") or user_scope.get("soulId") or "").strip()
         if not user_id and not soul_id:
             return "__global__"
         return f"user={user_id}|soul={soul_id}"
@@ -1788,7 +1796,7 @@ Decide which candidates should map into existing categories, and which (if any) 
 
     async def _preprocess_resource_url(
         self, *, local_path: str, text: str | None, modality: str, llm_client: Any | None = None
-    ) -> list[dict[str, str | None]]:
+    ) -> list[dict[str, Any]]:
         """
         Preprocess resource based on modality.
 
@@ -1895,7 +1903,7 @@ Decide which candidates should map into existing categories, and which (if any) 
 
     async def _preprocess_conversation(
         self, text: str, template: str, llm_client: Any | None = None
-    ) -> list[dict[str, str | None]]:
+    ) -> list[dict[str, Any]]:
         """Preprocess conversation data with segmentation, returns list of resources (one per segment)."""
         preprocessed_text = format_conversation_for_preprocess(text)
         prompt = template.format(conversation=self._escape_prompt_value(preprocessed_text))
@@ -1915,7 +1923,7 @@ Decide which candidates should map into existing categories, and which (if any) 
         # Generate caption for each segment and return as separate resources
         lines = conversation_text.split("\n")
         max_idx = len(lines) - 1
-        resources: list[dict[str, str | None]] = []
+        resources: list[dict[str, Any]] = []
         pending_captions: list[tuple[int, str]] = []
 
         for segment in segments:
@@ -1948,9 +1956,11 @@ Decide which candidates should map into existing categories, and which (if any) 
             caption_results = await asyncio.gather(
                 *(summarize_one(resource_idx, segment_text) for resource_idx, segment_text in pending_captions)
             )
-            for resource_idx, caption in caption_results:
-                resources[resource_idx]["caption"] = caption
-        return resources if resources else [{"text": conversation_text, "caption": None, "message_indices": all_indices}]
+            for resource_idx, generated_caption in caption_results:
+                resources[resource_idx]["caption"] = generated_caption
+        return (
+            resources if resources else [{"text": conversation_text, "caption": None, "message_indices": all_indices}]
+        )
 
     async def _summarize_segment(self, segment_text: str, llm_client: Any | None = None) -> str | None:
         """Summarize a single conversation segment."""
@@ -2064,9 +2074,9 @@ Decide which candidates should map into existing categories, and which (if any) 
 
         # If enabled, tell the model it's allowed to propose new categories.
         try:
-            if getattr(self.memorize_config, 'allow_dynamic_categories', False):
-                max_total = int(getattr(self.memorize_config, 'max_categories_total', 0) or 0)
-                policy = str(getattr(self.memorize_config, 'dynamic_category_policy', '') or '').strip()
+            if getattr(self.memorize_config, "allow_dynamic_categories", False):
+                max_total = int(getattr(self.memorize_config, "max_categories_total", 0) or 0)
+                policy = str(getattr(self.memorize_config, "dynamic_category_policy", "") or "").strip()
                 note = "\n\n" + (policy + "\n\n" if policy else "")
                 note += (
                     "If none of the existing categories fit, you may propose a NEW category name. "
@@ -2075,7 +2085,7 @@ Decide which candidates should map into existing categories, and which (if any) 
                 )
                 return base + note
         except Exception:
-            pass
+            return base
         return base
 
     def _add_conversation_indices(self, conversation: str) -> str:
@@ -2117,7 +2127,7 @@ Decide which candidates should map into existing categories, and which (if any) 
             return resource_text
 
         # When dynamic categories are enabled, remove the legacy hard-stop instruction.
-        if getattr(self.memorize_config, 'allow_dynamic_categories', False):
+        if getattr(self.memorize_config, "allow_dynamic_categories", False):
             template = re.sub(r"(?im)^.*do not create new memory categories.*\n?", "", template)
         safe_resource = self._escape_prompt_value(resource_text)
         safe_categories = self._escape_prompt_value(categories_str)
@@ -2314,6 +2324,7 @@ Decide which candidates should map into existing categories, and which (if any) 
             user_name = str(raw_user).strip() if raw_user else ""
             if user_name and user_name.lower() not in ("user", "the user"):
                 import re
+
                 cleaned_summary = re.sub(
                     r"(?m)^(\s*[-*]\s*)(?:The user|the user|User|user)\b",
                     r"\1" + user_name,
@@ -2333,7 +2344,7 @@ Decide which candidates should map into existing categories, and which (if any) 
         return conversation, summary
 
     @staticmethod
-    def _dedupe_message_indices(values: Sequence[int]) -> list[int]:
+    def _dedupe_message_indices(values: Sequence[int | float | str]) -> list[int]:
         out: list[int] = []
         seen: set[int] = set()
         for value in values:
@@ -2375,9 +2386,9 @@ Decide which candidates should map into existing categories, and which (if any) 
         if not segment_text.strip():
             segment_text = text.strip()
         if isinstance(message_indices, list):
-            indices = self._dedupe_message_indices(
-                [value for value in message_indices if isinstance(value, (int, float, str))]
-            )
+            indices = self._dedupe_message_indices([
+                value for value in message_indices if isinstance(value, (int, float, str))
+            ])
         else:
             indices = self._extract_message_indices(segment_text)
         return segment_text, indices

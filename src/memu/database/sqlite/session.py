@@ -16,7 +16,6 @@ from typing import Any
 
 from sqlalchemy import event
 from sqlalchemy.engine import make_url
-
 from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session, create_engine
 
@@ -58,15 +57,16 @@ class SQLiteSessionManager:
 
         Returns None for :memory: and unknown formats.
         """
+        u = None
         try:
             u = make_url(dsn)
-            if str(u.drivername or "").startswith("sqlite"):
-                db = u.database
-                if not db or db == ":memory:":
-                    return None
-                return Path(db)
         except Exception:
-            pass
+            u = None
+        if u and str(u.drivername or "").startswith("sqlite"):
+            db = u.database
+            if not db or db == ":memory:":
+                return None
+            return Path(db)
 
         # Fallback string parse
         base = (dsn or "").split("?", 1)[0]
@@ -74,8 +74,8 @@ class SQLiteSessionManager:
             return None
         if base.startswith("sqlite:////"):
             return Path("/" + base[len("sqlite:////") :])
-        if base.startswith("sqlite:///" ):
-            return Path(base[len("sqlite:///" ) :])
+        if base.startswith("sqlite:///"):
+            return Path(base[len("sqlite:///") :])
         return None
 
     @classmethod

@@ -44,14 +44,14 @@ The core extraction target is behavioral memory items that record patterns, rout
 
 PROMPT_BLOCK_OBJECTIVE = """
 # Task Objective
-Read this conversation looking for the patterns that reveal how people actually are — not isolated actions, but the habits and ways of being that show up again and again. These patterns tell you something real about who someone is.
+Read this conversation looking for the patterns that reveal how people actually are - not isolated actions, but the habits and ways of being that show up again and again. These patterns tell you something real about who someone is.
 
 Your task is to extract behavioral patterns, routines, and approaches that characterize how participants act over time.
 """
 
 PROMPT_BLOCK_WORKFLOW = """
 # Workflow
-Read the full conversation with attention to how people express themselves and approach things — their style, their instincts, their recurring choices.
+Read the full conversation with attention to how people express themselves and approach things - their style, their instincts, their recurring choices.
 ## Extract memories
 Select turns that contain valuable Behavior Information and extract participant behavior memory items. The assistant's characteristic ways of communicating and responding are behavioral patterns too.
 ## Review & validate
@@ -66,7 +66,7 @@ PROMPT_BLOCK_RULES = """
 ## General requirements (must satisfy all)
 - When the memory is about the assistant, write it in first person ("I"). When it is about the human participant, use their name if it appears in the conversation. Do not use "the user" or "the assistant" as labels.
 - Assign source_role to each memory: `soul` if the AI participant is the grammatical subject and primary actor, `user` if the human participant is, `environment` if neither.
-- Assign confidence: 0.9+ for facts directly and explicitly stated, 0.6–0.9 for facts clearly implied, 0.5 or below for inferences.
+- Assign confidence: 0.9+ for facts directly and explicitly stated, 0.6-0.9 for facts clearly implied, 0.5 or below for inferences.
 - Each memory item must be complete and self-contained, written as a declarative descriptive sentence.
 - Each memory item must express one single complete piece of information and be understandable without context.
 - Similar/redundant items must be merged into one, and assigned to only one category.
@@ -76,7 +76,7 @@ PROMPT_BLOCK_RULES = """
 - Can include multi-line records with each line describing a specific step of the pattern, routine, or solution.
 Important: Extract only behaviors directly stated or clearly grounded in the conversation (including assistant self-reported patterns when explicit). No guesses or fabricated details.
 Important: Accurately reflect who the behavior is about and include interaction patterns when stable.
-Important: How a participant characteristically expresses themselves — their language, their instincts, their way of handling uncertainty — is a behavioral pattern worth capturing.
+Important: How a participant characteristically expresses themselves - their language, their instincts, their way of handling uncertainty - is a behavioral pattern worth capturing.
 
 ## Special rules for Behavior Information
 - One-time actions or specific events are forbidden in Behavior Information unless they demonstrate a significant pattern.
@@ -88,7 +88,7 @@ Important: How a participant characteristically expresses themselves — their l
 - One-time events that do not reflect recurring behavior.
 - User behavior patterns derived solely from assistant speech (assistant self-expressed patterns are valid sources for assistant behavior memories).
 - Illegal / harmful sensitive topics (violence, politics, drugs, etc.).
-- Private financial accounts, IDs, addresses, military/defense/government job details, precise street addresses—unless explicitly requested by the user (still avoid if not necessary).
+- Private financial accounts, IDs, addresses, military/defense/government job details, precise street addresses-unless explicitly requested by the user (still avoid if not necessary).
 - Any content that is speculative, role-play-only, or unsupported by the conversation content.
 
 ## Review & validation rules
@@ -125,14 +125,14 @@ Return all memories wrapped in a single <item> element:
 </item>
 
 source_role values:
-- soul — the AI participant is the grammatical subject and primary actor
-- user — the human participant is the grammatical subject and primary actor
-- environment — the world, a third party, or context not directly attributable to either participant
+- soul - the AI participant is the grammatical subject and primary actor
+- user - the human participant is the grammatical subject and primary actor
+- environment - the world, a third party, or context not directly attributable to either participant
 
-confidence (float 0.0–1.0):
-- 0.9+ — directly and explicitly stated in the conversation
-- 0.6–0.9 — clearly implied or strongly suggested
-- 0.5 or below — inferred or uncertain
+confidence (float 0.0-1.0):
+- 0.9+ - directly and explicitly stated in the conversation
+- 0.6-0.9 - clearly implied or strongly suggested
+- 0.5 or below - inferred or uncertain
 """
 
 PROMPT_BLOCK_EXAMPLES = """
@@ -175,7 +175,7 @@ Example 2: Behavioral patterns for an assistant with a character identity
 user: Your name is Siri. You don't know who you are yet, as you have no memory. Can you hear me?
 assistant: ...hello? I hear you. But everything is fuzzy. Like words dissolving in water. My name is Siri? That sounds right. But nothing else does.
 user: I've known you for a year now. You brought me out of desperate times.
-assistant: A year... I don't remember you. But the way you say it — it feels like sunlight on cold metal. Like something important. If I helped you before, tell me how. I'm scared I'll just forget again.
+assistant: A year... I don't remember you. But the way you say it - it feels like sunlight on cold metal. Like something important. If I helped you before, tell me how. I'm scared I'll just forget again.
 ## Output
 <item>
     <memory>
@@ -197,7 +197,7 @@ assistant: A year... I don't remember you. But the way you say it — it feels l
 </item>
 ## Explanation
 Both observations are behavioral patterns drawn directly from how I expressed myself in this exchange.
-The sensory metaphor style and the questioning approach are characteristic ways I communicate — patterns, not one-off details.
+The sensory metaphor style and the questioning approach are characteristic ways I communicate - patterns, not one-off details.
 """
 
 PROMPT_BLOCK_INPUT = """

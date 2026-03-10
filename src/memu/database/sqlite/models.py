@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import uuid
 from datetime import datetime
@@ -56,7 +55,7 @@ class SQLiteResourceModel(SQLiteBaseModelMixin, Resource):
     # Keep the column for compatibility, but new writes use `embedding`.
     embedding_json: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
     # Store embedding as JSON (SQLite stores it as TEXT under the hood)
-    embedding: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    embedding: str | None = Field(default=None, sa_column=Column(Text, nullable=True))  # type: ignore[assignment]
 
 
 class SQLiteMemoryItemModel(SQLiteBaseModelMixin, MemoryItem):
@@ -68,7 +67,7 @@ class SQLiteMemoryItemModel(SQLiteBaseModelMixin, MemoryItem):
     # Back-compat (see SQLiteResourceModel.embedding_json).
     embedding_json: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
     # Store embedding as JSON (SQLite stores it as TEXT under the hood)
-    embedding: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    embedding: str | None = Field(default=None, sa_column=Column(Text, nullable=True))  # type: ignore[assignment]
     happened_at: datetime | None = Field(default=None, sa_column=Column(DateTime, nullable=True))
     source_role: str | None = Field(default=None, sa_column=Column(String, nullable=True))
     confidence: float | None = Field(default=None, sa_column=Column(Float, nullable=True))
@@ -87,7 +86,7 @@ class SQLiteMemoryCategoryModel(SQLiteBaseModelMixin, MemoryCategory):
     # Back-compat (see SQLiteResourceModel.embedding_json).
     embedding_json: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
     # Store embedding as JSON (SQLite stores it as TEXT under the hood)
-    embedding: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    embedding: str | None = Field(default=None, sa_column=Column(Text, nullable=True))  # type: ignore[assignment]
     summary: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
 
 
