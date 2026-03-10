@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pathlib
-import shutil
 from urllib.parse import parse_qs, urlparse
 
 import httpx
@@ -58,9 +57,7 @@ class LocalFS:
         # Local path
         p = pathlib.Path(url)
         if p.exists():
-            dst = self.base / p.name
-            if str(p.resolve()) != str(dst.resolve()):
-                shutil.copyfile(p, dst)
+            dst = p.resolve()
             text = None
             if modality in ("conversation", "text", "document"):
                 text = dst.read_text(encoding="utf-8")
