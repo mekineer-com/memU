@@ -8,7 +8,7 @@ import math
 import pathlib
 import re
 from collections.abc import Awaitable, Callable, Mapping, Sequence
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, NamedTuple, cast
 from xml.etree.ElementTree import Element
 
 import defusedxml.ElementTree as ET
@@ -41,7 +41,16 @@ from memu.workflow.step import WorkflowState, WorkflowStep
 
 logger = logging.getLogger(__name__)
 
-StructuredMemoryEntry = tuple[MemoryType, str, list[str], str | None, float | None, list[int], float | None]
+
+class StructuredMemoryEntry(NamedTuple):
+    memory_type: MemoryType
+    content: str
+    categories: list[str]
+    source_role: str | None
+    confidence: float | None
+    source_message_ids: list[int]
+    reflection_salience: float | None
+
 
 if TYPE_CHECKING:
     from memu.app.service import Context
@@ -109,6 +118,21 @@ class MemorizeMixin:
         confidence: float | None,
         diary_worthy: bool,
     ) -> float:
+        """Heuristic fallback when extraction prompt doesn't emit reflection_salience.
+
+        Calibration rationale:
+        - 0.85 diary-worthy base: these memories cleared the diary gate, so they
+          are likely defining.  0.35 non-diary base: useful but not formative.
+        - Events get +0.05 because they anchor temporal narrative more than
+          profiles do (profiles are identity, events are story).
+        - Confidence adjustments: extraction certainty correlates weakly with
+          personal importance, so small nudges (0.05-0.10) rather than large
+          swings.  Low confidence already means tentative wording, so lower salience
+          keeps them out of the backbone.
+
+        The Plex exporter uses these values for inclusion tiers:
+          backbone >= 0.85, plex-worthy >= 0.7, excluded < 0.7 (auto-scaled).
+        """
         base = 0.85 if diary_worthy else 0.35
         if memory_type == "event":
             base += 0.05
@@ -825,15 +849,17 @@ class MemorizeMixin:
         ) in enumerate(zip(structured_entries, item_embeddings, strict=True)):
             embedding = self._normalize_embedding_vector(raw_embedding)
             if embedding is None:
-                updated.append((
-                    memory_type,
-                    summary_text,
-                    cat_names,
-                    source_role,
-                    confidence,
-                    source_message_ids,
-                    reflection_salience,
-                ))
+                updated.append(
+                    StructuredMemoryEntry(
+                        memory_type,
+                        summary_text,
+                        cat_names,
+                        source_role,
+                        confidence,
+                        source_message_ids,
+                        reflection_salience,
+                    )
+                )
                 continue
 
             existing_names: list[str] = []
@@ -845,15 +871,17 @@ class MemorizeMixin:
                 else:
                     unknown_names.append(name)
             if not existing_names:
-                updated.append((
-                    memory_type,
-                    summary_text,
-                    cat_names,
-                    source_role,
-                    confidence,
-                    source_message_ids,
-                    reflection_salience,
-                ))
+                updated.append(
+                    StructuredMemoryEntry(
+                        memory_type,
+                        summary_text,
+                        cat_names,
+                        source_role,
+                        confidence,
+                        source_message_ids,
+                        reflection_salience,
+                    )
+                )
                 continue
 
             max_similarity: float | None = None
@@ -865,27 +893,31 @@ class MemorizeMixin:
                     max_similarity = similarity
 
             if max_similarity is None or max_similarity >= threshold:
-                updated.append((
+                updated.append(
+                    StructuredMemoryEntry(
+                        memory_type,
+                        summary_text,
+                        cat_names,
+                        source_role,
+                        confidence,
+                        source_message_ids,
+                        reflection_salience,
+                    )
+                )
+                continue
+
+            gated_indexes.add(idx)
+            updated.append(
+                StructuredMemoryEntry(
                     memory_type,
                     summary_text,
-                    cat_names,
+                    unknown_names,
                     source_role,
                     confidence,
                     source_message_ids,
                     reflection_salience,
-                ))
-                continue
-
-            gated_indexes.add(idx)
-            updated.append((
-                memory_type,
-                summary_text,
-                unknown_names,
-                source_role,
-                confidence,
-                source_message_ids,
-                reflection_salience,
-            ))
+                )
+            )
 
         return updated, gated_indexes
 
@@ -1383,15 +1415,17 @@ class MemorizeMixin:
                     if n and n not in seen:
                         cat_names.append(n)
                         seen.add(n)
-                entries.append((
-                    mtype,
-                    content,
-                    cat_names,
-                    source_role,
-                    confidence,
-                    source_message_ids,
-                    reflection_salience,
-                ))
+                entries.append(
+                    StructuredMemoryEntry(
+                        mtype,
+                        content,
+                        cat_names,
+                        source_role,
+                        confidence,
+                        source_message_ids,
+                        reflection_salience,
+                    )
+                )
         return self._prune_extracted_entry_duplicates(entries)
 
     def _prune_extracted_entry_duplicates(
@@ -1451,15 +1485,17 @@ class MemorizeMixin:
                     if drop_event:
                         continue
 
-                kept.append((
-                    memory_type,
-                    normalized_summary,
-                    cat_names,
-                    source_role,
-                    confidence,
-                    source_message_ids,
-                    reflection_salience,
-                ))
+                kept.append(
+                    StructuredMemoryEntry(
+                        memory_type,
+                        normalized_summary,
+                        cat_names,
+                        source_role,
+                        confidence,
+                        source_message_ids,
+                        reflection_salience,
+                    )
+                )
 
         return kept
 
@@ -1496,28 +1532,33 @@ class MemorizeMixin:
                     diary_worthy=diary_worthy,
                 )
             )
-            decorated.append((
-                memory_type,
-                content,
-                cats,
-                source_role,
-                confidence,
-                resolved_ids,
-                resolved_salience,
-            ))
+            decorated.append(
+                StructuredMemoryEntry(
+                    memory_type,
+                    content,
+                    cats,
+                    source_role,
+                    confidence,
+                    resolved_ids,
+                    resolved_salience,
+                )
+            )
         return decorated
 
     def _build_no_text_fallback(
         self, memory_types: list[MemoryType], resource_url: str, modality: str
     ) -> list[StructuredMemoryEntry]:
         fallback = f"Resource {resource_url} ({modality}) stored. No text summary in v0."
-        return [(mtype, f"{fallback} (memory type: {mtype}).", [], None, None, [], None) for mtype in memory_types]
+        return [
+            StructuredMemoryEntry(mtype, f"{fallback} (memory type: {mtype}).", [], None, None, [], None)
+            for mtype in memory_types
+        ]
 
     def _build_no_result_fallback(
         self, memory_type: MemoryType, resource_url: str, modality: str
     ) -> StructuredMemoryEntry:
         fallback = f"Resource {resource_url} ({modality}) stored. No structured memories generated."
-        return memory_type, fallback, [], None, None, [], None
+        return StructuredMemoryEntry(memory_type, fallback, [], None, None, [], None)
 
     async def _maybe_create_dynamic_categories(
         self,
@@ -1563,15 +1604,17 @@ class MemorizeMixin:
                 reflection_salience,
             ) in structured_entries:
                 kept = [c for c in (cats or []) if c in ctx.category_name_to_id]
-                filtered.append((
-                    mtype,
-                    content,
-                    kept,
-                    source_role,
-                    confidence,
-                    source_message_ids,
-                    reflection_salience,
-                ))
+                filtered.append(
+                    StructuredMemoryEntry(
+                        mtype,
+                        content,
+                        kept,
+                        source_role,
+                        confidence,
+                        source_message_ids,
+                        reflection_salience,
+                    )
+                )
             return filtered
 
         # Split known vs unknown categories, while counting unknown mentions.
@@ -1611,15 +1654,17 @@ class MemorizeMixin:
                 if k not in seen:
                     known_dedup.append(k)
                     seen.add(k)
-            filtered_entries.append((
-                mtype,
-                content,
-                known_dedup,
-                source_role,
-                confidence,
-                source_message_ids,
-                reflection_salience,
-            ))
+            filtered_entries.append(
+                StructuredMemoryEntry(
+                    mtype,
+                    content,
+                    known_dedup,
+                    source_role,
+                    confidence,
+                    source_message_ids,
+                    reflection_salience,
+                )
+            )
             per_entry_unknowns.append(unknown)
 
         if not unknown_counts:
@@ -1814,15 +1859,17 @@ Decide which candidates should map into existing categories, and which (if any) 
                 tn = self._normalize_category_name(tgt)
                 if tn and tn in ctx.category_name_to_id and tn not in cats:
                     cats.append(tn)
-            updated.append((
-                mtype,
-                content,
-                cats,
-                source_role,
-                confidence,
-                source_message_ids,
-                reflection_salience,
-            ))
+            updated.append(
+                StructuredMemoryEntry(
+                    mtype,
+                    content,
+                    cats,
+                    source_role,
+                    confidence,
+                    source_message_ids,
+                    reflection_salience,
+                )
+            )
 
         return updated
 
@@ -2584,13 +2631,18 @@ Decide which candidates should map into existing categories, and which (if any) 
         values: Sequence[int | float | str] | None,
         allowed_values: Sequence[int | float | str] | None = None,
     ) -> list[int]:
+        """Clamp extracted source IDs to the valid segment range.
+
+        If the model emits IDs outside the segment, drop them silently rather
+        than falling back to the entire segment — an empty anchor is honest,
+        a full-segment anchor is noise.
+        """
         parsed = self._dedupe_message_indices(values or [])
         allowed = self._dedupe_message_indices(allowed_values or [])
         if not allowed:
             return parsed
         allowed_set = set(allowed)
-        filtered = [candidate for candidate in parsed if candidate in allowed_set]
-        return filtered or allowed
+        return [candidate for candidate in parsed if candidate in allowed_set]
 
     @staticmethod
     def _extract_message_indices(text: str | None) -> list[int]:

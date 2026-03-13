@@ -92,6 +92,10 @@ class MemoryItem(BaseRecord):
     # Soft-merge marker for conservative semantic dedupe.
     # When set, this item is treated as merged into another canonical item.
     merged_into: str | None = None
+    # Reconsolidation marker: when newer evidence replaces this memory, store
+    # the ID of the replacement here.  Retrieval should deprioritize items with
+    # a non-null superseded_by.  Currently dormant — will be populated by the
+    # semantic dedupe apply-delete flow (roadmap item 6).
     superseded_by: str | None = None
     extra: dict[str, Any] = {}
     # extra may contain:
