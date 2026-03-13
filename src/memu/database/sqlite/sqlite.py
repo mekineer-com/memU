@@ -161,10 +161,17 @@ class SQLiteStore(Database):
             with self._sessions.engine.begin() as conn:
                 self._add_column_if_missing(conn, "memu_memory_items", "source_role", "source_role VARCHAR")
                 self._add_column_if_missing(conn, "memu_memory_items", "confidence", "confidence REAL")
+                self._add_column_if_missing(
+                    conn, "memu_memory_items", "source_message_ids", "source_message_ids JSON"
+                )
+                self._add_column_if_missing(
+                    conn, "memu_memory_items", "reflection_salience", "reflection_salience REAL"
+                )
                 self._add_column_if_missing(conn, "memu_memory_items", "conversation_id", "conversation_id VARCHAR")
                 self._add_column_if_missing(conn, "memu_memory_items", "affective_tags", "affective_tags JSON")
                 self._add_column_if_missing(conn, "memu_memory_items", "unresolved", "unresolved TEXT")
                 self._add_column_if_missing(conn, "memu_memory_items", "merged_into", "merged_into VARCHAR")
+                self._add_column_if_missing(conn, "memu_memory_items", "superseded_by", "superseded_by VARCHAR")
 
                 cols = self._table_columns(conn, "memu_memory_items")
                 # Backfill conversation_id from legacy session_id when available.
@@ -188,7 +195,7 @@ CREATE TABLE IF NOT EXISTS memu_conversation_state (
     digest_cursor INTEGER DEFAULT 0,
     working_note TEXT,
     active_intentions JSON,
-    diary_worthy_ids JSON DEFAULT '[]',
+    pending_diary_memory_ids JSON DEFAULT '[]',
     self_model_id VARCHAR,
     last_retrieval_ids JSON,
     last_memorize_at DATETIME,
@@ -208,7 +215,10 @@ CREATE TABLE IF NOT EXISTS memu_conversation_state (
                     conn, "memu_conversation_state", "active_intentions", "active_intentions JSON"
                 )
                 self._add_column_if_missing(
-                    conn, "memu_conversation_state", "diary_worthy_ids", "diary_worthy_ids JSON DEFAULT '[]'"
+                    conn,
+                    "memu_conversation_state",
+                    "pending_diary_memory_ids",
+                    "pending_diary_memory_ids JSON DEFAULT '[]'",
                 )
                 self._add_column_if_missing(conn, "memu_conversation_state", "self_model_id", "self_model_id VARCHAR")
                 self._add_column_if_missing(

@@ -89,10 +89,13 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
             happened_at=getattr(row, "happened_at", None),
             source_role=getattr(row, "source_role", None),
             confidence=getattr(row, "confidence", None),
+            source_message_ids=getattr(row, "source_message_ids", None),
+            reflection_salience=getattr(row, "reflection_salience", None),
             conversation_id=getattr(row, "conversation_id", None),
             affective_tags=getattr(row, "affective_tags", None),
             unresolved=getattr(row, "unresolved", None),
             merged_into=getattr(row, "merged_into", None),
+            superseded_by=getattr(row, "superseded_by", None),
             extra=getattr(row, "extra", {}) or {},
             created_at=row.created_at,
             updated_at=row.updated_at,
@@ -243,6 +246,8 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
         tool_record: dict[str, Any] | None = None,
         source_role: str | None = None,
         confidence: float | None = None,
+        source_message_ids: list[int] | None = None,
+        reflection_salience: float | None = None,
         conversation_id: str | None = None,
         affective_tags: dict[str, Any] | None = None,
         unresolved: str | None = None,
@@ -289,6 +294,8 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
                     tool_record=tool_record,
                     source_role=source_role,
                     confidence=confidence,
+                    source_message_ids=source_message_ids,
+                    reflection_salience=reflection_salience,
                     conversation_id=conversation_id,
                     affective_tags=affective_tags,
                     unresolved=unresolved,
@@ -318,6 +325,8 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
             embedding=None,
             source_role=source_role,
             confidence=confidence,
+            source_message_ids=source_message_ids,
+            reflection_salience=reflection_salience,
             conversation_id=conv_id,
             affective_tags=affective_tags,
             unresolved=unresolved,
@@ -345,6 +354,8 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
         user_data: dict[str, Any],
         source_role: str | None = None,
         confidence: float | None = None,
+        source_message_ids: list[int] | None = None,
+        reflection_salience: float | None = None,
         conversation_id: str | None = None,
         affective_tags: dict[str, Any] | None = None,
         unresolved: str | None = None,
@@ -380,6 +391,8 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
                     user_data=user_data,
                     source_role=source_role,
                     confidence=confidence,
+                    source_message_ids=source_message_ids,
+                    reflection_salience=reflection_salience,
                     conversation_id=conversation_id,
                     affective_tags=affective_tags,
                     unresolved=unresolved,
@@ -412,6 +425,10 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
                 existing.source_role = source_role
             if confidence is not None:
                 existing.confidence = confidence
+            if source_message_ids is not None:
+                existing.source_message_ids = source_message_ids
+            if reflection_salience is not None:
+                existing.reflection_salience = reflection_salience
             if conv_id is not None:
                 existing.conversation_id = conv_id
             if affective_tags is not None:
@@ -444,6 +461,8 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
             embedding=None,
             source_role=source_role,
             confidence=confidence,
+            source_message_ids=source_message_ids,
+            reflection_salience=reflection_salience,
             conversation_id=conv_id,
             affective_tags=affective_tags,
             unresolved=unresolved,
@@ -472,6 +491,7 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
         extra: dict[str, Any] | None = None,
         tool_record: dict[str, Any] | None = None,
         merged_into: str | None = None,
+        superseded_by: str | None = None,
         affective_tags: dict[str, Any] | None = None,
         unresolved: str | None = None,
     ) -> MemoryItem:
@@ -507,6 +527,8 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
                 self._set_row_embedding(row, embedding)
             if merged_into is not None:
                 row.merged_into = merged_into
+            if superseded_by is not None:
+                row.superseded_by = superseded_by
             if affective_tags is not None:
                 row.affective_tags = affective_tags
             if unresolved is not None:

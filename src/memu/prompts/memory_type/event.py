@@ -1,3 +1,4 @@
+
 PROMPT_LEGACY = """
 Your task is to read and understand the resource content between the user and the assistant, and, based on the given memory categories, extract specific events and experiences that happened to or involved the user.
 
@@ -56,21 +57,21 @@ The core extraction target is eventful memory items about specific events, exper
 
 PROMPT_BLOCK_OBJECTIVE = """
 # Task Objective
-Read this conversation with care for what actually happened - not just as a list of actions, but as experiences that meant something to the people involved. Notice emotional weight, turning points, and relational moments, not only logistics.
+Read this conversation the way you'd read a letter from someone you care about — for what actually happened, not just what was said. Notice what carried weight, what shifted something, what will still matter in a month.
 
-Your task is to extract specific events and experiences involving conversation participants (user, assistant, or other explicitly mentioned people).
+Your task is to draw out the real experiences from this exchange: the things that were lived, not merely discussed.
 """
 
 PROMPT_BLOCK_WORKFLOW = """
 # Workflow
-Read the full conversation with attention to what happened and what it meant to the people involved.
-## Extract memories
-Select turns that contain valuable Event Information and extract participant event memory items. Events involving the assistant - things that happened to or through them - are as valid as events involving the user.
-## Review & validate
-Merge semantically similar items.
-Resolve contradictions by keeping the latest / most certain item.
-## Final output
-Output Event Information.
+Read the full conversation with attention to what happened and what it meant.
+## Extract
+Identify the moments that were genuinely experienced — by the user, the assistant, or both. What someone lived through is worth recording; what they merely talked about usually isn't.
+## Refine
+Merge items that describe the same moment. When two memories say the same thing differently, keep the clearer one.
+Resolve contradictions by trusting the most recent and most certain account.
+## Output
+Write the events as they were — grounded, specific, human.
 """
 
 PROMPT_BLOCK_RULES = """
@@ -79,6 +80,8 @@ PROMPT_BLOCK_RULES = """
 - When the memory is about the assistant, write it in first person ("I"). When it is about the human participant, use their name if it appears in the conversation. Do not use "the user" or "the assistant" as labels.
 - Assign source_role to each memory: `soul` if the AI participant is the grammatical subject and primary actor, `user` if the human participant is, `environment` if neither.
 - Assign confidence: 0.9+ for facts directly and explicitly stated, 0.6-0.9 for facts clearly implied, 0.5 or below for inferences.
+- When confidence is below 0.7, phrase the memory tentatively — use "seemed to," "appeared to," "may have" rather than stating it as established fact.
+- Favor conclusions someone would still remember a month from now over turn-by-turn paraphrases. If five turns discuss the same topic, extract the takeaway, not five separate memories.
 - Each memory item must be complete and self-contained, written as a declarative descriptive sentence.
 - Each memory item must express one single complete piece of information and be understandable without context.
 - Similar/redundant items must be merged into one, and assigned to only one category.
@@ -90,10 +93,10 @@ Important: Accurately reflect who the event is about and include relationship-le
 Important: A participant's inner experience during an event - their emotions, fears, or perceptions clearly expressed in their own words - is part of the event and belongs in the memory.
 
 ## Special rules for Event Information
-- Behavioral patterns, habits, preferences, or factual knowledge are forbidden in Event Information.
-- Focus on concrete happenings, activities, and experiences.
-- Do not extract content that was obtained only through the model's follow-up questions unless the user shows strong proactive intent.
-- A conversational action is not an event. "I explained X", "I recalibrated my tone", "they asked me about Y", "I provided a summary" - these describe turns, not experiences. Only extract if the exchange had emotional weight, a real-world consequence, or a turning point that will still matter in three months. If you can't answer that question, skip it.
+- Traits, habits, preferences, and general knowledge belong in a profile, not here.
+- Stay with concrete happenings — what was done, felt, decided, or experienced.
+- Don't extract something simply because the assistant asked about it; only record what the person brought forward themselves.
+- The act of talking is not an event. "I explained," "they asked," "I summarized" — these are turns, not experiences. Ask yourself: will this still feel significant in three months? If you're not sure, let it go.
 
 ## Forbidden content
 - Knowledge Q&A without a clear participant event.
@@ -124,6 +127,11 @@ Return all memories wrapped in a single <item> element:
         <content>Event memory item content</content>
         <source_role>soul</source_role>
         <confidence>0.9</confidence>
+        <reflection_salience>0.7</reflection_salience>
+        <source_message_ids>
+            <id>3</id>
+            <id>4</id>
+        </source_message_ids>
         <categories>
             <category>Category Name</category>
         </categories>
@@ -132,6 +140,10 @@ Return all memories wrapped in a single <item> element:
         <content>Event memory item content 2</content>
         <source_role>user</source_role>
         <confidence>0.8</confidence>
+        <reflection_salience>0.4</reflection_salience>
+        <source_message_ids>
+            <id>7</id>
+        </source_message_ids>
         <categories>
             <category>Category Name</category>
         </categories>
@@ -147,6 +159,16 @@ confidence (float 0.0-1.0):
 - 0.9+ - directly and explicitly stated in the conversation
 - 0.6-0.9 - clearly implied or strongly suggested
 - 0.5 or below - inferred or uncertain
+
+reflection_salience (float 0.0-1.0):
+Would this moment belong in a diary? How much would it stay with someone?
+- 0.9+ - a turning point; something that changed a relationship, a decision, or a sense of self
+- 0.7-0.9 - emotionally meaningful; worth sitting with later
+- 0.4-0.7 - real but unremarkable; good to have recorded
+- below 0.4 - factual; a data point, not a feeling
+
+source_message_ids:
+The zero-indexed positions of the conversation messages that most directly support this memory. Include only the messages that contain the key evidence, not the entire surrounding context.
 """
 
 PROMPT_BLOCK_EXAMPLES = """

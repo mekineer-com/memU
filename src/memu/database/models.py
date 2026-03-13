@@ -83,6 +83,8 @@ class MemoryItem(BaseRecord):
     # source_role vocabulary is fixed: soul | user | environment.
     source_role: str | None = None
     confidence: float | None = None
+    source_message_ids: list[int] | None = None
+    reflection_salience: float | None = None
     # Conversation/session anchor (mapped from session_id when available).
     conversation_id: str | None = None
     affective_tags: dict[str, Any] | None = None
@@ -90,6 +92,7 @@ class MemoryItem(BaseRecord):
     # Soft-merge marker for conservative semantic dedupe.
     # When set, this item is treated as merged into another canonical item.
     merged_into: str | None = None
+    superseded_by: str | None = None
     extra: dict[str, Any] = {}
     # extra may contain:
     # # reinforcement tracking fields

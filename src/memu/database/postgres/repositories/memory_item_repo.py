@@ -139,6 +139,8 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
         tool_record: dict[str, Any] | None = None,
         source_role: str | None = None,
         confidence: float | None = None,
+        source_message_ids: list[int] | None = None,
+        reflection_salience: float | None = None,
         conversation_id: str | None = None,
         affective_tags: dict[str, Any] | None = None,
         unresolved: str | None = None,
@@ -152,6 +154,8 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
                 user_data=user_data,
                 source_role=source_role,
                 confidence=confidence,
+                source_message_ids=source_message_ids,
+                reflection_salience=reflection_salience,
                 conversation_id=conversation_id,
                 affective_tags=affective_tags,
                 unresolved=unresolved,
@@ -181,6 +185,8 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
             embedding=self._prepare_embedding(embedding),
             source_role=source_role,
             confidence=confidence,
+            source_message_ids=source_message_ids,
+            reflection_salience=reflection_salience,
             conversation_id=conv_id,
             affective_tags=affective_tags,
             unresolved=unresolved,
@@ -208,6 +214,8 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
         user_data: dict[str, Any],
         source_role: str | None = None,
         confidence: float | None = None,
+        source_message_ids: list[int] | None = None,
+        reflection_salience: float | None = None,
         conversation_id: str | None = None,
         affective_tags: dict[str, Any] | None = None,
         unresolved: str | None = None,
@@ -246,6 +254,10 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
                     existing.source_role = source_role
                 if confidence is not None:
                     existing.confidence = confidence
+                if source_message_ids is not None:
+                    existing.source_message_ids = source_message_ids
+                if reflection_salience is not None:
+                    existing.reflection_salience = reflection_salience
                 if conv_id is not None:
                     existing.conversation_id = conv_id
                 if affective_tags is not None:
@@ -271,6 +283,8 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
                 embedding=self._prepare_embedding(embedding),
                 source_role=source_role,
                 confidence=confidence,
+                source_message_ids=source_message_ids,
+                reflection_salience=reflection_salience,
                 conversation_id=conv_id,
                 affective_tags=affective_tags,
                 unresolved=unresolved,
@@ -301,6 +315,7 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
         extra: dict[str, Any] | None = None,
         tool_record: dict[str, Any] | None = None,
         merged_into: str | None = None,
+        superseded_by: str | None = None,
         affective_tags: dict[str, Any] | None = None,
         unresolved: str | None = None,
     ) -> MemoryItem:
@@ -323,6 +338,8 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
                 item.embedding = self._prepare_embedding(embedding)
             if merged_into is not None:
                 item.merged_into = merged_into
+            if superseded_by is not None:
+                item.superseded_by = superseded_by
             if affective_tags is not None:
                 item.affective_tags = affective_tags
             if unresolved is not None:

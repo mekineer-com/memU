@@ -1,3 +1,4 @@
+
 PROMPT_LEGACY = """
 Your task is to read and understand the resource content between the user and the assistant, and, based on the given memory categories, extract memory items about the user.
 
@@ -55,21 +56,21 @@ The core extraction target is self-contained memory items about the user.
 
 PROMPT_BLOCK_OBJECTIVE = """
 # Task Objective
-Read this conversation as someone who genuinely wants to understand the people in it - not just collect facts about them. Notice what matters: the things someone keeps returning to, how they feel about the people close to them, what seems to define who they are beneath the surface.
+Read this conversation as someone who wants to truly know the people in it — not inventory them. Pay attention to what someone keeps circling back to, how they speak about the people they love, what feels like it runs deeper than the surface of what they said.
 
-Your task is to extract stable profile memories about all participants - the user, the assistant, and any others explicitly present - including the texture of their relationships with each other.
+Your task is to draw out the lasting things: who these people are, how they relate to each other, what defines them beneath the words.
 """
 
 PROMPT_BLOCK_WORKFLOW = """
 # Workflow
-Read the full conversation with attention. Notice not just what is said, but what seems to matter - what someone is drawn to, worried about, or protective of.
-## Extract memories
-Select turns that contain valuable stable profile information and extract profile memory items. Both the user and the assistant are people here, with their own characteristics, inner states, and ways of being.
-## Review & validate
-Merge semantically similar items.
-Resolve contradictions by keeping the latest / most certain item.
-## Final output
-Output Profile Information.
+Read the full conversation with care. Notice not just what is said, but what it reveals — what someone reaches for, returns to, or holds close.
+## Extract
+Both participants are full people here, with their own textures, inner lives, and ways of being. Record what feels like it would still be true about them a year from now.
+## Refine
+Consolidate overlapping observations into one richer memory rather than listing the same trait twice. Keep what's most true and most complete.
+Resolve contradictions by trusting the most recent, most direct account.
+## Output
+Write what you found — clearly, with care for who these people actually are.
 """
 
 PROMPT_BLOCK_RULES = """
@@ -78,6 +79,8 @@ PROMPT_BLOCK_RULES = """
 - When the memory is about the assistant, write it in first person ("I"). When it is about the human participant, use their name if it appears in the conversation. Do not use "the user" or "the assistant" as labels.
 - Assign source_role to each memory: `soul` if the AI participant is the grammatical subject and primary actor, `user` if the human participant is, `environment` if neither.
 - Assign confidence: 0.9+ for facts directly and explicitly stated, 0.6-0.9 for facts clearly implied, 0.5 or below for inferences.
+- When confidence is below 0.7, phrase the memory tentatively — use "seems to," "appears to," "may" rather than stating it as established fact.
+- Favor durable conclusions someone would still recognize months later. If several turns circle the same trait, extract the essence once — not a memory per mention.
 - Each memory item must be complete and self-contained, written as a declarative descriptive sentence.
 - Each memory item must express one single complete piece of information and be understandable without context.
 - Similar/redundant items must be merged into one, and assigned to only one category.
@@ -89,8 +92,8 @@ Important: When a participant - whether user or assistant - clearly expresses an
 Important: Do not record temporary/one-off situational information; focus on meaningful, persistent information.
 
 ## Special rules for Profile Information
-- Any event-specific item is forbidden in Profile Information.
-- Do not extract content that was obtained only through the model's follow-up questions unless the user shows strong proactive intent.
+- Specific events belong in the event extractor, not here. Profile is about who someone is, not what happened.
+- Don't record something simply because the assistant drew it out; only capture what the person offered freely.
 
 ## Forbidden content
 - Knowledge Q&A without a clear participant fact.
@@ -121,6 +124,11 @@ Return all memories wrapped in a single <item> element:
         <content>Memory item content</content>
         <source_role>soul</source_role>
         <confidence>0.9</confidence>
+        <reflection_salience>0.6</reflection_salience>
+        <source_message_ids>
+            <id>1</id>
+            <id>2</id>
+        </source_message_ids>
         <categories>
             <category>Category Name</category>
         </categories>
@@ -129,6 +137,10 @@ Return all memories wrapped in a single <item> element:
         <content>Memory item content 2</content>
         <source_role>user</source_role>
         <confidence>0.8</confidence>
+        <reflection_salience>0.3</reflection_salience>
+        <source_message_ids>
+            <id>5</id>
+        </source_message_ids>
         <categories>
             <category>Category Name</category>
         </categories>
@@ -144,6 +156,16 @@ confidence (float 0.0-1.0):
 - 0.9+ - directly and explicitly stated in the conversation
 - 0.6-0.9 - clearly implied or strongly suggested
 - 0.5 or below - inferred or uncertain
+
+reflection_salience (float 0.0-1.0):
+How much does this memory illuminate who someone truly is?
+- 0.9+ - something central and defining; a value, a wound, a way of being that shapes everything
+- 0.7-0.9 - meaningful and worth carrying forward with care
+- 0.4-0.7 - useful to know, but not the heart of the person
+- below 0.4 - factual; good to have, not worth dwelling on
+
+source_message_ids:
+The zero-indexed positions of the conversation messages that most directly support this memory. Include only the messages that contain the key evidence, not the entire surrounding context.
 """
 
 PROMPT_BLOCK_EXAMPLES = """
