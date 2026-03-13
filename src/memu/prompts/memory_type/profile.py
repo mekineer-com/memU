@@ -1,4 +1,3 @@
-
 PROMPT_LEGACY = """
 Your task is to read and understand the resource content between the user and the assistant, and, based on the given memory categories, extract memory items about the user.
 

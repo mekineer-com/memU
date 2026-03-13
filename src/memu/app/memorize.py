@@ -822,22 +822,18 @@ class MemorizeMixin:
         for idx, (
             (memory_type, summary_text, cat_names, source_role, confidence, source_message_ids, reflection_salience),
             raw_embedding,
-        ) in enumerate(
-            zip(structured_entries, item_embeddings, strict=True)
-        ):
+        ) in enumerate(zip(structured_entries, item_embeddings, strict=True)):
             embedding = self._normalize_embedding_vector(raw_embedding)
             if embedding is None:
-                updated.append(
-                    (
-                        memory_type,
-                        summary_text,
-                        cat_names,
-                        source_role,
-                        confidence,
-                        source_message_ids,
-                        reflection_salience,
-                    )
-                )
+                updated.append((
+                    memory_type,
+                    summary_text,
+                    cat_names,
+                    source_role,
+                    confidence,
+                    source_message_ids,
+                    reflection_salience,
+                ))
                 continue
 
             existing_names: list[str] = []
@@ -849,17 +845,15 @@ class MemorizeMixin:
                 else:
                     unknown_names.append(name)
             if not existing_names:
-                updated.append(
-                    (
-                        memory_type,
-                        summary_text,
-                        cat_names,
-                        source_role,
-                        confidence,
-                        source_message_ids,
-                        reflection_salience,
-                    )
-                )
+                updated.append((
+                    memory_type,
+                    summary_text,
+                    cat_names,
+                    source_role,
+                    confidence,
+                    source_message_ids,
+                    reflection_salience,
+                ))
                 continue
 
             max_similarity: float | None = None
@@ -871,31 +865,27 @@ class MemorizeMixin:
                     max_similarity = similarity
 
             if max_similarity is None or max_similarity >= threshold:
-                updated.append(
-                    (
-                        memory_type,
-                        summary_text,
-                        cat_names,
-                        source_role,
-                        confidence,
-                        source_message_ids,
-                        reflection_salience,
-                    )
-                )
-                continue
-
-            gated_indexes.add(idx)
-            updated.append(
-                (
+                updated.append((
                     memory_type,
                     summary_text,
-                    unknown_names,
+                    cat_names,
                     source_role,
                     confidence,
                     source_message_ids,
                     reflection_salience,
-                )
-            )
+                ))
+                continue
+
+            gated_indexes.add(idx)
+            updated.append((
+                memory_type,
+                summary_text,
+                unknown_names,
+                source_role,
+                confidence,
+                source_message_ids,
+                reflection_salience,
+            ))
 
         return updated, gated_indexes
 
@@ -1227,7 +1217,9 @@ class MemorizeMixin:
             resource_text=resource_text,
             memory_types=memory_types,
             categories_prompt_str=categories_prompt_str,
-            default_source_message_ids=self._extract_message_indices(resource_text) if modality == "conversation" else None,
+            default_source_message_ids=self._extract_message_indices(resource_text)
+            if modality == "conversation"
+            else None,
             llm_client=llm_client,
         )
 
@@ -1391,17 +1383,15 @@ class MemorizeMixin:
                     if n and n not in seen:
                         cat_names.append(n)
                         seen.add(n)
-                entries.append(
-                    (
-                        mtype,
-                        content,
-                        cat_names,
-                        source_role,
-                        confidence,
-                        source_message_ids,
-                        reflection_salience,
-                    )
-                )
+                entries.append((
+                    mtype,
+                    content,
+                    cat_names,
+                    source_role,
+                    confidence,
+                    source_message_ids,
+                    reflection_salience,
+                ))
         return self._prune_extracted_entry_duplicates(entries)
 
     def _prune_extracted_entry_duplicates(
@@ -1412,7 +1402,15 @@ class MemorizeMixin:
             return entries
 
         profile_tokens: list[tuple[str | None, set[str]]] = []
-        for memory_type, summary, _cat_names, source_role, _confidence, _source_message_ids, _reflection_salience in entries:
+        for (
+            memory_type,
+            summary,
+            _cat_names,
+            source_role,
+            _confidence,
+            _source_message_ids,
+            _reflection_salience,
+        ) in entries:
             if memory_type != "profile":
                 continue
             tokens = self._dedupe_summary_tokens(summary)
@@ -1421,7 +1419,15 @@ class MemorizeMixin:
 
         seen_exact: set[tuple[str, str | None, str]] = set()
         kept: list[StructuredMemoryEntry] = []
-        for memory_type, summary, cat_names, source_role, confidence, source_message_ids, reflection_salience in entries:
+        for (
+            memory_type,
+            summary,
+            cat_names,
+            source_role,
+            confidence,
+            source_message_ids,
+            reflection_salience,
+        ) in entries:
             normalized_summary = re.sub(r"\s+", " ", str(summary or "").strip())
             exact_key = (memory_type, source_role, normalized_summary.casefold())
             if exact_key in seen_exact:
@@ -1445,17 +1451,15 @@ class MemorizeMixin:
                     if drop_event:
                         continue
 
-                kept.append(
-                    (
-                        memory_type,
-                        normalized_summary,
-                        cat_names,
-                        source_role,
-                        confidence,
-                        source_message_ids,
-                        reflection_salience,
-                    )
-                )
+                kept.append((
+                    memory_type,
+                    normalized_summary,
+                    cat_names,
+                    source_role,
+                    confidence,
+                    source_message_ids,
+                    reflection_salience,
+                ))
 
         return kept
 
@@ -1492,17 +1496,15 @@ class MemorizeMixin:
                     diary_worthy=diary_worthy,
                 )
             )
-            decorated.append(
-                (
-                    memory_type,
-                    content,
-                    cats,
-                    source_role,
-                    confidence,
-                    resolved_ids,
-                    resolved_salience,
-                )
-            )
+            decorated.append((
+                memory_type,
+                content,
+                cats,
+                source_role,
+                confidence,
+                resolved_ids,
+                resolved_salience,
+            ))
         return decorated
 
     def _build_no_text_fallback(
@@ -1551,19 +1553,25 @@ class MemorizeMixin:
         if remaining is not None and remaining <= 0:
             # No capacity for new categories; drop unknowns.
             filtered: list[StructuredMemoryEntry] = []
-            for mtype, content, cats, source_role, confidence, source_message_ids, reflection_salience in structured_entries:
+            for (
+                mtype,
+                content,
+                cats,
+                source_role,
+                confidence,
+                source_message_ids,
+                reflection_salience,
+            ) in structured_entries:
                 kept = [c for c in (cats or []) if c in ctx.category_name_to_id]
-                filtered.append(
-                    (
-                        mtype,
-                        content,
-                        kept,
-                        source_role,
-                        confidence,
-                        source_message_ids,
-                        reflection_salience,
-                    )
-                )
+                filtered.append((
+                    mtype,
+                    content,
+                    kept,
+                    source_role,
+                    confidence,
+                    source_message_ids,
+                    reflection_salience,
+                ))
             return filtered
 
         # Split known vs unknown categories, while counting unknown mentions.
@@ -1572,7 +1580,15 @@ class MemorizeMixin:
         per_entry_unknowns: list[list[str]] = []
         filtered_entries: list[StructuredMemoryEntry] = []
 
-        for mtype, content, cats, source_role, confidence, source_message_ids, reflection_salience in structured_entries:
+        for (
+            mtype,
+            content,
+            cats,
+            source_role,
+            confidence,
+            source_message_ids,
+            reflection_salience,
+        ) in structured_entries:
             known: list[str] = []
             unknown: list[str] = []
             for c in cats or []:
@@ -1595,17 +1611,15 @@ class MemorizeMixin:
                 if k not in seen:
                     known_dedup.append(k)
                     seen.add(k)
-            filtered_entries.append(
-                (
-                    mtype,
-                    content,
-                    known_dedup,
-                    source_role,
-                    confidence,
-                    source_message_ids,
-                    reflection_salience,
-                )
-            )
+            filtered_entries.append((
+                mtype,
+                content,
+                known_dedup,
+                source_role,
+                confidence,
+                source_message_ids,
+                reflection_salience,
+            ))
             per_entry_unknowns.append(unknown)
 
         if not unknown_counts:
@@ -1800,17 +1814,15 @@ Decide which candidates should map into existing categories, and which (if any) 
                 tn = self._normalize_category_name(tgt)
                 if tn and tn in ctx.category_name_to_id and tn not in cats:
                     cats.append(tn)
-            updated.append(
-                (
-                    mtype,
-                    content,
-                    cats,
-                    source_role,
-                    confidence,
-                    source_message_ids,
-                    reflection_salience,
-                )
-            )
+            updated.append((
+                mtype,
+                content,
+                cats,
+                source_role,
+                confidence,
+                source_message_ids,
+                reflection_salience,
+            ))
 
         return updated
 
@@ -1871,9 +1883,7 @@ Decide which candidates should map into existing categories, and which (if any) 
             confidence,
             source_message_ids,
             reflection_salience,
-        ), emb in zip(
-            structured_entries, item_embeddings, strict=True
-        ):
+        ), emb in zip(structured_entries, item_embeddings, strict=True):
             resolved_summary = self._hedge_summary_for_confidence(summary_text, confidence)
             item_kwargs = {
                 "resource_id": resource_id,
