@@ -290,18 +290,6 @@ class MemorizeConfig(BaseModel):
         default=0.89,
         description="Cosine similarity threshold for semantic dedupe auto-merge decisions.",
     )
-    semantic_dedupe_apply_deletes: bool = Field(
-        default=False,
-        description="Legacy flag kept for backward-compatible config parsing.",
-    )
-    semantic_dedupe_log_file: str = Field(
-        default="./data/logs/memu_dedupe_review.log",
-        description="Legacy setting kept for backward-compatible config parsing.",
-    )
-    semantic_dedupe_embed_profile: str = Field(
-        default="embedding",
-        description="Legacy setting kept for backward-compatible config parsing.",
-    )
 
 
 class PatchConfig(BaseModel):

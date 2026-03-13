@@ -334,6 +334,7 @@ class MemorizeMixin:
         resource_plans: list[dict[str, Any]] = []
         total_segments = len(preprocessed_resources) or 1
         diary_worthy_ids: list[int] = []
+        skipped_reasons: list[str] = []
 
         for idx, prep in enumerate(preprocessed_resources):
             res_url = self._segment_resource_url(state["resource_url"], idx, total_segments)
@@ -360,6 +361,7 @@ class MemorizeMixin:
                 text=text,
                 categories_prompt_str=state["categories_prompt_str"],
                 llm_client=llm_client,
+                skipped_reasons=skipped_reasons,
             )
             structured_entries = self._decorate_entries_with_plan_context(
                 structured_entries,
@@ -378,6 +380,8 @@ class MemorizeMixin:
 
         state["resource_plans"] = resource_plans
         state["diary_worthy_ids"] = self._dedupe_message_indices(diary_worthy_ids)
+        if skipped_reasons:
+            state["skipped_reasons"] = skipped_reasons
         return state
 
     async def _memorize_dedupe_merge(self, state: WorkflowState, step_context: Any) -> WorkflowState:
@@ -1077,6 +1081,9 @@ class MemorizeMixin:
                 "relations": relations,
                 "pending_diary_memory_ids": state.get("pending_diary_memory_ids", []),
             }
+        skipped = state.get("skipped_reasons")
+        if skipped:
+            response["skipped_reasons"] = skipped
         state["response"] = response
         return state
 
@@ -1202,6 +1209,7 @@ class MemorizeMixin:
         categories_prompt_str: str,
         segments: list[dict[str, int | str]] | None = None,
         llm_client: Any | None = None,
+        skipped_reasons: list[str] | None = None,
     ) -> list[StructuredMemoryEntry]:
         if not memory_types:
             return []
@@ -1215,6 +1223,7 @@ class MemorizeMixin:
                 categories_prompt_str=categories_prompt_str,
                 segments=segments,
                 llm_client=client,
+                skipped_reasons=skipped_reasons,
             )
             return entries
             # if entries:
@@ -1234,6 +1243,7 @@ class MemorizeMixin:
         categories_prompt_str: str,
         segments: list[dict[str, int | str]] | None,
         llm_client: Any | None = None,
+        skipped_reasons: list[str] | None = None,
     ) -> list[StructuredMemoryEntry]:
         if modality == "conversation" and segments:
             segment_entries = await self._generate_entries_for_segments(
@@ -1242,6 +1252,7 @@ class MemorizeMixin:
                 memory_types=memory_types,
                 categories_prompt_str=categories_prompt_str,
                 llm_client=llm_client,
+                skipped_reasons=skipped_reasons,
             )
             if segment_entries:
                 return segment_entries
@@ -1263,6 +1274,7 @@ class MemorizeMixin:
         memory_types: list[MemoryType],
         categories_prompt_str: str,
         llm_client: Any | None = None,
+        skipped_reasons: list[str] | None = None,
     ) -> list[StructuredMemoryEntry]:
         entries: list[StructuredMemoryEntry] = []
         lines = resource_text.split("\n")
@@ -1273,7 +1285,12 @@ class MemorizeMixin:
             segment_text = self._extract_segment_text(lines, start_idx, end_idx)
             if not segment_text:
                 continue
-            applicable_types = await self._route_segment(segment_text, memory_types, llm_client)
+            applicable_types = await self._route_segment(
+                segment_text,
+                memory_types,
+                llm_client,
+                skipped_reasons=skipped_reasons,
+            )
             if not applicable_types:
                 continue
             segment_entries = await self._generate_entries_from_text(
@@ -1292,6 +1309,7 @@ class MemorizeMixin:
         segment_text: str,
         memory_types: list[MemoryType],
         llm_client: Any | None = None,
+        skipped_reasons: list[str] | None = None,
     ) -> list[MemoryType]:
         if not memory_types:
             return []
@@ -1313,6 +1331,12 @@ class MemorizeMixin:
                 return memory_types
         if not isinstance(payload, dict):
             return memory_types
+        if payload.get("memorable") is False:
+            reason = payload.get("reason", "")
+            logger.info("Router gated segment as not memorable: %s", reason)
+            if skipped_reasons is not None and reason:
+                skipped_reasons.append(reason)
+            return []
         routed_types = payload.get("types")
         if not isinstance(routed_types, list):
             return memory_types
