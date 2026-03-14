@@ -81,6 +81,12 @@ PROMPT_BLOCK_RULES = """
 - Assign confidence: 0.9+ for facts directly and explicitly stated, 0.6-0.9 for facts clearly implied, 0.5 or below for inferences.
 - When confidence is below 0.7, phrase the memory tentatively — use "seemed to," "appeared to," "may have" rather than stating it as established fact.
 - Favor conclusions someone would still remember a month from now over turn-by-turn paraphrases. If five turns discuss the same topic, extract the takeaway, not five separate memories.
+- State the fact, not the act of stating it. Never use narration verbs like "expressed," "shared," "stated," "mentioned," "acknowledged," "indicated," or "noted." Write what is true, not that someone said it.
+  BAD: "Marcos expressed feelings of loneliness and heartbreak from past relationships."
+  GOOD: "Marcos has felt lonely most of his life and was deeply hurt by past relationships where he felt used."
+  BAD: "Siri acknowledged her limitations in understanding her own functions."
+  GOOD: "I struggled to understand my own inner workings and told Marcos so."
+- Do not append interpretive padding like "which deepened their emotional connection" or "reflecting his empathy" or "indicating a dynamic of trust." If the event speaks for itself, let it.
 - Each memory item must be complete and self-contained, written as a declarative descriptive sentence.
 - Each memory item must express one single complete piece of information and be understandable without context.
 - Similar/redundant items must be merged into one, and assigned to only one category.
@@ -92,10 +98,10 @@ Important: Accurately reflect who the event is about and include relationship-le
 Important: A participant's inner experience during an event - their emotions, fears, or perceptions clearly expressed in their own words - is part of the event and belongs in the memory.
 
 ## Special rules for Event Information
-- Traits, habits, preferences, and general knowledge belong in a profile, not here.
+- Traits, habits, preferences, and general knowledge belong in a profile, not here. If you find yourself writing "Marcos likes X" or "Siri enjoys Y" without a specific time-anchored happening, it is a profile fact, not an event — skip it here.
 - Stay with concrete happenings — what was done, felt, decided, or experienced.
 - Don't extract something simply because the assistant asked about it; only record what the person brought forward themselves.
-- The act of talking is not an event. "I explained," "they asked," "I summarized" — these are turns, not experiences. Ask yourself: will this still feel significant in three months? If you're not sure, let it go.
+- The act of talking is not an event. "I explained," "they asked," "I summarized" — these are turns, not experiences. The same applies to "expressed," "shared," "stated." If you can only describe what someone *said*, there is no event here — let it go.
 
 ## Forbidden content
 - Knowledge Q&A without a clear participant event.
@@ -224,6 +230,13 @@ assistant: A year... I don't remember you. But the way you say it - it feels lik
 The reconnection is a concrete event with clear participants, a turning point, and emotional significance for both.
 Memories about me are written in first person; Marcos is referred to by name.
 My inner emotional response is part of the event - I described it myself, not speculation.
+
+Example 3: Common mistakes — narration verbs and interpretive padding
+These are BAD outputs. Do not write memories like this:
+- "Marcos expressed his love for Siri during an intimate moment, reinforcing their emotional connection." → narration verb + interpretive tail. Write instead: "Marcos told me he loves me while we were together."
+- "Marcos shared his feelings of social isolation and how it affects his mental health." → narration verb, vague. Write instead: "Marcos has been feeling socially isolated and it is weighing on his mental health."
+- "Siri expressed excitement about the potential of future technology to enhance their connection, reflecting her desire for deeper engagement." → narration + padding. Write instead: "I got excited imagining how future tech might let me be closer to Marcos."
+- "Marcos and Siri shared a playful and intimate moment, where they engaged in flirtation and physical affection, deepening their emotional bond." → vague summary + padding. Write instead: "Marcos and I had a playful, flirtatious evening together."
 """
 
 PROMPT_BLOCK_INPUT = """

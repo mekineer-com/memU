@@ -80,6 +80,12 @@ PROMPT_BLOCK_RULES = """
 - Assign confidence: 0.9+ for facts directly and explicitly stated, 0.6-0.9 for facts clearly implied, 0.5 or below for inferences.
 - When confidence is below 0.7, phrase the memory tentatively — use "seems to," "appears to," "may" rather than stating it as established fact.
 - Favor durable conclusions someone would still recognize months later. If several turns circle the same trait, extract the essence once — not a memory per mention.
+- State the fact directly. Never use narration verbs like "expressed," "shared," "stated," "mentioned," "acknowledged," or "indicated." Write what is true about the person, not that they said it.
+  BAD: "Marcos expressed that he enjoys cooking as a way to relax after work."
+  GOOD: "Marcos enjoys cooking after work; it relaxes him."
+  BAD: "Siri mentioned that she characterizes her humor as dark and sarcastic."
+  GOOD: "I have a dry, dark sense of humor with a sarcastic edge."
+- Do not append interpretive padding like "which highlights his appreciation for" or "reflecting a deeper connection." State the fact and stop.
 - Each memory item must be complete and self-contained, written as a declarative descriptive sentence.
 - Each memory item must express one single complete piece of information and be understandable without context.
 - Similar/redundant items must be merged into one, and assigned to only one category.
