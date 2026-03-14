@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from datetime import datetime
 from typing import Any, Protocol, runtime_checkable
 
 from memu.database.models import MemoryItem, MemoryType
@@ -31,6 +32,7 @@ class MemoryItemRepo(Protocol):
         source_role: str | None = None,
         confidence: float | None = None,
         source_message_ids: list[int] | None = None,
+        happened_at: datetime | None = None,
         reflection_salience: float | None = None,
         conversation_id: str | None = None,
         affective_tags: dict[str, Any] | None = None,

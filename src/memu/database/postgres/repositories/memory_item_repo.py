@@ -140,6 +140,7 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
         source_role: str | None = None,
         confidence: float | None = None,
         source_message_ids: list[int] | None = None,
+        happened_at: datetime | None = None,
         reflection_salience: float | None = None,
         conversation_id: str | None = None,
         affective_tags: dict[str, Any] | None = None,
@@ -155,6 +156,7 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
                 source_role=source_role,
                 confidence=confidence,
                 source_message_ids=source_message_ids,
+                happened_at=happened_at,
                 reflection_salience=reflection_salience,
                 conversation_id=conversation_id,
                 affective_tags=affective_tags,
@@ -186,6 +188,7 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
             source_role=source_role,
             confidence=confidence,
             source_message_ids=source_message_ids,
+            happened_at=happened_at,
             reflection_salience=reflection_salience,
             conversation_id=conv_id,
             affective_tags=affective_tags,
@@ -215,6 +218,7 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
         source_role: str | None = None,
         confidence: float | None = None,
         source_message_ids: list[int] | None = None,
+        happened_at: datetime | None = None,
         reflection_salience: float | None = None,
         conversation_id: str | None = None,
         affective_tags: dict[str, Any] | None = None,
@@ -256,6 +260,8 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
                     existing.confidence = confidence
                 if source_message_ids is not None:
                     existing.source_message_ids = source_message_ids
+                if happened_at is not None and existing.happened_at is None:
+                    existing.happened_at = happened_at
                 if reflection_salience is not None:
                     existing.reflection_salience = reflection_salience
                 if conv_id is not None:
@@ -284,6 +290,7 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
                 source_role=source_role,
                 confidence=confidence,
                 source_message_ids=source_message_ids,
+                happened_at=happened_at,
                 reflection_salience=reflection_salience,
                 conversation_id=conv_id,
                 affective_tags=affective_tags,

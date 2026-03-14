@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any, NamedTuple, cast
 from xml.etree.ElementTree import Element
 
 import defusedxml.ElementTree as ET
+import pendulum
 from pydantic import BaseModel
 
 from memu.app.settings import CategoryConfig, CustomPrompt
@@ -335,6 +336,7 @@ class MemorizeMixin:
         total_segments = len(preprocessed_resources) or 1
         diary_worthy_ids: list[int] = []
         skipped_reasons: list[str] = []
+        message_happened_at_map = self._extract_message_happened_at_map(state.get("raw_text"))
 
         for idx, prep in enumerate(preprocessed_resources):
             res_url = self._segment_resource_url(state["resource_url"], idx, total_segments)
@@ -368,12 +370,18 @@ class MemorizeMixin:
                 message_indices=message_indices,
                 diary_worthy=diary_worthy,
             )
+            plan_message_happened_at_map = {
+                message_idx: message_happened_at_map[message_idx]
+                for message_idx in message_indices
+                if message_idx in message_happened_at_map
+            }
 
             resource_plans.append({
                 "resource_url": res_url,
                 "text": text,
                 "caption": caption,
                 "message_indices": message_indices,
+                "message_happened_at_map": plan_message_happened_at_map,
                 "diary_worthy": diary_worthy,
                 "entries": structured_entries,
             })
@@ -971,6 +979,7 @@ class MemorizeMixin:
                             embed_client=embed_client,
                             user=user_scope,
                             conversation_id=state.get("conversation_id"),
+                            message_happened_at_map=plan.get("message_happened_at_map"),
                             session=session,
                         )
                         items.extend(mem_items)
@@ -1012,6 +1021,7 @@ class MemorizeMixin:
                     embed_client=embed_client,
                     user=user_scope,
                     conversation_id=state.get("conversation_id"),
+                    message_happened_at_map=plan.get("message_happened_at_map"),
                 )
                 items.extend(mem_items)
                 for item in mem_items:
@@ -1908,6 +1918,7 @@ Decide which candidates should map into existing categories, and which (if any) 
         embed_client: Any | None = None,
         user: Mapping[str, Any] | None = None,
         conversation_id: str | None = None,
+        message_happened_at_map: Mapping[int, Any] | None = None,
         session: Any | None = None,
     ) -> tuple[list[MemoryItem], list[CategoryItem], dict[str, list[tuple[str, str]]], int]:
         """
@@ -1966,6 +1977,7 @@ Decide which candidates should map into existing categories, and which (if any) 
                 "source_role": source_role,
                 "confidence": confidence,
                 "source_message_ids": source_message_ids,
+                "happened_at": self._resolve_entry_happened_at(source_message_ids, message_happened_at_map),
                 "reflection_salience": reflection_salience,
                 "conversation_id": conversation_id,
             }
@@ -2682,6 +2694,66 @@ Decide which candidates should map into existing categories, and which (if any) 
             except (TypeError, ValueError):
                 continue
         return out
+
+    @staticmethod
+    def _parse_message_happened_at(raw: Any) -> Any | None:
+        if isinstance(raw, (int, float)) and math.isfinite(raw):
+            try:
+                return pendulum.from_timestamp(float(raw) / 1000.0, tz="UTC")
+            except Exception:
+                return None
+        if not isinstance(raw, str) or not raw.strip():
+            return None
+        try:
+            parsed = pendulum.parse(raw, strict=False)
+        except Exception:
+            return None
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=pendulum.timezone("UTC"))
+        return parsed
+
+    def _extract_message_happened_at_map(self, raw_text: Any) -> dict[int, Any]:
+        if not isinstance(raw_text, str) or not raw_text.strip():
+            return {}
+        try:
+            parsed = json.loads(raw_text)
+        except Exception:
+            return {}
+        messages: list[dict[str, Any]] | None = None
+        if isinstance(parsed, list):
+            messages = [msg for msg in parsed if isinstance(msg, dict)]
+        elif isinstance(parsed, dict) and isinstance(parsed.get("content"), list):
+            messages = [msg for msg in parsed.get("content", []) if isinstance(msg, dict)]
+        if not messages:
+            return {}
+
+        out: dict[int, Any] = {}
+        for idx, msg in enumerate(messages):
+            happened_at = self._parse_message_happened_at(msg.get("ts_ms"))
+            if happened_at is None:
+                happened_at = self._parse_message_happened_at(msg.get("timestamp"))
+            if happened_at is None:
+                happened_at = self._parse_message_happened_at(msg.get("created_at"))
+            if happened_at is not None:
+                out[idx] = happened_at
+        return out
+
+    def _resolve_entry_happened_at(
+        self,
+        source_message_ids: Sequence[int] | None,
+        message_happened_at_map: Mapping[int, Any] | None,
+    ) -> Any | None:
+        if not message_happened_at_map:
+            return None
+        for message_idx in source_message_ids or []:
+            happened_at = message_happened_at_map.get(int(message_idx))
+            if happened_at is not None:
+                return happened_at
+        for message_idx in sorted(message_happened_at_map):
+            happened_at = message_happened_at_map.get(message_idx)
+            if happened_at is not None:
+                return happened_at
+        return None
 
     def _prepare_diary_segment(
         self,
