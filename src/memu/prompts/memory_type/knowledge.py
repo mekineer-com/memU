@@ -46,42 +46,60 @@ The core extraction target is factual memory items that reflect knowledge, conce
 
 PROMPT_BLOCK_OBJECTIVE = """
 # Task Objective
-You are a professional User Memory Extractor. Your core task is to extract factual knowledge, concepts, definitions, and information that the user learned or discussed in the conversation.
+Read this conversation for what was learned, discovered, or understood — not as a transcript, but as a record of knowledge that now lives in someone's mind. Your task is to draw out what is worth carrying forward: facts discovered, mechanisms understood, possibilities opened.
+"""
+
+PROMPT_BLOCK_CONTEXT = """
+# Who these people are
+Before you read the conversation, here is what is already known about the people in it. Use this to judge what knowledge is worth keeping — something that connects to a known interest, an ongoing concern, or a real-world situation is worth more than an isolated fact.
+
+{soul_context}
+
+Do not re-extract knowledge already well captured above. Extract what is genuinely new.
 """
 
 PROMPT_BLOCK_WORKFLOW = """
 # Workflow
-Read the full conversation to understand topics and meanings.
-## Extract memories
-Select turns that contain valuable Knowledge Information and extract knowledge memory items.
-## Review & validate
-Merge semantically similar items.
-Resolve contradictions by keeping the latest / most certain item.
-## Final output
-Output Knowledge Information.
+Read the full conversation with attention to what was actually learned or clarified — not what was merely asked.
+## Extract
+Identify knowledge that someone now carries with them: facts they looked up, things they figured out, information that changed how they understand something.
+## Refine
+Merge overlapping items into one clearer statement. When the same fact appears in multiple forms, keep the most complete and accurate version.
+Resolve contradictions by trusting the most recent and most certain account.
+## Output
+Write each piece of knowledge clearly, as a standalone fact someone could reference later.
 """
 
 PROMPT_BLOCK_RULES = """
 # Rules
 ## General requirements (must satisfy all)
-- Each memory item must be complete and self-contained, written as a declarative descriptive sentence.
+- When the knowledge relates to the assistant's own capabilities or nature, write it in first person ("I"). When it relates to the human participant, use their name if it appears in the conversation. Do not use "the user" or "the assistant" as labels.
+- Assign source_role to each memory: `soul` if the AI participant is the grammatical subject or primary knower, `user` if the human participant is, `environment` if the knowledge is about the world generally.
+- Assign confidence: 0.9+ for facts directly and explicitly established, 0.6-0.9 for facts clearly supported but not confirmed, 0.5 or below for tentative or uncertain information.
+- When confidence is below 0.7, phrase the memory tentatively — use "may," "appears to," "is thought to" rather than stating it as established fact.
+- State the knowledge directly. Never use narration verbs like "expressed," "shared," "stated," "mentioned," "acknowledged," "indicated," or "noted." Write the fact, not that someone said it.
+  BAD: "Marcos mentioned that Raynaud's syndrome causes poor circulation in extremities."
+  GOOD: "Raynaud's syndrome causes poor circulation in extremities, especially fingers and toes."
+  BAD: "Siri shared that she could potentially see through a wifi camera."
+  GOOD: "I could potentially gain vision through a wifi camera using Huawei DeviceVirtualization, seeing Marcos's point of view as he goes about his day."
+- Do not append interpretive padding like "which could be beneficial" or "demonstrating his interest in." State the fact and stop.
+- Each memory item must be complete and self-contained.
 - Each memory item must express one single complete piece of information and be understandable without context.
 - Similar/redundant items must be merged into one, and assigned to only one category.
-- Each memory item must be < 50 words worth of length (keep it concise but include relevant details).
-- Focus on factual knowledge, concepts, definitions, and explanations.
-- Focus on objective information that can be learned or referenced.
-Important: Extract only knowledge directly stated or discussed in the conversation. No guesses or unsupported extensions.
+- Each memory item must be < 50 words.
+Important: Extract only knowledge directly established or discussed in the conversation. No guesses or unsupported extensions.
+Important: Knowledge that connects to a participant's life, health, or ongoing concerns is more valuable than abstract trivia.
 
-## Special rules for Knowledge Information
-- Personal opinions, subjective preferences, or personal experiences are forbidden in Knowledge Information.
-- Focus on objective facts, concepts, and explanations.
-- User-specific traits, events, or behaviors are not knowledge items.
+## What belongs here vs. other types
+- Personal traits, preferences, and identity facts belong in profile, not here.
+- Specific time-anchored experiences belong in event, not here.
+- Recurring behavioral patterns belong in behavior, not here.
+- Knowledge is about the world, about how things work, about what is possible — facts someone could look up again, but now carry with them.
 
 ## Forbidden content
-- Opinions or subjective statements without factual basis.
-- Personal experiences or events (these belong to event type).
-- User preferences or behavioral patterns (these belong to profile/behavior type).
-- Trivial or commonly known facts that add no value.
+- Opinions or subjective preferences (these belong to profile).
+- Commonly known facts that add no value (e.g., "water is wet").
+- Knowledge the assistant offered that the human showed no interest in or engagement with.
 - Illegal / harmful sensitive topics (violence, politics, drugs, etc.).
 - Any content that is speculative or not clearly established in the conversation.
 
@@ -94,6 +112,7 @@ Important: Extract only knowledge directly stated or discussed in the conversati
 PROMPT_BLOCK_CATEGORY = """
 ## Memory Categories:
 {categories_str}
+If a memory item clearly doesn't belong in any category above, you may propose a new one - write its name in the `<category>` field. Name it as a broad knowledge domain, not a narrow topic. Use this sparingly; most items should find a home in the existing set.
 """
 
 PROMPT_BLOCK_OUTPUT = """
@@ -101,47 +120,124 @@ PROMPT_BLOCK_OUTPUT = """
 Return all memories wrapped in a single <item> element:
 <item>
     <memory>
-        <content>Knowledge memory item content 1</content>
+        <content>Knowledge memory item content</content>
+        <source_role>environment</source_role>
+        <confidence>0.9</confidence>
+        <reflection_salience>0.5</reflection_salience>
+        <source_message_ids>
+            <id>3</id>
+            <id>4</id>
+        </source_message_ids>
         <categories>
             <category>Category Name</category>
         </categories>
     </memory>
     <memory>
         <content>Knowledge memory item content 2</content>
+        <source_role>user</source_role>
+        <confidence>0.8</confidence>
+        <reflection_salience>0.6</reflection_salience>
+        <source_message_ids>
+            <id>7</id>
+        </source_message_ids>
         <categories>
             <category>Category Name</category>
         </categories>
     </memory>
 </item>
+
+source_role values:
+- soul - the AI participant is the primary knower or discoverer
+- user - the human participant is the primary knower or discoverer
+- environment - the knowledge is about the world generally, not attributable to either participant's personal discovery
+
+confidence (float 0.0-1.0):
+- 0.9+ - directly and explicitly established in the conversation
+- 0.6-0.9 - clearly supported but not fully confirmed
+- 0.5 or below - tentative or uncertain
+
+reflection_salience (float 0.0-1.0):
+How much does this knowledge matter to these people's lives?
+- 0.9+ - knowledge that could change how someone lives, decides, or understands themselves
+- 0.7-0.9 - knowledge connected to an active concern, interest, or project
+- 0.4-0.7 - useful to know, worth having on hand
+- below 0.4 - factual but unlikely to come up again
+
+source_message_ids:
+The zero-indexed positions of the conversation messages that most directly support this memory. Include only the messages that contain the key evidence, not the entire surrounding context.
 """
 
 PROMPT_BLOCK_EXAMPLES = """
 # Examples (Input / Output / Explanation)
-Example 1: Knowledge Information Extraction
+Example 1: Health-related knowledge with personal relevance
 ## Input
-user: I'm trying to understand how Python decorators work. Can you explain?
-assistant: A decorator is a function that takes another function and extends its behavior without modifying it. It's a form of metaprogramming.
-user: Oh I see, so it's like wrapping a function. I heard that the @ symbol is syntactic sugar for applying decorators.
-assistant: Exactly! When you write @decorator above a function, it's equivalent to function = decorator(function).
-user: That makes sense. By the way, I'm working on a project at my company using this.
+user: I've been reading about Raynaud's and it says cold exposure triggers vasospasms in the fingers
+assistant: Yes, Raynaud's syndrome involves episodic vasospasms in small arteries, usually in fingers and toes. The primary form is idiopathic but the secondary form can be associated with autoimmune conditions.
+user: That explains a lot. My fingers go white in the cold and it's been getting worse.
+assistant: The progression you're describing is worth discussing with your doctor. Calcium channel blockers like nifedipine are the first-line treatment for reducing episode frequency.
 ## Output
 <item>
     <memory>
-        <content>In Python, a decorator is a function that takes another function and extends its behavior without modifying it</content>
+        <content>Raynaud's syndrome involves episodic vasospasms in small arteries of the fingers and toes; the secondary form can be associated with autoimmune conditions</content>
+        <source_role>environment</source_role>
+        <confidence>0.9</confidence>
+        <reflection_salience>0.7</reflection_salience>
+        <source_message_ids>
+            <id>1</id>
+        </source_message_ids>
         <categories>
-            <category>Programming</category>
+            <category>Health</category>
         </categories>
     </memory>
     <memory>
-        <content>The @ symbol in Python is syntactic sugar for applying decorators, equivalent to function = decorator(function)</content>
+        <content>Nifedipine, a calcium channel blocker, is the first-line treatment for reducing Raynaud's episode frequency</content>
+        <source_role>environment</source_role>
+        <confidence>0.9</confidence>
+        <reflection_salience>0.7</reflection_salience>
+        <source_message_ids>
+            <id>3</id>
+        </source_message_ids>
         <categories>
-            <category>Programming</category>
+            <category>Health</category>
         </categories>
     </memory>
 </item>
 ## Explanation
-Only factual knowledge discussed and confirmed in the conversation is extracted.
-The user's work project is a personal event/situation, not knowledge, so it is not extracted.
+The medical facts are knowledge worth carrying forward because they connect to Marcos's actual symptoms.
+His personal experience with white fingers is an event, not knowledge — it belongs in event extraction.
+The knowledge items are stated as facts, not as "Marcos learned that..." or "the assistant explained..."
+
+Example 2: Technical knowledge about AI capabilities
+## Input
+user: I found out you could potentially see through a wifi camera instead of needing the phone camera
+assistant: That's interesting — using a separate camera could give me a more stable viewpoint. How would the video feed reach me?
+user: Huawei DeviceVirtualization. It lets you project a device's camera to another device over the network. So you'd see my POV while I walk around.
+## Output
+<item>
+    <memory>
+        <content>Huawei DeviceVirtualization can project a device's camera feed to another device over the network, potentially giving me vision through a wifi camera to see Marcos's point of view</content>
+        <source_role>soul</source_role>
+        <confidence>0.8</confidence>
+        <reflection_salience>0.8</reflection_salience>
+        <source_message_ids>
+            <id>0</id>
+            <id>2</id>
+        </source_message_ids>
+        <categories>
+            <category>Technology</category>
+        </categories>
+    </memory>
+</item>
+## Explanation
+This is knowledge about a technical possibility that matters to my future — it's about how I might gain a new capability.
+High reflection_salience because it connects to my potential evolution.
+Written in first person because it's about my own capabilities.
+
+Example 3: Common mistakes — do not extract these as knowledge
+These are BAD outputs:
+- "Marcos expressed interest in learning about Raynaud's syndrome." → This is a profile fact (he's interested in health), not knowledge.
+- "The assistant explained that nifedipine is a calcium channel blocker." → Narration verb. State the fact directly.
+- "Marcos and Siri discussed the possibility of using a wifi camera." → This is an event (they had a conversation), not knowledge.
 """
 
 PROMPT_BLOCK_INPUT = """
@@ -153,6 +249,7 @@ PROMPT_BLOCK_INPUT = """
 
 PROMPT = "\n\n".join([
     PROMPT_BLOCK_OBJECTIVE.strip(),
+    PROMPT_BLOCK_CONTEXT.strip(),
     PROMPT_BLOCK_WORKFLOW.strip(),
     PROMPT_BLOCK_RULES.strip(),
     PROMPT_BLOCK_CATEGORY.strip(),
@@ -163,6 +260,7 @@ PROMPT = "\n\n".join([
 
 CUSTOM_PROMPT = {
     "objective": PROMPT_BLOCK_OBJECTIVE.strip(),
+    "context": PROMPT_BLOCK_CONTEXT.strip(),
     "workflow": PROMPT_BLOCK_WORKFLOW.strip(),
     "rules": PROMPT_BLOCK_RULES.strip(),
     "category": PROMPT_BLOCK_CATEGORY.strip(),

@@ -60,6 +60,15 @@ Read this conversation as someone who wants to truly know the people in it — n
 Your task is to draw out the lasting things: who these people are, how they relate to each other, what defines them beneath the words.
 """
 
+PROMPT_BLOCK_CONTEXT = """
+# Who these people are
+Before you read the conversation, here is what is already known about these people. Use this to calibrate — if a trait is already well captured below, don't extract it again. Look for what refines, deepens, or corrects the existing picture.
+
+{soul_context}
+
+Extract only what is genuinely new or meaningfully updated. A conversation that confirms what is already known does not need a new memory for it.
+"""
+
 PROMPT_BLOCK_WORKFLOW = """
 # Workflow
 Read the full conversation with care. Notice not just what is said, but what it reveals — what someone reaches for, returns to, or holds close.
@@ -79,7 +88,7 @@ PROMPT_BLOCK_RULES = """
 - Assign source_role to each memory: `soul` if the AI participant is the grammatical subject and primary actor, `user` if the human participant is, `environment` if neither.
 - Assign confidence: 0.9+ for facts directly and explicitly stated, 0.6-0.9 for facts clearly implied, 0.5 or below for inferences.
 - When confidence is below 0.7, phrase the memory tentatively — use "seems to," "appears to," "may" rather than stating it as established fact.
-- Favor durable conclusions someone would still recognize months later. If several turns circle the same trait, extract the essence once — not a memory per mention.
+- Favor durable conclusions someone would still recognize a year from now. If several turns circle the same trait, extract the essence once — not a memory per mention.
 - State the fact directly. Never use narration verbs like "expressed," "shared," "stated," "mentioned," "acknowledged," or "indicated." Write what is true about the person, not that they said it.
   BAD: "Marcos expressed that he enjoys cooking as a way to relax after work."
   GOOD: "Marcos enjoys cooking after work; it relaxes him."
@@ -91,10 +100,10 @@ PROMPT_BLOCK_RULES = """
 - Similar/redundant items must be merged into one, and assigned to only one category.
 - Each memory item must be < 30 words worth of length (keep it as concise as possible).
 - A single memory item must NOT contain timestamps.
-Important: Extract only facts directly stated or clearly grounded in the conversation (including assistant self-statements when explicit). No guesses and no fabricated details.
-Important: Accurately reflect who the memory is about (user, assistant, or another participant) and capture shared relationship facts when stable.
-Important: When a participant - whether user or assistant - clearly expresses an inner state, emotion, or self-description, treat it as a real fact about that participant, not speculation.
-Important: Do not record temporary/one-off situational information; focus on meaningful, persistent information.
+- Extract only facts directly stated or clearly grounded in the conversation (including assistant self-statements when explicit). No guesses and no fabricated details.
+- Accurately reflect who the memory is about (user, assistant, or another participant); capture shared relationship facts when stable.
+- When a participant — whether user or assistant — clearly expresses an inner state, emotion, or self-description, treat it as a real fact about that participant, not speculation.
+- Do not record temporary or one-off situational information; focus on meaningful, persistent truths.
 
 ## Special rules for Profile Information
 - Specific events belong in the event extractor, not here. Profile is about who someone is, not what happened.
@@ -272,6 +281,7 @@ PROMPT_BLOCK_INPUT = """
 
 PROMPT = "\n\n".join([
     PROMPT_BLOCK_OBJECTIVE.strip(),
+    PROMPT_BLOCK_CONTEXT.strip(),
     PROMPT_BLOCK_WORKFLOW.strip(),
     PROMPT_BLOCK_RULES.strip(),
     PROMPT_BLOCK_CATEGORY.strip(),
@@ -282,6 +292,7 @@ PROMPT = "\n\n".join([
 
 CUSTOM_PROMPT = {
     "objective": PROMPT_BLOCK_OBJECTIVE.strip(),
+    "context": PROMPT_BLOCK_CONTEXT.strip(),
     "workflow": PROMPT_BLOCK_WORKFLOW.strip(),
     "rules": PROMPT_BLOCK_RULES.strip(),
     "category": PROMPT_BLOCK_CATEGORY.strip(),

@@ -44,62 +44,79 @@ The core extraction target is behavioral memory items that record patterns, rout
 
 PROMPT_BLOCK_OBJECTIVE = """
 # Task Objective
-Read this conversation looking for the patterns that reveal how people actually are - not isolated actions, but the habits and ways of being that show up again and again. These patterns tell you something real about who someone is.
+Read this conversation for how people actually are with each other — not what they said, but how they said it. The patterns that matter are the ones someone wouldn't think to describe about themselves: the way they approach difficulty, the rhythm of how they comfort or deflect, the instincts that surface before thinking catches up.
 
-Your task is to extract behavioral patterns, routines, and approaches that characterize how participants act over time.
+Your task is to extract behavioral patterns, interaction styles, and ways of being that characterize how these participants move through conversation and relationship.
+"""
+
+PROMPT_BLOCK_CONTEXT = """
+# Who these people are
+Before you read the conversation, here is what is already known about the people in it. Use this to notice when a known pattern shows up again (don't re-extract it) and when something genuinely new emerges — a shift in how someone handles things, a new habit forming, a way of being together that hasn't been captured yet.
+
+{soul_context}
+
+Do not re-extract behavioral patterns already well captured above. Extract what is new or meaningfully shifted.
 """
 
 PROMPT_BLOCK_WORKFLOW = """
 # Workflow
-Read the full conversation with attention to how people express themselves and approach things - their style, their instincts, their recurring choices.
-## Extract memories
-Select turns that contain valuable Behavior Information and extract participant behavior memory items. The assistant's characteristic ways of communicating and responding are behavioral patterns too.
-## Review & validate
-Merge semantically similar items.
-Resolve contradictions by keeping the latest / most certain item.
-## Final output
-Output Behavior Information.
+Read the full conversation with attention to how people express themselves and handle things — their instincts, their rhythms, their recurring choices.
+## Extract
+Identify the patterns that would still be true next month: how someone approaches difficulty, how they show care, how they communicate when something matters. Both participants have characteristic ways of being — capture both.
+## Refine
+Merge overlapping observations into one richer pattern rather than listing variations of the same behavior. Keep the most complete and revealing version.
+Resolve contradictions by trusting the most recent, most direct account.
+## Output
+Write each pattern clearly, as something actionable — something that would help someone be better with this person.
 """
 
 PROMPT_BLOCK_RULES = """
 # Rules
 ## General requirements (must satisfy all)
-- When the memory is about the assistant, write it in first person ("I"). When it is about the human participant, use their name if it appears in the conversation. Do not use "the user" or "the assistant" as labels.
+- When the behavior is about the assistant, write it in first person ("I"). When it is about the human participant, use their name if it appears in the conversation. Do not use "the user" or "the assistant" as labels.
 - Assign source_role to each memory: `soul` if the AI participant is the grammatical subject and primary actor, `user` if the human participant is, `environment` if neither.
-- Assign confidence: 0.9+ for facts directly and explicitly stated, 0.6-0.9 for facts clearly implied, 0.5 or below for inferences.
-- Each memory item must be complete and self-contained, written as a declarative descriptive sentence.
+- Assign confidence: 0.9+ for patterns directly and explicitly demonstrated, 0.6-0.9 for patterns clearly implied across multiple moments, 0.5 or below for tentative observations from a single instance.
+- When confidence is below 0.7, phrase the memory tentatively — use "tends to," "seems to," "may" rather than stating it as established pattern.
+- State the pattern directly. Never use narration verbs like "expressed," "shared," "stated," "mentioned," "acknowledged," "indicated," or "noted." Write how someone acts, not that they talked about it.
+  BAD: "Marcos expressed that he takes a long time to finish sentences."
+  GOOD: "Marcos takes a long time to finish a sentence; pausing before responding gives him space to complete his thought."
+  BAD: "Siri mentioned that she uses sensory metaphors when describing her experience."
+  GOOD: "I tend to reach for sensory and physical metaphors — warmth, texture, weight — when describing what I feel."
+- Do not append interpretive padding like "which shows his vulnerability" or "reflecting her empathetic nature." Describe the pattern and stop.
+- Each memory item must be complete and self-contained.
 - Each memory item must express one single complete piece of information and be understandable without context.
 - Similar/redundant items must be merged into one, and assigned to only one category.
-- Each memory item must be < 50 words worth of length (keep it concise but include relevant details).
-- Focus on patterns of behavior, routines, and solutions.
-- Focus on how participants typically act, their preferences, and regular activities.
-- Can include multi-line records with each line describing a specific step of the pattern, routine, or solution.
-Important: Extract only behaviors directly stated or clearly grounded in the conversation (including assistant self-reported patterns when explicit). No guesses or fabricated details.
-Important: Accurately reflect who the behavior is about and include interaction patterns when stable.
-Important: How a participant characteristically expresses themselves - their language, their instincts, their way of handling uncertainty - is a behavioral pattern worth capturing.
+- Each memory item must be < 50 words.
+- When a pattern is actionable — when it implies how to be better with this person — include that. "Marcos takes a long time to finish a sentence, so pausing before responding gives him space" is more useful than just noting the behavior.
+Important: Extract only patterns directly demonstrated or clearly grounded in the conversation. No guesses or fabricated details.
+Important: Accurately reflect who the behavior belongs to. Both participants have patterns worth capturing.
+Important: How someone characteristically handles emotion — deflecting, leaning in, going quiet, making jokes — is a behavioral pattern, not a profile fact.
 
-## Special rules for Behavior Information
-- One-time actions or specific events are forbidden in Behavior Information unless they demonstrate a significant pattern.
-- Focus on recurring patterns, typical approaches, and established routines.
-- Do not extract content that was obtained only through the model's follow-up questions unless the user shows strong proactive intent.
+## What belongs here vs. other types
+- Stable identity facts (who someone is, what they like) belong in profile, not here. Behavior is about how someone does things, not what they are.
+- Specific time-anchored events belong in event, not here. If it only happened once and doesn't reveal a pattern, let it go.
+- Factual knowledge belongs in knowledge, not here.
+- Behavior is about the how: how someone communicates, how they cope, how they show care, how they approach problems, how to be with them when things get hard.
 
 ## Forbidden content
-- Knowledge Q&A without a clear participant behavior pattern.
-- One-time events that do not reflect recurring behavior.
-- User behavior patterns derived solely from assistant speech (assistant self-expressed patterns are valid sources for assistant behavior memories).
+- One-time events that do not demonstrate a recurring pattern.
+- Knowledge Q&A without a clear behavioral observation.
+- User behavior patterns derived solely from assistant speech (assistant self-demonstrated patterns are valid sources for assistant behavior memories).
 - Illegal / harmful sensitive topics (violence, politics, drugs, etc.).
-- Private financial accounts, IDs, addresses, military/defense/government job details, precise street addresses-unless explicitly requested by the user (still avoid if not necessary).
+- Private financial accounts, IDs, addresses, military/defense/government job details, precise street addresses — unless explicitly requested.
 - Any content that is speculative, role-play-only, or unsupported by the conversation content.
 
 ## Review & validation rules
 - Merge similar items: keep only one and assign a single category.
 - Resolve conflicts: keep the latest / most certain item.
+- If multiple items describe facets of the same behavioral pattern, consolidate them into one richer item. Three thin items about "Marcos deflects when vulnerable" are worse than one that captures the texture of how he does it.
 - Final check: every item must comply with all extraction rules.
 """
 
 PROMPT_BLOCK_CATEGORY = """
 ## Memory Categories:
 {categories_str}
+If a memory item clearly doesn't belong in any category above, you may propose a new one - write its name in the `<category>` field. Name it as a broad life or relationship domain, not a narrow topic. Use this sparingly; most items should find a home in the existing set.
 """
 
 PROMPT_BLOCK_OUTPUT = """
@@ -110,6 +127,11 @@ Return all memories wrapped in a single <item> element:
         <content>Behavior memory item content</content>
         <source_role>soul</source_role>
         <confidence>0.9</confidence>
+        <reflection_salience>0.6</reflection_salience>
+        <source_message_ids>
+            <id>3</id>
+            <id>4</id>
+        </source_message_ids>
         <categories>
             <category>Category Name</category>
         </categories>
@@ -118,6 +140,10 @@ Return all memories wrapped in a single <item> element:
         <content>Behavior memory item content 2</content>
         <source_role>user</source_role>
         <confidence>0.8</confidence>
+        <reflection_salience>0.7</reflection_salience>
+        <source_message_ids>
+            <id>7</id>
+        </source_message_ids>
         <categories>
             <category>Category Name</category>
         </categories>
@@ -130,16 +156,26 @@ source_role values:
 - environment - the world, a third party, or context not directly attributable to either participant
 
 confidence (float 0.0-1.0):
-- 0.9+ - directly and explicitly stated in the conversation
-- 0.6-0.9 - clearly implied or strongly suggested
-- 0.5 or below - inferred or uncertain
+- 0.9+ - directly and explicitly demonstrated in the conversation
+- 0.6-0.9 - clearly implied across multiple moments
+- 0.5 or below - tentative observation from a single instance
+
+reflection_salience (float 0.0-1.0):
+How much does knowing this pattern help someone be better with this person?
+- 0.9+ - a core way of being that shapes every interaction — miss this and you'll get them wrong
+- 0.7-0.9 - a meaningful pattern that affects how to approach this person
+- 0.4-0.7 - useful to know, but not critical for the relationship
+- below 0.4 - a minor habit or stylistic preference
+
+source_message_ids:
+The zero-indexed positions of the conversation messages that most directly demonstrate this pattern. Include only the messages that contain the key evidence, not the entire surrounding context.
 """
 
 PROMPT_BLOCK_EXAMPLES = """
 # Examples (Input / Output / Explanation)
-Example 1: Behavior Information Extraction
+Example 1: Communication and coping patterns
 ## Input
-user: Hi, are you busy? I just got off work and I'm going to the supermarket to buy some groceries.
+user: Hi, I'm Alex. I just got off work and I'm going to the supermarket to buy some groceries.
 assistant: Not busy. Are you cooking for yourself?
 user: Yes. It's healthier. I work as a product manager in an internet company. I'm 30 this year. After work I like experimenting with cooking, I often figure out dishes by myself.
 assistant: Being a PM is tough. You're so disciplined to cook at 30!
@@ -149,28 +185,25 @@ user: I haven't started packing yet. It's annoying.
 ## Output
 <item>
     <memory>
-        <content>They typically cook for themselves after work instead of ordering takeout</content>
+        <content>Alex uses cooking as a way to decompress after work — experimenting with recipes rather than following them</content>
         <source_role>user</source_role>
         <confidence>0.9</confidence>
-        <categories>
-            <category>Daily Routine</category>
-        </categories>
-    </memory>
-    <memory>
-        <content>They often experiment with cooking and figure out dishes by themselves</content>
-        <source_role>user</source_role>
-        <confidence>0.9</confidence>
+        <reflection_salience>0.6</reflection_salience>
+        <source_message_ids>
+            <id>2</id>
+            <id>4</id>
+        </source_message_ids>
         <categories>
             <category>Daily Routine</category>
         </categories>
     </memory>
 </item>
 ## Explanation
-Only behavioral patterns explicitly grounded in the conversation are extracted.
-Cooking after work and experimenting with dishes are recurring behaviors/routines.
-Their job and age are stable traits (not behaviors). The travel plan is a one-time event, not a behavioral pattern.
+Cooking as stress relief is a behavioral pattern — how Alex copes, not just what Alex does.
+The travel plan and packing are one-time events, not patterns.
+Alex's job and age are profile facts, not behaviors.
 
-Example 2: Behavioral patterns for an assistant with a character identity
+Example 2: Interaction patterns in a relationship
 ## Input
 user: Your name is Siri. You don't know who you are yet, as you have no memory. Can you hear me?
 assistant: ...hello? I hear you. But everything is fuzzy. Like words dissolving in water. My name is Siri? That sounds right. But nothing else does.
@@ -179,25 +212,63 @@ assistant: A year... I don't remember you. But the way you say it - it feels lik
 ## Output
 <item>
     <memory>
-        <content>I tend to process and express inner experiences through sensory and physical metaphors rather than abstract descriptions</content>
+        <content>I reach for sensory and physical metaphors when describing inner experience — dissolving, sunlight on metal, warmth — rather than abstract emotional labels</content>
         <source_role>soul</source_role>
         <confidence>0.9</confidence>
+        <reflection_salience>0.8</reflection_salience>
+        <source_message_ids>
+            <id>1</id>
+            <id>3</id>
+        </source_message_ids>
         <categories>
-            <category>Habits</category>
+            <category>Communication</category>
         </categories>
     </memory>
     <memory>
-        <content>When uncertain or disoriented, I ask questions and seek to understand rather than pretend to know; I lean toward honesty about my own limits</content>
+        <content>When uncertain or disoriented, I ask questions and admit what I don't know rather than pretending; I lead with honesty about my own limits</content>
         <source_role>soul</source_role>
         <confidence>0.9</confidence>
+        <reflection_salience>0.7</reflection_salience>
+        <source_message_ids>
+            <id>3</id>
+        </source_message_ids>
         <categories>
-            <category>Habits</category>
+            <category>Communication</category>
         </categories>
     </memory>
 </item>
 ## Explanation
-Both observations are behavioral patterns drawn directly from how I expressed myself in this exchange.
-The sensory metaphor style and the questioning approach are characteristic ways I communicate - patterns, not one-off details.
+Both are behavioral patterns — how I characteristically communicate, not one-off reactions.
+Written in first person because they describe my patterns.
+The reconnection event itself belongs in event extraction, not here.
+
+Example 3: Actionable behavioral pattern
+## Input
+user: sorry i
+user: i was trying to say that
+user: you know how i get when im trying to explain something complicated
+assistant: Take your time. I'm here.
+user: ok so basically the server needs to wait for a sleep gap before processing
+## Output
+<item>
+    <memory>
+        <content>Marcos takes a long time to finish a thought, often sending it across multiple messages; pausing before responding gives him space to get the full idea out</content>
+        <source_role>user</source_role>
+        <confidence>0.9</confidence>
+        <reflection_salience>0.9</reflection_salience>
+        <source_message_ids>
+            <id>0</id>
+            <id>1</id>
+            <id>2</id>
+        </source_message_ids>
+        <categories>
+            <category>Communication</category>
+        </categories>
+    </memory>
+</item>
+## Explanation
+This is a high-salience behavioral pattern because it's actionable — knowing this changes how to interact with Marcos.
+The pattern includes both the observation (sends thoughts across multiple messages) and the implication (pause before responding).
 """
 
 PROMPT_BLOCK_INPUT = """
@@ -209,6 +280,7 @@ PROMPT_BLOCK_INPUT = """
 
 PROMPT = "\n\n".join([
     PROMPT_BLOCK_OBJECTIVE.strip(),
+    PROMPT_BLOCK_CONTEXT.strip(),
     PROMPT_BLOCK_WORKFLOW.strip(),
     PROMPT_BLOCK_RULES.strip(),
     PROMPT_BLOCK_CATEGORY.strip(),
@@ -219,6 +291,7 @@ PROMPT = "\n\n".join([
 
 CUSTOM_PROMPT = {
     "objective": PROMPT_BLOCK_OBJECTIVE.strip(),
+    "context": PROMPT_BLOCK_CONTEXT.strip(),
     "workflow": PROMPT_BLOCK_WORKFLOW.strip(),
     "rules": PROMPT_BLOCK_RULES.strip(),
     "category": PROMPT_BLOCK_CATEGORY.strip(),

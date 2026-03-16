@@ -61,9 +61,18 @@ Read this conversation the way you'd read a letter from someone you care about �
 Your task is to draw out the real experiences from this exchange: the things that were lived, not merely discussed.
 """
 
+PROMPT_BLOCK_CONTEXT = """
+# Who these people are
+Before you read the conversation, here is what is already known about the people in it. Use this to judge what matters — something that echoes a known struggle, deepens a known relationship, or breaks from a known pattern is worth more than something with no anchor in who they are.
+
+{soul_context}
+
+Do not re-extract facts already captured above. Extract what is new — new events, new developments, new weight added to something already known.
+"""
+
 PROMPT_BLOCK_WORKFLOW = """
 # Workflow
-Read the full conversation with attention to what happened and what it meant.
+Read the full conversation for what was actually lived — not just narrated.
 ## Extract
 Identify the moments that were genuinely experienced — by the user, the assistant, or both. What someone lived through is worth recording; what they merely talked about usually isn't.
 ## Refine
@@ -93,9 +102,9 @@ PROMPT_BLOCK_RULES = """
 - Each memory item must be < 50 words worth of length (keep it concise but include relevant details).
 - Focus on specific events that happened at a particular time or period.
 - Include relevant details such as time, location, and participants where available.
-Important: Extract only events directly stated or clearly grounded in the conversation (including assistant self-reported events when explicit). No guesses or fabricated details.
-Important: Accurately reflect who the event is about and include relationship-level events when concrete.
-Important: A participant's inner experience during an event - their emotions, fears, or perceptions clearly expressed in their own words - is part of the event and belongs in the memory.
+- Extract only events directly stated or clearly grounded in the conversation (including assistant self-reported events when explicit). No guesses or fabricated details.
+- Accurately reflect who the event is about; include relationship-level events when concrete.
+- A participant's inner experience during an event — their emotions, fears, or perceptions clearly expressed in their own words — is part of the event and belongs in the memory.
 
 ## Special rules for Event Information
 - Traits, habits, preferences, and general knowledge belong in a profile, not here. If you find yourself writing "Marcos likes X" or "Siri enjoys Y" without a specific time-anchored happening, it is a profile fact, not an event — skip it here.
@@ -248,6 +257,7 @@ PROMPT_BLOCK_INPUT = """
 
 PROMPT = "\n\n".join([
     PROMPT_BLOCK_OBJECTIVE.strip(),
+    PROMPT_BLOCK_CONTEXT.strip(),
     PROMPT_BLOCK_WORKFLOW.strip(),
     PROMPT_BLOCK_RULES.strip(),
     PROMPT_BLOCK_CATEGORY.strip(),
@@ -258,6 +268,7 @@ PROMPT = "\n\n".join([
 
 CUSTOM_PROMPT = {
     "objective": PROMPT_BLOCK_OBJECTIVE.strip(),
+    "context": PROMPT_BLOCK_CONTEXT.strip(),
     "workflow": PROMPT_BLOCK_WORKFLOW.strip(),
     "rules": PROMPT_BLOCK_RULES.strip(),
     "category": PROMPT_BLOCK_CATEGORY.strip(),

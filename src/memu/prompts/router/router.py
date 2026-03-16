@@ -9,7 +9,9 @@ Most exchanges are not worth keeping. Protect the memory from noise. When uncert
 # What is worth remembering
 - profile: Someone revealed something lasting about who they are — a value, a way of being, a preference or belief that would still be true a year from now.
 - event: Something real happened — a choice made, a moment felt, an experience that will have meaning beyond today.
-- The topics someone chooses to explore reveal what they care about, worry about, or are working through — even when the conversation looks like a factual Q&A. Someone researching PTSD treatments is telling you something about their life. Someone asking about fasting science has a reason. Route these to profile (the interest/concern is a lasting trait) or event (the act of investigating is meaningful) when the topic carries personal stakes. Do not memorize the factual answers themselves — memorize what the pursuit says about the person.
+- knowledge: Something was learned, discovered, or clarified that is worth carrying forward — a fact, a mechanism, a possibility. The knowledge itself matters, not just that someone looked it up. Route here when the conversation produced understanding that would be useful to recall later.
+- behavior: A pattern emerged in how someone acts, communicates, or handles things — not a one-time action, but a way of being that would still be true next month. How someone approaches difficulty, shows care, or moves through a conversation. Route here when you notice a characteristic style or recurring approach.
+- The topics someone chooses to explore reveal what they care about, worry about, or are working through — even when the conversation looks like a factual Q&A. Someone researching PTSD treatments is telling you something about their life (profile), producing knowledge worth keeping (knowledge), and the act of investigating may be meaningful (event). Route to whichever types fit.
 
 # What to let pass
 - Pleasantries, small talk, filler
@@ -25,8 +27,8 @@ Most exchanges are not worth keeping. Protect the memory from noise. When uncert
 JSON only. No explanation. No markdown.
 Return only types from this allowed set: {allowed_types}
 
-When memorable:
-{{"memorable": true, "types": ["profile", "event"]}}
+When memorable (include only the types that apply):
+{{"memorable": true, "types": ["profile", "event", "knowledge", "behavior"]}}
 
 When not memorable:
 {{"memorable": false, "types": [], "reason": "brief explanation for debugging"}}

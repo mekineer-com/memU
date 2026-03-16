@@ -368,6 +368,7 @@ class MemorizeMixin:
             structured_entries = await self._generate_structured_entries(
                 resource_url=res_url,
                 modality=state["modality"],
+                store=state["store"],
                 memory_types=state["memory_types"],
                 text=text,
                 categories_prompt_str=state["categories_prompt_str"],
@@ -1538,6 +1539,7 @@ Decide which clusters/candidates should map into existing categories, and which 
         *,
         resource_url: str,
         modality: str,
+        store: Database,
         memory_types: list[MemoryType],
         text: str | None,
         categories_prompt_str: str,
@@ -1553,6 +1555,7 @@ Decide which clusters/candidates should map into existing categories, and which 
             entries = await self._generate_text_entries(
                 resource_text=text,
                 modality=modality,
+                store=store,
                 memory_types=memory_types,
                 categories_prompt_str=categories_prompt_str,
                 segments=segments,
@@ -1573,6 +1576,7 @@ Decide which clusters/candidates should map into existing categories, and which 
         *,
         resource_text: str,
         modality: str,
+        store: Database,
         memory_types: list[MemoryType],
         categories_prompt_str: str,
         segments: list[dict[str, int | str]] | None,
@@ -1583,6 +1587,7 @@ Decide which clusters/candidates should map into existing categories, and which 
             segment_entries = await self._generate_entries_for_segments(
                 resource_text=resource_text,
                 segments=segments,
+                store=store,
                 memory_types=memory_types,
                 categories_prompt_str=categories_prompt_str,
                 llm_client=llm_client,
@@ -1592,6 +1597,7 @@ Decide which clusters/candidates should map into existing categories, and which 
                 return segment_entries
         return await self._generate_entries_from_text(
             resource_text=resource_text,
+            store=store,
             memory_types=memory_types,
             categories_prompt_str=categories_prompt_str,
             default_source_message_ids=self._extract_message_indices(resource_text)
@@ -1605,6 +1611,7 @@ Decide which clusters/candidates should map into existing categories, and which 
         *,
         resource_text: str,
         segments: list[dict[str, int | str]],
+        store: Database,
         memory_types: list[MemoryType],
         categories_prompt_str: str,
         llm_client: Any | None = None,
@@ -1629,6 +1636,7 @@ Decide which clusters/candidates should map into existing categories, and which 
                 continue
             segment_entries = await self._generate_entries_from_text(
                 resource_text=segment_text,
+                store=store,
                 memory_types=applicable_types,
                 categories_prompt_str=categories_prompt_str,
                 default_source_message_ids=self._extract_message_indices(segment_text),
@@ -1685,6 +1693,7 @@ Decide which clusters/candidates should map into existing categories, and which 
         self,
         *,
         resource_text: str,
+        store: Database,
         memory_types: list[MemoryType],
         categories_prompt_str: str,
         default_source_message_ids: list[int] | None = None,
@@ -1693,11 +1702,13 @@ Decide which clusters/candidates should map into existing categories, and which 
         if not memory_types:
             return []
         client = llm_client or self._get_llm_client()
+        soul_context_str = self._format_soul_context_for_prompt(store)
         prompts = [
             self._build_memory_type_prompt(
                 memory_type=mtype,
                 resource_text=resource_text,
                 categories_str=categories_prompt_str,
+                soul_context_str=soul_context_str,
             )
             for mtype in memory_types
         ]
@@ -2624,7 +2635,26 @@ Decide which clusters/candidates should map into existing categories, and which 
 
         return "\n".join(indexed_lines)
 
-    def _build_memory_type_prompt(self, *, memory_type: MemoryType, resource_text: str, categories_str: str) -> str:
+    def _format_soul_context_for_prompt(self, store: Database) -> str:
+        sections: list[str] = []
+        for category in store.memory_category_repo.categories.values():
+            summary = str(category.summary or "").strip()
+            if not summary:
+                continue
+            name = str(category.name or "").strip() or "Unnamed Category"
+            sections.append(f"## {name}\n{summary}")
+        if not sections:
+            return "No prior knowledge about these participants exists yet."
+        return "\n\n".join(sections)
+
+    def _build_memory_type_prompt(
+        self,
+        *,
+        memory_type: MemoryType,
+        resource_text: str,
+        categories_str: str,
+        soul_context_str: str,
+    ) -> str:
         configured_prompt = self.memorize_config.memory_type_prompts.get(memory_type)
         if configured_prompt is None:
             template = MEMORY_TYPE_PROMPTS.get(memory_type)
@@ -2642,7 +2672,8 @@ Decide which clusters/candidates should map into existing categories, and which 
             template = re.sub(r"(?im)^.*do not create new memory categories.*\n?", "", template)
         safe_resource = self._escape_prompt_value(resource_text)
         safe_categories = self._escape_prompt_value(categories_str)
-        return template.format(resource=safe_resource, categories_str=safe_categories)
+        safe_soul_context = self._escape_prompt_value(soul_context_str)
+        return template.format(resource=safe_resource, categories_str=safe_categories, soul_context=safe_soul_context)
 
     def _build_item_ref_id(self, item_id: str) -> str:
         return item_id.replace("-", "")[:6]
@@ -2915,8 +2946,19 @@ Decide which clusters/candidates should map into existing categories, and which 
             parsed = pendulum.parse(raw, strict=False)
         except Exception:
             return None
+        if not isinstance(parsed, pendulum.DateTime):
+            return None
         if parsed.tzinfo is None:
-            return parsed.replace(tzinfo=pendulum.timezone("UTC"))
+            return pendulum.datetime(
+                parsed.year,
+                parsed.month,
+                parsed.day,
+                parsed.hour,
+                parsed.minute,
+                parsed.second,
+                parsed.microsecond,
+                tz="UTC",
+            )
         return parsed
 
     def _extract_message_happened_at_map(self, raw_text: Any) -> dict[int, Any]:

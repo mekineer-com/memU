@@ -1,5 +1,5 @@
-from memu.app.service import MemoryService
 from memu.app.memorize import StructuredMemoryEntry
+from memu.app.service import MemoryService
 
 
 def _service() -> MemoryService:
