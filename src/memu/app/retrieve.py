@@ -37,6 +37,7 @@ class RetrieveMixin:
         _model_dump_without_embeddings: Callable[[BaseModel], dict[str, Any]]
         _extract_json_blob: Callable[[str], str]
         _escape_prompt_value: Callable[[str], str]
+        _category_summary_embedding_cache: dict[str, tuple[str, list[float]]]
         user_model: type[BaseModel]
 
     async def retrieve(
@@ -735,10 +736,20 @@ class RetrieveMixin:
         entries = [(cid, cat.summary) for cid, cat in category_pool.items() if cat.summary]
         if not entries:
             return [], {}
-        summary_texts = [summary for _, summary in entries]
-        client = embed_client or self._get_llm_client()
-        summary_embeddings = await client.embed(summary_texts)
-        corpus = [(cid, emb) for (cid, _), emb in zip(entries, summary_embeddings, strict=True)]
+        cache = self._category_summary_embedding_cache
+        missing_entries: list[tuple[str, str]] = []
+        for cid, summary in entries:
+            cached = cache.get(cid)
+            if cached is None or cached[0] != summary:
+                missing_entries.append((cid, summary))
+
+        if missing_entries:
+            client = embed_client or self._get_llm_client()
+            missing_embeddings = await client.embed([summary for _, summary in missing_entries])
+            for (cid, summary), emb in zip(missing_entries, missing_embeddings, strict=True):
+                cache[cid] = (summary, emb)
+
+        corpus = [(cid, cache[cid][1]) for cid, _ in entries]
         hits = cosine_topk(query_vec, corpus, k=top_k)
         summary_lookup = dict(entries)
         return hits, summary_lookup

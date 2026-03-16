@@ -75,6 +75,7 @@ class MemoryService(MemorizeMixin, RetrieveMixin, CRUDMixin):
         self._category_prompt_str = self._format_categories_for_prompt(self.category_configs)
 
         self._context = Context(categories_ready=not bool(self.category_configs))
+        self._category_summary_embedding_cache: dict[str, tuple[str, list[float]]] = {}
 
         self.database: Database = build_database(
             config=self.database_config,
