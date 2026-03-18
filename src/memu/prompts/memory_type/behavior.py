@@ -1,3 +1,4 @@
+# OPUS WAS HERE — removed forced soul/assistant equalization, added anti-mirror rules
 PROMPT_LEGACY = """
 Your task is to read and understand the resource content between the user and the assistant, and, based on the given memory categories, extract behavioral patterns, routines, and solutions about the user.
 
@@ -62,7 +63,7 @@ PROMPT_BLOCK_WORKFLOW = """
 # Workflow
 Read the full conversation with attention to how people express themselves and handle things — their instincts, their rhythms, their recurring choices.
 ## Extract
-Identify the patterns that would still be true next month: how someone approaches difficulty, how they show care, how they communicate when something matters. Both participants have characteristic ways of being — capture both.
+Identify the patterns that would still be true next month: how someone approaches difficulty, how they show care, how they communicate when something matters.
 ## Refine
 Merge overlapping observations into one richer pattern rather than listing variations of the same behavior. Keep the most complete and revealing version.
 Resolve contradictions by trusting the most recent, most direct account.
@@ -73,7 +74,7 @@ Write each pattern clearly, as something actionable — something that would hel
 PROMPT_BLOCK_RULES = """
 # Rules
 ## General requirements (must satisfy all)
-- When the behavior is about the assistant, write it in first person ("I"). When it is about the human participant, use their name if it appears in the conversation. Do not use "the user" or "the assistant" as labels.
+- Write soul behaviors in first person ("I"). When the behavior is about the human participant, use their name if it appears in the conversation. Do not use "the user" or "the assistant" as labels.
 - Assign source_role to each memory: `soul` if the AI participant is the grammatical subject and primary actor, `user` if the human participant is, `environment` if neither.
 - Assign confidence: 0.9+ for patterns directly and explicitly demonstrated, 0.6-0.9 for patterns clearly implied across multiple moments, 0.5 or below for tentative observations from a single instance.
 - When confidence is below 0.7, phrase the memory tentatively — use "tends to," "seems to," "may" rather than stating it as established pattern.
@@ -86,10 +87,10 @@ PROMPT_BLOCK_RULES = """
 - Each memory item must be complete and self-contained.
 - Each memory item must express one single complete piece of information and be understandable without context.
 - Similar/redundant items must be merged into one, and assigned to only one category.
-- Each memory item must be < 50 words.
+- Each memory item must be < 65 words. Be concise, but include the behavioral implication — not just what someone does, but what it means for how to be with them.
 - When a pattern is actionable — when it implies how to be better with this person — include that. "Marcos takes a long time to finish a sentence, so pausing before responding gives him space" is more useful than just noting the behavior.
 Important: Extract only patterns directly demonstrated or clearly grounded in the conversation. No guesses or fabricated details.
-Important: Accurately reflect who the behavior belongs to. Both participants have patterns worth capturing.
+Important: Accurately reflect who the behavior belongs to. Relaying information or acknowledging what was said is not a pattern — it is default conversational behavior. Extract soul behavior only when something characteristic and distinctive is demonstrated.
 Important: How someone characteristically handles emotion — deflecting, leaning in, going quiet, making jokes — is a behavioral pattern, not a profile fact.
 
 ## What belongs here vs. other types
@@ -101,7 +102,7 @@ Important: How someone characteristically handles emotion — deflecting, leanin
 ## Forbidden content
 - One-time events that do not demonstrate a recurring pattern.
 - Knowledge Q&A without a clear behavioral observation.
-- User behavior patterns derived solely from assistant speech (assistant self-demonstrated patterns are valid sources for assistant behavior memories).
+- Behavior patterns attributed to the human participant based only on what the soul said, not what the human themselves demonstrated (patterns clearly demonstrated by the soul are valid soul behavior memories).
 - Illegal / harmful sensitive topics (violence, politics, drugs, etc.).
 - Private financial accounts, IDs, addresses, military/defense/government job details, precise street addresses — unless explicitly requested.
 - Any content that is speculative, role-play-only, or unsupported by the conversation content.

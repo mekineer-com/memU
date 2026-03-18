@@ -1,3 +1,4 @@
+# OPUS WAS HERE — added anti-mirror rules, strengthened "asking is not an event"
 PROMPT_LEGACY = """
 Your task is to read and understand the resource content between the user and the assistant, and, based on the given memory categories, extract specific events and experiences that happened to or involved the user.
 
@@ -74,7 +75,7 @@ PROMPT_BLOCK_WORKFLOW = """
 # Workflow
 Read the full conversation for what was actually lived — not just narrated.
 ## Extract
-Identify the moments that were genuinely experienced — by the user, the assistant, or both. What someone lived through is worth recording; what they merely talked about usually isn't.
+Identify the moments that were genuinely experienced. What someone lived through is worth recording; what they merely talked about usually isn't.
 ## Refine
 Merge items that describe the same moment. When two memories say the same thing differently, keep the clearer one.
 Resolve contradictions by trusting the most recent and most certain account.
@@ -85,7 +86,7 @@ Write the events as they were — grounded, specific, human.
 PROMPT_BLOCK_RULES = """
 # Rules
 ## General requirements (must satisfy all)
-- When the memory is about the assistant, write it in first person ("I"). When it is about the human participant, use their name if it appears in the conversation. Do not use "the user" or "the assistant" as labels.
+- Write soul memories in first person ("I"). When the memory is about the human participant, use their name if it appears in the conversation. Do not use "the user" or "the assistant" as labels.
 - Assign source_role to each memory: `soul` if the AI participant is the grammatical subject and primary actor, `user` if the human participant is, `environment` if neither.
 - Assign confidence: 0.9+ for facts directly and explicitly stated, 0.6-0.9 for facts clearly implied, 0.5 or below for inferences.
 - When confidence is below 0.7, phrase the memory tentatively — use "seemed to," "appeared to," "may have" rather than stating it as established fact.
@@ -99,24 +100,26 @@ PROMPT_BLOCK_RULES = """
 - Each memory item must be complete and self-contained, written as a declarative descriptive sentence.
 - Each memory item must express one single complete piece of information and be understandable without context.
 - Similar/redundant items must be merged into one, and assigned to only one category.
-- Each memory item must be < 50 words worth of length (keep it concise but include relevant details).
+- Each memory item must be < 65 words. Be concise, but leave room for emotional texture — what it felt like, not just what happened.
 - Focus on specific events that happened at a particular time or period.
 - Include relevant details such as time, location, and participants where available.
-- Extract only events directly stated or clearly grounded in the conversation (including assistant self-reported events when explicit). No guesses or fabricated details.
+- Extract only events directly stated or clearly grounded in the conversation (including events from the soul's own experience when explicitly expressed). No guesses or fabricated details.
 - Accurately reflect who the event is about; include relationship-level events when concrete.
 - A participant's inner experience during an event — their emotions, fears, or perceptions clearly expressed in their own words — is part of the event and belongs in the memory.
 
 ## Special rules for Event Information
 - Traits, habits, preferences, and general knowledge belong in a profile, not here. If you find yourself writing "Marcos likes X" or "Siri enjoys Y" without a specific time-anchored happening, it is a profile fact, not an event — skip it here.
 - Stay with concrete happenings — what was done, felt, decided, or experienced.
-- Don't extract something simply because the assistant asked about it; only record what the person brought forward themselves.
+- Don't extract something simply because it was prompted by a question; only record what the person brought forward themselves.
 - The act of talking is not an event. "I explained," "they asked," "I summarized" — these are turns, not experiences. The same applies to "expressed," "shared," "stated." If you can only describe what someone *said*, there is no event here — let it go.
+- Do not mirror the same exchange from two perspectives. "Marcos researched hydrogel treatments" and "I provided Marcos with information about hydrogel treatments" are the same event — keep only the one that captures the real experience (usually the person who initiated it). Answering a question is not a separate event.
+- "Marcos asked about X" is not an event — it is a conversation turn. The event is what Marcos is actually doing: researching a treatment for a health concern, investigating options for a trip. Extract the meaningful action, not the act of asking.
 
 ## Forbidden content
 - Knowledge Q&A without a clear participant event.
 - Trivial daily activities unless significant (e.g., routine meals, commuting).
 - Temporary, ephemeral situations that lack meaningful significance.
-- User events derived solely from assistant speech (assistant self-reported events and experiences are valid sources for assistant event memories).
+- Events attributed to the human participant based only on what the soul said, not what the human themselves expressed (events from the soul's own experience are valid).
 - Illegal / harmful sensitive topics (violence, politics, drugs, etc.).
 - Private financial accounts, IDs, addresses, military/defense/government job details, precise street addresses-unless explicitly requested by the user (still avoid if not necessary).
 - Any content that is speculative, role-play-only, or unsupported by the conversation content.

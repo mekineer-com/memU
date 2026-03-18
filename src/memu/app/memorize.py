@@ -365,11 +365,20 @@ class MemorizeMixin:
                 if diary_worthy:
                     diary_worthy_ids.extend(message_indices)
 
+            if state["modality"] == "conversation" and isinstance(text, str):
+                applicable_types = await self._route_segment(
+                    text, state["memory_types"], llm_client, skipped_reasons=skipped_reasons
+                )
+                if not applicable_types:
+                    continue
+            else:
+                applicable_types = state["memory_types"]
+
             structured_entries = await self._generate_structured_entries(
                 resource_url=res_url,
                 modality=state["modality"],
                 store=state["store"],
-                memory_types=state["memory_types"],
+                memory_types=applicable_types,
                 text=text,
                 categories_prompt_str=state["categories_prompt_str"],
                 llm_client=llm_client,
@@ -1664,24 +1673,39 @@ Decide which clusters/candidates should map into existing categories, and which 
         if isinstance(raw, str):
             raw = re.sub(r"^\s*```(?:json)?\s*", "", raw, count=1, flags=re.IGNORECASE)
             raw = re.sub(r"\s*```\s*$", "", raw, count=1)
+        # Fail-closed router: malformed JSON = skip, not extract-all
         try:
             payload = json.loads(raw)
         except (json.JSONDecodeError, TypeError):
             try:
                 payload = json.loads(self._extract_json_blob(raw))
             except Exception:
-                return memory_types
+                logger.warning("Router returned unparseable response, skipping segment: %.120s", raw)
+                if skipped_reasons is not None:
+                    skipped_reasons.append("router returned unparseable JSON")
+                return []
         if not isinstance(payload, dict):
-            return memory_types
-        if payload.get("memorable") is False:
-            reason = payload.get("reason", "")
+            logger.warning("Router returned non-dict payload, skipping segment: %s", type(payload).__name__)
+            if skipped_reasons is not None:
+                skipped_reasons.append("router returned non-dict payload")
+            return []
+        memorable = payload.get("memorable")
+        routed_types = payload.get("types")
+        reason = payload.get("reason", "")
+        logger.info(
+            "Router decision: memorable=%s types=%s reason=%s",
+            memorable, routed_types, reason,
+        )
+        if memorable is False:
             logger.info("Router gated segment as not memorable: %s", reason)
             if skipped_reasons is not None and reason:
                 skipped_reasons.append(reason)
             return []
-        routed_types = payload.get("types")
         if not isinstance(routed_types, list):
-            return memory_types
+            logger.warning("Router returned no types list, skipping segment")
+            if skipped_reasons is not None:
+                skipped_reasons.append("router returned no types list")
+            return []
         allowed_types = {
             routed_type
             for routed_type in routed_types
