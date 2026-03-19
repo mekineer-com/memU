@@ -111,7 +111,7 @@ async def test_openrouter_full_workflow():
             },
         },
         database_config={
-            "metadata_store": {"provider": "inmemory"},
+            "metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"},
         },
         retrieve_config={
             "method": "rag",

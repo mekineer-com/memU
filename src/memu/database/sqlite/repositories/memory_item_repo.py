@@ -10,13 +10,13 @@ from typing import Any
 import pendulum
 from sqlmodel import delete, select
 
-from memu.database.inmemory.vector import cosine_topk, cosine_topk_salience
 from memu.database.models import MemoryItem, MemoryType, compute_content_hash
 from memu.database.repositories.memory_item import MemoryItemRepo
 from memu.database.sqlite.repositories.base import SQLiteRepoBase
 from memu.database.sqlite.schema import SQLiteSQLAModels
 from memu.database.sqlite.session import SQLiteSessionManager
 from memu.database.state import DatabaseState
+from memu.database.vector import cosine_topk, rerank_by_salience
 
 logger = logging.getLogger(__name__)
 
@@ -609,18 +609,43 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
         pool = self.list_items(where)
 
         if ranking == "salience":
-            # Salience-aware ranking: similarity x reinforcement x recency
-            # Read values from extra dict
-            corpus = [
-                (
-                    i.id,
-                    i.embedding,
-                    (i.extra or {}).get("reinforcement_count", 1),
-                    self._parse_datetime((i.extra or {}).get("last_reinforced_at")),
+            hits = cosine_topk(query_vec, [(i.id, i.embedding) for i in pool.values()], k=top_k)
+            candidate_ids = [item_id for item_id, _ in hits]
+            if not candidate_ids:
+                return []
+
+            from sqlalchemy import func
+
+            with self._sessions.session() as session:
+                reinforcement_col = func.json_extract(self._memory_item_model.extra, "$.reinforcement_count")
+                last_reinforced_col = func.json_extract(self._memory_item_model.extra, "$.last_reinforced_at")
+                stmt = select(
+                    self._memory_item_model.id,
+                    reinforcement_col,
+                    last_reinforced_col,
+                    self._memory_item_model.reflection_salience,
+                ).where(self._memory_item_model.id.in_(candidate_ids))
+                active_filter = self._active_item_filter(self._memory_item_model)
+                if active_filter is not None:
+                    stmt = stmt.where(active_filter)
+                rows = session.exec(stmt).all()
+
+            metadata: dict[str, tuple[int, pendulum.DateTime | None, float]] = {}
+            for item_id, reinforcement_raw, last_reinforced_raw, reflection_salience_raw in rows:
+                reinforcement_count = int(reinforcement_raw) if reinforcement_raw is not None else 1
+                reflection_salience = float(reflection_salience_raw) if reflection_salience_raw is not None else 0.5
+                metadata[item_id] = (
+                    reinforcement_count,
+                    self._parse_datetime(last_reinforced_raw),
+                    reflection_salience,
                 )
-                for i in pool.values()
-            ]
-            return cosine_topk_salience(query_vec, corpus, k=top_k, recency_decay_days=recency_decay_days)
+
+            candidates: list[tuple[str, float, int, datetime | None, float]] = []
+            for item_id, similarity in hits:
+                reinforcement_count, last_reinforced_at, reflection_salience = metadata.get(item_id, (1, None, 0.5))
+                candidates.append((item_id, similarity, reinforcement_count, last_reinforced_at, reflection_salience))
+
+            return rerank_by_salience(candidates, recency_decay_days=recency_decay_days)
 
         # Default: pure cosine similarity (backward compatible)
         hits = cosine_topk(query_vec, [(i.id, i.embedding) for i in pool.values()], k=top_k)

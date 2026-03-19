@@ -4,7 +4,7 @@ from memu.app.service import MemoryService
 
 
 def _service() -> MemoryService:
-    return MemoryService(database_config={"metadata_store": {"provider": "inmemory"}})
+    return MemoryService(database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}})
 
 
 def test_extract_message_happened_at_map_prefers_ts_ms_and_falls_back() -> None:

@@ -1694,7 +1694,9 @@ Decide which clusters/candidates should map into existing categories, and which 
         reason = payload.get("reason", "")
         logger.info(
             "Router decision: memorable=%s types=%s reason=%s",
-            memorable, routed_types, reason,
+            memorable,
+            routed_types,
+            reason,
         )
         if memorable is False:
             logger.info("Router gated segment as not memorable: %s", reason)

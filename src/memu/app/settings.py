@@ -167,7 +167,7 @@ class RetrieveItemConfig(BaseModel):
     )
     # Salience-aware retrieval settings
     ranking: Literal["similarity", "salience"] = Field(
-        default="similarity",
+        default="salience",
         description="Ranking strategy: 'similarity' (cosine only) or 'salience' (weighted by reinforcement + recency).",
     )
     recency_decay_days: float = Field(
@@ -347,7 +347,7 @@ class LLMProfilesConfig(RootModel[dict[Key, LLMConfig]]):
 
 
 class MetadataStoreConfig(BaseModel):
-    provider: Annotated[Literal["inmemory", "postgres", "sqlite"], Normalize] = "inmemory"
+    provider: Annotated[Literal["postgres", "sqlite"], Normalize] = "sqlite"
     ddl_mode: Annotated[Literal["create", "validate"], Normalize] = "create"
     dsn: str | None = Field(default=None, description="Database connection string (required for postgres/sqlite).")
 

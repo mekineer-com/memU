@@ -282,11 +282,11 @@ pip install -e .
 
 > **Requirements**: Python 3.12+ and an OpenAI API key
 
-**Test Continuous Learning** (in-memory):
+**Test Continuous Learning** (SQLite):
 ```bash
 export OPENAI_API_KEY=your_api_key
 cd tests
-python test_inmemory.py
+python test_sqlite.py
 ```
 
 **Test with Persistent Storage** (PostgreSQL):
@@ -311,7 +311,7 @@ Both examples demonstrate **proactive memory workflows**:
 2. **Auto-Extraction**: Immediate memory creation
 3. **Proactive Retrieval**: Context-aware memory surfacing
 
-See [`tests/test_inmemory.py`](tests/test_inmemory.py) and [`tests/test_postgres.py`](tests/test_postgres.py) for implementation details.
+See [`tests/test_sqlite.py`](tests/test_sqlite.py) and [`tests/test_postgres.py`](tests/test_postgres.py) for implementation details.
 
 ---
 
@@ -363,7 +363,7 @@ service = MemoryService(
         },
     },
     database_config={
-        "metadata_store": {"provider": "inmemory"},
+        "metadata_store": {"provider": "sqlite", "dsn": "sqlite:///./sqlite/<soul_id>.db"},
     },
 )
 ```

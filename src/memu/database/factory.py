@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING
 from pydantic import BaseModel
 
 from memu.app.settings import DatabaseConfig
-from memu.database.inmemory import build_inmemory_database
 from memu.database.interfaces import Database
 
 if TYPE_CHECKING:
@@ -21,14 +20,11 @@ def build_database(
     Initialize a database backend for the configured provider.
 
     Supported providers:
-        - "inmemory": In-memory storage (default, no persistence)
         - "postgres": PostgreSQL with optional pgvector support
         - "sqlite": SQLite file-based storage (lightweight, portable)
     """
     provider = config.metadata_store.provider
-    if provider == "inmemory":
-        return build_inmemory_database(config=config, user_model=user_model)
-    elif provider == "postgres":
+    if provider == "postgres":
         # Lazy import to avoid requiring pgvector when not using postgres
         from memu.database.postgres import build_postgres_database
 

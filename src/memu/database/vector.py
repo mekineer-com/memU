@@ -14,43 +14,41 @@ def _cosine(a: np.ndarray, b: np.ndarray) -> float:
 
 
 def salience_score(
-    similarity: float,
     reinforcement_count: int,
     last_reinforced_at: datetime | None,
+    reflection_salience: float = 0.5,
     recency_decay_days: float = 30.0,
 ) -> float:
     """
-    Compute salience-aware score combining similarity, reinforcement, and recency.
+    Compute salience factor from reinforcement, reflection salience, and recency.
 
-    Formula: similarity * reinforcement_factor * recency_factor
+    Formula: reinforcement_factor * recency_factor
 
-    - reinforcement_factor: log(count + 1) to dampen extreme counts
+    - reinforcement_factor: log(count + 1) + reflection_salience
       (Logarithmic scaling prevents runaway dominance by frequently repeated facts)
-    - recency_factor: exponential decay based on days since last reinforcement
-      (Uses half-life decay: after recency_decay_days, factor is ~0.5)
+    - recency_factor: exponential decay based on days since last reinforcement,
+      with half-life modulated by reflection_salience
 
     Args:
-        similarity: Cosine similarity score (0 to 1)
         reinforcement_count: Number of times this memory was reinforced
         last_reinforced_at: When the memory was last reinforced
+        reflection_salience: Reflection salience weight for the memory
         recency_decay_days: Half-life for recency decay in days
 
     Returns:
-        Salience score (higher = more salient)
+        Salience factor (higher = more salient)
     """
-    # Reinforcement factor (logarithmic to prevent runaway scores)
-    reinforcement_factor = math.log(reinforcement_count + 1)
+    reinforcement_factor = math.log(reinforcement_count + 1) + reflection_salience
 
-    # Recency factor (exponential decay with half-life)
     if last_reinforced_at is None:
-        recency_factor = 0.5  # Unknown recency gets neutral score
+        recency_factor = 0.5
     else:
         now = datetime.now(last_reinforced_at.tzinfo) if last_reinforced_at.tzinfo else datetime.utcnow()
         days_ago = (now - last_reinforced_at).total_seconds() / 86400
-        # 0.693 = ln(2), gives us proper half-life decay
-        recency_factor = math.exp(-0.693 * days_ago / recency_decay_days)
+        effective_half_life = recency_decay_days * (0.5 + reflection_salience)
+        recency_factor = math.exp(-0.693 * days_ago / effective_half_life)
 
-    return similarity * reinforcement_factor * recency_factor
+    return reinforcement_factor * recency_factor
 
 
 def cosine_topk(
@@ -96,43 +94,23 @@ def cosine_topk(
     return [(ids[i], float(scores[i])) for i in topk_indices]
 
 
-def cosine_topk_salience(
-    query_vec: list[float],
-    corpus: Iterable[tuple[str, list[float] | None, int, datetime | None]],
-    k: int = 5,
+def rerank_by_salience(
+    candidates: list[tuple[str, float, int, datetime | None, float]],
     recency_decay_days: float = 30.0,
 ) -> list[tuple[str, float]]:
-    """
-    Top-k retrieval using salience-aware scoring.
-
-    Ranks memories by: similarity * log(reinforcement+1) * recency_decay
-
-    Args:
-        query_vec: Query embedding vector
-        corpus: Iterable of (id, embedding, reinforcement_count, last_reinforced_at)
-        k: Number of top results to return
-        recency_decay_days: Half-life for recency decay
-
-    Returns:
-        List of (id, salience_score) tuples, sorted by score descending
-    """
-    query_dim = len(query_vec)
-    q = np.array(query_vec, dtype=np.float32)
     scored: list[tuple[str, float]] = []
 
-    for _id, vec, reinforcement_count, last_reinforced_at in corpus:
-        if vec is None:
-            continue
-        vec_list = cast(list[float], vec)
-        if len(vec_list) != query_dim:
-            continue
-        v = np.array(vec_list, dtype=np.float32)
-        similarity = _cosine(q, v)
-        score = salience_score(similarity, reinforcement_count, last_reinforced_at, recency_decay_days)
+    for _id, similarity, reinforcement_count, last_reinforced_at, reflection_salience in candidates:
+        score = similarity * salience_score(
+            reinforcement_count,
+            last_reinforced_at,
+            reflection_salience,
+            recency_decay_days,
+        )
         scored.append((_id, score))
 
     scored.sort(key=lambda x: x[1], reverse=True)
-    return scored[:k]
+    return scored
 
 
 def query_cosine(query_vec: list[float], vecs: list[list[float]]) -> list[tuple[int, float]]:

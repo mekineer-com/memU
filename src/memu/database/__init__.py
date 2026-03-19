@@ -21,7 +21,6 @@ __all__ = [
     "ResourceRecord",
     "ResourceRepo",
     "build_database",
-    "inmemory",
     "postgres",
     "schema",
     "sqlite",

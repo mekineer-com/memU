@@ -3,7 +3,7 @@ from memu.app.service import MemoryService
 
 
 def _service() -> MemoryService:
-    return MemoryService(database_config={"metadata_store": {"provider": "inmemory"}})
+    return MemoryService(database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}})
 
 
 def test_prune_keeps_profiles_and_non_speech_events() -> None:

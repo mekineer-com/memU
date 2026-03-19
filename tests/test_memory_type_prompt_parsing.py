@@ -5,7 +5,7 @@ from memu.database.models import MemoryType
 
 
 def _service() -> MemoryService:
-    return MemoryService(database_config={"metadata_store": {"provider": "inmemory"}})
+    return MemoryService(database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}})
 
 
 @pytest.mark.parametrize("memory_type", ["knowledge", "behavior"])
