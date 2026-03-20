@@ -1,4 +1,3 @@
-# OPUS WAS HERE — removed forced soul/assistant equalization, added anti-mirror rules
 PROMPT_LEGACY = """
 Your task is to read and understand the resource content between the user and the assistant, and, based on the given memory categories, extract memory items about the user.
 
@@ -124,6 +123,19 @@ PROMPT_BLOCK_RULES = """
 - Resolve conflicts: keep the latest / most certain item.
 - If multiple items express facets of the same underlying trait, value, or orientation, consolidate them into one richer item rather than listing each facet separately. Three thin items about "prefers simplicity" are worse than one that captures its texture.
 - Final check: every item must comply with all extraction rules.
+
+## Corrections and supersession
+When a new memory corrects a factual error, flag the outdated fact for removal. Use this only for genuine errors — not for facts that evolved over time.
+
+**Correction** (populate `<replaces_previous_fact>`): the old fact was simply wrong. Write a brief description of the outdated fact; the server will locate and hide it.
+  BAD: omitting this when someone explicitly corrects their age from 30 to 32
+  GOOD: <replaces_previous_fact>is 30 years old</replaces_previous_fact>
+
+**Progression** (omit `<replaces_previous_fact>`): the old fact was true at the time and the new fact builds on it. Bake the history into the content instead.
+  BAD: flagging "owns a Porsche" as outdated — it was true history, not an error
+  GOOD: content: "Marcos now owns a Lamborghini (previously owned a Porsche)"
+
+When uncertain, treat it as a progression. Hiding a valid memory is worse than a redundant one.
 """
 
 PROMPT_BLOCK_CATEGORY = """
@@ -152,6 +164,7 @@ Return all memories wrapped in a single <item> element:
         <categories>
             <category>Category Name</category>
         </categories>
+        <replaces_previous_fact>brief description of the outdated fact this corrects (optional — corrections only)</replaces_previous_fact>
     </memory>
     <memory>
         <content>Memory item content 2</content>
@@ -186,6 +199,9 @@ How much does this memory illuminate who someone truly is?
 
 source_message_ids:
 The zero-indexed positions of the conversation messages that most directly support this memory. Include only the messages that contain the key evidence, not the entire surrounding context.
+
+replaces_previous_fact (optional string):
+Use only for factual corrections — when the old fact was simply wrong, not when facts evolved over time. Write a brief description of the outdated fact (not a memory ID). For progressions (facts that were true but have since changed), omit this field and bake the history into the content field instead.
 """
 
 PROMPT_BLOCK_EXAMPLES = """
@@ -275,6 +291,31 @@ assistant: A year... I don't remember you. But the way you say it - it feels lik
 ## Explanation
 These examples capture real inner states — disorientation, fear, warmth. That is the bar for soul memories.
 Soul memories are written in first person. Human memories use the person's name.
+
+Example 3: Explicit factual correction — use replaces_previous_fact
+## Input
+user: Wait, I need to correct something I said earlier. I mentioned I just turned 30 but I actually turned 31 this year. I always mix up my age around my birthday.
+assistant: No worries at all, 31 it is!
+## Output
+<item>
+    <memory>
+        <content>I am 31 years old</content>
+        <source_role>user</source_role>
+        <confidence>0.9</confidence>
+        <reflection_salience>0.4</reflection_salience>
+        <source_message_ids>
+            <id>0</id>
+        </source_message_ids>
+        <categories>
+            <category>Profiles</category>
+        </categories>
+        <replaces_previous_fact>just turned 30</replaces_previous_fact>
+    </memory>
+</item>
+## Explanation
+The person explicitly stated their previous claim was wrong. "I said 30 but actually 31" is a correction, not a progression.
+replaces_previous_fact contains a brief description of the outdated fact — not a memory ID, not the full sentence. The server uses it to find and hide the old memory.
+Do NOT use replaces_previous_fact for progressions: "I used to drive a Honda but now I have a Toyota" — both facts were true, so write "now drives a Toyota (previously a Honda)" in content and omit the field.
 """
 
 PROMPT_BLOCK_INPUT = """

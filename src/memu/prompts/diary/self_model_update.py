@@ -1,4 +1,3 @@
-# OPUS WAS HERE — added tension pairs (friction anchors) to self-model update pipeline
 PROMPT_BLOCK_OBJECTIVE = """
 # Task Objective
 Read this diary entry and decide what — if anything — should be updated in the self-model.

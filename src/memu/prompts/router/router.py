@@ -1,4 +1,3 @@
-# OPUS WAS HERE — tightened gating, rebalanced personal-context hint, added negative examples
 PROMPT = """
 # Task
 Read this conversation segment with genuine attention. Ask yourself two things:

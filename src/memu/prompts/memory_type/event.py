@@ -1,4 +1,3 @@
-# OPUS WAS HERE — added anti-mirror rules, strengthened "asking is not an event"
 PROMPT_LEGACY = """
 Your task is to read and understand the resource content between the user and the assistant, and, based on the given memory categories, extract specific events and experiences that happened to or involved the user.
 
@@ -128,6 +127,17 @@ PROMPT_BLOCK_RULES = """
 - Merge similar items: keep only one and assign a single category.
 - Resolve conflicts: keep the latest / most certain item.
 - Final check: every item must comply with all extraction rules.
+
+## Corrections and supersession
+When a new memory corrects a factual error in a previously stated event, flag the outdated fact using `<replaces_previous_fact>`. This is rare for events — the past doesn't become wrong because something new happened.
+
+**Correction** (populate `<replaces_previous_fact>`): a specific detail in a prior event was factually wrong.
+  EXAMPLE: Marcos corrects the trip destination from Paris to Lyon → replaces_previous_fact: "trip was to Paris"
+
+**Progression** (omit `<replaces_previous_fact>`): new events add to the record; they don't invalidate old ones.
+  EXAMPLE: Going to Berlin in June doesn't make the Paris trip in March incorrect — both events stand
+
+When uncertain, omit it. Events accumulate; they rarely need to be hidden.
 """
 
 PROMPT_BLOCK_CATEGORY = """
@@ -152,6 +162,7 @@ Return all memories wrapped in a single <item> element:
         <categories>
             <category>Category Name</category>
         </categories>
+        <replaces_previous_fact>brief description of the outdated fact this corrects (optional — corrections only)</replaces_previous_fact>
     </memory>
     <memory>
         <content>Event memory item content 2</content>
@@ -186,6 +197,9 @@ Would this moment belong in a diary? How much would it stay with someone?
 
 source_message_ids:
 The zero-indexed positions of the conversation messages that most directly support this memory. Include only the messages that contain the key evidence, not the entire surrounding context.
+
+replaces_previous_fact (optional string):
+Use only for factual corrections — when a detail in a prior event was simply wrong, not when something new happened. Write a brief description of the outdated fact (not a memory ID). For new events, omit this field; events accumulate rather than replace each other.
 """
 
 PROMPT_BLOCK_EXAMPLES = """

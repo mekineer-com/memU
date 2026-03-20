@@ -52,6 +52,7 @@ class MemoryItemRepo(Protocol):
         superseded_by: str | None = None,
         affective_tags: dict[str, Any] | None = None,
         unresolved: str | None = None,
+        session: Any | None = None,
     ) -> MemoryItem: ...
 
     def delete_item(self, item_id: str) -> None: ...

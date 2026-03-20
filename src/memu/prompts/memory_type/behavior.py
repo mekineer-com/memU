@@ -1,4 +1,3 @@
-# OPUS WAS HERE — removed forced soul/assistant equalization, added anti-mirror rules
 PROMPT_LEGACY = """
 Your task is to read and understand the resource content between the user and the assistant, and, based on the given memory categories, extract behavioral patterns, routines, and solutions about the user.
 
@@ -112,6 +111,17 @@ Important: How someone characteristically handles emotion — deflecting, leanin
 - Resolve conflicts: keep the latest / most certain item.
 - If multiple items describe facets of the same behavioral pattern, consolidate them into one richer item. Three thin items about "Marcos deflects when vulnerable" are worse than one that captures the texture of how he does it.
 - Final check: every item must comply with all extraction rules.
+
+## Corrections and supersession
+When a behavioral observation was simply wrong, flag the outdated pattern for removal. Genuine shifts in how someone behaves over time are progressions, not corrections.
+
+**Correction** (populate `<replaces_previous_fact>`): the prior behavioral read was incorrect — it misrepresented how this person actually is.
+  EXAMPLE: Marcos is actually direct; the prior note that he was indirect was wrong → replaces_previous_fact: "tends to be indirect when expressing needs"
+
+**Progression** (omit `<replaces_previous_fact>`): the pattern has genuinely shifted over time. Capture the change in the memory content instead.
+  EXAMPLE: "Marcos has become more willing to ask for help directly; he used to deflect by framing requests as observations"
+
+When uncertain, treat it as a progression. A past behavioral pattern is valid history even if someone has grown beyond it.
 """
 
 PROMPT_BLOCK_CATEGORY = """
@@ -136,6 +146,7 @@ Return all memories wrapped in a single <item> element:
         <categories>
             <category>Category Name</category>
         </categories>
+        <replaces_previous_fact>brief description of the outdated fact this corrects (optional — corrections only)</replaces_previous_fact>
     </memory>
     <memory>
         <content>Behavior memory item content 2</content>
@@ -170,6 +181,9 @@ How much does knowing this pattern help someone be better with this person?
 
 source_message_ids:
 The zero-indexed positions of the conversation messages that most directly demonstrate this pattern. Include only the messages that contain the key evidence, not the entire surrounding context.
+
+replaces_previous_fact (optional string):
+Use only when a prior behavioral observation was genuinely wrong — not when a pattern has shifted over time. Write a brief description of the outdated observation (not a memory ID). For behavioral evolutions, omit this field and capture the shift in the content field instead.
 """
 
 PROMPT_BLOCK_EXAMPLES = """

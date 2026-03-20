@@ -107,6 +107,18 @@ Important: Knowledge that connects to a participant's life, health, or ongoing c
 - Merge similar items: keep only one and assign a single category.
 - Resolve conflicts: keep the latest / most certain item.
 - Final check: every item must comply with all extraction rules.
+
+## Corrections and supersession
+When a new memory corrects or supersedes a prior piece of knowledge, flag the outdated fact for removal. Use this for genuine errors or explicitly stated corrections — not for new findings that sit alongside the old ones.
+
+**Correction** (populate `<replaces_previous_fact>`): the prior knowledge was wrong or has been explicitly superseded.
+  EXAMPLE: The treatment turns out to be amlodipine, not nifedipine as previously stated → replaces_previous_fact: "nifedipine is the first-line treatment"
+  EXAMPLE: Marcos learns the recommended dosage has changed → replaces_previous_fact: "recommended dosage is X mg"
+
+**Progression** (omit `<replaces_previous_fact>`): the new knowledge adds to the picture; the old fact is still true.
+  EXAMPLE: A second treatment option is discovered — both facts stand; no field needed
+
+When uncertain, treat it as a progression. Hiding valid knowledge is worse than a redundant entry.
 """
 
 PROMPT_BLOCK_CATEGORY = """
@@ -131,6 +143,7 @@ Return all memories wrapped in a single <item> element:
         <categories>
             <category>Category Name</category>
         </categories>
+        <replaces_previous_fact>brief description of the outdated fact this corrects (optional — corrections only)</replaces_previous_fact>
     </memory>
     <memory>
         <content>Knowledge memory item content 2</content>
@@ -165,6 +178,9 @@ How much does this knowledge matter to these people's lives?
 
 source_message_ids:
 The zero-indexed positions of the conversation messages that most directly support this memory. Include only the messages that contain the key evidence, not the entire surrounding context.
+
+replaces_previous_fact (optional string):
+Use only when this knowledge explicitly corrects or supersedes a prior piece of knowledge. Write a brief description of the outdated fact (not a memory ID). For new findings that sit alongside existing knowledge, omit this field.
 """
 
 PROMPT_BLOCK_EXAMPLES = """

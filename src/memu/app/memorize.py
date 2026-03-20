@@ -51,6 +51,7 @@ class StructuredMemoryEntry(NamedTuple):
     confidence: float | None
     source_message_ids: list[int]
     reflection_salience: float | None
+    replaces_previous_fact: str | None = None
 
 
 class HomelessCategoryCluster(NamedTuple):
@@ -110,6 +111,13 @@ class MemorizeMixin:
         if 0.0 <= parsed <= 1.0:
             return parsed
         return None
+
+    @staticmethod
+    def _normalize_replaces_previous_fact(value: Any) -> str | None:
+        if not isinstance(value, str):
+            return None
+        text = re.sub(r"\s+", " ", value).strip()
+        return text or None
 
     @staticmethod
     def _hedge_summary_for_confidence(summary: str, confidence: float | None) -> str:
@@ -875,7 +883,16 @@ class MemorizeMixin:
         gated_indexes: set[int] = set()
 
         for idx, (
-            (memory_type, summary_text, cat_names, source_role, confidence, source_message_ids, reflection_salience),
+            (
+                memory_type,
+                summary_text,
+                cat_names,
+                source_role,
+                confidence,
+                source_message_ids,
+                reflection_salience,
+                replaces_previous_fact,
+            ),
             raw_embedding,
         ) in enumerate(zip(structured_entries, item_embeddings, strict=True)):
             embedding = self._normalize_embedding_vector(raw_embedding)
@@ -889,6 +906,7 @@ class MemorizeMixin:
                         confidence,
                         source_message_ids,
                         reflection_salience,
+                        replaces_previous_fact,
                     )
                 )
                 continue
@@ -911,6 +929,7 @@ class MemorizeMixin:
                         confidence,
                         source_message_ids,
                         reflection_salience,
+                        replaces_previous_fact,
                     )
                 )
                 continue
@@ -933,6 +952,7 @@ class MemorizeMixin:
                         confidence,
                         source_message_ids,
                         reflection_salience,
+                        replaces_previous_fact,
                     )
                 )
                 continue
@@ -947,6 +967,7 @@ class MemorizeMixin:
                     confidence,
                     source_message_ids,
                     reflection_salience,
+                    replaces_previous_fact,
                 )
             )
 
@@ -1801,6 +1822,7 @@ Decide which clusters/candidates should map into existing categories, and which 
                 )
 
                 reflection_salience = self._normalize_reflection_salience(entry.get("reflection_salience"))
+                replaces_previous_fact = self._normalize_replaces_previous_fact(entry.get("replaces_previous_fact"))
 
                 raw_cats = [c for c in (entry.get("categories", []) or []) if isinstance(c, str)]
                 cat_names = []
@@ -1819,6 +1841,7 @@ Decide which clusters/candidates should map into existing categories, and which 
                         confidence,
                         source_message_ids,
                         reflection_salience,
+                        replaces_previous_fact,
                     )
                 )
         return self._prune_extracted_entry_duplicates(entries)
@@ -1839,6 +1862,7 @@ Decide which clusters/candidates should map into existing categories, and which 
             _confidence,
             _source_message_ids,
             _reflection_salience,
+            _replaces_previous_fact,
         ) in entries:
             if memory_type != "profile":
                 continue
@@ -1856,6 +1880,7 @@ Decide which clusters/candidates should map into existing categories, and which 
             confidence,
             source_message_ids,
             reflection_salience,
+            replaces_previous_fact,
         ) in entries:
             normalized_summary = re.sub(r"\s+", " ", str(summary or "").strip())
             exact_key = (memory_type, source_role, normalized_summary.casefold())
@@ -1889,6 +1914,7 @@ Decide which clusters/candidates should map into existing categories, and which 
                     confidence,
                     source_message_ids,
                     reflection_salience,
+                    replaces_previous_fact,
                 )
             )
 
@@ -1916,7 +1942,16 @@ Decide which clusters/candidates should map into existing categories, and which 
             return entries
         decorated: list[StructuredMemoryEntry] = []
         default_ids = self._dedupe_message_indices(message_indices)
-        for memory_type, content, cats, source_role, confidence, source_message_ids, reflection_salience in entries:
+        for (
+            memory_type,
+            content,
+            cats,
+            source_role,
+            confidence,
+            source_message_ids,
+            reflection_salience,
+            replaces_previous_fact,
+        ) in entries:
             resolved_ids = self._resolve_source_message_ids(source_message_ids, default_ids)
             resolved_salience = (
                 reflection_salience
@@ -1936,6 +1971,7 @@ Decide which clusters/candidates should map into existing categories, and which 
                     confidence,
                     resolved_ids,
                     resolved_salience,
+                    replaces_previous_fact,
                 )
             )
         return decorated
@@ -1998,6 +2034,7 @@ Decide which clusters/candidates should map into existing categories, and which 
                 confidence,
                 source_message_ids,
                 reflection_salience,
+                replaces_previous_fact,
             ) in structured_entries:
                 kept = [c for c in (cats or []) if c in ctx.category_name_to_id]
                 filtered.append(
@@ -2009,6 +2046,7 @@ Decide which clusters/candidates should map into existing categories, and which 
                         confidence,
                         source_message_ids,
                         reflection_salience,
+                        replaces_previous_fact,
                     )
                 )
             return filtered
@@ -2026,6 +2064,7 @@ Decide which clusters/candidates should map into existing categories, and which 
             confidence,
             source_message_ids,
             reflection_salience,
+            replaces_previous_fact,
         ) in structured_entries:
             known: list[str] = []
             unknown: list[str] = []
@@ -2057,6 +2096,7 @@ Decide which clusters/candidates should map into existing categories, and which 
                     confidence,
                     source_message_ids,
                     reflection_salience,
+                    replaces_previous_fact,
                 )
             )
             per_entry_unknowns.append(homeless_unknowns)
@@ -2117,7 +2157,16 @@ Decide which clusters/candidates should map into existing categories, and which 
         # Rebuild entries with mapped categories.
         updated: list[StructuredMemoryEntry] = []
         for idx, (
-            (mtype, content, known, source_role, confidence, source_message_ids, reflection_salience),
+            (
+                mtype,
+                content,
+                known,
+                source_role,
+                confidence,
+                source_message_ids,
+                reflection_salience,
+                replaces_previous_fact,
+            ),
             unk,
         ) in enumerate(zip(filtered_entries, per_entry_unknowns, strict=True)):
             cats = list(known)
@@ -2145,6 +2194,7 @@ Decide which clusters/candidates should map into existing categories, and which 
                     confidence,
                     source_message_ids,
                     reflection_salience,
+                    replaces_previous_fact,
                 )
             )
 
@@ -2171,7 +2221,7 @@ Decide which clusters/candidates should map into existing categories, and which 
             Tuple of (items, relations, category_updates, homeless_count)
             where category_updates maps category_id -> list of (item_id, summary) tuples
         """
-        summary_payloads = [content for _, content, _, _, _, _, _ in structured_entries]
+        summary_payloads = [content for _, content, _, _, _, _, _, _ in structured_entries]
         client = embed_client or self._get_llm_client()
         item_embeddings = await client.embed(summary_payloads) if summary_payloads else []
         items: list[MemoryItem] = []
@@ -2179,6 +2229,7 @@ Decide which clusters/candidates should map into existing categories, and which 
         # Changed: now stores (item_id, summary) tuples for reference support
         category_memory_updates: dict[str, list[tuple[str, str]]] = {}
         centroid_gated_indexes: set[int] = set()
+        superseded_targets: set[str] = set()
 
         if category_centroids:
             structured_entries, centroid_gated_indexes = self._apply_category_centroid_gate(
@@ -2201,15 +2252,25 @@ Decide which clusters/candidates should map into existing categories, and which 
         homeless_count = sum(
             1 for idx, entry in enumerate(structured_entries) if idx in centroid_gated_indexes and not entry[2]
         )
-        for (
-            memory_type,
-            summary_text,
-            cat_names,
-            source_role,
-            confidence,
-            source_message_ids,
-            reflection_salience,
-        ), emb in zip(structured_entries, item_embeddings, strict=True):
+        supersede_targets = await self._find_supersede_targets(
+            structured_entries=structured_entries,
+            store=store,
+            embed_client=client,
+            user=user,
+        )
+        for idx, (
+            (
+                memory_type,
+                summary_text,
+                cat_names,
+                source_role,
+                confidence,
+                source_message_ids,
+                reflection_salience,
+                _replaces_previous_fact,
+            ),
+            emb,
+        ) in enumerate(zip(structured_entries, item_embeddings, strict=True)):
             resolved_summary = self._hedge_summary_for_confidence(summary_text, confidence)
             item_kwargs = {
                 "resource_id": resource_id,
@@ -2230,6 +2291,15 @@ Decide which clusters/candidates should map into existing categories, and which 
             else:
                 item = store.memory_item_repo.create_item(**item_kwargs)
             items.append(item)
+            target_item_id = supersede_targets.get(idx)
+            if target_item_id and target_item_id != item.id and target_item_id not in superseded_targets:
+                update_kwargs = {"item_id": target_item_id, "superseded_by": item.id}
+                if session is not None:
+                    cast(Any, store.memory_item_repo).update_item(**update_kwargs, session=session)
+                else:
+                    store.memory_item_repo.update_item(**update_kwargs)
+                superseded_targets.add(target_item_id)
+                logger.info("supersede: %s superseded_by %s (%.60s)", target_item_id, item.id, summary_text)
             if reinforce and item.extra.get("reinforcement_count", 1) > 1:
                 # existing item
                 continue
@@ -2245,6 +2315,51 @@ Decide which clusters/candidates should map into existing categories, and which 
                 category_memory_updates.setdefault(cid, []).append((item.id, resolved_summary))
 
         return items, rels, category_memory_updates, homeless_count
+
+    def _supersede_similarity_threshold(self) -> float:
+        try:
+            threshold = float(getattr(self.memorize_config, "supersede_similarity_threshold", 0.75) or 0.75)
+        except Exception:
+            threshold = 0.75
+        return max(0.0, min(1.0, threshold))
+
+    async def _find_supersede_targets(
+        self,
+        *,
+        structured_entries: list[StructuredMemoryEntry],
+        store: Database,
+        embed_client: Any,
+        user: Mapping[str, Any] | None = None,
+    ) -> dict[int, str]:
+        replace_requests = [
+            (idx, entry)
+            for idx, entry in enumerate(structured_entries)
+            if isinstance(entry.replaces_previous_fact, str) and entry.replaces_previous_fact.strip()
+        ]
+        if not replace_requests:
+            return {}
+
+        replace_texts = [cast(str, entry.replaces_previous_fact).strip() for _, entry in replace_requests]
+        replace_vectors = await embed_client.embed(replace_texts)
+        threshold = self._supersede_similarity_threshold()
+        targets: dict[int, str] = {}
+
+        for (idx, entry), raw_vector in zip(replace_requests, replace_vectors, strict=True):
+            vector = self._normalize_embedding_vector(raw_vector)
+            if vector is None:
+                logger.warning("supersede: embedding normalization failed for replacement text, skipping: %.80s", entry.replaces_previous_fact)
+                continue
+            where = dict(user or {})
+            where["memory_type"] = entry.memory_type
+            if entry.source_role:
+                where["source_role"] = entry.source_role
+            hits = store.memory_item_repo.vector_search_items(query_vec=vector, top_k=3, where=where)
+            for candidate_id, similarity in hits:
+                if similarity >= threshold:
+                    targets[idx] = candidate_id
+                    break
+
+        return targets
 
     @staticmethod
     def _category_scope_key(user_scope: Mapping[str, Any] | None) -> str:
@@ -3251,6 +3366,12 @@ Decide which clusters/candidates should map into existing categories, and which 
             if message_ids:
                 memory_dict["source_message_ids"] = message_ids
 
+        replaces_previous_fact_elem = memory_elem.find("replaces_previous_fact")
+        if replaces_previous_fact_elem is not None and replaces_previous_fact_elem.text:
+            replaces_previous_fact = self._normalize_replaces_previous_fact(replaces_previous_fact_elem.text)
+            if replaces_previous_fact:
+                memory_dict["replaces_previous_fact"] = replaces_previous_fact
+
         if memory_dict.get("content") and memory_dict.get("categories"):
             return memory_dict
         return None
@@ -3268,6 +3389,7 @@ Decide which clusters/candidates should map into existing categories, and which 
                 </categories>
                 <source_role>soul|user|environment</source_role>  <!-- optional -->
                 <confidence>0.0-1.0</confidence>                 <!-- optional -->
+                <replaces_previous_fact>older fact text</replaces_previous_fact> <!-- optional -->
             </memory>
         </...>
         """

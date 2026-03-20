@@ -66,11 +66,21 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
     @staticmethod
     def _active_item_filter(model: Any) -> Any | None:
         merged_into_col = getattr(model, "merged_into", None)
-        if merged_into_col is None:
+        superseded_by_col = getattr(model, "superseded_by", None)
+        if merged_into_col is None and superseded_by_col is None:
             return None
         from sqlalchemy import func, or_
 
-        return or_(merged_into_col.is_(None), func.trim(merged_into_col) == "")
+        active_conditions: list[Any] = []
+        if merged_into_col is not None:
+            active_conditions.append(or_(merged_into_col.is_(None), func.trim(merged_into_col) == ""))
+        if superseded_by_col is not None:
+            active_conditions.append(or_(superseded_by_col.is_(None), func.trim(superseded_by_col) == ""))
+        if len(active_conditions) == 1:
+            return active_conditions[0]
+        from sqlalchemy import and_
+
+        return and_(*active_conditions)
 
     def _to_memory_item(
         self,
@@ -504,6 +514,7 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
         superseded_by: str | None = None,
         affective_tags: dict[str, Any] | None = None,
         unresolved: str | None = None,
+        session: Any | None = None,
     ) -> MemoryItem:
         """Update an existing memory item.
 
@@ -521,46 +532,62 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
         Raises:
             KeyError: If item not found.
         """
-        with self._sessions.session() as session:
-            stmt = select(self._memory_item_model).where(self._memory_item_model.id == item_id)
-            row = session.exec(stmt).first()
+        if session is None:
+            with self._sessions.session() as managed_session:
+                item = self.update_item(
+                    item_id=item_id,
+                    memory_type=memory_type,
+                    summary=summary,
+                    embedding=embedding,
+                    extra=extra,
+                    tool_record=tool_record,
+                    merged_into=merged_into,
+                    superseded_by=superseded_by,
+                    affective_tags=affective_tags,
+                    unresolved=unresolved,
+                    session=managed_session,
+                )
+                managed_session.commit()
+                return item
 
-            if row is None:
-                msg = f"Item with id {item_id} not found"
-                raise KeyError(msg)
+        stmt = select(self._memory_item_model).where(self._memory_item_model.id == item_id)
+        row = session.exec(stmt).first()
 
-            if memory_type is not None:
-                row.memory_type = memory_type
-            if summary is not None:
-                row.summary = summary
-            if embedding is not None:
-                self._set_row_embedding(row, embedding)
-            if merged_into is not None:
-                row.merged_into = merged_into
-            if superseded_by is not None:
-                row.superseded_by = superseded_by
-            if affective_tags is not None:
-                row.affective_tags = affective_tags
-            if unresolved is not None:
-                row.unresolved = unresolved
+        if row is None:
+            msg = f"Item with id {item_id} not found"
+            raise KeyError(msg)
 
-            # Merge extra and tool_record into existing extra dict
-            current_extra = row.extra or {}
-            if extra is not None:
-                current_extra = {**current_extra, **extra}
-            if tool_record is not None:
-                # Merge tool_record fields at top level
-                for key in ("when_to_use", "metadata", "tool_calls"):
-                    if tool_record.get(key) is not None:
-                        current_extra[key] = tool_record[key]
-            if extra is not None or tool_record is not None:
-                row.extra = current_extra
+        if memory_type is not None:
+            row.memory_type = memory_type
+        if summary is not None:
+            row.summary = summary
+        if embedding is not None:
+            self._set_row_embedding(row, embedding)
+        if merged_into is not None:
+            row.merged_into = merged_into
+        if superseded_by is not None:
+            row.superseded_by = superseded_by
+        if affective_tags is not None:
+            row.affective_tags = affective_tags
+        if unresolved is not None:
+            row.unresolved = unresolved
 
-            row.updated_at = self._now()
+        # Merge extra and tool_record into existing extra dict
+        current_extra = row.extra or {}
+        if extra is not None:
+            current_extra = {**current_extra, **extra}
+        if tool_record is not None:
+            # Merge tool_record fields at top level
+            for key in ("when_to_use", "metadata", "tool_calls"):
+                if tool_record.get(key) is not None:
+                    current_extra[key] = tool_record[key]
+        if extra is not None or tool_record is not None:
+            row.extra = current_extra
 
-            session.add(row)
-            session.commit()
-            session.refresh(row)
+        row.updated_at = self._now()
+        session.add(row)
+        session.flush()
+        session.refresh(row)
 
         item = self._to_memory_item(row)
         self.items[row.id] = item
