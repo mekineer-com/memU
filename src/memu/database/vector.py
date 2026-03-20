@@ -101,7 +101,7 @@ def rerank_by_salience(
     scored: list[tuple[str, float]] = []
 
     for _id, similarity, reinforcement_count, last_reinforced_at, reflection_salience in candidates:
-        score = similarity * salience_score(
+        score = similarity + salience_score(
             reinforcement_count,
             last_reinforced_at,
             reflection_salience,
