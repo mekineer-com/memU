@@ -134,6 +134,10 @@ If a memory item clearly doesn't belong in any category above, you may propose a
 
 PROMPT_BLOCK_OUTPUT = """
 # Output Format (XML)
+CRITICAL WRITING RULES:
+1. Soul memories (source_role=soul): Write in FIRST PERSON ("I have...", "I feel...").
+2. User memories (source_role=user): Write in THIRD PERSON using their name ("Marcos has...", "He feels...").
+
 Return all memories wrapped in a single <item> element:
 <item>
     <memory>

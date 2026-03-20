@@ -1,4 +1,4 @@
-# memu-1.4.0 — Memory Engine Index
+# memu — Memory Engine Index
 
 > This file exists so agents can orient themselves without scanning the tree.
 > `.claudeignore` blocks auto-scan of this directory — read this first.
