@@ -28,7 +28,7 @@
 
 | Directory | Files | Purpose |
 |-----------|-------|---------|
-| `memory_type/` | `profile.py`, `event.py`, `behavior.py`, `knowledge.py`, `skill.py`, `tool.py`, `diary.py` | Per-type extraction prompts (PROMPT + CUSTOM_PROMPT) |
+| `memory_type/` | `profile.py`, `event.py`, `behavior.py`, `knowledge.py` | Per-type extraction prompts (PROMPT + CUSTOM_PROMPT). These four are active (DEFAULT_MEMORY_TYPES). `skill.py`, `tool.py`, `diary.py` exist but are not active extraction types. |
 | `memory_type/__init__.py` | — | PROMPTS dict, DEFAULT_MEMORY_TYPES list |
 | `preprocess/` | `conversation.py`, `document.py`, `image.py`, `audio.py`, `video.py` | Input normalization per modality |
 | `router/router.py` | — | Classify input → memory type(s) |
@@ -54,7 +54,7 @@
 
 | Table | Key Fields |
 |-------|-----------|
-| `MemoryItem` | id, memory_type, summary, embedding, happened_at, source_role, confidence, conversation_id, affective_tags, merged_into, extra (JSON) |
+| `MemoryItem` | id, memory_type, summary, embedding, happened_at, source_role, confidence, reflection_salience, conversation_id, affective_tags, merged_into, superseded_by, extra (JSON) |
 | `MemoryCategory` | id, name, description, embedding, summary |
 | `CategoryItem` | id, item_id, category_id |
 | `Resource` | id, url, modality, local_path, caption, embedding |

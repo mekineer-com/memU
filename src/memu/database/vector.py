@@ -113,6 +113,30 @@ def rerank_by_salience(
     return scored
 
 
+def reciprocal_rank_fusion(
+    *ranked_lists: list[tuple[str, float]],
+    k: int = 60,
+) -> list[tuple[str, float]]:
+    """Merge ranked result lists using Reciprocal Rank Fusion (Cormack et al. 2009).
+
+    RRF score for each document = sum over lists of 1/(k + rank_position).
+    Scores are normalized to [0, 1] by dividing by the max possible score
+    (num_lists / (k + 1)), so a document at rank 1 in all lists scores 1.0.
+    """
+    if not ranked_lists:
+        return []
+    num_lists = len(ranked_lists)
+    max_score = num_lists / (k + 1)
+    scores: dict[str, float] = {}
+    for rlist in ranked_lists:
+        for rank, (doc_id, _score) in enumerate(rlist):
+            scores[doc_id] = scores.get(doc_id, 0.0) + 1.0 / (k + rank + 1)
+    # Normalize
+    if max_score > 0:
+        scores = {doc_id: s / max_score for doc_id, s in scores.items()}
+    return sorted(scores.items(), key=lambda x: x[1], reverse=True)
+
+
 def query_cosine(query_vec: list[float], vecs: list[list[float]]) -> list[tuple[int, float]]:
     res: list[tuple[int, float]] = []
     q = np.array(query_vec, dtype=np.float32)

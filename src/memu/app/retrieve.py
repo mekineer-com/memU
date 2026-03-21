@@ -357,12 +357,17 @@ class RetrieveMixin:
             embed_client = self._get_step_embedding_client(step_context)
             qvec = (await embed_client.embed([state["active_query"]]))[0]
             state["query_vector"] = qvec
+        item_cfg = self.retrieve_config.item
         state["item_hits"] = store.memory_item_repo.vector_search_items(
             qvec,
-            self.retrieve_config.item.top_k,
+            item_cfg.top_k,
             where=where_filters,
-            ranking=self.retrieve_config.item.ranking,
-            recency_decay_days=self.retrieve_config.item.recency_decay_days,
+            ranking=item_cfg.ranking,
+            recency_decay_days=item_cfg.recency_decay_days,
+            fts_query=state.get("active_query"),
+            fts_enabled=item_cfg.fts_enabled,
+            fts_top_k=item_cfg.fts_top_k,
+            rrf_k=item_cfg.rrf_k,
         )
         state["item_pool"] = items_pool
         return state
@@ -924,7 +929,14 @@ class RetrieveMixin:
             qvec = (await client.embed([current_query]))[0]
 
         # Tier 2: Items
-        item_hits = store.memory_item_repo.vector_search_items(qvec, top_k, where=where_filters)
+        item_cfg = self.retrieve_config.item
+        item_hits = store.memory_item_repo.vector_search_items(
+            qvec, top_k, where=where_filters,
+            fts_query=current_query,
+            fts_enabled=item_cfg.fts_enabled,
+            fts_top_k=item_cfg.fts_top_k,
+            rrf_k=item_cfg.rrf_k,
+        )
         if item_hits:
             response["items"] = self._materialize_hits(item_hits, items_pool)
             content_sections.append(self._format_item_content(item_hits, store, items=items_pool))

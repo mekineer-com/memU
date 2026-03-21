@@ -265,6 +265,42 @@ CREATE TABLE IF NOT EXISTS memu_intentions (
         except Exception:
             return
 
+    def _ensure_fts_table(self) -> None:
+        """Create FTS5 virtual table for BM25 keyword search on memory items."""
+        try:
+            with self._sessions.engine.begin() as conn:
+                conn.exec_driver_sql(
+                    """
+CREATE VIRTUAL TABLE IF NOT EXISTS memu_memory_items_fts
+USING fts5(
+    summary,
+    memory_type UNINDEXED,
+    item_id UNINDEXED,
+    tokenize='porter unicode61'
+)
+"""
+                )
+                # Backfill if FTS table is empty but items exist
+                fts_count = conn.exec_driver_sql(
+                    "SELECT COUNT(*) FROM memu_memory_items_fts"
+                ).scalar()
+                if fts_count == 0:
+                    items_count = conn.exec_driver_sql(
+                        "SELECT COUNT(*) FROM memu_memory_items"
+                    ).scalar()
+                    if items_count and items_count > 0:
+                        conn.exec_driver_sql(
+                            """
+INSERT INTO memu_memory_items_fts(summary, memory_type, item_id)
+SELECT summary, memory_type, id FROM memu_memory_items
+WHERE (merged_into IS NULL OR TRIM(merged_into) = '')
+  AND (superseded_by IS NULL OR TRIM(superseded_by) = '')
+"""
+                        )
+                        logger.info("FTS5: backfilled %d items", items_count)
+        except Exception:
+            logger.warning("FTS5 table creation/backfill failed", exc_info=True)
+
     def _create_tables(self) -> None:
         """Create SQLite tables if they don't exist."""
         SQLModel.metadata.create_all(self._sessions.engine)
@@ -275,6 +311,7 @@ CREATE TABLE IF NOT EXISTS memu_intentions (
         self._ensure_memory_item_provenance_columns()
         self._ensure_conversation_state_table()
         self._ensure_diary_tables()
+        self._ensure_fts_table()
         logger.debug("SQLite tables created/verified")
 
     def close(self) -> None:

@@ -115,7 +115,7 @@ class LLMConfig(BaseModel):
     )
     base_url: str = Field(default="https://api.openai.com/v1")
     api_key: str = Field(default="OPENAI_API_KEY")
-    chat_model: str = Field(default="gpt-4o-mini")
+    chat_model: str = Field(default="")
     client_backend: str = Field(
         default="sdk",
         description="Which LLM client backend to use: 'httpx' (httpx), 'sdk' (official OpenAI), or 'lazyllm_backend' (for more LLM source like Qwen, Doubao, SIliconflow, etc.)",
@@ -137,12 +137,11 @@ class LLMConfig(BaseModel):
     @model_validator(mode="after")
     def set_provider_defaults(self) -> "LLMConfig":
         if self.provider == "grok":
-            # If values match the OpenAI defaults, switch them to Grok defaults
             if self.base_url == "https://api.openai.com/v1":
                 self.base_url = "https://api.x.ai/v1"
             if self.api_key == "OPENAI_API_KEY":
                 self.api_key = "XAI_API_KEY"
-            if self.chat_model == "gpt-4o-mini":
+            if not self.chat_model:
                 self.chat_model = "grok-2-latest"
         return self
 
@@ -173,6 +172,18 @@ class RetrieveItemConfig(BaseModel):
     recency_decay_days: float = Field(
         default=30.0,
         description="Half-life in days for recency decay in salience scoring. After this many days, recency factor is ~0.5.",
+    )
+    fts_enabled: bool = Field(
+        default=True,
+        description="Enable FTS5 BM25 keyword search alongside vector search, fused via RRF.",
+    )
+    fts_top_k: int = Field(
+        default=20,
+        description="Number of FTS5 candidates to retrieve for RRF fusion (should be >= top_k).",
+    )
+    rrf_k: int = Field(
+        default=60,
+        description="RRF constant k (Cormack et al. 2009). Higher values reduce impact of high-ranked items.",
     )
 
 

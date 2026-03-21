@@ -88,7 +88,7 @@ class HTTPLLMClient:
         chat_model: str,
         provider: str = "openai",
         endpoint_overrides: dict[str, str] | None = None,
-        timeout: int = 180,
+        timeout: int = 600,
         embed_model: str | None = None,
     ):
         # Ensure base_url ends with "/" so httpx doesn't discard the path

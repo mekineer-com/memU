@@ -16,7 +16,7 @@ from memu.database.sqlite.repositories.base import SQLiteRepoBase
 from memu.database.sqlite.schema import SQLiteSQLAModels
 from memu.database.sqlite.session import SQLiteSessionManager
 from memu.database.state import DatabaseState
-from memu.database.vector import cosine_topk, rerank_by_salience
+from memu.database.vector import cosine_topk, rerank_by_salience, reciprocal_rank_fusion
 
 logger = logging.getLogger(__name__)
 
@@ -232,6 +232,13 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
             if not deleted:
                 return {}
 
+            # Delete from FTS index
+            conn = session.connection()
+            for item_id in deleted:
+                conn.exec_driver_sql(
+                    "DELETE FROM memu_memory_items_fts WHERE item_id = ?", (item_id,)
+                )
+
             # Delete from database
             del_stmt = delete(self._memory_item_model)
             if filters:
@@ -354,6 +361,7 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
         session.add(row)
         session.flush()
         session.refresh(row)
+        self._fts_upsert(session, row.id, summary, memory_type)
 
         item = self._to_memory_item(row, embedding=embedding, scope=user_data)
         self.items[row.id] = item
@@ -458,6 +466,7 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
             session.add(existing)
             session.flush()
             session.refresh(existing)
+            self._fts_upsert(session, existing.id, existing.summary, existing.memory_type)
             item = self._to_memory_item(existing)
             self.items[existing.id] = item
             return item
@@ -496,6 +505,7 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
         session.add(row)
         session.flush()
         session.refresh(row)
+        self._fts_upsert(session, row.id, summary, memory_type)
 
         item = self._to_memory_item(row, embedding=embedding)
         self.items[row.id] = item
@@ -589,6 +599,12 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
         session.flush()
         session.refresh(row)
 
+        # Sync FTS: remove if item became inactive, otherwise upsert
+        if merged_into or superseded_by:
+            self._fts_delete(session, item_id)
+        elif summary is not None:
+            self._fts_upsert(session, item_id, row.summary, row.memory_type)
+
         item = self._to_memory_item(row)
         self.items[row.id] = item
         return item
@@ -603,11 +619,80 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
             stmt = select(self._memory_item_model).where(self._memory_item_model.id == item_id)
             row = session.exec(stmt).first()
             if row:
+                self._fts_delete(session, item_id)
                 session.delete(row)
                 session.commit()
 
         if item_id in self.items:
             del self.items[item_id]
+
+    # ── FTS5 helpers ──────────────────────────────────────────────────
+
+    def _fts_upsert(self, session: Any, item_id: str, summary: str, memory_type: str) -> None:
+        """Insert or replace an item in the FTS5 index."""
+        conn = session.connection()
+        conn.exec_driver_sql(
+            "DELETE FROM memu_memory_items_fts WHERE item_id = ?", (item_id,)
+        )
+        conn.exec_driver_sql(
+            "INSERT INTO memu_memory_items_fts(summary, memory_type, item_id) VALUES (?, ?, ?)",
+            (summary, memory_type, item_id),
+        )
+
+    def _fts_delete(self, session: Any, item_id: str) -> None:
+        """Remove an item from the FTS5 index."""
+        conn = session.connection()
+        conn.exec_driver_sql(
+            "DELETE FROM memu_memory_items_fts WHERE item_id = ?", (item_id,)
+        )
+
+    @staticmethod
+    def _sanitize_fts_query(query: str) -> str:
+        """Escape a user query for FTS5 MATCH safety.
+
+        Wraps each word in double quotes so FTS5 special characters
+        (*, -, OR, AND, NEAR, etc.) are treated as literals.
+        """
+        words = query.split()
+        if not words:
+            return ""
+        return " ".join(f'"{w}"' for w in words)
+
+    def fts_search_items(
+        self,
+        query: str,
+        top_k: int,
+        pool_ids: set[str] | None = None,
+    ) -> list[tuple[str, float]]:
+        """Full-text BM25 search on memory item summaries.
+
+        Returns (item_id, score) tuples with scores negated so higher = better
+        (SQLite FTS5 rank is negative, lower = better match).
+        Results are filtered to pool_ids if provided (scope filtering).
+        """
+        safe_query = self._sanitize_fts_query(query)
+        if not safe_query:
+            return []
+
+        with self._sessions.session() as session:
+            conn = session.connection()
+            rows = conn.exec_driver_sql(
+                "SELECT item_id, rank FROM memu_memory_items_fts "
+                "WHERE memu_memory_items_fts MATCH ? "
+                "ORDER BY rank LIMIT ?",
+                (safe_query, top_k * 3 if pool_ids else top_k),
+            ).fetchall()
+
+        results: list[tuple[str, float]] = []
+        for item_id, rank in rows:
+            if pool_ids is not None and item_id not in pool_ids:
+                continue
+            results.append((item_id, -rank))  # negate: higher = better
+            if len(results) >= top_k:
+                break
+        return results
+
+    # ── Vector + hybrid search ─────────────────────────────────────
 
     def vector_search_items(
         self,
@@ -617,27 +702,36 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
         *,
         ranking: str = "similarity",
         recency_decay_days: float = 30.0,
+        fts_query: str | None = None,
+        fts_enabled: bool = False,
+        fts_top_k: int = 20,
+        rrf_k: int = 60,
     ) -> list[tuple[str, float]]:
-        """Perform vector similarity search on memory items.
+        """Vector similarity search with optional FTS5 hybrid fusion.
 
-        Uses brute-force cosine similarity since SQLite doesn't have native vector support.
-
-        Args:
-            query_vec: Query embedding vector.
-            top_k: Maximum number of results to return.
-            where: Optional filter conditions.
-            ranking: Ranking strategy - "similarity" (default) or "salience".
-            recency_decay_days: Half-life for recency decay in salience ranking.
-
-        Returns:
-            List of (item_id, similarity_score) tuples.
+        When fts_enabled and fts_query are provided, runs BM25 keyword search
+        alongside cosine similarity and merges results via Reciprocal Rank Fusion
+        before applying salience reranking.
         """
-        # Load items from database with filters
         pool = self.list_items(where)
 
+        # Expand candidate pool when doing hybrid search
+        vector_k = max(top_k, fts_top_k) if fts_enabled else top_k
+        vector_hits = cosine_topk(query_vec, [(i.id, i.embedding) for i in pool.values()], k=vector_k)
+
+        # Hybrid: fuse vector + FTS via RRF
+        if fts_enabled and fts_query:
+            fts_hits = self.fts_search_items(fts_query, fts_top_k, pool_ids=set(pool.keys()))
+            if fts_hits:
+                hits = reciprocal_rank_fusion(vector_hits, fts_hits, k=rrf_k)
+            else:
+                # FTS returned nothing (stop-words only, etc.) — fall back to vector
+                hits = vector_hits
+        else:
+            hits = vector_hits
+
         if ranking == "salience":
-            hits = cosine_topk(query_vec, [(i.id, i.embedding) for i in pool.values()], k=top_k)
-            candidate_ids = [item_id for item_id, _ in hits]
+            candidate_ids = [item_id for item_id, _ in hits[:vector_k]]
             if not candidate_ids:
                 return []
 
@@ -668,15 +762,13 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
                 )
 
             candidates: list[tuple[str, float, int, datetime | None, float]] = []
-            for item_id, similarity in hits:
+            for item_id, score in hits[:vector_k]:
                 reinforcement_count, last_reinforced_at, reflection_salience = metadata.get(item_id, (1, None, 0.5))
-                candidates.append((item_id, similarity, reinforcement_count, last_reinforced_at, reflection_salience))
+                candidates.append((item_id, score, reinforcement_count, last_reinforced_at, reflection_salience))
 
-            return rerank_by_salience(candidates, recency_decay_days=recency_decay_days)
+            return rerank_by_salience(candidates, recency_decay_days=recency_decay_days)[:top_k]
 
-        # Default: pure cosine similarity (backward compatible)
-        hits = cosine_topk(query_vec, [(i.id, i.embedding) for i in pool.values()], k=top_k)
-        return hits
+        return hits[:top_k]
 
     @staticmethod
     def _parse_datetime(dt_str: str | None) -> pendulum.DateTime | None:
