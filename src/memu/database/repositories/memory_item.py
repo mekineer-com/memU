@@ -62,7 +62,17 @@ class MemoryItemRepo(Protocol):
     ) -> dict[str, MemoryItem]: ...
 
     def vector_search_items(
-        self, query_vec: list[float], top_k: int, where: Mapping[str, Any] | None = None
+        self,
+        query_vec: list[float],
+        top_k: int,
+        where: Mapping[str, Any] | None = None,
+        *,
+        ranking: str = "similarity",
+        recency_decay_days: float = 30.0,
+        fts_query: str | None = None,
+        fts_enabled: bool = False,
+        fts_top_k: int = 20,
+        rrf_k: int = 60,
     ) -> list[tuple[str, float]]: ...
 
     def load_existing(self) -> None: ...

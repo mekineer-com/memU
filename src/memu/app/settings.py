@@ -208,14 +208,18 @@ class RetrieveConfig(BaseModel):
     #     description="Maximum number of results to return per category.",
     # )
     route_intention: bool = Field(
-        default=False, description="Whether to route intention (judge needs retrieval & rewrite query). Disabled: Siri has no character card — memories are her only identity context, gates work against her."
+        default=False,
+        description="Whether to route intention (judge needs retrieval & rewrite query). Disabled: Siri has no character card — memories are her only identity context, gates work against her.",
     )
     # route_intention_prompt: str = Field(default="", description="User prompt for route intention.")
     # route_intention_llm_profile: str = Field(default="default", description="LLM profile for route intention.")
     category: RetrieveCategoryConfig = Field(default=RetrieveCategoryConfig())
     item: RetrieveItemConfig = Field(default=RetrieveItemConfig())
     resource: RetrieveResourceConfig = Field(default=RetrieveResourceConfig())
-    sufficiency_check: bool = Field(default=False, description="Whether to check sufficiency after each tier. Disabled: without a character card, items are Siri's episodic memory and should always load.")
+    sufficiency_check: bool = Field(
+        default=False,
+        description="Whether to check sufficiency after each tier. Disabled: without a character card, items are Siri's episodic memory and should always load.",
+    )
     sufficiency_check_prompt: str = Field(default="", description="User prompt for sufficiency check.")
     sufficiency_check_llm_profile: str = Field(default="default", description="LLM profile for sufficiency check.")
     llm_ranking_llm_profile: str = Field(default="default", description="LLM profile for LLM ranking.")

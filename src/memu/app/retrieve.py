@@ -931,7 +931,9 @@ class RetrieveMixin:
         # Tier 2: Items
         item_cfg = self.retrieve_config.item
         item_hits = store.memory_item_repo.vector_search_items(
-            qvec, top_k, where=where_filters,
+            qvec,
+            top_k,
+            where=where_filters,
             fts_query=current_query,
             fts_enabled=item_cfg.fts_enabled,
             fts_top_k=item_cfg.fts_top_k,

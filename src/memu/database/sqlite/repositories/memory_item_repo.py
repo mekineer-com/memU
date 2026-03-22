@@ -16,7 +16,7 @@ from memu.database.sqlite.repositories.base import SQLiteRepoBase
 from memu.database.sqlite.schema import SQLiteSQLAModels
 from memu.database.sqlite.session import SQLiteSessionManager
 from memu.database.state import DatabaseState
-from memu.database.vector import cosine_topk, rerank_by_salience, reciprocal_rank_fusion
+from memu.database.vector import cosine_topk, reciprocal_rank_fusion, rerank_by_salience
 
 logger = logging.getLogger(__name__)
 
@@ -235,9 +235,7 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
             # Delete from FTS index
             conn = session.connection()
             for item_id in deleted:
-                conn.exec_driver_sql(
-                    "DELETE FROM memu_memory_items_fts WHERE item_id = ?", (item_id,)
-                )
+                conn.exec_driver_sql("DELETE FROM memu_memory_items_fts WHERE item_id = ?", (item_id,))
 
             # Delete from database
             del_stmt = delete(self._memory_item_model)
@@ -631,9 +629,7 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
     def _fts_upsert(self, session: Any, item_id: str, summary: str, memory_type: str) -> None:
         """Insert or replace an item in the FTS5 index."""
         conn = session.connection()
-        conn.exec_driver_sql(
-            "DELETE FROM memu_memory_items_fts WHERE item_id = ?", (item_id,)
-        )
+        conn.exec_driver_sql("DELETE FROM memu_memory_items_fts WHERE item_id = ?", (item_id,))
         conn.exec_driver_sql(
             "INSERT INTO memu_memory_items_fts(summary, memory_type, item_id) VALUES (?, ?, ?)",
             (summary, memory_type, item_id),
@@ -642,9 +638,7 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
     def _fts_delete(self, session: Any, item_id: str) -> None:
         """Remove an item from the FTS5 index."""
         conn = session.connection()
-        conn.exec_driver_sql(
-            "DELETE FROM memu_memory_items_fts WHERE item_id = ?", (item_id,)
-        )
+        conn.exec_driver_sql("DELETE FROM memu_memory_items_fts WHERE item_id = ?", (item_id,))
 
     @staticmethod
     def _sanitize_fts_query(query: str) -> str:
@@ -722,11 +716,8 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
         # Hybrid: fuse vector + FTS via RRF
         if fts_enabled and fts_query:
             fts_hits = self.fts_search_items(fts_query, fts_top_k, pool_ids=set(pool.keys()))
-            if fts_hits:
-                hits = reciprocal_rank_fusion(vector_hits, fts_hits, k=rrf_k)
-            else:
-                # FTS returned nothing (stop-words only, etc.) — fall back to vector
-                hits = vector_hits
+            # FTS returned nothing (stop-words only, etc.) — fall back to vector
+            hits = reciprocal_rank_fusion(vector_hits, fts_hits, k=rrf_k) if fts_hits else vector_hits
         else:
             hits = vector_hits
 

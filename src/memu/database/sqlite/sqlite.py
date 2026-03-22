@@ -281,13 +281,9 @@ USING fts5(
 """
                 )
                 # Backfill if FTS table is empty but items exist
-                fts_count = conn.exec_driver_sql(
-                    "SELECT COUNT(*) FROM memu_memory_items_fts"
-                ).scalar()
+                fts_count = conn.exec_driver_sql("SELECT COUNT(*) FROM memu_memory_items_fts").scalar()
                 if fts_count == 0:
-                    items_count = conn.exec_driver_sql(
-                        "SELECT COUNT(*) FROM memu_memory_items"
-                    ).scalar()
+                    items_count = conn.exec_driver_sql("SELECT COUNT(*) FROM memu_memory_items").scalar()
                     if items_count and items_count > 0:
                         conn.exec_driver_sql(
                             """

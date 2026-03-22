@@ -2347,7 +2347,10 @@ Decide which clusters/candidates should map into existing categories, and which 
         for (idx, entry), raw_vector in zip(replace_requests, replace_vectors, strict=True):
             vector = self._normalize_embedding_vector(raw_vector)
             if vector is None:
-                logger.warning("supersede: embedding normalization failed for replacement text, skipping: %.80s", entry.replaces_previous_fact)
+                logger.warning(
+                    "supersede: embedding normalization failed for replacement text, skipping: %.80s",
+                    entry.replaces_previous_fact,
+                )
                 continue
             where = dict(user or {})
             where["memory_type"] = entry.memory_type

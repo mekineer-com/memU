@@ -413,7 +413,12 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
         *,
         ranking: str = "similarity",
         recency_decay_days: float = 30.0,
+        fts_query: str | None = None,
+        fts_enabled: bool = False,
+        fts_top_k: int = 20,
+        rrf_k: int = 60,
     ) -> list[tuple[str, float]]:
+        _ = (fts_query, fts_enabled, fts_top_k, rrf_k)
         if not self._use_vector or ranking == "salience":
             # For salience ranking or when pgvector is not available, use local search
             return self._vector_search_local(
