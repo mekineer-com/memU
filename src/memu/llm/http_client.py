@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import logging
 import os
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, cast
@@ -114,6 +116,36 @@ class HTTPLLMClient:
         self.timeout = timeout
         self.embed_model = embed_model or chat_model
         self.proxy = _load_proxy()
+        self._min_call_gap: float = float(os.getenv("MEMU_LLM_CALL_GAP", "2.0"))
+        self._max_retries: int = int(os.getenv("MEMU_LLM_RETRIES", "2"))
+        self._last_call_time: float = 0.0
+
+    async def _throttle(self) -> None:
+        """Enforce minimum gap between API calls to avoid burst limits."""
+        if self._min_call_gap <= 0:
+            return
+        elapsed = time.monotonic() - self._last_call_time
+        if elapsed < self._min_call_gap:
+            await asyncio.sleep(self._min_call_gap - elapsed)
+        self._last_call_time = time.monotonic()
+
+    async def _post_with_retry(self, endpoint: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """POST with throttle and retry on transient failures."""
+        last_exc: Exception | None = None
+        for attempt in range(1 + self._max_retries):
+            await self._throttle()
+            try:
+                async with httpx.AsyncClient(base_url=self.base_url, timeout=self.timeout, proxy=self.proxy) as client:
+                    resp = await client.post(endpoint, json=payload, headers=self._headers())
+                    resp.raise_for_status()
+                    return resp.json()
+            except (httpx.RemoteProtocolError, httpx.ReadTimeout, httpx.ConnectTimeout) as exc:
+                last_exc = exc
+                if attempt < self._max_retries:
+                    wait = (attempt + 1) * 5
+                    logger.warning("LLM call failed (attempt %d/%d), retrying in %ds: %s", attempt + 1, 1 + self._max_retries, wait, exc)
+                    await asyncio.sleep(wait)
+        raise last_exc  # type: ignore[misc]
 
     async def chat(
         self,
@@ -137,10 +169,7 @@ class HTTPLLMClient:
         if max_tokens is not None:
             payload["max_tokens"] = max_tokens
 
-        async with httpx.AsyncClient(base_url=self.base_url, timeout=self.timeout, proxy=self.proxy) as client:
-            resp = await client.post(self.summary_endpoint, json=payload, headers=self._headers())
-            resp.raise_for_status()
-            data = resp.json()
+        data = await self._post_with_retry(self.summary_endpoint, payload)
         logger.debug("HTTP LLM chat response: %s", data)
         return self.backend.parse_summary_response(data), data
 
@@ -150,10 +179,7 @@ class HTTPLLMClient:
         payload = self.backend.build_summary_payload(
             text=text, system_prompt=system_prompt, chat_model=self.chat_model, max_tokens=max_tokens
         )
-        async with httpx.AsyncClient(base_url=self.base_url, timeout=self.timeout, proxy=self.proxy) as client:
-            resp = await client.post(self.summary_endpoint, json=payload, headers=self._headers())
-            resp.raise_for_status()
-            data = resp.json()
+        data = await self._post_with_retry(self.summary_endpoint, payload)
         logger.debug("HTTP LLM summarize response: %s", data)
         return self.backend.parse_summary_response(data), data
 
@@ -200,20 +226,14 @@ class HTTPLLMClient:
             max_tokens=max_tokens,
         )
 
-        async with httpx.AsyncClient(base_url=self.base_url, timeout=self.timeout, proxy=self.proxy) as client:
-            resp = await client.post(self.summary_endpoint, json=payload, headers=self._headers())
-            resp.raise_for_status()
-            data = resp.json()
+        data = await self._post_with_retry(self.summary_endpoint, payload)
         logger.debug("HTTP LLM vision response: %s", data)
         return self.backend.parse_summary_response(data), data
 
     async def embed(self, inputs: list[str]) -> tuple[list[list[float]], dict[str, Any]]:
         """Create text embeddings using the provider-specific embedding API."""
         payload = self.embedding_backend.build_embedding_payload(inputs=inputs, embed_model=self.embed_model)
-        async with httpx.AsyncClient(base_url=self.base_url, timeout=self.timeout, proxy=self.proxy) as client:
-            resp = await client.post(self.embedding_endpoint, json=payload, headers=self._headers())
-            resp.raise_for_status()
-            data = resp.json()
+        data = await self._post_with_retry(self.embedding_endpoint, payload)
         logger.debug("HTTP embedding response: %s", data)
         return self.embedding_backend.parse_embedding_response(data), data
 
