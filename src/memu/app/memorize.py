@@ -403,6 +403,11 @@ class MemorizeMixin:
                 if message_idx in message_happened_at_map
             }
 
+            conv_id = state.get("conversation_id")
+            if conv_id and message_indices:
+                episode_id = f"{conv_id}:{message_indices[0]}-{message_indices[-1]}"
+            else:
+                episode_id = None
             resource_plans.append({
                 "resource_url": res_url,
                 "text": text,
@@ -411,6 +416,7 @@ class MemorizeMixin:
                 "message_happened_at_map": plan_message_happened_at_map,
                 "diary_worthy": diary_worthy,
                 "entries": structured_entries,
+                "episode_id": episode_id,
             })
 
         state["resource_plans"] = resource_plans
@@ -1334,6 +1340,7 @@ Decide which clusters/candidates should map into existing categories, and which 
                             embed_client=embed_client,
                             user=user_scope,
                             conversation_id=state.get("conversation_id"),
+                            episode_id=plan.get("episode_id"),
                             message_happened_at_map=plan.get("message_happened_at_map"),
                             session=session,
                         )
@@ -1376,6 +1383,7 @@ Decide which clusters/candidates should map into existing categories, and which 
                     embed_client=embed_client,
                     user=user_scope,
                     conversation_id=state.get("conversation_id"),
+                    episode_id=plan.get("episode_id"),
                     message_happened_at_map=plan.get("message_happened_at_map"),
                 )
                 items.extend(mem_items)
@@ -2211,6 +2219,7 @@ Decide which clusters/candidates should map into existing categories, and which 
         embed_client: Any | None = None,
         user: Mapping[str, Any] | None = None,
         conversation_id: str | None = None,
+        episode_id: str | None = None,
         message_happened_at_map: Mapping[int, Any] | None = None,
         session: Any | None = None,
     ) -> tuple[list[MemoryItem], list[CategoryItem], dict[str, list[tuple[str, str]]], int]:
@@ -2285,6 +2294,7 @@ Decide which clusters/candidates should map into existing categories, and which 
                 "happened_at": self._resolve_entry_happened_at(source_message_ids, message_happened_at_map),
                 "reflection_salience": reflection_salience,
                 "conversation_id": conversation_id,
+                "episode_id": episode_id,
             }
             if session is not None:
                 item = cast(Any, store.memory_item_repo).create_item(**item_kwargs, session=session)

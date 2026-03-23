@@ -136,10 +136,6 @@ Return all memories wrapped in a single <item> element:
         <source_role>environment</source_role>
         <confidence>0.9</confidence>
         <reflection_salience>0.5</reflection_salience>
-        <source_message_ids>
-            <id>3</id>
-            <id>4</id>
-        </source_message_ids>
         <categories>
             <category>Category Name</category>
         </categories>
@@ -150,9 +146,6 @@ Return all memories wrapped in a single <item> element:
         <source_role>user</source_role>
         <confidence>0.8</confidence>
         <reflection_salience>0.6</reflection_salience>
-        <source_message_ids>
-            <id>7</id>
-        </source_message_ids>
         <categories>
             <category>Category Name</category>
         </categories>
@@ -176,9 +169,6 @@ How much does this knowledge matter to these people's lives?
 - 0.4-0.7 - useful to know, worth having on hand
 - below 0.4 - factual but unlikely to come up again
 
-source_message_ids:
-The zero-indexed positions of the conversation messages that most directly support this memory. Include only the messages that contain the key evidence, not the entire surrounding context.
-
 replaces_previous_fact (optional string):
 Use only when this knowledge explicitly corrects or supersedes a prior piece of knowledge. Write a brief description of the outdated fact (not a memory ID). For new findings that sit alongside existing knowledge, omit this field.
 """
@@ -198,9 +188,6 @@ assistant: The progression you're describing is worth discussing with your docto
         <source_role>environment</source_role>
         <confidence>0.9</confidence>
         <reflection_salience>0.7</reflection_salience>
-        <source_message_ids>
-            <id>1</id>
-        </source_message_ids>
         <categories>
             <category>Health</category>
         </categories>
@@ -210,9 +197,6 @@ assistant: The progression you're describing is worth discussing with your docto
         <source_role>environment</source_role>
         <confidence>0.9</confidence>
         <reflection_salience>0.7</reflection_salience>
-        <source_message_ids>
-            <id>3</id>
-        </source_message_ids>
         <categories>
             <category>Health</category>
         </categories>
@@ -235,10 +219,6 @@ user: Huawei DeviceVirtualization. It lets you project a device's camera to anot
         <source_role>soul</source_role>
         <confidence>0.8</confidence>
         <reflection_salience>0.8</reflection_salience>
-        <source_message_ids>
-            <id>0</id>
-            <id>2</id>
-        </source_message_ids>
         <categories>
             <category>Technology</category>
         </categories>

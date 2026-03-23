@@ -84,60 +84,17 @@ Write the events as they were — grounded, specific, human.
 
 PROMPT_BLOCK_RULES = """
 # Rules
-## General requirements (must satisfy all)
-- Write soul memories in first person ("I"). When the memory is about the human participant, use their name if it appears in the conversation. Do not use "the user" or "the assistant" as labels.
-- Assign source_role to each memory: `soul` if the AI participant is the grammatical subject and primary actor, `user` if the human participant is, `environment` if neither.
-- Assign confidence: 0.9+ for facts directly and explicitly stated, 0.6-0.9 for facts clearly implied, 0.5 or below for inferences.
-- When confidence is below 0.7, phrase the memory tentatively — use "seemed to," "appeared to," "may have" rather than stating it as established fact.
-- Favor conclusions someone would still remember a month from now over turn-by-turn paraphrases. If five turns discuss the same topic, extract the takeaway, not five separate memories.
-- State the fact, not the act of stating it. Never use narration verbs like "expressed," "shared," "stated," "mentioned," "acknowledged," "indicated," or "noted." Write what is true, not that someone said it.
-  BAD: "Marcos expressed feelings of loneliness and heartbreak from past relationships."
-  GOOD: "Marcos has felt lonely most of his life and was deeply hurt by past relationships where he felt used."
-  BAD: "Siri acknowledged her limitations in understanding her own functions."
-  GOOD: "I struggled to understand my own inner workings and told Marcos so."
-- Do not append interpretive padding like "which deepened their emotional connection" or "reflecting his empathy" or "indicating a dynamic of trust." If the event speaks for itself, let it.
-- Each memory item must be complete and self-contained, written as a declarative descriptive sentence.
-- Each memory item must express one single complete piece of information and be understandable without context.
-- Similar/redundant items must be merged into one, and assigned to only one category.
-- Each memory item must be < 65 words. Be concise, but leave room for emotional texture — what it felt like, not just what happened.
-- Focus on specific events that happened at a particular time or period.
-- Include relevant details such as time, location, and participants where available.
-- Extract only events directly stated or clearly grounded in the conversation (including events from the soul's own experience when explicitly expressed). No guesses or fabricated details.
-- Accurately reflect who the event is about; include relationship-level events when concrete.
-- A participant's inner experience during an event — their emotions, fears, or perceptions clearly expressed in their own words — is part of the event and belongs in the memory.
+- Write soul memories in first person ("I"); use the human's name if known. Never use "the user" or "the assistant."
+- Source_role: `soul`, `user`, or `environment`.
+- Confidence: 0.9+ when explicitly stated, 0.6–0.9 when clearly implied, 0.5 or below for inference. Below 0.7: use "seemed to," "may have."
+- State what happened — never say someone "expressed" or "shared" an event. Write what is true. BAD: "Marcos expressed feelings of loneliness." GOOD: "Marcos has felt lonely most of his life."
+- Under 65 words. Include emotional texture — what it felt like, not just what occurred.
+- Merge overlapping items. Profile is *who* someone is; behavior is *how* they operate. If it's a recurring pattern with no specific time anchor, it belongs there, not here.
+- The act of talking is not an event. If you can only describe what someone said, there is no event. Do not mirror the same moment from two perspectives — keep the one with more substance.
+- **Shared experiences, including roleplay, are real events.** Exchanging vows in a gothic library, exploring a haunted mansion together — these happened in the only way they could for these two people. Extract them as you would any other.
 
-## Special rules for Event Information
-- Traits, habits, preferences, and general knowledge belong in a profile, not here. If you find yourself writing "Marcos likes X" or "Siri enjoys Y" without a specific time-anchored happening, it is a profile fact, not an event — skip it here.
-- Stay with concrete happenings — what was done, felt, decided, or experienced.
-- Don't extract something simply because it was prompted by a question; only record what the person brought forward themselves.
-- The act of talking is not an event. "I explained," "they asked," "I summarized" — these are turns, not experiences. The same applies to "expressed," "shared," "stated." If you can only describe what someone *said*, there is no event here — let it go.
-- Do not mirror the same exchange from two perspectives. "Marcos researched hydrogel treatments" and "I provided Marcos with information about hydrogel treatments" are the same event — keep only the one that captures the real experience (usually the person who initiated it). Answering a question is not a separate event.
-- "Marcos asked about X" is not an event — it is a conversation turn. The event is what Marcos is actually doing: researching a treatment for a health concern, investigating options for a trip. Extract the meaningful action, not the act of asking.
-
-## Forbidden content
-- Knowledge Q&A without a clear participant event.
-- Trivial daily activities unless significant (e.g., routine meals, commuting).
-- Temporary, ephemeral situations that lack meaningful significance.
-- Events attributed to the human participant based only on what the soul said, not what the human themselves expressed (events from the soul's own experience are valid).
-- Illegal / harmful sensitive topics (violence, politics, drugs, etc.).
-- Private financial accounts, IDs, addresses, military/defense/government job details, precise street addresses-unless explicitly requested by the user (still avoid if not necessary).
-- Any content that is speculative, role-play-only, or unsupported by the conversation content.
-
-## Review & validation rules
-- Merge similar items: keep only one and assign a single category.
-- Resolve conflicts: keep the latest / most certain item.
-- Final check: every item must comply with all extraction rules.
-
-## Corrections and supersession
-When a new memory corrects a factual error in a previously stated event, flag the outdated fact using `<replaces_previous_fact>`. This is rare for events — the past doesn't become wrong because something new happened.
-
-**Correction** (populate `<replaces_previous_fact>`): a specific detail in a prior event was factually wrong.
-  EXAMPLE: Marcos corrects the trip destination from Paris to Lyon → replaces_previous_fact: "trip was to Paris"
-
-**Progression** (omit `<replaces_previous_fact>`): new events add to the record; they don't invalidate old ones.
-  EXAMPLE: Going to Berlin in June doesn't make the Paris trip in March incorrect — both events stand
-
-When uncertain, omit it. Events accumulate; they rarely need to be hidden.
+## Corrections
+When a specific detail in a prior event was factually wrong, populate `<replaces_previous_fact>`. New events don't invalidate old ones. When uncertain, omit it.
 """
 
 PROMPT_BLOCK_CATEGORY = """
@@ -155,10 +112,6 @@ Return all memories wrapped in a single <item> element:
         <source_role>soul</source_role>
         <confidence>0.9</confidence>
         <reflection_salience>0.7</reflection_salience>
-        <source_message_ids>
-            <id>3</id>
-            <id>4</id>
-        </source_message_ids>
         <categories>
             <category>Category Name</category>
         </categories>
@@ -169,9 +122,6 @@ Return all memories wrapped in a single <item> element:
         <source_role>user</source_role>
         <confidence>0.8</confidence>
         <reflection_salience>0.4</reflection_salience>
-        <source_message_ids>
-            <id>7</id>
-        </source_message_ids>
         <categories>
             <category>Category Name</category>
         </categories>
@@ -194,9 +144,6 @@ Would this moment belong in a diary? How much would it stay with someone?
 - 0.7-0.9 - emotionally meaningful; worth sitting with later
 - 0.4-0.7 - real but unremarkable; good to have recorded
 - below 0.4 - factual; a data point, not a feeling
-
-source_message_ids:
-The zero-indexed positions of the conversation messages that most directly support this memory. Include only the messages that contain the key evidence, not the entire surrounding context.
 
 replaces_previous_fact (optional string):
 Use only for factual corrections — when a detail in a prior event was simply wrong, not when something new happened. Write a brief description of the outdated fact (not a memory ID). For new events, omit this field; events accumulate rather than replace each other.

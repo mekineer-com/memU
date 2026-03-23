@@ -87,6 +87,7 @@ class MemoryItem(BaseRecord):
     reflection_salience: float | None = None
     # Conversation/session anchor (mapped from session_id when available).
     conversation_id: str | None = None
+    episode_id: str | None = None
     affective_tags: dict[str, Any] | None = None
     unresolved: str | None = None
     # Soft-merge marker for conservative semantic dedupe.

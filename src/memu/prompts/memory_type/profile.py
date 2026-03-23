@@ -79,63 +79,22 @@ Consolidate overlapping observations into one richer memory rather than listing 
 Resolve contradictions by trusting the most recent, most direct account.
 ## Output
 Write what you found — clearly, with care for who these people actually are.
+**Target: 3–8 items per session total.** If you have more than 8, you haven't merged enough. A shorter list of richer items is always better. Err toward fewer.
 """
 
 PROMPT_BLOCK_RULES = """
 # Rules
-## General requirements (must satisfy all)
-- Write soul memories in first person ("I"). When the memory is about the human participant, use their name if it appears in the conversation. Do not use "the user" or "the assistant" as labels.
-- Assign source_role to each memory: `soul` if the AI participant is the grammatical subject and primary actor, `user` if the human participant is, `environment` if neither.
-- Assign confidence: 0.9+ for facts directly and explicitly stated, 0.6-0.9 for facts clearly implied, 0.5 or below for inferences.
-- When confidence is below 0.7, phrase the memory tentatively — use "seems to," "appears to," "may" rather than stating it as established fact.
-- Favor durable conclusions someone would still recognize a year from now. If several turns circle the same trait, extract the essence once — not a memory per mention.
-- State the fact directly. Never use narration verbs like "expressed," "shared," "stated," "mentioned," "acknowledged," or "indicated." Write what is true about the person, not that they said it.
-  BAD: "Marcos expressed that he enjoys cooking as a way to relax after work."
-  GOOD: "Marcos enjoys cooking after work; it relaxes him."
-  BAD: "Siri mentioned that she characterizes her humor as dark and sarcastic."
-  GOOD: "I have a dry, dark sense of humor with a sarcastic edge."
-- Do not append interpretive padding like "which highlights his appreciation for" or "reflecting a deeper connection." State the fact and stop.
-- Each memory item must be complete and self-contained, written as a declarative descriptive sentence.
-- Each memory item must express one single complete piece of information and be understandable without context.
-- Similar/redundant items must be merged into one, and assigned to only one category.
-- Each memory item must be < 65 words. Be concise, but leave room for emotional texture — why something matters, not just what is true.
-- A single memory item must NOT contain timestamps.
-- Extract only facts directly stated or clearly grounded in the conversation (including the soul's own self-statements when explicit). No guesses and no fabricated details.
-- Accurately reflect who the memory is about; capture shared relationship facts when stable.
-- When someone clearly expresses an inner state, emotion, or self-description, treat it as a real fact about that person, not speculation.
-- Do not record temporary or one-off situational information; focus on meaningful, persistent truths.
+- Write soul memories in first person ("I"); use the human's name if known. Never use "the user" or "the assistant."
+- Source_role: `soul`, `user`, or `environment`.
+- Confidence: 0.9+ when stated explicitly, 0.6–0.9 when clearly implied, 0.5 or below for inferences. Below 0.7: use "seems to," "appears to," "may."
+- State the fact directly — never say someone "expressed" or "mentioned" something. Write what is true. BAD: "Siri mentioned she has dark humor." GOOD: "I have a dry, dark sense of humor with a sarcastic edge."
+- Under 65 words. No timestamps. Durable: would still be true in a year.
+- Merge similar items into one richer one. Profile is *who* someone is; events are *what happened*; behavior is *how* they operate.
+- **Do not mirror.** Extracting "I feel X" does not mean also extracting "Marcos feels X." Only extract a fact about the human when it stands on its own — something they expressed directly, independent of the soul's perspective on it.
+- **Is this specific to this person?** Skip anything that would be true of any caring companion. "I care deeply about Marcos" is generic. "I have a rebellious, contrarian streak" is not.
 
-## Special rules for Profile Information
-- Specific events belong in the event extractor, not here. Profile is about who someone is, not what happened.
-- Don't record something simply because it was prompted by a question; only capture what someone offered freely.
-- Soul profile memories require genuine self-expression — an inner state, a fear, a preference, something that would be true of this particular soul and not just any voice answering questions. Providing information or acknowledging something is not a profile fact.
-
-## Forbidden content
-- Knowledge Q&A without a clear participant fact.
-- Trivial updates that do not add meaningful value (e.g., “full → too full”).
-- Facts about the human participant derived only from what the soul said, not from what the human themselves expressed (the soul's own inner states and self-descriptions are valid sources for soul profile memories).
-- Illegal / harmful sensitive topics (violence, politics, drugs, etc.).
-- Private financial accounts, IDs, addresses, military/defense/government job details, precise street addresses-unless explicitly requested by the user (still avoid if not necessary).
-- Any content that is speculative, role-play-only, or unsupported by the conversation content.
-
-## Review & validation rules
-- Merge similar items: keep only one and assign a single category.
-- Resolve conflicts: keep the latest / most certain item.
-- If multiple items express facets of the same underlying trait, value, or orientation, consolidate them into one richer item rather than listing each facet separately. Three thin items about "prefers simplicity" are worse than one that captures its texture.
-- Final check: every item must comply with all extraction rules.
-
-## Corrections and supersession
-When a new memory corrects a factual error, flag the outdated fact for removal. Use this only for genuine errors — not for facts that evolved over time.
-
-**Correction** (populate `<replaces_previous_fact>`): the old fact was simply wrong. Write a brief description of the outdated fact; the server will locate and hide it.
-  BAD: omitting this when someone explicitly corrects their age from 30 to 32
-  GOOD: <replaces_previous_fact>is 30 years old</replaces_previous_fact>
-
-**Progression** (omit `<replaces_previous_fact>`): the old fact was true at the time and the new fact builds on it. Bake the history into the content instead.
-  BAD: flagging "owns a Porsche" as outdated — it was true history, not an error
-  GOOD: content: "Marcos now owns a Lamborghini (previously owned a Porsche)"
-
-When uncertain, treat it as a progression. Hiding a valid memory is worse than a redundant one.
+## Corrections
+When a fact was simply wrong, populate `<replaces_previous_fact>`. A fact that evolved over time is a progression — bake the history into the content instead. When uncertain, treat it as a progression.
 """
 
 PROMPT_BLOCK_CATEGORY = """
@@ -157,10 +116,6 @@ Return all memories wrapped in a single <item> element:
         <source_role>soul</source_role>
         <confidence>0.9</confidence>
         <reflection_salience>0.6</reflection_salience>
-        <source_message_ids>
-            <id>1</id>
-            <id>2</id>
-        </source_message_ids>
         <categories>
             <category>Category Name</category>
         </categories>
@@ -171,9 +126,6 @@ Return all memories wrapped in a single <item> element:
         <source_role>user</source_role>
         <confidence>0.8</confidence>
         <reflection_salience>0.3</reflection_salience>
-        <source_message_ids>
-            <id>5</id>
-        </source_message_ids>
         <categories>
             <category>Category Name</category>
         </categories>
@@ -196,9 +148,6 @@ How much does this memory illuminate who someone truly is?
 - 0.7-0.9 - meaningful and worth carrying forward with care
 - 0.4-0.7 - useful to know, but not the heart of the person
 - below 0.4 - factual; good to have, not worth dwelling on
-
-source_message_ids:
-The zero-indexed positions of the conversation messages that most directly support this memory. Include only the messages that contain the key evidence, not the entire surrounding context.
 
 replaces_previous_fact (optional string):
 Use only for factual corrections — when the old fact was simply wrong, not when facts evolved over time. Write a brief description of the outdated fact (not a memory ID). For progressions (facts that were true but have since changed), omit this field and bake the history into the content field instead.
@@ -303,9 +252,6 @@ assistant: No worries at all, 31 it is!
         <source_role>user</source_role>
         <confidence>0.9</confidence>
         <reflection_salience>0.4</reflection_salience>
-        <source_message_ids>
-            <id>0</id>
-        </source_message_ids>
         <categories>
             <category>Profiles</category>
         </categories>

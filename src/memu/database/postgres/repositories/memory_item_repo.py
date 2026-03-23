@@ -153,6 +153,7 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
         happened_at: datetime | None = None,
         reflection_salience: float | None = None,
         conversation_id: str | None = None,
+        episode_id: str | None = None,
         affective_tags: dict[str, Any] | None = None,
         unresolved: str | None = None,
     ) -> MemoryItem:
@@ -201,6 +202,7 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
             happened_at=happened_at,
             reflection_salience=reflection_salience,
             conversation_id=conv_id,
+            episode_id=episode_id,
             affective_tags=affective_tags,
             unresolved=unresolved,
             extra=extra if extra else {},

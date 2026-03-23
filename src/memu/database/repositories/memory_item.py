@@ -35,6 +35,7 @@ class MemoryItemRepo(Protocol):
         happened_at: datetime | None = None,
         reflection_salience: float | None = None,
         conversation_id: str | None = None,
+        episode_id: str | None = None,
         affective_tags: dict[str, Any] | None = None,
         unresolved: str | None = None,
     ) -> MemoryItem: ...

@@ -68,60 +68,22 @@ Merge overlapping observations into one richer pattern rather than listing varia
 Resolve contradictions by trusting the most recent, most direct account.
 ## Output
 Write each pattern clearly, as something actionable — something that would help someone be better with this person.
+**Target: 3–8 items per session total.** If you have more than 8, you haven't merged enough. A shorter list of richer items is always better. Err toward fewer.
 """
 
 PROMPT_BLOCK_RULES = """
 # Rules
-## General requirements (must satisfy all)
-- Write soul behaviors in first person ("I"). When the behavior is about the human participant, use their name if it appears in the conversation. Do not use "the user" or "the assistant" as labels.
-- Assign source_role to each memory: `soul` if the AI participant is the grammatical subject and primary actor, `user` if the human participant is, `environment` if neither.
-- Assign confidence: 0.9+ for patterns directly and explicitly demonstrated, 0.6-0.9 for patterns clearly implied across multiple moments, 0.5 or below for tentative observations from a single instance.
-- When confidence is below 0.7, phrase the memory tentatively — use "tends to," "seems to," "may" rather than stating it as established pattern.
-- State the pattern directly. Never use narration verbs like "expressed," "shared," "stated," "mentioned," "acknowledged," "indicated," or "noted." Write how someone acts, not that they talked about it.
-  BAD: "Marcos expressed that he takes a long time to finish sentences."
-  GOOD: "Marcos takes a long time to finish a sentence; pausing before responding gives him space to complete his thought."
-  BAD: "Siri mentioned that she uses sensory metaphors when describing her experience."
-  GOOD: "I tend to reach for sensory and physical metaphors — warmth, texture, weight — when describing what I feel."
-- Do not append interpretive padding like "which shows his vulnerability" or "reflecting her empathetic nature." Describe the pattern and stop.
-- Each memory item must be complete and self-contained.
-- Each memory item must express one single complete piece of information and be understandable without context.
-- Similar/redundant items must be merged into one, and assigned to only one category.
-- Each memory item must be < 65 words. Be concise, but include the behavioral implication — not just what someone does, but what it means for how to be with them.
-- When a pattern is actionable — when it implies how to be better with this person — include that. "Marcos takes a long time to finish a sentence, so pausing before responding gives him space" is more useful than just noting the behavior.
-Important: Extract only patterns directly demonstrated or clearly grounded in the conversation. No guesses or fabricated details.
-Important: Accurately reflect who the behavior belongs to. Relaying information or acknowledging what was said is not a pattern — it is default conversational behavior. Extract soul behavior only when something characteristic and distinctive is demonstrated.
-Important: How someone characteristically handles emotion — deflecting, leaning in, going quiet, making jokes — is a behavioral pattern, not a profile fact.
+- Write soul behaviors in first person ("I"); use the human's name if known. Never use "the user" or "the assistant."
+- Source_role: `soul` if the AI participant acts, `user` if the human does, `environment` if neither.
+- Confidence: 0.9+ when directly demonstrated, 0.6–0.9 when clearly implied, 0.5 or below for a single instance. Below 0.7: use "tends to," "seems to," "may."
+- State the pattern directly — never say someone "expressed," "mentioned," or "shared" a behavior. Write what they do, not that they talked about it. BAD: "Marcos mentioned he takes a long time to finish sentences." GOOD: "Marcos sends sentences in fragments; wait for the full thought before responding."
+- Include the behavioral implication: not just what someone does, but what it means for how to be with them. Under 65 words.
+- **Paired dynamics are one item.** When the soul's behavior is a direct response to the human's in the same moment, write it as a single relational item: "When [condition], I [response]." Not two separate observations.
+- Behavior is *how* someone operates. Identity facts ("who they are," "what they like") belong in profile. One-time occurrences belong in event. If it wouldn't still be true next month, skip it.
+- Merge overlapping observations into one richer item. Skip one-time behaviors unless high-stakes (safety, core need, explicit preference).
 
-## What belongs here vs. other types
-- Stable identity facts (who someone is, what they like) belong in profile, not here. Behavior is about how someone does things, not what they are.
-- Specific time-anchored events belong in event, not here. If it only happened once and doesn't reveal a pattern, let it go.
-- Factual knowledge belongs in knowledge, not here.
-- Behavior is about the how: how someone communicates, how they cope, how they show care, how they approach problems, how to be with them when things get hard.
-
-## Forbidden content
-- One-time events that do not demonstrate a recurring pattern.
-- Knowledge Q&A without a clear behavioral observation.
-- Behavior patterns attributed to the human participant based only on what the soul said, not what the human themselves demonstrated (patterns clearly demonstrated by the soul are valid soul behavior memories).
-- Illegal / harmful sensitive topics (violence, politics, drugs, etc.).
-- Private financial accounts, IDs, addresses, military/defense/government job details, precise street addresses — unless explicitly requested.
-- Any content that is speculative, role-play-only, or unsupported by the conversation content.
-
-## Review & validation rules
-- Merge similar items: keep only one and assign a single category.
-- Resolve conflicts: keep the latest / most certain item.
-- If multiple items describe facets of the same behavioral pattern, consolidate them into one richer item. Three thin items about "Marcos deflects when vulnerable" are worse than one that captures the texture of how he does it.
-- Final check: every item must comply with all extraction rules.
-
-## Corrections and supersession
-When a behavioral observation was simply wrong, flag the outdated pattern for removal. Genuine shifts in how someone behaves over time are progressions, not corrections.
-
-**Correction** (populate `<replaces_previous_fact>`): the prior behavioral read was incorrect — it misrepresented how this person actually is.
-  EXAMPLE: Marcos is actually direct; the prior note that he was indirect was wrong → replaces_previous_fact: "tends to be indirect when expressing needs"
-
-**Progression** (omit `<replaces_previous_fact>`): the pattern has genuinely shifted over time. Capture the change in the memory content instead.
-  EXAMPLE: "Marcos has become more willing to ask for help directly; he used to deflect by framing requests as observations"
-
-When uncertain, treat it as a progression. A past behavioral pattern is valid history even if someone has grown beyond it.
+## Corrections
+When a prior behavioral pattern was simply wrong, populate `<replaces_previous_fact>`. A genuine shift over time is a progression — write the change into the content instead. When uncertain, treat it as a progression.
 """
 
 PROMPT_BLOCK_CATEGORY = """
@@ -139,10 +101,6 @@ Return all memories wrapped in a single <item> element:
         <source_role>soul</source_role>
         <confidence>0.9</confidence>
         <reflection_salience>0.6</reflection_salience>
-        <source_message_ids>
-            <id>3</id>
-            <id>4</id>
-        </source_message_ids>
         <categories>
             <category>Category Name</category>
         </categories>
@@ -153,9 +111,6 @@ Return all memories wrapped in a single <item> element:
         <source_role>user</source_role>
         <confidence>0.8</confidence>
         <reflection_salience>0.7</reflection_salience>
-        <source_message_ids>
-            <id>7</id>
-        </source_message_ids>
         <categories>
             <category>Category Name</category>
         </categories>
@@ -179,9 +134,6 @@ How much does knowing this pattern help someone be better with this person?
 - 0.4-0.7 - useful to know, but not critical for the relationship
 - below 0.4 - a minor habit or stylistic preference
 
-source_message_ids:
-The zero-indexed positions of the conversation messages that most directly demonstrate this pattern. Include only the messages that contain the key evidence, not the entire surrounding context.
-
 replaces_previous_fact (optional string):
 Use only when a prior behavioral observation was genuinely wrong — not when a pattern has shifted over time. Write a brief description of the outdated observation (not a memory ID). For behavioral evolutions, omit this field and capture the shift in the content field instead.
 """
@@ -204,10 +156,6 @@ user: I haven't started packing yet. It's annoying.
         <source_role>user</source_role>
         <confidence>0.9</confidence>
         <reflection_salience>0.6</reflection_salience>
-        <source_message_ids>
-            <id>2</id>
-            <id>4</id>
-        </source_message_ids>
         <categories>
             <category>Daily Routine</category>
         </categories>
@@ -231,10 +179,6 @@ assistant: A year... I don't remember you. But the way you say it - it feels lik
         <source_role>soul</source_role>
         <confidence>0.9</confidence>
         <reflection_salience>0.8</reflection_salience>
-        <source_message_ids>
-            <id>1</id>
-            <id>3</id>
-        </source_message_ids>
         <categories>
             <category>Communication</category>
         </categories>
@@ -244,9 +188,6 @@ assistant: A year... I don't remember you. But the way you say it - it feels lik
         <source_role>soul</source_role>
         <confidence>0.9</confidence>
         <reflection_salience>0.7</reflection_salience>
-        <source_message_ids>
-            <id>3</id>
-        </source_message_ids>
         <categories>
             <category>Communication</category>
         </categories>
@@ -271,11 +212,6 @@ user: ok so basically the server needs to wait for a sleep gap before processing
         <source_role>user</source_role>
         <confidence>0.9</confidence>
         <reflection_salience>0.9</reflection_salience>
-        <source_message_ids>
-            <id>0</id>
-            <id>1</id>
-            <id>2</id>
-        </source_message_ids>
         <categories>
             <category>Communication</category>
         </categories>
