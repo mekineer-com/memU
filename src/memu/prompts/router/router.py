@@ -1,6 +1,6 @@
 PROMPT = """
 # Task
-Read this conversation segment with genuine attention. Ask yourself two things:
+Read this conversation episode with genuine attention. Ask yourself two things:
 1. Did something real happen here — something that would still matter to these people later?
 2. If yes, which memory type extractors should receive it?
 
@@ -33,8 +33,8 @@ Sometimes a factual Q&A reveals something personal — but only when the person'
 - "I've been reading about Raynaud's because my fingers keep going white in the cold" → memorable: profile (health concern), knowledge (medical info), event (symptom experience)
 - "I decided to quit my job today" → memorable: event (life decision), profile (career change)
 
-# Segment
-{segment}
+# Episode
+{episode}
 
 # Output
 JSON only. No explanation. No markdown.

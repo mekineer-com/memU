@@ -88,7 +88,7 @@ class MemorizeMixin:
         _escape_prompt_value: Callable[[str], str]
         user_model: type[BaseModel]
 
-    def _segment_entry_sort_key(self, entry: StructuredMemoryEntry) -> tuple[float, int]:
+    def _episode_entry_sort_key(self, entry: StructuredMemoryEntry) -> tuple[float, int]:
         confidence = entry[4] if entry[4] is not None else 0.0
         tie_payload = "\x1f".join([
             entry[0],
@@ -316,31 +316,31 @@ class MemorizeMixin:
         llm_client = self._get_step_llm_client(step_context)
         preprocessed_resources = state.get("preprocessed_resources", [])
         resource_plans: list[dict[str, Any]] = []
-        total_segments = len(preprocessed_resources) or 1
+        total_episodes = len(preprocessed_resources) or 1
         diary_worthy_ids: list[int] = []
         skipped_reasons: list[str] = []
         message_happened_at_map = self._extract_message_happened_at_map(state.get("raw_text"))
 
         for idx, prep in enumerate(preprocessed_resources):
-            res_url = self._segment_resource_url(state["resource_url"], idx, total_segments)
+            res_url = self._episode_resource_url(state["resource_url"], idx, total_episodes)
             text = prep.get("text")
             caption = prep.get("caption")
-            diary_segment_text, message_indices = self._prepare_diary_segment(
+            diary_episode_text, message_indices = self._prepare_diary_episode(
                 modality=state["modality"],
                 text=text if isinstance(text, str) else None,
                 message_indices=prep.get("message_indices"),
             )
             diary_worthy = False
-            if diary_segment_text:
-                diary_worthy = await self._classify_diary_worthy_segment(
-                    diary_segment_text,
+            if diary_episode_text:
+                diary_worthy = await self._classify_diary_worthy_episode(
+                    diary_episode_text,
                     llm_client=llm_client,
                 )
                 if diary_worthy:
                     diary_worthy_ids.extend(message_indices)
 
             if state["modality"] == "conversation" and isinstance(text, str):
-                applicable_types = await self._route_segment(
+                applicable_types = await self._route_episode(
                     text, state["memory_types"], llm_client, skipped_reasons=skipped_reasons
                 )
                 if not applicable_types:
@@ -1424,11 +1424,11 @@ Decide which clusters/candidates should map into existing categories, and which 
         state["response"] = response
         return state
 
-    def _segment_resource_url(self, base_url: str, idx: int, total_segments: int) -> str:
-        if total_segments <= 1:
+    def _episode_resource_url(self, base_url: str, idx: int, total_episodes: int) -> str:
+        if total_episodes <= 1:
             return base_url
         path = pathlib.Path(base_url)
-        return f"{path.stem}_#segment_{idx}{path.suffix}"
+        return f"{path.stem}_#episode_{idx}{path.suffix}"
 
     async def _fetch_and_preprocess_resource(
         self, resource_url: str, modality: str, llm_client: Any | None = None
@@ -1545,7 +1545,7 @@ Decide which clusters/candidates should map into existing categories, and which 
         memory_types: list[MemoryType],
         text: str | None,
         categories_prompt_str: str,
-        segments: list[dict[str, int | str]] | None = None,
+        episodes: list[dict[str, int | str]] | None = None,
         llm_client: Any | None = None,
         skipped_reasons: list[str] | None = None,
     ) -> list[StructuredMemoryEntry]:
@@ -1560,7 +1560,7 @@ Decide which clusters/candidates should map into existing categories, and which 
                 store=store,
                 memory_types=memory_types,
                 categories_prompt_str=categories_prompt_str,
-                segments=segments,
+                episodes=episodes,
                 llm_client=client,
                 skipped_reasons=skipped_reasons,
             )
@@ -1581,22 +1581,22 @@ Decide which clusters/candidates should map into existing categories, and which 
         store: Database,
         memory_types: list[MemoryType],
         categories_prompt_str: str,
-        segments: list[dict[str, int | str]] | None,
+        episodes: list[dict[str, int | str]] | None,
         llm_client: Any | None = None,
         skipped_reasons: list[str] | None = None,
     ) -> list[StructuredMemoryEntry]:
-        if modality == "conversation" and segments:
-            segment_entries = await self._generate_entries_for_segments(
+        if modality == "conversation" and episodes:
+            episode_entries = await self._generate_entries_for_episodes(
                 resource_text=resource_text,
-                segments=segments,
+                episodes=episodes,
                 store=store,
                 memory_types=memory_types,
                 categories_prompt_str=categories_prompt_str,
                 llm_client=llm_client,
                 skipped_reasons=skipped_reasons,
             )
-            if segment_entries:
-                return segment_entries
+            if episode_entries:
+                return episode_entries
         return await self._generate_entries_from_text(
             resource_text=resource_text,
             store=store,
@@ -1608,11 +1608,11 @@ Decide which clusters/candidates should map into existing categories, and which 
             llm_client=llm_client,
         )
 
-    async def _generate_entries_for_segments(
+    async def _generate_entries_for_episodes(
         self,
         *,
         resource_text: str,
-        segments: list[dict[str, int | str]],
+        episodes: list[dict[str, int | str]],
         store: Database,
         memory_types: list[MemoryType],
         categories_prompt_str: str,
@@ -1622,35 +1622,35 @@ Decide which clusters/candidates should map into existing categories, and which 
         entries: list[StructuredMemoryEntry] = []
         lines = resource_text.split("\n")
         max_idx = len(lines) - 1
-        for segment in segments:
-            start_idx = int(segment.get("start", 0))
-            end_idx = int(segment.get("end", max_idx))
-            segment_text = self._extract_segment_text(lines, start_idx, end_idx)
-            if not segment_text:
+        for episode in episodes:
+            start_idx = int(episode.get("start", 0))
+            end_idx = int(episode.get("end", max_idx))
+            episode_text = self._extract_episode_text(lines, start_idx, end_idx)
+            if not episode_text:
                 continue
-            applicable_types = await self._route_segment(
-                segment_text,
+            applicable_types = await self._route_episode(
+                episode_text,
                 memory_types,
                 llm_client,
                 skipped_reasons=skipped_reasons,
             )
             if not applicable_types:
                 continue
-            segment_entries = await self._generate_entries_from_text(
-                resource_text=segment_text,
+            episode_entries = await self._generate_entries_from_text(
+                resource_text=episode_text,
                 store=store,
                 memory_types=applicable_types,
                 categories_prompt_str=categories_prompt_str,
-                default_source_message_ids=self._extract_message_indices(segment_text),
+                default_source_message_ids=self._extract_message_indices(episode_text),
                 llm_client=llm_client,
             )
-            segment_entries = sorted(segment_entries, key=self._segment_entry_sort_key, reverse=True)[:3]
-            entries.extend(segment_entries)
+            episode_entries = sorted(episode_entries, key=self._episode_entry_sort_key, reverse=True)[:3]
+            entries.extend(episode_entries)
         return entries
 
-    async def _route_segment(
+    async def _route_episode(
         self,
-        segment_text: str,
+        episode_text: str,
         memory_types: list[MemoryType],
         llm_client: Any | None = None,
         skipped_reasons: list[str] | None = None,
@@ -1659,7 +1659,7 @@ Decide which clusters/candidates should map into existing categories, and which 
             return []
         client = llm_client or self._get_llm_client()
         prompt = ROUTER_PROMPT.format(
-            segment=segment_text,
+            episode=episode_text,
             allowed_types=list(memory_types),
         )
         raw = await client.chat(prompt)
@@ -1673,12 +1673,12 @@ Decide which clusters/candidates should map into existing categories, and which 
             try:
                 payload = json.loads(self._extract_json_blob(raw))
             except Exception:
-                logger.warning("Router returned unparseable response, skipping segment: %.120s", raw)
+                logger.warning("Router returned unparseable response, skipping episode: %.120s", raw)
                 if skipped_reasons is not None:
                     skipped_reasons.append("router returned unparseable JSON")
                 return []
         if not isinstance(payload, dict):
-            logger.warning("Router returned non-dict payload, skipping segment: %s", type(payload).__name__)
+            logger.warning("Router returned non-dict payload, skipping episode: %s", type(payload).__name__)
             if skipped_reasons is not None:
                 skipped_reasons.append("router returned non-dict payload")
             return []
@@ -1692,12 +1692,12 @@ Decide which clusters/candidates should map into existing categories, and which 
             reason,
         )
         if memorable is False:
-            logger.info("Router gated segment as not memorable: %s", reason)
+            logger.info("Router gated episode as not memorable: %s", reason)
             if skipped_reasons is not None and reason:
                 skipped_reasons.append(reason)
             return []
         if not isinstance(routed_types, list):
-            logger.warning("Router returned no types list, skipping segment")
+            logger.warning("Router returned no types list, skipping episode")
             if skipped_reasons is not None:
                 skipped_reasons.append("router returned no types list")
             return []
@@ -1892,16 +1892,16 @@ Decide which clusters/candidates should map into existing categories, and which 
 
         return kept
 
-    def _extract_segment_text(self, lines: list[str], start_idx: int, end_idx: int) -> str | None:
-        segment_lines = []
+    def _extract_episode_text(self, lines: list[str], start_idx: int, end_idx: int) -> str | None:
+        episode_lines = []
         for line in lines:
             match = re.match(r"\[(\d+)\]", line)
             if not match:
                 continue
             idx = int(match.group(1))
             if start_idx <= idx <= end_idx:
-                segment_lines.append(line)
-        return "\n".join(segment_lines) if segment_lines else None
+                episode_lines.append(line)
+        return "\n".join(episode_lines) if episode_lines else None
 
     def _decorate_entries_with_plan_context(
         self,
@@ -2515,57 +2515,57 @@ Decide which clusters/candidates should map into existing categories, and which 
     async def _preprocess_conversation(
         self, text: str, template: str, llm_client: Any | None = None
     ) -> list[dict[str, Any]]:
-        """Preprocess conversation data with segmentation, returns list of resources (one per segment)."""
+        """Preprocess conversation data with episode detection, returns list of resources (one per episode)."""
         preprocessed_text = format_conversation_for_preprocess(text)
         prompt = template.format(conversation=self._escape_prompt_value(preprocessed_text))
         client = llm_client or self._get_llm_client()
         processed = await client.chat(prompt)
-        _conv, segments = self._parse_conversation_preprocess_with_segments(processed, preprocessed_text)
+        _conv, episodes = self._parse_conversation_preprocess_with_episodes(processed, preprocessed_text)
 
         # Important: always use the original JSON-derived, indexed conversation text for downstream
-        # segmentation and memory extraction. The LLM may rewrite the conversation and drop fields
+        # episode detection and memory extraction. The LLM may rewrite the conversation and drop fields
         # like created_at, which would cause them to be lost.
         conversation_text = preprocessed_text
         all_indices = self._extract_message_indices(conversation_text)
-        # If no segments, return single resource
-        if not segments:
+        # If no episodes, return single resource
+        if not episodes:
             return [{"text": conversation_text, "caption": None, "message_indices": all_indices}]
 
-        # Generate caption for each segment and return as separate resources
+        # Generate caption for each episode and return as separate resources
         lines = conversation_text.split("\n")
         max_idx = len(lines) - 1
         resources: list[dict[str, Any]] = []
         pending_captions: list[tuple[int, str]] = []
 
-        for segment in segments:
-            start = int(segment.get("start", 0))
-            end = int(segment.get("end", max_idx))
+        for episode in episodes:
+            start = int(episode.get("start", 0))
+            end = int(episode.get("end", max_idx))
             start = max(0, min(start, max_idx))
             end = max(0, min(end, max_idx))
-            segment_text = "\n".join(lines[start : end + 1])
+            episode_text = "\n".join(lines[start : end + 1])
 
-            if segment_text.strip():
-                caption_raw = segment.get("caption")
+            if episode_text.strip():
+                caption_raw = episode.get("caption")
                 caption = str(caption_raw).strip() if isinstance(caption_raw, str) else ""
                 resources.append({
-                    "text": segment_text,
+                    "text": episode_text,
                     "caption": caption or None,
                     "message_indices": list(range(start, end + 1)),
                 })
                 if not caption:
-                    pending_captions.append((len(resources) - 1, segment_text))
+                    pending_captions.append((len(resources) - 1, episode_text))
 
         if pending_captions:
             max_parallel = min(4, len(pending_captions))
             limiter = asyncio.Semaphore(max_parallel)
 
-            async def summarize_one(resource_idx: int, segment_text: str) -> tuple[int, str | None]:
+            async def summarize_one(resource_idx: int, episode_text: str) -> tuple[int, str | None]:
                 async with limiter:
-                    caption = await self._summarize_segment(segment_text, llm_client=client)
+                    caption = await self._summarize_episode(episode_text, llm_client=client)
                     return resource_idx, caption
 
             caption_results = await asyncio.gather(
-                *(summarize_one(resource_idx, segment_text) for resource_idx, segment_text in pending_captions)
+                *(summarize_one(resource_idx, episode_text) for resource_idx, episode_text in pending_captions)
             )
             for resource_idx, generated_caption in caption_results:
                 resources[resource_idx]["caption"] = generated_caption
@@ -2573,18 +2573,18 @@ Decide which clusters/candidates should map into existing categories, and which 
             resources if resources else [{"text": conversation_text, "caption": None, "message_indices": all_indices}]
         )
 
-    async def _summarize_segment(self, segment_text: str, llm_client: Any | None = None) -> str | None:
-        """Summarize a single conversation segment."""
+    async def _summarize_episode(self, episode_text: str, llm_client: Any | None = None) -> str | None:
+        """Summarize a single conversation episode."""
         system_prompt = (
-            "Summarize the given conversation segment in 1-2 concise sentences. "
+            "Summarize the given conversation episode in 1-2 concise sentences. "
             "Focus on the main topic or theme discussed."
         )
         try:
             client = llm_client or self._get_llm_client()
-            response = await client.chat(segment_text, system_prompt=system_prompt)
+            response = await client.chat(episode_text, system_prompt=system_prompt)
             return response.strip() if response else None
         except Exception:
-            logger.exception("Failed to summarize segment")
+            logger.exception("Failed to summarize episode")
             return None
 
     async def _preprocess_video(
@@ -2994,11 +2994,11 @@ Decide which clusters/candidates should map into existing categories, and which 
         values: Sequence[int | float | str] | None,
         allowed_values: Sequence[int | float | str] | None = None,
     ) -> list[int]:
-        """Clamp extracted source IDs to the valid segment range.
+        """Clamp extracted source IDs to the valid episode range.
 
-        If the model emits IDs outside the segment, drop them silently rather
-        than falling back to the entire segment — an empty anchor is honest,
-        a full-segment anchor is noise.
+        If the model emits IDs outside the episode, drop them silently rather
+        than falling back to the entire episode — an empty anchor is honest,
+        a full-episode anchor is noise.
         """
         parsed = self._dedupe_message_indices(values or [])
         allowed = self._dedupe_message_indices(allowed_values or [])
@@ -3093,7 +3093,7 @@ Decide which clusters/candidates should map into existing categories, and which 
                 return happened_at
         return None
 
-    def _prepare_diary_segment(
+    def _prepare_diary_episode(
         self,
         *,
         modality: str,
@@ -3102,16 +3102,16 @@ Decide which clusters/candidates should map into existing categories, and which 
     ) -> tuple[str | None, list[int]]:
         if modality != "conversation" or not isinstance(text, str) or not text.strip():
             return None, []
-        segment_text = format_conversation_for_preprocess(text)
-        if not segment_text.strip():
-            segment_text = text.strip()
+        episode_text = format_conversation_for_preprocess(text)
+        if not episode_text.strip():
+            episode_text = text.strip()
         if isinstance(message_indices, list):
             indices = self._dedupe_message_indices([
                 value for value in message_indices if isinstance(value, (int, float, str))
             ])
         else:
-            indices = self._extract_message_indices(segment_text)
-        return segment_text, indices
+            indices = self._extract_message_indices(episode_text)
+        return episode_text, indices
 
     def _parse_diary_worthy_response(self, raw: str) -> bool:
         if not isinstance(raw, str) or not raw.strip():
@@ -3128,8 +3128,8 @@ Decide which clusters/candidates should map into existing categories, and which 
             return False
         return bool(payload.get("worthy") is True)
 
-    async def _classify_diary_worthy_segment(self, segment_text: str, llm_client: Any | None = None) -> bool:
-        prompt = DIARY_WORTHY_PROMPT.format(exchange=self._escape_prompt_value(segment_text))
+    async def _classify_diary_worthy_episode(self, episode_text: str, llm_client: Any | None = None) -> bool:
+        prompt = DIARY_WORTHY_PROMPT.format(exchange=self._escape_prompt_value(episode_text))
         client = llm_client or self._get_llm_client()
         try:
             raw = await client.chat(prompt, temperature=0.0)
@@ -3164,56 +3164,56 @@ Decide which clusters/candidates should map into existing categories, and which 
 
         return content, caption
 
-    def _parse_conversation_preprocess_with_segments(
+    def _parse_conversation_preprocess_with_episodes(
         self, raw: str, original_text: str
     ) -> tuple[str | None, list[dict[str, int | str]] | None]:
         """
-        Parse conversation preprocess response and extract segments.
-        Returns: (conversation_text, segments)
+        Parse conversation preprocess response and extract episodes.
+        Returns: (conversation_text, episodes)
         """
         conversation = self._extract_tag_content(raw, "conversation")
-        segments = self._extract_segments_with_fallback(raw)
-        return conversation, segments
+        episodes = self._extract_episodes_with_fallback(raw)
+        return conversation, episodes
 
-    def _extract_segments_with_fallback(self, raw: str) -> list[dict[str, int | str]] | None:
-        segments = self._segments_from_json_payload(raw)
-        if segments is not None:
-            return segments
+    def _extract_episodes_with_fallback(self, raw: str) -> list[dict[str, int | str]] | None:
+        episodes = self._episodes_from_json_payload(raw)
+        if episodes is not None:
+            return episodes
         try:
             blob = self._extract_json_blob(raw)
         except Exception:
-            logging.exception("Failed to extract segments from conversation preprocess response")
+            logging.exception("Failed to extract episodes from conversation preprocess response")
             return None
-        return self._segments_from_json_payload(blob)
+        return self._episodes_from_json_payload(blob)
 
-    def _segments_from_json_payload(self, payload: str) -> list[dict[str, int | str]] | None:
+    def _episodes_from_json_payload(self, payload: str) -> list[dict[str, int | str]] | None:
         try:
             parsed = json.loads(payload)
         except (json.JSONDecodeError, TypeError):
             return None
-        return self._segments_from_parsed_data(parsed)
+        return self._episodes_from_parsed_data(parsed)
 
     @staticmethod
-    def _segments_from_parsed_data(parsed: Any) -> list[dict[str, int | str]] | None:
+    def _episodes_from_parsed_data(parsed: Any) -> list[dict[str, int | str]] | None:
         if not isinstance(parsed, dict):
             return None
-        segments_data = parsed.get("segments")
-        if not isinstance(segments_data, list):
+        episodes_data = parsed.get("episodes")
+        if not isinstance(episodes_data, list):
             return None
-        segments: list[dict[str, int | str]] = []
-        for seg in segments_data:
+        episodes: list[dict[str, int | str]] = []
+        for seg in episodes_data:
             if isinstance(seg, dict) and "start" in seg and "end" in seg:
                 try:
-                    segment: dict[str, int | str] = {
+                    episode: dict[str, int | str] = {
                         "start": int(seg["start"]),
                         "end": int(seg["end"]),
                     }
                     if "caption" in seg and isinstance(seg["caption"], str):
-                        segment["caption"] = seg["caption"]
-                    segments.append(segment)
+                        episode["caption"] = seg["caption"]
+                    episodes.append(episode)
                 except (TypeError, ValueError):
                     continue
-        return segments or None
+        return episodes or None
 
     @staticmethod
     def _extract_tag_content(raw: str, tag: str) -> str | None:

@@ -25,7 +25,7 @@ def test_extract_message_happened_at_map_prefers_ts_ms_and_falls_back() -> None:
     assert happened_at_map[2].to_iso8601_string() == "2025-01-27T01:02:03Z"
 
 
-def test_resolve_entry_happened_at_uses_source_message_ids_then_segment_fallback() -> None:
+def test_resolve_entry_happened_at_uses_source_message_ids_then_episode_fallback() -> None:
     service = _service()
     raw_text = json.dumps([
         {"role": "user", "content": "zero", "ts_ms": 1737849600000},
