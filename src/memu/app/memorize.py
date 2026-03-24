@@ -129,7 +129,6 @@ class MemorizeMixin:
             return f"I have a faint suspicion that {lowered}"
         return f"I have an inkling that {lowered}"
 
-    _FALLBACK_REFLECTION_SALIENCE = 0.5
 
     async def memorize(
         self,
@@ -1916,7 +1915,7 @@ Decide which clusters/candidates should map into existing categories, and which 
         default_ids = self._dedupe_message_indices(message_indices)
         for entry in entries:
             resolved_ids = self._resolve_source_message_ids(entry.source_message_ids, default_ids)
-            resolved_salience = entry.reflection_salience if entry.reflection_salience is not None else self._FALLBACK_REFLECTION_SALIENCE
+            resolved_salience = entry.reflection_salience
             decorated.append(entry._replace(source_message_ids=resolved_ids, reflection_salience=resolved_salience))
         return decorated
 
