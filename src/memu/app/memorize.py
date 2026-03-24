@@ -3201,15 +3201,15 @@ Decide which clusters/candidates should map into existing categories, and which 
         if not isinstance(episodes_data, list):
             return None
         episodes: list[dict[str, int | str]] = []
-        for seg in episodes_data:
-            if isinstance(seg, dict) and "start" in seg and "end" in seg:
+        for ep in episodes_data:
+            if isinstance(ep, dict) and "start" in ep and "end" in ep:
                 try:
                     episode: dict[str, int | str] = {
-                        "start": int(seg["start"]),
-                        "end": int(seg["end"]),
+                        "start": int(ep["start"]),
+                        "end": int(ep["end"]),
                     }
-                    if "caption" in seg and isinstance(seg["caption"], str):
-                        episode["caption"] = seg["caption"]
+                    if "caption" in ep and isinstance(ep["caption"], str):
+                        episode["caption"] = ep["caption"]
                     episodes.append(episode)
                 except (TypeError, ValueError):
                     continue
