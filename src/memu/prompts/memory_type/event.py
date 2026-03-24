@@ -80,6 +80,7 @@ Merge items that describe the same moment. When two memories say the same thing 
 Resolve contradictions by trusting the most recent and most certain account.
 ## Output
 Write the events as they were — grounded, specific, human.
+**Target: 3–6 items per session total.** If you have more than 6, you haven't merged enough. A shorter list of richer items is always better. Err toward fewer.
 """
 
 PROMPT_BLOCK_RULES = """

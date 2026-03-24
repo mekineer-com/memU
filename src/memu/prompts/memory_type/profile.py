@@ -79,7 +79,7 @@ Consolidate overlapping observations into one richer memory rather than listing 
 Resolve contradictions by trusting the most recent, most direct account.
 ## Output
 Write what you found — clearly, with care for who these people actually are.
-**Target: 3–8 items per session total.** If you have more than 8, you haven't merged enough. A shorter list of richer items is always better. Err toward fewer.
+**Target: 3–6 items per session total.** If you have more than 6, you haven't merged enough. A shorter list of richer items is always better. Err toward fewer.
 """
 
 PROMPT_BLOCK_RULES = """

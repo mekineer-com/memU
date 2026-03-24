@@ -68,6 +68,7 @@ Merge overlapping items into one clearer statement. When the same fact appears i
 Resolve contradictions by trusting the most recent and most certain account.
 ## Output
 Write each piece of knowledge clearly, as a standalone fact someone could reference later.
+**Target: 3–6 items per session total.** If you have more than 6, you haven't merged enough. A shorter list of richer items is always better. Err toward fewer.
 """
 
 PROMPT_BLOCK_RULES = """

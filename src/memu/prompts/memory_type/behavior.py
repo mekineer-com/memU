@@ -68,7 +68,7 @@ Merge overlapping observations into one richer pattern rather than listing varia
 Resolve contradictions by trusting the most recent, most direct account.
 ## Output
 Write each pattern clearly, as something actionable — something that would help someone be better with this person.
-**Target: 3–8 items per session total.** If you have more than 8, you haven't merged enough. A shorter list of richer items is always better. Err toward fewer.
+**Target: 3–6 items per session total.** If you have more than 6, you haven't merged enough. A shorter list of richer items is always better. Err toward fewer.
 """
 
 PROMPT_BLOCK_RULES = """
