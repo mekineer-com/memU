@@ -129,40 +129,7 @@ class MemorizeMixin:
             return f"I have a faint suspicion that {lowered}"
         return f"I have an inkling that {lowered}"
 
-    def _default_reflection_salience(
-        self,
-        *,
-        memory_type: MemoryType,
-        confidence: float | None,
-        diary_worthy: bool,
-    ) -> float:
-        """Heuristic fallback when extraction prompt doesn't emit reflection_salience.
-
-        Calibration rationale:
-        - 0.85 diary-worthy base: these memories cleared the diary gate, so they
-          are likely defining.  0.35 non-diary base: useful but not formative.
-        - Events get +0.05 because they anchor temporal narrative more than
-          profiles do (profiles are identity, events are story).
-        - Confidence adjustments: extraction certainty correlates weakly with
-          personal importance, so small nudges (0.05-0.10) rather than large
-          swings.  Low confidence already means tentative wording, so lower salience
-          keeps them out of the backbone.
-
-        The Plex exporter uses these values for inclusion tiers:
-          backbone >= 0.85, plex-worthy >= 0.7, excluded < 0.7 (auto-scaled).
-        """
-        base = 0.85 if diary_worthy else 0.35
-        if memory_type == "event":
-            base += 0.05
-        if confidence is None:
-            return max(0.0, min(1.0, base))
-        if confidence < 0.35:
-            base -= 0.10
-        elif confidence < 0.6:
-            base -= 0.05
-        elif confidence >= 0.9:
-            base += 0.05
-        return max(0.0, min(1.0, base))
+    _FALLBACK_REFLECTION_SALIENCE = 0.5
 
     async def memorize(
         self,
@@ -395,7 +362,6 @@ class MemorizeMixin:
             structured_entries = self._decorate_entries_with_plan_context(
                 structured_entries,
                 message_indices=message_indices,
-                diary_worthy=diary_worthy,
             )
             plan_message_happened_at_map = {
                 message_idx: message_happened_at_map[message_idx]
@@ -414,7 +380,6 @@ class MemorizeMixin:
                 "caption": caption,
                 "message_indices": message_indices,
                 "message_happened_at_map": plan_message_happened_at_map,
-                "diary_worthy": diary_worthy,
                 "entries": structured_entries,
                 "episode_id": episode_id,
             })
@@ -1944,44 +1909,15 @@ Decide which clusters/candidates should map into existing categories, and which 
         entries: list[StructuredMemoryEntry],
         *,
         message_indices: list[int],
-        diary_worthy: bool,
     ) -> list[StructuredMemoryEntry]:
         if not entries:
             return entries
         decorated: list[StructuredMemoryEntry] = []
         default_ids = self._dedupe_message_indices(message_indices)
-        for (
-            memory_type,
-            content,
-            cats,
-            source_role,
-            confidence,
-            source_message_ids,
-            reflection_salience,
-            replaces_previous_fact,
-        ) in entries:
-            resolved_ids = self._resolve_source_message_ids(source_message_ids, default_ids)
-            resolved_salience = (
-                reflection_salience
-                if reflection_salience is not None
-                else self._default_reflection_salience(
-                    memory_type=memory_type,
-                    confidence=confidence,
-                    diary_worthy=diary_worthy,
-                )
-            )
-            decorated.append(
-                StructuredMemoryEntry(
-                    memory_type,
-                    content,
-                    cats,
-                    source_role,
-                    confidence,
-                    resolved_ids,
-                    resolved_salience,
-                    replaces_previous_fact,
-                )
-            )
+        for entry in entries:
+            resolved_ids = self._resolve_source_message_ids(entry.source_message_ids, default_ids)
+            resolved_salience = entry.reflection_salience if entry.reflection_salience is not None else self._FALLBACK_REFLECTION_SALIENCE
+            decorated.append(entry._replace(source_message_ids=resolved_ids, reflection_salience=resolved_salience))
         return decorated
 
     def _build_no_text_fallback(
