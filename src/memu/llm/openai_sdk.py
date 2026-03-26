@@ -43,6 +43,7 @@ class OpenAISDKClient:
         max_tokens: int | None = None,
         system_prompt: str | None = None,
         temperature: float = 0.2,
+        response_format: dict[str, Any] | None = None,
     ) -> tuple[str, ChatCompletion]:
         """Generic chat completion."""
         messages: list[ChatCompletionMessageParam] = []
@@ -58,6 +59,7 @@ class OpenAISDKClient:
             messages=messages,
             temperature=temperature,
             max_tokens=max_tokens,
+            response_format=response_format,
         )
         content = response.choices[0].message.content
         logger.debug("OpenAI chat response: %s", response)

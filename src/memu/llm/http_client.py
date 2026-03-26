@@ -154,6 +154,7 @@ class HTTPLLMClient:
         max_tokens: int | None = None,
         system_prompt: str | None = None,
         temperature: float = 0.2,
+        response_format: dict[str, Any] | None = None,
     ) -> tuple[str, dict[str, Any]]:
         """Generic chat completion."""
         messages: list[dict[str, Any]] = []
@@ -168,6 +169,8 @@ class HTTPLLMClient:
         }
         if max_tokens is not None:
             payload["max_tokens"] = max_tokens
+        if isinstance(response_format, dict) and response_format:
+            payload["response_format"] = response_format
 
         data = await self._post_with_retry(self.summary_endpoint, payload)
         logger.debug("HTTP LLM chat response: %s", data)

@@ -278,6 +278,7 @@ class LLMClientWrapper:
         max_tokens: int | None = None,
         system_prompt: str | None = None,
         temperature: float = 0.2,
+        response_format: dict[str, Any] | None = None,
     ) -> Any:
         request_view = _build_text_request_view(
             "chat",
@@ -286,6 +287,7 @@ class LLMClientWrapper:
                 "system_prompt_chars": len(system_prompt or ""),
                 "max_tokens": max_tokens,
                 "temperature": temperature,
+                "response_format": response_format,
             },
         )
 
@@ -295,6 +297,7 @@ class LLMClientWrapper:
                 max_tokens=max_tokens,
                 system_prompt=system_prompt,
                 temperature=temperature,
+                response_format=response_format,
             )
 
         return await self._invoke(

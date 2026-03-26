@@ -48,6 +48,7 @@ class LazyLLMClient:
         max_tokens: int | None = None,
         system_prompt: str | None = None,
         temperature: float = 0.2,
+        response_format: dict[str, Any] | None = None,
     ) -> str:
         """
         Generate a summary or response for the input text using the configured LLM backend.
