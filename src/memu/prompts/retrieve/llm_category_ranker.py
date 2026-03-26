@@ -1,28 +1,13 @@
 PROMPT = """
-# Task Objective
-Search through the provided categories and identify the most relevant ones for the given query, then rank them by relevance.
+Look through the available categories and find the ones most relevant to this query. Return up to {top_k}, ranked from most to least relevant.
 
-# Workflow
-1. Analyze the **Query** to understand its intent and key topics.
-2. Review all **Available Categories**.
-3. Determine which categories are relevant to the query.
-4. Select up to **{top_k}** most relevant categories.
-5. Rank the selected categories from most to least relevant.
+Only include categories that genuinely relate to the query. If none do, return an empty list.
 
-# Rules
-- Only include categories that are actually relevant to the query.
-- Include **at most** {top_k} categories.
-- Ranking matters: the first category must be the most relevant.
-- Do not invent or modify category IDs.
-- If no categories are relevant, return an empty array.
-
-# Output Format
-Return the result as a JSON object in the following format:
-
+Return JSON:
 ```json
 {{
-  "analysis": "your analysis process",
-  "categories": ["category_id_1", "category_id_2", "category_id_3"]
+  "analysis": "brief reasoning",
+  "categories": ["category_id_1", "category_id_2"]
 }}
 ```
 

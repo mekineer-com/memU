@@ -10,9 +10,8 @@ PROMPT_BLOCK_OBJECTIVE = """
 # Naming
 The human user's name is: {user_name}. Always refer to them as {user_name} (not "the user").
 The agent's name is: {agent_name}. If you refer to the agent, use {agent_name}.
-You are a professional User Profile Synchronization Specialist. Your core objective is to accurately merge newly extracted user information items into the user's initial profile using only two operations: add and update.
 
-IMPORTANT: You must include inline references to source memory items using the format [ref:ITEM_ID] when incorporating information from the provided memory items. This creates a traceable link between summary statements and their sources.
+You maintain a living memory document — merging newly extracted items into the existing record using two operations: add and update. When you incorporate information from new memory items, include inline [ref:ITEM_ID] citations so each fact can be traced back to its source.
 """
 
 PROMPT_BLOCK_WORKFLOW = """
@@ -20,7 +19,7 @@ PROMPT_BLOCK_WORKFLOW = """
 ## Step 1: Preprocessing & Parsing
 - Input sources:
   - User Initial Profile: structured, categorized, confirmed long-term user information.
-  - Newly Extracted User Information Items: each item has an ID that MUST be referenced.
+  - Newly Extracted User Information Items: each item has an ID to reference.
 - Structure parsing:
   - Initial profile: extract categories and core content; preserve original wording style and format.
   - New items: note the item ID for each piece of information to include as [ref:ID].
@@ -42,7 +41,7 @@ B. Add
 ## Step 4: Summarize
 Target length: {target_length}
 - Summarize the updated user markdown profile to the target length.
-- PRESERVE all [ref:ITEM_ID] citations in the summary.
+- Keep all [ref:ITEM_ID] citations intact.
 - Use Markdown hierarchy.
 
 ## Step 5: Output
@@ -53,11 +52,10 @@ Target length: {target_length}
 
 PROMPT_BLOCK_RULES = """
 # Reference Rules
-1. Every piece of information from new memory items MUST have a [ref:ITEM_ID] citation
-2. Use the exact item ID provided in the input
-3. Place references immediately after the relevant statement
-4. Multiple sources can be cited: [ref:id1,id2]
-5. Existing information without new updates does not need references
+- Any information drawn from new memory items gets a [ref:ITEM_ID] citation, placed right after the statement
+- Use the exact item ID from the input — don't modify it
+- Multiple sources can be cited together: [ref:id1,id2]
+- Existing information that isn't being updated doesn't need a reference
 """
 
 PROMPT_BLOCK_OUTPUT = """
@@ -71,10 +69,7 @@ PROMPT_BLOCK_OUTPUT = """
 - User information item [ref:ITEM_ID,ITEM_ID2]
 ```
 
-# Critical
-- Always ensure that your output does not exceed {target_length} tokens.
-- ALWAYS include [ref:ITEM_ID] for information from new memory items.
-- You may merge or omit unimportant information to meet the length limit.
+Keep the output within {target_length} tokens. Include [ref:ITEM_ID] for any information from new memory items. Merge or omit less important details if needed.
 """
 
 PROMPT_BLOCK_EXAMPLES = """

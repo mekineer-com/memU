@@ -5,11 +5,13 @@ from collections.abc import Mapping
 from typing import Any
 
 import pendulum
+from sqlalchemy import func, or_
 
 from memu.database.postgres.session import SessionManager
 from memu.database.state import DatabaseState
 
 logger = logging.getLogger(__name__)
+_CASE_INSENSITIVE_SCOPE_FIELDS = {"user_id", "soul_id"}
 
 
 class PostgresRepoBase:
@@ -78,11 +80,31 @@ class PostgresRepoBase:
                 raise ValueError(msg)
             if op == "in":
                 if isinstance(expected, str):
-                    filters.append(column == expected)
+                    if field in _CASE_INSENSITIVE_SCOPE_FIELDS:
+                        filters.append(func.lower(column) == expected.lower())
+                    else:
+                        filters.append(column == expected)
                 else:
-                    filters.append(column.in_(expected))
+                    if field in _CASE_INSENSITIVE_SCOPE_FIELDS:
+                        expected_values = list(expected)
+                        lowered = [v.lower() for v in expected_values if isinstance(v, str)]
+                        non_str = [v for v in expected_values if not isinstance(v, str)]
+                        clauses: list[Any] = []
+                        if lowered:
+                            clauses.append(func.lower(column).in_(lowered))
+                        if non_str:
+                            clauses.append(column.in_(non_str))
+                        if len(clauses) == 1:
+                            filters.append(clauses[0])
+                        elif len(clauses) > 1:
+                            filters.append(or_(*clauses))
+                    else:
+                        filters.append(column.in_(expected))
             else:
-                filters.append(column == expected)
+                if field in _CASE_INSENSITIVE_SCOPE_FIELDS and isinstance(expected, str):
+                    filters.append(func.lower(column) == expected.lower())
+                else:
+                    filters.append(column == expected)
         return filters
 
     @staticmethod
@@ -96,16 +118,40 @@ class PostgresRepoBase:
             actual = getattr(obj, str(field), None)
             if op == "in":
                 if isinstance(expected, str):
-                    if actual != expected:
+                    if (
+                        field in _CASE_INSENSITIVE_SCOPE_FIELDS
+                        and isinstance(actual, str)
+                        and isinstance(expected, str)
+                    ):
+                        if actual.lower() != expected.lower():
+                            return False
+                    elif actual != expected:
                         return False
                 else:
                     try:
-                        if actual not in expected:
+                        if (
+                            field in _CASE_INSENSITIVE_SCOPE_FIELDS
+                            and isinstance(actual, str)
+                            and any(isinstance(v, str) for v in expected)
+                        ):
+                            expected_values = list(expected)
+                            lowered = {v.lower() for v in expected_values if isinstance(v, str)}
+                            others = {v for v in expected_values if not isinstance(v, str)}
+                            if actual.lower() not in lowered and actual not in others:
+                                return False
+                        elif actual not in expected:
                             return False
                     except TypeError:
                         return False
             else:
-                if actual != expected:
+                if (
+                    field in _CASE_INSENSITIVE_SCOPE_FIELDS
+                    and isinstance(actual, str)
+                    and isinstance(expected, str)
+                ):
+                    if actual.lower() != expected.lower():
+                        return False
+                elif actual != expected:
                     return False
         return True
 
