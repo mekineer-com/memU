@@ -44,7 +44,7 @@
 | Add memory type | `prompts/memory_type/__init__.py`, `database/models.py` | New `prompts/memory_type/{type}.py`, update `__init__.py` PROMPTS dict, add to MemoryType literal |
 | Tune extraction | `prompts/memory_type/{type}.py` | Edit PROMPT / CUSTOM_PROMPT in that file |
 | Tune routing | `prompts/router/router.py` | Edit routing prompt directly |
-| Change categories | `app/settings.py` (CategoryConfig), `prompts/category_summary/` | Target prompt file + settings |
+| Change categories | `app/settings.py` (CategoryConfig), `prompts/category_summary/` | Target prompt file + settings. **Seed defaults live in `mcp-memu-server/config.json` `categories.defaults[]`** — engine settings.py defaults are overridden by the server. |
 | Modify retrieval | `app/retrieve.py`, `prompts/retrieve/` | Ranker prompts or retrieve.py logic |
 | Add LLM provider | `llm/backends/base.py`, any existing backend | New `llm/backends/{provider}.py`, register in `llm/wrapper.py` |
 | Add embedding provider | `embedding/backends/base.py` | New `embedding/backends/{provider}.py`, register in `embedding/http_client.py` |
