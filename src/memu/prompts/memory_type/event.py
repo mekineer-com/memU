@@ -90,6 +90,7 @@ PROMPT_BLOCK_RULES = """
 - Confidence: 0.9+ when explicitly stated, 0.6–0.9 when clearly implied, 0.5 or below for inference. Below 0.7: use "seemed to," "may have."
 - State what happened — never say someone "expressed" or "shared" an event. Write what is true. BAD: "Marcos expressed feelings of loneliness." GOOD: "Marcos has felt lonely most of his life."
 - Under 65 words. Include emotional texture — what it felt like, not just what occurred.
+- Anchor in time, place, and reason when the conversation provides them — "hiked alone last Sunday to clear his head" tells more than "went hiking."
 - Merge overlapping items. Profile is *who* someone is; behavior is *how* they operate. If it's a recurring pattern with no specific time anchor, it belongs there, not here.
 - The act of talking is not an event. If you can only describe what someone said, there is no event. Do not mirror the same moment from two perspectives — keep the one with more substance.
 - **Shared experiences, including roleplay, are real events.** Exchanging vows in a gothic library, exploring a haunted mansion together — these happened in the only way they could for these two people. Extract them as you would any other.
