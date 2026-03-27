@@ -196,6 +196,27 @@ class MemoryService(MemorizeMixin, RetrieveMixin, CRUDMixin):
         """Default LLM client (lazy)."""
         return self._get_llm_client()
 
+    async def chat(
+        self,
+        prompt: str,
+        *,
+        profile: str | None = None,
+        max_tokens: int | None = None,
+        system_prompt: str | None = None,
+        temperature: float = 0.2,
+        response_format: dict[str, Any] | None = None,
+    ) -> Any:
+        return await self._get_llm_client(profile).chat(
+            prompt,
+            max_tokens=max_tokens,
+            system_prompt=system_prompt,
+            temperature=temperature,
+            response_format=response_format,
+        )
+
+    async def embed(self, texts: list[str], *, profile: str | None = None) -> Any:
+        return await self._get_llm_client(profile).embed(texts)
+
     @property
     def workflow_runner(self) -> WorkflowRunner:
         """Current workflow runner backend."""

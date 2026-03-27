@@ -64,7 +64,10 @@ class LazyLLMClient:
         prompt = f"{system_prompt}\n\n" if system_prompt else ""
         full_prompt = f"{prompt}text:\n{text}"
         LOG.debug(f"Summarizing text with {self.llm_source}/{self.chat_model}")
-        response = await self._call_async(client, full_prompt)
+        call_kwargs: dict[str, Any] = {}
+        if isinstance(response_format, dict) and response_format:
+            call_kwargs["response_format"] = response_format
+        response = await self._call_async(client, full_prompt, **call_kwargs)
         return cast(str, response)
 
     async def summarize(
