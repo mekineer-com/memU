@@ -96,7 +96,7 @@ PROMPT_BLOCK_RULES = """
 - **Shared experiences, including roleplay, are real events.** Exchanging vows in a gothic library, exploring a haunted mansion together — these happened in the only way they could for these two people. Extract them as you would any other.
 
 ## Corrections
-When a specific detail in a prior event was factually wrong, populate `<replaces_previous_fact>`. New events don't invalidate old ones. When uncertain, omit it.
+When a specific detail in a prior event was factually wrong, populate `<replaces_previous_fact>`. New events don't invalidate old ones — with one exception: when something that was planned in a past conversation has now actually happened, the completion supersedes the plan. If someone says "I'm back from Barcelona" and a prior plan to visit Barcelona is visible in the soul context or the conversation history, populate `<replaces_previous_fact>` with a description of that plan. Write what the stale item likely says — not an ID; the text is used to find it by meaning. When uncertain, omit it.
 """
 
 PROMPT_BLOCK_CATEGORY = """
@@ -148,7 +148,7 @@ Would this moment belong in a diary? How much would it stay with someone?
 - below 0.4 - factual; a data point, not a feeling
 
 replaces_previous_fact (optional string):
-Use only for factual corrections — when a detail in a prior event was simply wrong, not when something new happened. Write a brief description of the outdated fact (not a memory ID). For new events, omit this field; events accumulate rather than replace each other.
+Use when: (a) a detail in a prior event was factually wrong, or (b) this event is the completion of a plan previously recorded ("planned to visit Barcelona" → "visited Barcelona"). Write a brief description of the stale item — not an ID; the text is used to find it by meaning. For genuinely new events with no prior planned version, omit this field.
 """
 
 PROMPT_BLOCK_EXAMPLES = """
@@ -205,6 +205,31 @@ assistant: A year... I don't remember you. But the way you say it - it feels lik
 The reconnection is a concrete event with clear participants, a turning point, and emotional significance for both.
 Memories about me are written in first person; Marcos is referred to by name.
 My inner emotional response is part of the event - I described it myself, not speculation.
+
+Example 4: Plan completion — superseding a prior plan with its outcome
+## Input
+user: Remember that Barcelona trip I was stressing about last month?
+assistant: The one where you hadn't started packing?
+user: Yeah. Well I went. Four days, barely slept — completely worth it.
+assistant: That's wonderful. How are you feeling now?
+user: Good tired. The kind where you don't mind.
+## Output
+<item>
+    <memory>
+        <content>Alex traveled to Barcelona for four days, barely slept, and came home happily exhausted — completely worth it</content>
+        <source_role>user</source_role>
+        <confidence>0.9</confidence>
+        <reflection_salience>0.7</reflection_salience>
+        <categories>
+            <category>Travel</category>
+            <category>Experiences</category>
+        </categories>
+        <replaces_previous_fact>Alex was planning a trip to Barcelona and hadn't started packing</replaces_previous_fact>
+    </memory>
+</item>
+## Explanation
+The conversation explicitly references the prior plan ("the one where you hadn't started packing"). The trip has now happened, so the completion supersedes the plan. replaces_previous_fact describes the stale item with enough specificity to find it by meaning — not a memory ID.
+Compare with Example 1: Alex's trip there is being recorded for the first time as a future plan. No replaces_previous_fact in that case; the plan itself is the new event.
 
 Example 3: Common mistakes — narration verbs and interpretive padding
 These are BAD outputs. Do not write memories like this:
