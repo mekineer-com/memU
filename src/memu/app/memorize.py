@@ -1722,21 +1722,21 @@ Decide which clusters/candidates should map into existing categories, and which 
             return []
         client = llm_client or self._get_llm_client()
         soul_context_str = self._format_soul_context_for_prompt(store)
-        prompts = [
-            self._build_memory_type_prompt(
+        typed_prompts = [
+            (mtype, self._build_memory_type_prompt(
                 memory_type=mtype,
                 resource_text=resource_text,
                 categories_str=categories_prompt_str,
                 soul_context_str=soul_context_str,
-            )
+            ))
             for mtype in memory_types
         ]
-        valid_prompts = [prompt for prompt in prompts if prompt.strip()]
+        valid_pairs = [(mtype, prompt) for mtype, prompt in typed_prompts if prompt.strip()]
         # These prompts are instructions that request structured output, not text summaries.
-        tasks = [client.chat(prompt_text) for prompt_text in valid_prompts]
+        tasks = [client.chat(prompt) for _, prompt in valid_pairs]
         responses = await asyncio.gather(*tasks)
         return self._parse_structured_entries(
-            memory_types,
+            [mtype for mtype, _ in valid_pairs],
             responses,
             default_source_message_ids=default_source_message_ids,
         )
