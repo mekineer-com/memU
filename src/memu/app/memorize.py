@@ -2346,13 +2346,10 @@ Decide which clusters/candidates should map into existing categories, and which 
         scope_key = self._category_scope_key(user_scope)
         if ctx.categories_ready and ctx.category_scope_key == scope_key:
             return
-        if ctx.category_init_task:
-            await ctx.category_init_task
-            ctx.category_init_task = None
-            ctx.category_init_scope_key = None
+        async with ctx._init_lock:
             if ctx.categories_ready and ctx.category_scope_key == scope_key:
                 return
-        await self._initialize_categories(ctx, store, user_scope, scope_key=scope_key)
+            await self._initialize_categories(ctx, store, user_scope, scope_key=scope_key)
 
     async def _initialize_categories(
         self,

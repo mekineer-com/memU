@@ -46,6 +46,7 @@ class Context:
     category_init_task: asyncio.Task | None = None
     category_scope_key: str | None = None
     category_init_scope_key: str | None = None
+    _init_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
 
 class MemoryService(MemorizeMixin, RetrieveMixin, CRUDMixin):
