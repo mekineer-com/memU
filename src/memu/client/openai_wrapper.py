@@ -72,15 +72,11 @@ class MemuChatCompletions:
 
     async def _retrieve_memories(self, query: str) -> list[dict]:
         """Retrieve relevant memories for the query."""
-        try:
-            result = await self._service.retrieve(
-                queries=[{"role": "user", "content": query}],
-                where=self._user_data,
-            )
-            return result.get("items", [])
-        except Exception:
-            # Fail silently - don't break the LLM call
-            return []
+        result = await self._service.retrieve(
+            queries=[{"role": "user", "content": query}],
+            where=self._user_data,
+        )
+        return result.get("items", [])
 
     def create(self, **kwargs) -> Any:
         """Wrapped create method with auto-recall injection."""

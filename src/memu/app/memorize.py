@@ -428,11 +428,7 @@ class MemorizeMixin:
         if not new_item_ids:
             return state
 
-        try:
-            threshold = float(self.memorize_config.semantic_dedupe_similarity_threshold)
-        except Exception:
-            threshold = 0.89
-        threshold = max(0.0, min(1.0, threshold))
+        threshold = max(0.0, min(1.0, float(self.memorize_config.semantic_dedupe_similarity_threshold)))
         merged_map: dict[str, str] = {}
         dedupe_embed_client: Any | None = None
         dedupe_embed_cache: dict[str, list[float] | None] = {}
@@ -843,11 +839,7 @@ class MemorizeMixin:
         if not structured_entries or not category_centroids:
             return structured_entries, set()
 
-        try:
-            threshold = float(getattr(self.memorize_config, "category_centroid_threshold", 0.65) or 0.65)
-        except Exception:
-            threshold = 0.65
-        threshold = max(0.0, min(1.0, threshold))
+        threshold = max(0.0, min(1.0, float(getattr(self.memorize_config, "category_centroid_threshold", 0.65) or 0.65)))
 
         updated: list[StructuredMemoryEntry] = []
         gated_indexes: set[int] = set()
@@ -944,17 +936,11 @@ class MemorizeMixin:
         return updated, gated_indexes
 
     def _dynamic_category_cluster_threshold(self) -> float:
-        try:
-            base = float(getattr(self.memorize_config, "category_centroid_threshold", 0.65) or 0.65)
-        except Exception:
-            base = 0.65
+        base = float(getattr(self.memorize_config, "category_centroid_threshold", 0.65) or 0.65)
         return max(0.7, min(0.9, base + 0.1))
 
     def _dynamic_category_cluster_min_size(self) -> int:
-        try:
-            min_mentions = int(getattr(self.memorize_config, "dynamic_category_min_mentions", 10) or 10)
-        except Exception:
-            min_mentions = 10
+        min_mentions = int(getattr(self.memorize_config, "dynamic_category_min_mentions", 10) or 10)
         return max(2, min_mentions)
 
     def _cluster_homeless_entries(
@@ -2262,10 +2248,7 @@ Decide which clusters/candidates should map into existing categories, and which 
         return items, rels, category_memory_updates, homeless_count
 
     def _supersede_similarity_threshold(self) -> float:
-        try:
-            threshold = float(getattr(self.memorize_config, "supersede_similarity_threshold", 0.75) or 0.75)
-        except Exception:
-            threshold = 0.75
+        threshold = float(getattr(self.memorize_config, "supersede_similarity_threshold", 0.75) or 0.75)
         return max(0.0, min(1.0, threshold))
 
     async def _find_supersede_targets(
@@ -2681,19 +2664,16 @@ Decide which clusters/candidates should map into existing categories, and which 
             base = "\n".join(lines)
 
         # If enabled, tell the model it's allowed to propose new categories.
-        try:
-            if getattr(self.memorize_config, "allow_dynamic_categories", False):
-                max_total = int(getattr(self.memorize_config, "max_categories_total", 0) or 0)
-                policy = str(getattr(self.memorize_config, "dynamic_category_policy", "") or "").strip()
-                note = "\n\n" + (policy + "\n\n" if policy else "")
-                note += (
-                    "If none of the existing categories fit, you may propose a NEW category name. "
-                    "Keep it broad (a life domain), not a specific event. "
-                    f"Max total categories: {max_total or 'unlimited'}."
-                )
-                return base + note
-        except Exception:
-            return base
+        if getattr(self.memorize_config, "allow_dynamic_categories", False):
+            max_total = int(getattr(self.memorize_config, "max_categories_total", 0) or 0)
+            policy = str(getattr(self.memorize_config, "dynamic_category_policy", "") or "").strip()
+            note = "\n\n" + (policy + "\n\n" if policy else "")
+            note += (
+                "If none of the existing categories fit, you may propose a NEW category name. "
+                "Keep it broad (a life domain), not a specific event. "
+                f"Max total categories: {max_total or 'unlimited'}."
+            )
+            return base + note
         return base
 
     def _add_conversation_indices(self, conversation: str) -> str:
@@ -3128,10 +3108,7 @@ Decide which clusters/candidates should map into existing categories, and which 
     async def _classify_diary_worthy_episode(self, episode_text: str, llm_client: Any | None = None) -> bool:
         prompt = DIARY_WORTHY_PROMPT.format(exchange=self._escape_prompt_value(episode_text))
         client = llm_client or self._get_llm_client()
-        try:
-            raw = await client.chat(prompt, temperature=0.0)
-        except Exception:
-            return False
+        raw = await client.chat(prompt, temperature=0.0)
         return self._parse_diary_worthy_response(raw)
 
     def _parse_multimodal_response(self, raw: str, content_tag: str, caption_tag: str) -> tuple[str | None, str | None]:
