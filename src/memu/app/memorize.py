@@ -317,7 +317,6 @@ class MemorizeMixin:
         preprocessed_resources = state.get("preprocessed_resources", [])
         resource_plans: list[dict[str, Any]] = []
         total_episodes = len(preprocessed_resources) or 1
-        diary_worthy_ids: list[int] = []
         skipped_reasons: list[str] = []
         message_happened_at_map = self._extract_message_happened_at_map(state.get("raw_text"))
 
@@ -336,8 +335,6 @@ class MemorizeMixin:
                     diary_episode_text,
                     llm_client=llm_client,
                 )
-                if diary_worthy:
-                    diary_worthy_ids.extend(message_indices)
 
             if state["modality"] == "conversation" and isinstance(text, str):
                 applicable_types = await self._route_episode(
@@ -386,7 +383,6 @@ class MemorizeMixin:
             resource_plans.append(plan)
 
         state["resource_plans"] = resource_plans
-        state["diary_worthy_ids"] = self._dedupe_message_indices(diary_worthy_ids)
         if skipped_reasons:
             state["skipped_reasons"] = skipped_reasons
         return state
