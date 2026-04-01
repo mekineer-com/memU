@@ -380,30 +380,7 @@ class RetrieveMixin:
         return state
 
     async def _rag_item_sufficiency(self, state: WorkflowState, step_context: Any) -> WorkflowState:
-        if not state.get("needs_retrieval"):
-            state["proceed_to_resources"] = False
-            return state
-        if not state.get("retrieve_item") or not state.get("sufficiency_check"):
-            state["proceed_to_resources"] = True
-            return state
-
-        store = state["store"]
-        where_filters = state.get("where") or {}
-        items_pool = state.get("item_pool") or store.memory_item_repo.list_items(where_filters)
-        retrieved_content = ""
-        hits = state.get("item_hits") or []
-        if hits:
-            retrieved_content = self._format_item_content(hits, store, items=items_pool)
-
-        llm_client = self._get_step_llm_client(step_context)
-        needs_more, rewritten_query = await self._decide_if_retrieval_needed(
-            state["active_query"],
-            state["context_queries"],
-            retrieved_content=retrieved_content or "No content retrieved yet.",
-            llm_client=llm_client,
-        )
-        state["next_step_query"] = rewritten_query
-        state["active_query"] = rewritten_query
+        state["next_step_query"] = state.get("active_query")
         state["proceed_to_resources"] = False
         return state
 
