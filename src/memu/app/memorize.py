@@ -373,7 +373,7 @@ class MemorizeMixin:
                 episode_id = f"{conv_id}:{message_indices[0]}-{message_indices[-1]}"
             else:
                 episode_id = None
-            resource_plans.append({
+            plan: dict[str, Any] = {
                 "resource_url": res_url,
                 "text": text,
                 "caption": caption,
@@ -381,7 +381,9 @@ class MemorizeMixin:
                 "message_happened_at_map": plan_message_happened_at_map,
                 "entries": structured_entries,
                 "episode_id": episode_id,
-            })
+                "diary_worthy": diary_worthy,
+            }
+            resource_plans.append(plan)
 
         state["resource_plans"] = resource_plans
         state["diary_worthy_ids"] = self._dedupe_message_indices(diary_worthy_ids)
@@ -1258,7 +1260,6 @@ Decide which clusters/candidates should map into existing categories, and which 
         user_scope = state.get("user", {})
         category_centroids = self._build_category_centroids(store=store, user=user_scope)
         homeless_item_count = 0
-        diary_threshold = 0.75
 
         session_cm = self._sqlite_write_session(store)
         if session_cm is not None:
@@ -1295,10 +1296,8 @@ Decide which clusters/candidates should map into existing categories, and which 
                             session=session,
                         )
                         items.extend(mem_items)
-                        for item in mem_items:
-                            salience = getattr(item, "reflection_salience", None)
-                            if isinstance(salience, (int, float)) and float(salience) >= diary_threshold:
-                                pending_diary_memory_ids.append(item.id)
+                        if plan.get("diary_worthy"):
+                            pending_diary_memory_ids.extend(item.id for item in mem_items)
                         relations.extend(rels)
                         homeless_item_count += homeless_delta
                         for cat_id, mems in cat_updates.items():
@@ -1337,10 +1336,8 @@ Decide which clusters/candidates should map into existing categories, and which 
                     message_happened_at_map=plan.get("message_happened_at_map"),
                 )
                 items.extend(mem_items)
-                for item in mem_items:
-                    salience = getattr(item, "reflection_salience", None)
-                    if isinstance(salience, (int, float)) and float(salience) >= diary_threshold:
-                        pending_diary_memory_ids.append(item.id)
+                if plan.get("diary_worthy"):
+                    pending_diary_memory_ids.extend(item.id for item in mem_items)
                 relations.extend(rels)
                 homeless_item_count += homeless_delta
                 for cat_id, mems in cat_updates.items():
