@@ -35,7 +35,7 @@
 | `retrieve/` | `query_rewriter.py`, `llm_category_ranker.py`, `llm_item_ranker.py`, `llm_resource_ranker.py`, `judger.py`, `pre_retrieval_decision.py` | Retrieval ranking & judgment |
 | `category_patch/` | `category.py` | Dynamic category update prompts |
 | `category_summary/` | `category.py`, `category_with_refs.py` | Category synthesis |
-| `diary/` | `diary_worthy.py`, `self_model_update.py` | Diary generation & self-model reflection |
+| `diary/` | `diary_worthy.py`, `self_model_update.py` | Diary generation & self-model reflection. `self_model_update.py` includes `<life_goals>` XML section (add/remove; max 3 active; most sessions leave empty). |
 
 ## Task → Files
 
