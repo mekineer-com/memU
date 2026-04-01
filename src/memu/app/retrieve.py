@@ -68,7 +68,7 @@ class RetrieveMixin:
             "original_query": original_query,
             "context_queries": context_queries_objs,
             "route_intention": route_intention,
-            "skip_rewrite": len(queries) == 1,
+            "skip_rewrite": True,
             "retrieve_category": retrieve_category,
             "retrieve_item": retrieve_item,
             "retrieve_resource": retrieve_resource,
@@ -278,6 +278,13 @@ class RetrieveMixin:
             embed_client=embed_client,
             categories=category_pool,
         )
+        # Apply top+0.07 filter with absolute floor 0.40 — keep at most 2
+        if hits:
+            top_score = hits[0][1] if isinstance(hits[0], (list, tuple)) and len(hits[0]) > 1 else 1.0
+            hits = [h for h in hits if (
+                (h[1] if isinstance(h, (list, tuple)) and len(h) > 1 else 0) >= 0.40
+                and (h[1] if isinstance(h, (list, tuple)) and len(h) > 1 else 0) >= (top_score - 0.07)
+            )][:2]
         state.update({
             "query_vector": qvec,
             "category_hits": hits,
@@ -397,10 +404,7 @@ class RetrieveMixin:
         )
         state["next_step_query"] = rewritten_query
         state["active_query"] = rewritten_query
-        state["proceed_to_resources"] = needs_more
-        if needs_more:
-            embed_client = self._get_step_embedding_client(step_context)
-            state["query_vector"] = (await embed_client.embed([state["active_query"]]))[0]
+        state["proceed_to_resources"] = False
         return state
 
     async def _rag_recall_resources(self, state: WorkflowState, step_context: Any) -> WorkflowState:
