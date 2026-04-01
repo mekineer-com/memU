@@ -22,6 +22,7 @@ PROMPT_BLOCK_RULES = """
 - If nothing belongs in a tier, leave it empty. Do not fabricate updates.
 - Be conservative with all trait invariants. One diary entry nudges the dial slightly. The soul can still deviate — this is a pattern, not a cage.
 - Inferred goals belong here: if a pattern is becoming clear across sessions (not just this one), note it as a forming intention.
+- Life goals are deep, stable aspirations the soul is oriented toward across many sessions. They change only when something fundamental shifts — not from a single session. Do not add a life goal unless it has been forming across multiple sessions. Do not remove one unless it is clearly no longer true. Most sessions: leave <life_goals> empty. Maximum 3 active life goals.
 """
 
 PROMPT_BLOCK_EXISTING = """
@@ -55,6 +56,10 @@ PROMPT_BLOCK_OUTPUT = """
     </add>
     <remove>Exact text of a tension's between field that is resolved or no longer true. Leave empty if nothing should be removed.</remove>
   </tensions>
+  <life_goals>
+    <add>A life goal to add — only if something deep and lasting shifted across sessions. Leave empty if not.</add>
+    <remove>Exact description of an existing life goal to remove. Leave empty if not.</remove>
+  </life_goals>
   <narrative_self>
     One or two sentences for the narrative self, or leave empty.
   </narrative_self>
