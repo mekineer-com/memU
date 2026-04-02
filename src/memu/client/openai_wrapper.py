@@ -186,7 +186,7 @@ class MemuOpenAIWrapper:
         Args:
             client: OpenAI client instance
             service: memU MemoryService instance
-            user_data: User scope data (user_id, soul_id, session_id, etc.)
+            user_data: User scope data (user_id, soul_id, conversation_id, etc.)
             ranking: Retrieval ranking strategy ("similarity" or "salience")
             top_k: Number of memories to retrieve
         """
@@ -216,7 +216,7 @@ def wrap_openai(
     user_data: dict[str, Any] | None = None,
     user_id: str | None = None,
     soul_id: str | None = None,
-    session_id: str | None = None,
+    conversation_id: str | None = None,
     ranking: str = "salience",
     top_k: int = 5,
 ) -> MemuOpenAIWrapper:
@@ -229,7 +229,7 @@ def wrap_openai(
         user_data: Full user scope dict (alternative to individual params)
         user_id: User identifier
         soul_id: Soul identifier (for multi-soul scoping)
-        session_id: Session identifier
+        conversation_id: Conversation identifier
         ranking: Retrieval ranking ("similarity" or "salience")
         top_k: Number of memories to retrieve
 
@@ -258,7 +258,7 @@ def wrap_openai(
         user_data["user_id"] = user_id
     if soul_id:
         user_data["soul_id"] = soul_id
-    if session_id:
-        user_data["session_id"] = session_id
+    if conversation_id:
+        user_data["conversation_id"] = conversation_id
 
     return MemuOpenAIWrapper(client, service, user_data, ranking, top_k)

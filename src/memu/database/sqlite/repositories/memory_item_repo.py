@@ -49,7 +49,6 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
             scope_fields=scope_fields,
         )
         self._memory_item_model = memory_item_model
-        self.items = self._state.items
 
     @staticmethod
     def _resolve_conversation_id(conversation_id: str | None, user_data: Mapping[str, Any]) -> str | None:
@@ -58,9 +57,6 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
         raw = user_data.get("conversation_id")
         if isinstance(raw, str) and raw.strip():
             return raw.strip()
-        legacy = user_data.get("session_id")
-        if isinstance(legacy, str) and legacy.strip():
-            return legacy.strip()
         return None
 
     @staticmethod
@@ -123,10 +119,6 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
         Returns:
             MemoryItem if found, None otherwise.
         """
-        # Check cache first
-        if item_id in self.items:
-            return self.items[item_id]
-
         with self._sessions.session() as session:
             filters = [self._memory_item_model.id == item_id]
             active_filter = self._active_item_filter(self._memory_item_model)
@@ -138,9 +130,7 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
         if row is None:
             return None
 
-        item = self._to_memory_item(row)
-        self.items[row.id] = item
-        return item
+        return self._to_memory_item(row)
 
     def list_items(self, where: Mapping[str, Any] | None = None) -> dict[str, MemoryItem]:
         """List memory items matching the where clause.
@@ -165,7 +155,6 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
         for row in rows:
             item = self._to_memory_item(row)
             result[row.id] = item
-            self.items[row.id] = item
 
         return result
 
@@ -204,7 +193,6 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
         for row in rows:
             item = self._to_memory_item(row)
             result[row.id] = item
-            self.items[row.id] = item
 
         return result
 
@@ -244,10 +232,6 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
                 del_stmt = del_stmt.where(*filters)
             session.exec(del_stmt)
             session.commit()
-
-            # Clean up cache
-            for item_id in deleted:
-                self.items.pop(item_id, None)
 
         return deleted
 
@@ -365,9 +349,7 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
         session.refresh(row)
         self._fts_upsert(session, row.id, summary, memory_type)
 
-        item = self._to_memory_item(row, embedding=embedding, scope=user_data)
-        self.items[row.id] = item
-        return item
+        return self._to_memory_item(row, embedding=embedding, scope=user_data)
 
     def create_item_reinforce(
         self,
@@ -469,9 +451,7 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
             session.flush()
             session.refresh(existing)
             self._fts_upsert(session, existing.id, existing.summary, existing.memory_type)
-            item = self._to_memory_item(existing)
-            self.items[existing.id] = item
-            return item
+            return self._to_memory_item(existing)
 
         # Create new item with salience tracking in extra
         now = self._now()
@@ -509,9 +489,7 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
         session.refresh(row)
         self._fts_upsert(session, row.id, summary, memory_type)
 
-        item = self._to_memory_item(row, embedding=embedding)
-        self.items[row.id] = item
-        return item
+        return self._to_memory_item(row, embedding=embedding)
 
     def update_item(
         self,
@@ -607,9 +585,7 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
         elif summary is not None:
             self._fts_upsert(session, item_id, row.summary, row.memory_type)
 
-        item = self._to_memory_item(row)
-        self.items[row.id] = item
-        return item
+        return self._to_memory_item(row)
 
     def delete_item(self, item_id: str) -> None:
         """Delete a memory item.
@@ -624,9 +600,6 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
                 self._fts_delete(session, item_id)
                 session.delete(row)
                 session.commit()
-
-        if item_id in self.items:
-            del self.items[item_id]
 
     # ── FTS5 helpers ──────────────────────────────────────────────────
 
@@ -654,7 +627,8 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
         words = query.split()
         if not words:
             return ""
-        return " ".join(f'"{w}"' for w in words)
+        escaped_words = (w.replace('"', '""') for w in words)
+        return " ".join(f'"{w}"' for w in escaped_words)
 
     def fts_search_items(
         self,
@@ -780,8 +754,8 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
             return None
 
     def load_existing(self) -> None:
-        """Load all existing items from database into cache."""
-        self.list_items()
+        """No-op: SQLite repo does not keep an in-memory item cache."""
+        return None
 
 
 __all__ = ["SQLiteMemoryItemRepo"]

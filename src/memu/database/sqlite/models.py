@@ -51,9 +51,6 @@ class SQLiteResourceModel(SQLiteBaseModelMixin, Resource):
     modality: str = Field(sa_column=Column(String, nullable=False))
     local_path: str = Field(sa_column=Column(String, nullable=False))
     caption: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
-    # Back-compat: some older DBs store embeddings in `embedding_json`.
-    # Keep the column for compatibility, but new writes use `embedding`.
-    embedding_json: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
     # Store embedding as JSON (SQLite stores it as TEXT under the hood)
     embedding: str | None = Field(default=None, sa_column=Column(Text, nullable=True))  # type: ignore[assignment]
 
@@ -64,8 +61,6 @@ class SQLiteMemoryItemModel(SQLiteBaseModelMixin, MemoryItem):
     resource_id: str | None = Field(sa_column=Column(String, nullable=True))
     memory_type: MemoryType = Field(sa_column=Column(String, nullable=False))
     summary: str = Field(sa_column=Column(Text, nullable=False))
-    # Back-compat (see SQLiteResourceModel.embedding_json).
-    embedding_json: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
     # Store embedding as JSON (SQLite stores it as TEXT under the hood)
     embedding: str | None = Field(default=None, sa_column=Column(Text, nullable=True))  # type: ignore[assignment]
     happened_at: datetime | None = Field(default=None, sa_column=Column(DateTime, nullable=True))
@@ -87,8 +82,6 @@ class SQLiteMemoryCategoryModel(SQLiteBaseModelMixin, MemoryCategory):
 
     name: str = Field(sa_column=Column(String, nullable=False, index=True))
     description: str = Field(sa_column=Column(Text, nullable=False))
-    # Back-compat (see SQLiteResourceModel.embedding_json).
-    embedding_json: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
     # Store embedding as JSON (SQLite stores it as TEXT under the hood)
     embedding: str | None = Field(default=None, sa_column=Column(Text, nullable=True))  # type: ignore[assignment]
     summary: str | None = Field(default=None, sa_column=Column(Text, nullable=True))

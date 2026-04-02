@@ -54,14 +54,15 @@ class LocalFS:
         return filename
 
     async def fetch(self, url: str, modality: str) -> tuple[str, str | None]:
-        # Local path
-        p = pathlib.Path(url)
-        if p.exists():
-            dst = p.resolve()
-            text = None
-            if modality in ("conversation", "text", "document"):
-                text = dst.read_text(encoding="utf-8")
-            return str(dst), text
+        scheme = urlparse(url).scheme.lower()
+        if scheme not in ("http", "https"):
+            p = pathlib.Path(url)
+            if p.exists():
+                dst = p.resolve()
+                text = None
+                if modality in ("conversation", "text", "document"):
+                    text = dst.read_text(encoding="utf-8")
+                return str(dst), text
 
         # HTTP - get clean filename
         filename = self._get_filename_from_url(url, modality)

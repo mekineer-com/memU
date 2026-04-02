@@ -605,6 +605,26 @@ class MemorizeMixin:
         return len(str(summary).strip())
 
     def _choose_survivor_and_redundant(self, left: MemoryItem, right: MemoryItem) -> tuple[MemoryItem, MemoryItem]:
+        left_time = getattr(left, "happened_at", None) or getattr(left, "created_at", None)
+        right_time = getattr(right, "happened_at", None) or getattr(right, "created_at", None)
+        if left_time is not None and right_time is not None:
+            try:
+                if left_time > right_time:
+                    return left, right
+                if right_time > left_time:
+                    return right, left
+            except TypeError:
+                left_iso = str(getattr(left_time, "isoformat", lambda: left_time)())
+                right_iso = str(getattr(right_time, "isoformat", lambda: right_time)())
+                if left_iso > right_iso:
+                    return left, right
+                if right_iso > left_iso:
+                    return right, left
+        elif left_time is not None:
+            return left, right
+        elif right_time is not None:
+            return right, left
+
         left_len = self._summary_len(left)
         right_len = self._summary_len(right)
         if left_len > right_len:
@@ -2776,6 +2796,44 @@ Decide which clusters/candidates should map into existing categories, and which 
                     extra={"ref_id": short_id},
                 )
 
+    @staticmethod
+    def _looks_like_identifier_value(value: str) -> bool:
+        text = value.strip()
+        if not text:
+            return True
+        lowered = text.lower()
+        if re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", lowered):
+            return True
+        if re.fullmatch(r"[0-9a-f]{24,}", lowered):
+            return True
+        if " " in text:
+            return False
+        if len(text) < 12:
+            return False
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", text):
+            return False
+        has_digit = any(ch.isdigit() for ch in text)
+        has_sep = ("-" in text) or ("_" in text)
+        return has_digit and has_sep
+
+    def _summary_user_name(self, user_scope: Mapping[str, Any] | None, *, default: str) -> str:
+        scope = user_scope or {}
+        raw_name = scope.get("user_name")
+        if raw_name is not None:
+            explicit_name = str(raw_name).strip()
+            if explicit_name:
+                return explicit_name
+
+        raw_user_id = scope.get("user_id")
+        if raw_user_id is None:
+            return default
+        fallback = str(raw_user_id).strip()
+        if not fallback:
+            return default
+        if self._looks_like_identifier_value(fallback):
+            return default
+        return fallback
+
     def _build_category_summary_prompt(
         self,
         *,
@@ -2835,16 +2893,12 @@ Decide which clusters/candidates should map into existing categories, and which 
         # Prefer human-readable names for summaries.
         # user scope varies by integration; accept common keys.
         user_scope = user or {}
-        raw_user = (
-            user_scope.get("user_name")
-            or user_scope.get("user_id")
-        )
+        user_name = self._summary_user_name(user_scope, default="the user")
         raw_agent = (
             user_scope.get("soul_name")
             or user_scope.get("character_name")
             or user_scope.get("soul_id")
         )
-        user_name = str(raw_user).strip() if raw_user else "the user"
         agent_name = str(raw_agent).strip() if raw_agent else "the assistant"
         # Strip ST timestamp suffixes like "Siri - 2026-...Z".
         if " - " in agent_name:
@@ -2895,15 +2949,8 @@ Decide which clusters/candidates should map into existing categories, and which 
                 continue
             cleaned_summary = summary.replace("```markdown", "").replace("```", "").strip()
             # If prompts still output "The user ...", rewrite to the real user name.
-            user_scope = user or {}
-            raw_user = (
-                user_scope.get("user_name")
-                or user_scope.get("user_id")
-            )
-            user_name = str(raw_user).strip() if raw_user else ""
+            user_name = self._summary_user_name(user or {}, default="")
             if user_name and user_name.lower() not in ("user", "the user"):
-                import re
-
                 cleaned_summary = re.sub(
                     r"(?m)^(\s*[-*]\s*)(?:The user|the user|User|user)\b",
                     r"\1" + user_name,

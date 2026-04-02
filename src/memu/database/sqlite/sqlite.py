@@ -123,26 +123,6 @@ class SQLiteStore(Database):
         self.categories = self._state.categories
         self.relations = self._state.relations
 
-    def _ensure_embedding_json_columns(self) -> None:
-        """Best-effort schema patch for legacy SQLite embedding compatibility.
-
-        We no longer mirror writes into `embedding_json`, but we keep the
-        legacy column available so older DB layouts continue to load cleanly.
-        """
-        tables = ["memu_resources", "memu_memory_items", "memu_memory_categories"]
-        try:
-            with self._sessions.engine.begin() as conn:
-                for tname in tables:
-                    rows = conn.exec_driver_sql(f"PRAGMA table_info({tname})").fetchall()
-                    cols = [r[1] for r in rows] if rows else []
-                    if not cols:
-                        continue
-                    if "embedding_json" not in cols:
-                        conn.exec_driver_sql(f"ALTER TABLE {tname} ADD COLUMN embedding_json TEXT")
-        except Exception:
-            # Best-effort only; don't block startup.
-            return
-
     @staticmethod
     def _table_columns(conn: Any, table_name: str) -> list[str]:
         rows = conn.exec_driver_sql(f"PRAGMA table_info({table_name})").fetchall()
@@ -172,15 +152,6 @@ class SQLiteStore(Database):
                 self._add_column_if_missing(conn, "memu_memory_items", "merged_into", "merged_into VARCHAR")
                 self._add_column_if_missing(conn, "memu_memory_items", "superseded_by", "superseded_by VARCHAR")
 
-                cols = self._table_columns(conn, "memu_memory_items")
-                # Backfill conversation_id from legacy session_id when available.
-                if "conversation_id" in cols and "session_id" in cols:
-                    conn.exec_driver_sql(
-                        "UPDATE memu_memory_items "
-                        "SET conversation_id = session_id "
-                        "WHERE (conversation_id IS NULL OR TRIM(conversation_id) = '') "
-                        "AND session_id IS NOT NULL AND TRIM(session_id) <> ''"
-                    )
         except Exception:
             return
 
@@ -307,8 +278,6 @@ WHERE (merged_into IS NULL OR TRIM(merged_into) = '')
         SQLModel.metadata.create_all(self._sessions.engine)
         # Also create tables from our custom metadata
         self._sqla_models.Base.metadata.create_all(self._sessions.engine)
-        # Patch up mixed embedding columns on existing DBs.
-        self._ensure_embedding_json_columns()
         self._ensure_memory_item_provenance_columns()
         self._ensure_conversation_state_table()
         self._ensure_diary_tables()

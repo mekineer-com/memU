@@ -301,9 +301,8 @@ class PatchConfig(BaseModel):
 
 class DefaultUserModel(BaseModel):
     user_id: str | None = None
-    # Soul/session scoping for multi-soul and multi-session memory filtering
+    # Soul scoping for multi-soul memory filtering.
     # soul_id: str | None = None
-    # session_id: str | None = None
 
 
 class UserConfig(BaseModel):

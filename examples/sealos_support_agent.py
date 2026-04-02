@@ -28,7 +28,7 @@ def run_rigorous_demo():
     # 1. ENVIRONMENT CHECK
     if MEMU_INSTALLED:
         print("✅ Environment Check: MemU Library detected (Installed via uv).")
-        print("✅ Runtime: Sealos Devbox (Python 3.13+)")
+        print("✅ Runtime: Sealos Devbox (Python 3.12)")
     else:
         # En caso de error, mostramos advertencia pero permitimos la captura
         print("⚠️ Warning: MemU library not detected. Running in Simulation Mode.")

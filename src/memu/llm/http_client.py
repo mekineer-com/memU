@@ -131,6 +131,7 @@ class HTTPLLMClient:
 
     async def _post_with_retry(self, endpoint: str, payload: dict[str, Any]) -> dict[str, Any]:
         """POST with throttle and retry on transient failures."""
+        transient_statuses = {408, 429, 500, 502, 503, 504}
         last_exc: Exception | None = None
         for attempt in range(1 + self._max_retries):
             await self._throttle()
@@ -139,7 +140,11 @@ class HTTPLLMClient:
                     resp = await client.post(endpoint, json=payload, headers=self._headers())
                     resp.raise_for_status()
                     return resp.json()
-            except (httpx.RemoteProtocolError, httpx.ReadTimeout, httpx.ConnectTimeout) as exc:
+            except (httpx.RemoteProtocolError, httpx.ReadTimeout, httpx.ConnectTimeout, httpx.HTTPStatusError) as exc:
+                if isinstance(exc, httpx.HTTPStatusError):
+                    status = exc.response.status_code
+                    if status not in transient_statuses:
+                        raise
                 last_exc = exc
                 if attempt < self._max_retries:
                     wait = (attempt + 1) * 5

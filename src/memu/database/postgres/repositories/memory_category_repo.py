@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from sqlalchemy.exc import IntegrityError
 from memu.database.models import MemoryCategory
 from memu.database.postgres.repositories.base import PostgresRepoBase
 from memu.database.postgres.session import SessionManager
@@ -116,8 +117,16 @@ class PostgresMemoryCategoryRepo(PostgresRepoBase, MemoryCategoryRepo):
                 **user_data,
             )
             session.add(cat)
-            session.flush()
-            session.refresh(cat)
+            try:
+                session.flush()
+                session.refresh(cat)
+            except IntegrityError:
+                session.rollback()
+                existing = session.scalar(select(self._sqla_models.MemoryCategory).where(*filters))
+                if existing is None:
+                    raise
+                existing.embedding = self._normalize_embedding(existing.embedding)
+                return self._cache_category(existing)
 
         return self._cache_category(cat)
 

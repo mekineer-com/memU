@@ -189,7 +189,6 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
         conv_id = (
             conversation_id
             or (user_data.get("conversation_id") if isinstance(user_data.get("conversation_id"), str) else None)
-            or (user_data.get("session_id") if isinstance(user_data.get("session_id"), str) else None)
         )
         item = self._memory_item_model(
             resource_id=resource_id,
@@ -242,7 +241,6 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
         conv_id = (
             conversation_id
             or (user_data.get("conversation_id") if isinstance(user_data.get("conversation_id"), str) else None)
-            or (user_data.get("session_id") if isinstance(user_data.get("session_id"), str) else None)
         )
 
         with self._sessions.session() as session:

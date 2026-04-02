@@ -85,7 +85,7 @@ class MemoryItem(BaseRecord):
     confidence: float | None = None
     source_message_ids: list[int] | None = None
     reflection_salience: float | None = None
-    # Conversation/session anchor (mapped from session_id when available).
+    # Conversation anchor.
     conversation_id: str | None = None
     episode_id: str | None = None
     affective_tags: dict[str, Any] | None = None

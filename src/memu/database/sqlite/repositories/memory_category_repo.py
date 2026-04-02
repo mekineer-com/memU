@@ -6,6 +6,7 @@ import logging
 from collections.abc import Mapping
 from typing import Any
 
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import delete, select
 
 from memu.database.models import MemoryCategory
@@ -196,8 +197,26 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
             )
             self._set_row_embedding(row, embedding)
             session.add(row)
-            session.flush()
-            session.refresh(row)
+            try:
+                session.flush()
+                session.refresh(row)
+            except IntegrityError:
+                session.rollback()
+                existing = session.exec(stmt).first()
+                if existing is None:
+                    raise
+                cat = MemoryCategory(
+                    id=existing.id,
+                    name=existing.name,
+                    description=existing.description,
+                    embedding=self._normalize_embedding(self._get_row_embedding(existing)),
+                    summary=existing.summary,
+                    created_at=existing.created_at,
+                    updated_at=existing.updated_at,
+                    **self._scope_kwargs_from(existing),
+                )
+                self.categories[existing.id] = cat
+                return cat
 
         cat = MemoryCategory(
             id=row.id,

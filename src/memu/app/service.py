@@ -386,16 +386,26 @@ class MemoryService(MemorizeMixin, RetrieveMixin, CRUDMixin):
 
     @staticmethod
     def _extract_json_blob(raw: str) -> str:
-        start = raw.find("{")
-        end = raw.rfind("}")
-        if start == -1 or end == -1 or end <= start:
-            msg = "No JSON object found"
+        start_obj = raw.find("{")
+        start_arr = raw.find("[")
+        candidates: list[tuple[int, str]] = []
+        if start_obj != -1:
+            candidates.append((start_obj, "}"))
+        if start_arr != -1:
+            candidates.append((start_arr, "]"))
+        if not candidates:
+            msg = "No JSON object or array found"
+            raise ValueError(msg)
+        start, closing = min(candidates, key=lambda pair: pair[0])
+        end = raw.rfind(closing)
+        if end == -1 or end <= start:
+            msg = "No complete JSON object or array found"
             raise ValueError(msg)
         return raw[start : end + 1]
 
     @staticmethod
     def _escape_prompt_value(value: str) -> str:
-        return value.replace("{", "{{").replace("}", "}}")
+        return value.replace("{", "{{").replace("}", "}}").replace("<", "&lt;").replace(">", "&gt;")
 
     def _model_dump_without_embeddings(self, obj: BaseModel) -> dict[str, Any]:
         data = obj.model_dump(exclude={"embedding"})
