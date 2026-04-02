@@ -195,7 +195,7 @@ CREATE TABLE IF NOT EXISTS memu_conversation_state (
     prior_context TEXT,
     active_intentions JSON,
     memory_cache JSON DEFAULT '[]',
-    pending_diary_memory_ids JSON DEFAULT '[]',
+    pending_diary_episode_ids JSON DEFAULT '[]',
     self_model_id VARCHAR,
     last_retrieval_ids JSON,
     last_memorize_at DATETIME,
@@ -220,8 +220,8 @@ CREATE TABLE IF NOT EXISTS memu_conversation_state (
                 self._add_column_if_missing(
                     conn,
                     "memu_conversation_state",
-                    "pending_diary_memory_ids",
-                    "pending_diary_memory_ids JSON DEFAULT '[]'",
+                    "pending_diary_episode_ids",
+                    "pending_diary_episode_ids JSON DEFAULT '[]'",
                 )
                 self._add_column_if_missing(conn, "memu_conversation_state", "self_model_id", "self_model_id VARCHAR")
                 self._add_column_if_missing(

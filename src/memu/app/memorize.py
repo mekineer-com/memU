@@ -146,30 +146,11 @@ class MemorizeMixin:
 
         conversation_id: str | None = None
         if isinstance(user, dict):
-            for key in (
-                "conversation_id",
-                "conversationId",
-                "conversationID",
-                "conversationid",
-                "session_id",
-                "sessionId",
-                "sessionID",
-                "sessionid",
-                "session_date",
-                "sessionDate",
-                "sessiondate",
-            ):
-                raw = user.get(key)
-                if raw is None:
-                    continue
+            raw = user.get("conversation_id")
+            if raw is not None:
                 candidate = str(raw).strip()
                 if candidate:
                     conversation_id = candidate
-                    break
-        if not conversation_id and isinstance(user_scope, dict):
-            raw_sid = user_scope.get("session_id")
-            if isinstance(raw_sid, str) and raw_sid.strip():
-                conversation_id = raw_sid.strip()
 
         memory_types = self._resolve_memory_types()
 
@@ -542,8 +523,8 @@ class MemorizeMixin:
     def _build_semantic_dedupe_scope(self, scope: Mapping[str, Any] | None) -> dict[str, str] | None:
         if not isinstance(scope, Mapping):
             return None
-        user_field = self._extract_scope_field(scope, keys=("user_id", "userId"))
-        soul_field = self._extract_scope_field(scope, keys=("soul_id", "soulId"))
+        user_field = self._extract_scope_field(scope, keys=("user_id",))
+        soul_field = self._extract_scope_field(scope, keys=("soul_id",))
         if user_field is None or soul_field is None:
             return None
         _user_key, user_value = user_field
@@ -1252,7 +1233,7 @@ Decide which clusters/candidates should map into existing categories, and which 
         items: list[MemoryItem] = []
         relations: list[CategoryItem] = []
         category_updates: dict[str, list[tuple[str, str]]] = {}
-        pending_diary_memory_ids: list[str] = []
+        pending_diary_episode_ids: list[str] = []
         user_scope = state.get("user", {})
         category_centroids = self._build_category_centroids(store=store, user=user_scope)
         homeless_item_count = 0
@@ -1293,7 +1274,9 @@ Decide which clusters/candidates should map into existing categories, and which 
                         )
                         items.extend(mem_items)
                         if plan.get("diary_worthy"):
-                            pending_diary_memory_ids.extend(item.id for item in mem_items)
+                            episode_id = str(plan.get("episode_id") or "").strip()
+                            if episode_id:
+                                pending_diary_episode_ids.append(episode_id)
                         relations.extend(rels)
                         homeless_item_count += homeless_delta
                         for cat_id, mems in cat_updates.items():
@@ -1333,7 +1316,9 @@ Decide which clusters/candidates should map into existing categories, and which 
                 )
                 items.extend(mem_items)
                 if plan.get("diary_worthy"):
-                    pending_diary_memory_ids.extend(item.id for item in mem_items)
+                    episode_id = str(plan.get("episode_id") or "").strip()
+                    if episode_id:
+                        pending_diary_episode_ids.append(episode_id)
                 relations.extend(rels)
                 homeless_item_count += homeless_delta
                 for cat_id, mems in cat_updates.items():
@@ -1345,7 +1330,7 @@ Decide which clusters/candidates should map into existing categories, and which 
             "relations": relations,
             "category_updates": category_updates,
             "homeless_item_count": homeless_item_count,
-            "pending_diary_memory_ids": list(dict.fromkeys(pending_diary_memory_ids)),
+            "pending_diary_episode_ids": list(dict.fromkeys(pending_diary_episode_ids)),
         })
         return state
 
@@ -1387,7 +1372,7 @@ Decide which clusters/candidates should map into existing categories, and which 
                 "items": items,
                 "categories": categories,
                 "relations": relations,
-                "pending_diary_memory_ids": state.get("pending_diary_memory_ids", []),
+                "pending_diary_episode_ids": state.get("pending_diary_episode_ids", []),
             }
         else:
             response = {
@@ -1395,7 +1380,7 @@ Decide which clusters/candidates should map into existing categories, and which 
                 "items": items,
                 "categories": categories,
                 "relations": relations,
-                "pending_diary_memory_ids": state.get("pending_diary_memory_ids", []),
+                "pending_diary_episode_ids": state.get("pending_diary_episode_ids", []),
             }
         skipped = state.get("skipped_reasons")
         if skipped:
@@ -2289,8 +2274,8 @@ Decide which clusters/candidates should map into existing categories, and which 
     def _category_scope_key(user_scope: Mapping[str, Any] | None) -> str:
         if not isinstance(user_scope, Mapping):
             return "__global__"
-        user_id = str(user_scope.get("user_id") or user_scope.get("userId") or "").strip()
-        soul_id = str(user_scope.get("soul_id") or user_scope.get("soulId") or "").strip()
+        user_id = str(user_scope.get("user_id") or "").strip()
+        soul_id = str(user_scope.get("soul_id") or "").strip()
         if not user_id and not soul_id:
             return "__global__"
         return f"user={user_id}|soul={soul_id}"
@@ -2852,17 +2837,12 @@ Decide which clusters/candidates should map into existing categories, and which 
         user_scope = user or {}
         raw_user = (
             user_scope.get("user_name")
-            or user_scope.get("userName")
             or user_scope.get("user_id")
-            or user_scope.get("userId")
         )
         raw_agent = (
             user_scope.get("soul_name")
-            or user_scope.get("soulName")
             or user_scope.get("character_name")
-            or user_scope.get("characterName")
             or user_scope.get("soul_id")
-            or user_scope.get("soulId")
         )
         user_name = str(raw_user).strip() if raw_user else "the user"
         agent_name = str(raw_agent).strip() if raw_agent else "the assistant"
@@ -2918,9 +2898,7 @@ Decide which clusters/candidates should map into existing categories, and which 
             user_scope = user or {}
             raw_user = (
                 user_scope.get("user_name")
-                or user_scope.get("userName")
                 or user_scope.get("user_id")
-                or user_scope.get("userId")
             )
             user_name = str(raw_user).strip() if raw_user else ""
             if user_name and user_name.lower() not in ("user", "the user"):
