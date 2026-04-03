@@ -214,13 +214,38 @@ CREATE TABLE IF NOT EXISTS memu_self_model (
     id TEXT PRIMARY KEY,
     soul_id TEXT NOT NULL,
     user_id TEXT NOT NULL,
-    trait_invariants TEXT,
     narrative_self TEXT,
     contextual_state TEXT,
+    related_memory_ids TEXT,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 )
 """
                 )
+                self._add_column_if_missing(conn, "memu_self_model", "related_memory_ids", "related_memory_ids TEXT")
+                cols = set(self._table_columns(conn, "memu_self_model"))
+                if "trait_invariants" in cols:
+                    conn.exec_driver_sql(
+                        """
+CREATE TABLE memu_self_model__new (
+    id TEXT PRIMARY KEY,
+    soul_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    narrative_self TEXT,
+    contextual_state TEXT,
+    related_memory_ids TEXT,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+)
+"""
+                    )
+                    conn.exec_driver_sql(
+                        """
+INSERT INTO memu_self_model__new (id, soul_id, user_id, narrative_self, contextual_state, related_memory_ids, updated_at)
+SELECT id, soul_id, user_id, narrative_self, contextual_state, related_memory_ids, updated_at
+FROM memu_self_model
+"""
+                    )
+                    conn.exec_driver_sql("DROP TABLE memu_self_model")
+                    conn.exec_driver_sql("ALTER TABLE memu_self_model__new RENAME TO memu_self_model")
                 conn.exec_driver_sql(
                     """
 CREATE TABLE IF NOT EXISTS memu_intentions (
