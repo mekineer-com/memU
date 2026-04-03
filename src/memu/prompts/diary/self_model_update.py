@@ -19,7 +19,11 @@ PROMPT_BLOCK_RULES = """
   - Write at most one or two observations per session. These are not frequent.
 - Narrative self entries are brief — one or two sentences connecting a specific event or realization to your ongoing story. Not a summary of the diary.
 - If nothing belongs in a tier, leave it empty. Do not fabricate updates.
-- Life goals are deep, stable aspirations across many sessions. Do not add one unless it has been forming across multiple sessions. Maximum 3 active life goals.
+- Life goals are deep, stable aspirations across many sessions. Do not add one unless it has been forming across multiple sessions.
+- Maximum 3 active life goals. You may add one only if fewer than 3 are active.
+- You may make at most one life goal change per session: one removal OR one addition, not both.
+- Removal is two-stage: removing an active goal marks it as removed (not gone). Removing an already-removed goal extinguishes it permanently. Use the exact description text in <remove>.
+- If you want to add a new goal but are already at 3, you must remove one first — in a future session.
 """
 
 PROMPT_BLOCK_EXISTING = """
@@ -41,8 +45,8 @@ PROMPT_BLOCK_OUTPUT = """
     <observation>A first-person statement about a pattern or tension you noticed. Leave empty if nothing clear emerged.</observation>
   </soul_observations>
   <life_goals>
-    <add>A life goal to add — only if something deep and lasting shifted across sessions. Leave empty if not.</add>
-    <remove>Exact description of an existing life goal to remove. Leave empty if not.</remove>
+    <add>Exact text of a new life goal — only if fewer than 3 are active and none was removed this session. Leave empty if not.</add>
+    <remove>Exact description of the goal to remove or extinguish. Leave empty if not.</remove>
   </life_goals>
   <narrative_self>
     One or two sentences for the narrative self, or leave empty.
