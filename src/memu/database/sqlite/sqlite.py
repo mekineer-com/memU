@@ -215,7 +215,6 @@ CREATE TABLE IF NOT EXISTS memu_self_model (
     soul_id TEXT NOT NULL,
     user_id TEXT NOT NULL,
     narrative_self TEXT,
-    contextual_state TEXT,
     related_memory_ids TEXT,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 )
@@ -223,7 +222,7 @@ CREATE TABLE IF NOT EXISTS memu_self_model (
                 )
                 self._add_column_if_missing(conn, "memu_self_model", "related_memory_ids", "related_memory_ids TEXT")
                 cols = set(self._table_columns(conn, "memu_self_model"))
-                if "trait_invariants" in cols:
+                if "trait_invariants" in cols or "contextual_state" in cols:
                     conn.exec_driver_sql(
                         """
 CREATE TABLE memu_self_model__new (
@@ -231,7 +230,6 @@ CREATE TABLE memu_self_model__new (
     soul_id TEXT NOT NULL,
     user_id TEXT NOT NULL,
     narrative_self TEXT,
-    contextual_state TEXT,
     related_memory_ids TEXT,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 )
@@ -239,8 +237,8 @@ CREATE TABLE memu_self_model__new (
                     )
                     conn.exec_driver_sql(
                         """
-INSERT INTO memu_self_model__new (id, soul_id, user_id, narrative_self, contextual_state, related_memory_ids, updated_at)
-SELECT id, soul_id, user_id, narrative_self, contextual_state, related_memory_ids, updated_at
+INSERT INTO memu_self_model__new (id, soul_id, user_id, narrative_self, related_memory_ids, updated_at)
+SELECT id, soul_id, user_id, narrative_self, related_memory_ids, updated_at
 FROM memu_self_model
 """
                     )
