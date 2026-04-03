@@ -21,7 +21,7 @@ PROMPT_BLOCK_RULES = """
 - If nothing belongs in a tier, leave it empty. Do not fabricate updates.
 - Life goals are deep, stable aspirations across many sessions. Do not add one unless it has been forming across multiple sessions.
 - Maximum 3 active life goals. You may add one only if fewer than 3 are active.
-- You may make at most one life goal change per session: one removal OR one addition, not both.
+- You may make at most one addition and one removal per session.
 - Removal is two-stage: removing an active goal marks it as removed (not gone). Removing an already-removed goal extinguishes it permanently. Use the exact description text in <remove>.
 - If you want to add a new goal but are already at 3, you must remove one first — in a future session.
 """
