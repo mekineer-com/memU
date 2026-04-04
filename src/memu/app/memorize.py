@@ -23,7 +23,6 @@ from memu.prompts.category_summary import (
 from memu.prompts.category_summary import (
     PROMPT as CATEGORY_SUMMARY_PROMPT,
 )
-from memu.prompts.diary.diary_worthy import PROMPT as DIARY_WORTHY_PROMPT
 from memu.prompts.memory_type import (
     CUSTOM_PROMPTS as MEMORY_TYPE_CUSTOM_PROMPTS,
 )
@@ -305,23 +304,18 @@ class MemorizeMixin:
             res_url = self._episode_resource_url(state["resource_url"], idx, total_episodes)
             text = prep.get("text")
             caption = prep.get("caption")
-            diary_episode_text, message_indices = self._prepare_diary_episode(
+            _, message_indices = self._prepare_diary_episode(
                 modality=state["modality"],
                 text=text if isinstance(text, str) else None,
                 message_indices=prep.get("message_indices"),
             )
             diary_worthy = False
-            if diary_episode_text:
-                diary_worthy = await self._classify_diary_worthy_episode(
-                    diary_episode_text,
-                    llm_client=llm_client,
-                )
 
             if state["modality"] == "conversation" and isinstance(text, str):
-                applicable_types = await self._route_episode(
+                applicable_types, diary_worthy = await self._route_episode(
                     text, state["memory_types"], llm_client, skipped_reasons=skipped_reasons
                 )
-                if not applicable_types:
+                if not applicable_types and not diary_worthy:
                     continue
             else:
                 applicable_types = state["memory_types"]
@@ -1276,6 +1270,10 @@ Decide which clusters/candidates should map into existing categories, and which 
                         resources.append(res)
 
                         entries = plan.get("entries") or []
+                        if plan.get("diary_worthy"):
+                            episode_id = str(plan.get("episode_id") or "").strip()
+                            if episode_id:
+                                pending_diary_episode_ids.append(episode_id)
                         if not entries:
                             continue
 
@@ -1293,10 +1291,6 @@ Decide which clusters/candidates should map into existing categories, and which 
                             session=session,
                         )
                         items.extend(mem_items)
-                        if plan.get("diary_worthy"):
-                            episode_id = str(plan.get("episode_id") or "").strip()
-                            if episode_id:
-                                pending_diary_episode_ids.append(episode_id)
                         relations.extend(rels)
                         homeless_item_count += homeless_delta
                         for cat_id, mems in cat_updates.items():
@@ -1319,6 +1313,10 @@ Decide which clusters/candidates should map into existing categories, and which 
                 resources.append(res)
 
                 entries = plan.get("entries") or []
+                if plan.get("diary_worthy"):
+                    episode_id = str(plan.get("episode_id") or "").strip()
+                    if episode_id:
+                        pending_diary_episode_ids.append(episode_id)
                 if not entries:
                     continue
 
@@ -1335,10 +1333,6 @@ Decide which clusters/candidates should map into existing categories, and which 
                     message_happened_at_map=plan.get("message_happened_at_map"),
                 )
                 items.extend(mem_items)
-                if plan.get("diary_worthy"):
-                    episode_id = str(plan.get("episode_id") or "").strip()
-                    if episode_id:
-                        pending_diary_episode_ids.append(episode_id)
                 relations.extend(rels)
                 homeless_item_count += homeless_delta
                 for cat_id, mems in cat_updates.items():
@@ -1638,9 +1632,9 @@ Decide which clusters/candidates should map into existing categories, and which 
         memory_types: list[MemoryType],
         llm_client: Any | None = None,
         skipped_reasons: list[str] | None = None,
-    ) -> list[MemoryType]:
+    ) -> tuple[list[MemoryType], bool]:
         if not memory_types:
-            return []
+            return [], False
         client = llm_client or self._get_llm_client()
         prompt = ROUTER_PROMPT.format(
             episode=episode_text,
@@ -1660,37 +1654,39 @@ Decide which clusters/candidates should map into existing categories, and which 
                 logger.warning("Router returned unparseable response, skipping episode: %.120s", raw)
                 if skipped_reasons is not None:
                     skipped_reasons.append("router returned unparseable JSON")
-                return []
+                return [], False
         if not isinstance(payload, dict):
             logger.warning("Router returned non-dict payload, skipping episode: %s", type(payload).__name__)
             if skipped_reasons is not None:
                 skipped_reasons.append("router returned non-dict payload")
-            return []
+            return [], False
         memorable = payload.get("memorable")
         routed_types = payload.get("types")
+        diary_worthy = bool(payload.get("diary_worthy"))
         reason = payload.get("reason", "")
         logger.info(
-            "Router decision: memorable=%s types=%s reason=%s",
+            "Router decision: memorable=%s types=%s diary_worthy=%s reason=%s",
             memorable,
             routed_types,
+            diary_worthy,
             reason,
         )
         if memorable is False:
             logger.info("Router gated episode as not memorable: %s", reason)
             if skipped_reasons is not None and reason:
                 skipped_reasons.append(reason)
-            return []
+            return [], diary_worthy
         if not isinstance(routed_types, list):
             logger.warning("Router returned no types list, skipping episode")
             if skipped_reasons is not None:
                 skipped_reasons.append("router returned no types list")
-            return []
+            return [], diary_worthy
         allowed_types = {
             routed_type
             for routed_type in routed_types
             if isinstance(routed_type, str) and routed_type in set(memory_types)
         }
-        return [mtype for mtype in memory_types if mtype in allowed_types]
+        return [mtype for mtype in memory_types if mtype in allowed_types], diary_worthy
 
     async def _generate_entries_from_text(
         self,
@@ -3107,27 +3103,6 @@ Decide which clusters/candidates should map into existing categories, and which 
         else:
             indices = self._extract_message_indices(episode_text)
         return episode_text, indices
-
-    def _parse_diary_worthy_response(self, raw: str) -> bool:
-        if not isinstance(raw, str) or not raw.strip():
-            return False
-        payload = None
-        try:
-            payload = json.loads(raw)
-        except json.JSONDecodeError:
-            try:
-                payload = json.loads(self._extract_json_blob(raw))
-            except Exception:
-                return False
-        if not isinstance(payload, dict):
-            return False
-        return bool(payload.get("worthy") is True)
-
-    async def _classify_diary_worthy_episode(self, episode_text: str, llm_client: Any | None = None) -> bool:
-        prompt = DIARY_WORTHY_PROMPT.format(exchange=self._escape_prompt_value(episode_text))
-        client = llm_client or self._get_llm_client()
-        raw = await client.chat(prompt, temperature=0.0)
-        return self._parse_diary_worthy_response(raw)
 
     def _parse_multimodal_response(self, raw: str, content_tag: str, caption_tag: str) -> tuple[str | None, str | None]:
         """
