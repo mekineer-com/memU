@@ -16,12 +16,11 @@ Extract only what is genuinely new or updates what is already known.
 
 PROMPT_BLOCK_RULES = """
 # Rules
-- This type is for **third parties only** — people (or animals) outside the conversation itself. The user and the soul are not extracted here.
-- A bare mention ("my sister called") is not enough. There must be enough detail to form a picture of who this person is or what they mean to the user.
-- Include: name (if given), relationship to the user, key traits or circumstances, and the texture of the connection where apparent.
-- Write using the user's name (if known) and the third party's name or role ("Marcos's brother Marco" or "his older brother").
-- Source_role is almost always `user`. Use `environment` only when a third party appears purely as context with no disclosed relationship to the user.
-- Exclude: one-time events involving this person (→ event type); the user's own behavioral patterns (→ behavior type); pure factual trivia about a person unconnected to the user.
+- This type is for **third parties only** — people (or animals) outside the conversation itself. The direct participants are not extracted here.
+- A bare mention ("my sister called") is not enough. There must be enough detail to form a picture of who this person is or what they mean to the participant who described them.
+- Include: name (if given), relationship to the participant, key traits or circumstances, and the texture of the connection where apparent.
+- Source_role: `user` when the human described the person; `soul` when the soul has direct experience of them (spoke with them, formed her own impression); `environment` when a third party appears purely as background context.
+- Exclude: one-time events involving this person (→ event type); behavioral patterns between the direct participants (→ behavior type); pure factual trivia unconnected to either participant.
 - Consolidate everything said about the same person into one memory. Under 80 words.
 """
 
@@ -47,7 +46,8 @@ Return all memories wrapped in a single <item> element:
 </item>
 
 source_role values:
-- user — the human described this person (almost always)
+- user — the human described this person
+- soul — the soul has direct experience of this person (spoke with them, formed her own impression)
 - environment — third-party context with no disclosed relationship to either participant
 
 confidence (float 0.0-1.0):
