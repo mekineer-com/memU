@@ -49,7 +49,7 @@ Sometimes a factual Q&A reveals something personal — but only when the person'
 # Output
 JSON only. No explanation. No markdown.
 Return only types from this allowed set: {allowed_types}
-Route to the fewest types that genuinely apply — usually 1 or 2, rarely 3, almost never all 4.
+Route to the fewest types that genuinely apply — usually 1 or 2, rarely 3, almost never all 5.
 
 When memorable (include only the types that apply):
 {{"memorable": true, "types": ["profile", "event"], "diary_worthy": true}}
