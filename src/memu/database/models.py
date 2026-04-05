@@ -9,7 +9,7 @@ from typing import Any, Literal
 import pendulum
 from pydantic import BaseModel, ConfigDict, Field
 
-MemoryType = Literal["profile", "event", "knowledge", "behavior", "skill", "tool", "diary"]
+MemoryType = Literal["profile", "event", "knowledge", "behavior", "social", "skill", "tool", "diary"]
 
 
 def compute_content_hash(summary: str, memory_type: str) -> str:

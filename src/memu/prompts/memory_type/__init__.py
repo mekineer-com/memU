@@ -1,12 +1,13 @@
-from memu.prompts.memory_type import behavior, diary, event, knowledge, profile, skill, tool
+from memu.prompts.memory_type import behavior, diary, event, knowledge, profile, skill, social, tool
 
-DEFAULT_MEMORY_TYPES: list[str] = ["profile", "event", "knowledge", "behavior"]
+DEFAULT_MEMORY_TYPES: list[str] = ["profile", "event", "knowledge", "behavior", "social"]
 
 PROMPTS: dict[str, str] = {
     "profile": profile.PROMPT.strip(),
     "event": event.PROMPT.strip(),
     "knowledge": knowledge.PROMPT.strip(),
     "behavior": behavior.PROMPT.strip(),
+    "social": social.PROMPT.strip(),
     "skill": skill.PROMPT.strip(),
     "tool": tool.PROMPT.strip(),
     "diary": diary.PROMPT.strip(),
@@ -17,6 +18,7 @@ CUSTOM_PROMPTS: dict[str, dict[str, str]] = {
     "event": event.CUSTOM_PROMPT,
     "knowledge": knowledge.CUSTOM_PROMPT,
     "behavior": behavior.CUSTOM_PROMPT,
+    "social": social.CUSTOM_PROMPT,
     "skill": skill.CUSTOM_PROMPT,
     "tool": tool.CUSTOM_PROMPT,
     "diary": diary.CUSTOM_PROMPT,
