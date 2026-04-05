@@ -10,7 +10,7 @@ This is a private fork of the upstream NevaMind memU project, significantly dive
 
 `memu` is the core extraction and retrieval library. It is not a server — it is imported by `mcp-memu-server`, which provides the API layer.
 
-**Four active memory types:**
+**Five active memory types:**
 
 | Type | What it captures |
 |------|-----------------|
@@ -18,8 +18,9 @@ This is a private fork of the upstream NevaMind memU project, significantly dive
 | `event` | What happened — episodic, time-anchored experiences |
 | `knowledge` | What was learned — facts, mechanisms, things worth carrying |
 | `behavior` | How someone acts — patterns, interaction styles, ways of being |
+| `social` | Third parties in the user's life — family, friends, coworkers, pets |
 
-Plus **diary** on a separate generation path (not routed — triggered after memorize when diary-worthy episodes accumulate).
+Plus **diary** on a separate generation path — auto-triggered after memorize when diary-worthy episodes are queued. Diary-worthiness is output from the episode router (same JSON call as memory-type routing; no separate classifier).
 
 **Three-layer storage:**
 
@@ -100,7 +101,7 @@ src/memu/
 ```
 
 **Key prompt locations:**
-- Extraction: `prompts/memory_type/{profile,event,knowledge,behavior}.py`
+- Extraction: `prompts/memory_type/{profile,event,knowledge,behavior,social}.py`
 - Router: `prompts/router/router.py`
 - Retrieval ranking: `prompts/retrieve/`
 - Diary: `prompts/diary/`
