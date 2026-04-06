@@ -68,7 +68,6 @@ class RetrieveMixin:
             "original_query": original_query,
             "context_queries": context_queries_objs,
             "route_intention": route_intention,
-            "skip_rewrite": len(queries) == 1,
             "retrieve_category": retrieve_category,
             "retrieve_item": retrieve_item,
             "retrieve_resource": retrieve_resource,
@@ -110,7 +109,7 @@ class RetrieveMixin:
                 step_id="route_intention",
                 role="route_intention",
                 handler=self._rag_route_intention,
-                requires={"route_intention", "original_query", "context_queries", "skip_rewrite"},
+                requires={"route_intention", "original_query", "context_queries"},
                 produces={"needs_retrieval", "rewritten_query", "active_query", "next_step_query"},
                 capabilities={"llm"},
                 config={"chat_llm_profile": self.retrieve_config.sufficiency_check_llm_profile},
@@ -216,7 +215,6 @@ class RetrieveMixin:
             "original_query",
             "context_queries",
             "route_intention",
-            "skip_rewrite",
             "retrieve_category",
             "retrieve_item",
             "retrieve_resource",
@@ -239,14 +237,14 @@ class RetrieveMixin:
             return state
 
         llm_client = self._get_step_llm_client(step_context)
-        needs_retrieval, rewritten_query = await self._decide_if_retrieval_needed(
+        needs_retrieval, _rewritten_query = await self._decide_if_retrieval_needed(
             state["original_query"],
             state["context_queries"],
             retrieved_content=None,
             llm_client=llm_client,
         )
-        if state.get("skip_rewrite"):
-            rewritten_query = state["original_query"]
+        # Route-intention is decision-only: keep query unchanged here.
+        rewritten_query = state["original_query"]
 
         state.update({
             "needs_retrieval": needs_retrieval,
@@ -444,7 +442,7 @@ class RetrieveMixin:
                 step_id="route_intention",
                 role="route_intention",
                 handler=self._llm_route_intention,
-                requires={"original_query", "context_queries", "skip_rewrite"},
+                requires={"original_query", "context_queries"},
                 produces={"needs_retrieval", "rewritten_query", "active_query", "next_step_query"},
                 capabilities={"llm"},
                 config={"llm_profile": self.retrieve_config.sufficiency_check_llm_profile},
@@ -535,14 +533,14 @@ class RetrieveMixin:
             return state
 
         llm_client = self._get_step_llm_client(step_context)
-        needs_retrieval, rewritten_query = await self._decide_if_retrieval_needed(
+        needs_retrieval, _rewritten_query = await self._decide_if_retrieval_needed(
             state["original_query"],
             state["context_queries"],
             retrieved_content=None,
             llm_client=llm_client,
         )
-        if state.get("skip_rewrite"):
-            rewritten_query = state["original_query"]
+        # Route-intention is decision-only: keep query unchanged here.
+        rewritten_query = state["original_query"]
 
         state.update({
             "needs_retrieval": needs_retrieval,
