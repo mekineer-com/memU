@@ -68,7 +68,7 @@ class RetrieveMixin:
             "original_query": original_query,
             "context_queries": context_queries_objs,
             "route_intention": route_intention,
-            "skip_rewrite": True,
+            "skip_rewrite": len(queries) == 1,
             "retrieve_category": retrieve_category,
             "retrieve_item": retrieve_item,
             "retrieve_resource": retrieve_resource,
