@@ -237,14 +237,12 @@ class RetrieveMixin:
             return state
 
         llm_client = self._get_step_llm_client(step_context)
-        needs_retrieval, _rewritten_query = await self._decide_if_retrieval_needed(
+        needs_retrieval, rewritten_query = await self._decide_if_retrieval_needed(
             state["original_query"],
             state["context_queries"],
             retrieved_content=None,
             llm_client=llm_client,
         )
-        # Route-intention is decision-only: keep query unchanged here.
-        rewritten_query = state["original_query"]
 
         state.update({
             "needs_retrieval": needs_retrieval,
@@ -533,14 +531,12 @@ class RetrieveMixin:
             return state
 
         llm_client = self._get_step_llm_client(step_context)
-        needs_retrieval, _rewritten_query = await self._decide_if_retrieval_needed(
+        needs_retrieval, rewritten_query = await self._decide_if_retrieval_needed(
             state["original_query"],
             state["context_queries"],
             retrieved_content=None,
             llm_client=llm_client,
         )
-        # Route-intention is decision-only: keep query unchanged here.
-        rewritten_query = state["original_query"]
 
         state.update({
             "needs_retrieval": needs_retrieval,
