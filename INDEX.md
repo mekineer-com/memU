@@ -28,14 +28,14 @@
 
 | Directory | Files | Purpose |
 |-----------|-------|---------|
-| `memory_type/` | `profile.py`, `event.py`, `behavior.py`, `knowledge.py` | Per-type extraction prompts (PROMPT + CUSTOM_PROMPT). These four are active (DEFAULT_MEMORY_TYPES). `skill.py`, `tool.py`, `diary.py` exist but are not active extraction types. |
+| `memory_type/` | `profile.py`, `event.py`, `behavior.py`, `knowledge.py`, `social.py` | Per-type extraction prompts (PROMPT + CUSTOM_PROMPT). These five are active (DEFAULT_MEMORY_TYPES). `skill.py`, `tool.py`, `diary.py` exist but are not active extraction types. |
 | `memory_type/__init__.py` | — | PROMPTS dict, DEFAULT_MEMORY_TYPES list |
 | `preprocess/` | `conversation.py`, `document.py`, `image.py`, `audio.py`, `video.py` | Input normalization per modality |
 | `router/router.py` | — | Classify input → memory type(s) and `diary_worthy` flag in one pass |
 | `retrieve/` | `query_rewriter.py`, `llm_category_ranker.py`, `llm_item_ranker.py`, `llm_resource_ranker.py`, `judger.py`, `pre_retrieval_decision.py` | Retrieval ranking & judgment |
 | `category_patch/` | `category.py` | Dynamic category update prompts |
 | `category_summary/` | `category.py`, `category_with_refs.py` | Category synthesis |
-| `diary/` | `self_model_update.py` | Diary generation & self-model reflection. `self_model_update.py` includes `<life_goals>` XML section (add/remove; max 3 active; most sessions leave empty) and `<soul_observations>` with optional `<supersedes><id>...</id></supersedes>` per observation (IDs from retrieved background memories; scope-validated at write time). |
+| `diary/` | `self_model_update.py` | Diary generation & self-model reflection. `self_model_update.py` includes `<life_goals>` XML section (add/remove; max 3 active; most sessions leave empty) and `<soul_observations>` with optional `<supersedes><id>...</id></supersedes>` and `<shaped_by><id>...</id></shaped_by>` per observation. `supersedes` IDs mark retrieved background memories as outdated (scope-validated at write time); `shaped_by` IDs record which background memories influenced the observation (stored as `extra.shaped_by_ids` on the written memory item — provenance audit trail). |
 
 ## Task → Files
 
