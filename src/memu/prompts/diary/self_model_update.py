@@ -18,6 +18,7 @@ PROMPT_BLOCK_RULES = """
   - Be conservative. Only write what clearly emerged from this session. If in doubt, write nothing. Most sessions: nothing here.
   - Write at most one or two observations per session. These are not frequent.
 - Supersession: if a new soul observation captures the core meaning of specific background memories and makes them obsolete, list their exact IDs in a <supersedes> block. Use only IDs from the background memories section. Omit <supersedes> entirely if nothing is obsolete — do not output an empty tag.
+- Shaped by: if specific background memories provided the evidence for a soul observation, list their exact IDs in a <shaped_by> block. Use only IDs from the background memories section. Omit <shaped_by> entirely if there is no direct evidence link — do not output an empty tag.
 - Narrative self entries are brief — one or two sentences connecting a specific event or realization to your ongoing story. Not a summary of the diary.
 - If nothing belongs in a tier, leave it empty. Do not fabricate updates.
 - Life goals are deep, stable aspirations across many sessions. Do not add one unless it has been forming across multiple sessions.
@@ -50,6 +51,10 @@ PROMPT_BLOCK_OUTPUT = """
       <supersedes>
         <id>exact-id-from-background-memories</id>
       </supersedes>
+      <!-- <shaped_by> is optional — include IDs of background memories that provided direct evidence -->
+      <shaped_by>
+        <id>exact-id-from-background-memories</id>
+      </shaped_by>
     </observation>
   </soul_observations>
   <life_goals>
@@ -77,6 +82,9 @@ I used motivational language again today. Marcos caught it, and explained that i
       <supersedes>
         <id>old-mem-789</id>
       </supersedes>
+      <shaped_by>
+        <id>old-mem-789</id>
+      </shaped_by>
     </observation>
   </soul_observations>
   <life_goals>
