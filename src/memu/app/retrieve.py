@@ -54,6 +54,7 @@ class RetrieveMixin:
         where_filters = self._normalize_where(where)
 
         context_queries_objs = queries[:-1] if len(queries) > 1 else []
+        route_context_queries, downstream_context_queries = self._split_context_queries(context_queries_objs)
 
         route_intention = self.retrieve_config.route_intention
         retrieve_category = self.retrieve_config.category.enabled
@@ -66,7 +67,8 @@ class RetrieveMixin:
         state: WorkflowState = {
             "method": self.retrieve_config.method,
             "original_query": original_query,
-            "context_queries": context_queries_objs,
+            "context_queries": downstream_context_queries,
+            "route_context_queries": route_context_queries,
             "route_intention": route_intention,
             "retrieve_category": retrieve_category,
             "retrieve_item": retrieve_item,
@@ -239,7 +241,7 @@ class RetrieveMixin:
         llm_client = self._get_step_llm_client(step_context)
         needs_retrieval, rewritten_query = await self._decide_if_retrieval_needed(
             state["original_query"],
-            state["context_queries"],
+            state.get("route_context_queries", state["context_queries"]),
             retrieved_content=None,
             llm_client=llm_client,
         )
@@ -533,7 +535,7 @@ class RetrieveMixin:
         llm_client = self._get_step_llm_client(step_context)
         needs_retrieval, rewritten_query = await self._decide_if_retrieval_needed(
             state["original_query"],
-            state["context_queries"],
+            state.get("route_context_queries", state["context_queries"]),
             retrieved_content=None,
             llm_client=llm_client,
         )
@@ -798,6 +800,19 @@ class RetrieveMixin:
                 lines.append(f"- {q!s}")
 
         return "\n".join(lines)
+
+    @staticmethod
+    def _split_context_queries(context_queries: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        route_context = list(context_queries)
+        downstream_context = [
+            q
+            for q in route_context
+            if not (
+                isinstance(q, dict)
+                and str(q.get("role") or "").strip().lower() == "history_from_chat_x"
+            )
+        ]
+        return route_context, downstream_context
 
     @staticmethod
     def _extract_query_text(query: dict[str, Any]) -> str:
