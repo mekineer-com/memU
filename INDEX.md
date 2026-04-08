@@ -8,8 +8,8 @@
 | Package | Purpose |
 |---------|---------|
 | `app/service.py` | `MemoryService` — top-level facade, only public API |
-| `app/memorize.py` | Memorize workflow: preprocess → route → extract → store |
-| `app/retrieve.py` | Retrieve workflow: rewrite query → embed → rank → judge |
+| `app/memorize.py` | Memorize workflow: preprocess → route → extract → store; `all_categories_summary` + `soul_card` threaded into extraction soul-context; reinforcement roll-up on dedupe merge (`reinforcement_count` + `last_reinforced_at` accumulated on survivor when `enable_item_reinforcement=true`) |
+| `app/retrieve.py` | Retrieve workflow: rewrite query → embed → rank → judge; `_split_context_queries()` splits context so route step receives full chat-history context (`history_from_chat_x`, 2-anchor) while downstream sufficiency steps receive trimmed context (`history_from_last_chat_x`, 1-anchor) |
 | `app/settings.py` | Pydantic config models (MemorizeConfig, RetrieveConfig, LLMProfile, etc.) |
 | `app/crud.py` | Low-level memory CRUD |
 | `app/patch.py` | Memory patching / update logic |
@@ -34,7 +34,7 @@
 | `router/router.py` | — | Classify input → memory type(s) and `diary_worthy` flag in one pass |
 | `retrieve/` | `query_rewriter.py`, `llm_category_ranker.py`, `llm_item_ranker.py`, `llm_resource_ranker.py`, `judger.py`, `pre_retrieval_decision.py` | Retrieval ranking & judgment |
 | `category_patch/` | `category.py` | Dynamic category update prompts |
-| `category_summary/` | `category.py`, `category_with_refs.py` | Category synthesis |
+| `category_summary/` | `category.py`, `category_with_refs.py` | Category synthesis; both prompts treat `[reinforced Nx]` markers as frequency signals — instruct LLM to use "often", "frequently", "tends to" rather than treating as a one-off fact |
 | `diary/` | `self_model_update.py` | Diary generation & self-model reflection. `self_model_update.py` includes `<life_goals>` XML section (add/remove; max 3 active; most sessions leave empty) and `<soul_observations>` with optional `<supersedes><id>...</id></supersedes>` and `<shaped_by><id>...</id></shaped_by>` per observation. `supersedes` IDs mark retrieved background memories as outdated (scope-validated at write time); `shaped_by` IDs record which background memories influenced the observation (stored as `extra.shaped_by_ids` on the written memory item — provenance audit trail). |
 
 ## Task → Files
