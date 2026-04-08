@@ -2225,19 +2225,22 @@ Decide which clusters/candidates should map into existing categories, and which 
                     store.memory_item_repo.update_item(**update_kwargs)
                 superseded_targets.add(target_item_id)
                 logger.info("supersede: %s superseded_by %s (%.60s)", target_item_id, item.id, summary_text)
-            if reinforce and item.extra.get("reinforcement_count", 1) > 1:
-                # existing item
-                continue
             mapped_cat_ids = self._map_category_names_to_ids(cat_names, ctx)
+            reinforcement_count = self._item_reinforcement_count(item)
+            update_summary = self._category_update_summary_text(resolved_summary, reinforcement_count)
+            if not update_summary:
+                continue
             for cid in mapped_cat_ids:
+                category_memory_updates.setdefault(cid, []).append((item.id, update_summary))
+                if reinforce and reinforcement_count > 1:
+                    # Existing reinforced item: no new relation row, but still update category context.
+                    continue
                 rel_kwargs = {"item_id": item.id, "category_id": cid, "user_data": dict(user or {})}
                 if session is not None:
                     rel = cast(Any, store.category_item_repo).link_item_category(**rel_kwargs, session=session)
                 else:
                     rel = store.category_item_repo.link_item_category(**rel_kwargs)
                 rels.append(rel)
-                # Store (item_id, summary) tuple for reference support
-                category_memory_updates.setdefault(cid, []).append((item.id, resolved_summary))
 
         return items, rels, category_memory_updates, homeless_count
 
@@ -2378,6 +2381,27 @@ Decide which clusters/candidates should map into existing categories, and which 
                 mapped.append(cid)
                 seen.add(cid)
         return mapped
+
+    @staticmethod
+    def _item_reinforcement_count(item: MemoryItem) -> int:
+        extra = getattr(item, "extra", None)
+        if not isinstance(extra, dict):
+            return 1
+        raw = extra.get("reinforcement_count")
+        try:
+            count = int(raw)
+        except (TypeError, ValueError):
+            return 1
+        return count if count > 1 else 1
+
+    @staticmethod
+    def _category_update_summary_text(summary: str, reinforcement_count: int) -> str:
+        text = str(summary or "").strip()
+        if not text:
+            return ""
+        if reinforcement_count <= 1:
+            return text
+        return f"[reinforced {reinforcement_count}x] {text}"
 
     async def _preprocess_resource_url(
         self, *, local_path: str, text: str | None, modality: str, llm_client: Any | None = None

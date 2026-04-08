@@ -1,4 +1,6 @@
-
+# SONNET WANTED: Add a prompt rule that when input memory lines include
+# "[reinforced Nx]" markers, the summary should preserve recurrence semantics
+# using natural frequency language (for example: often, frequently, repeatedly).
 PROMPT_BLOCK_OBJECTIVE = """
 # Naming
 The human participant's name is: {user_name}.

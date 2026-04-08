@@ -6,6 +6,10 @@ when summarizing category content, linking statements to their
 source memory items.
 """
 
+# SONNET WANTED: Add a prompt rule that when input memory lines include
+# "[reinforced Nx]" markers, the summary should preserve recurrence semantics
+# using natural frequency language (for example: often, frequently, repeatedly),
+# while keeping [ref:ITEM_ID] citations intact.
 PROMPT_BLOCK_OBJECTIVE = """
 # Naming
 The human user's name is: {user_name}. Always refer to them as {user_name} (not "the user").
