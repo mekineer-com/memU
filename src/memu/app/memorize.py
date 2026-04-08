@@ -137,6 +137,8 @@ class MemorizeMixin:
         user: dict[str, Any] | None = None,
         raw_text: str | None = None,
         local_path: str | None = None,
+        all_categories_summary: str | None = None,
+        soul_card: str | None = None,
     ) -> dict[str, Any]:
         ctx = self._get_context()
         store = self._get_database()
@@ -163,6 +165,8 @@ class MemorizeMixin:
             "category_ids": list(ctx.category_ids),
             "user": user_scope,
             "conversation_id": conversation_id,
+            "all_categories_summary": str(all_categories_summary or "").strip() or None,
+            "soul_card": str(soul_card or "").strip() or None,
         }
 
         # Optional fast path for callers that already have the resource text.
@@ -327,6 +331,8 @@ class MemorizeMixin:
                 memory_types=applicable_types,
                 text=text,
                 categories_prompt_str=state["categories_prompt_str"],
+                all_categories_summary=state.get("all_categories_summary"),
+                soul_card=state.get("soul_card"),
                 llm_client=llm_client,
                 skipped_reasons=skipped_reasons,
             )
@@ -1523,6 +1529,8 @@ Decide which clusters/candidates should map into existing categories, and which 
         memory_types: list[MemoryType],
         text: str | None,
         categories_prompt_str: str,
+        all_categories_summary: str | None = None,
+        soul_card: str | None = None,
         episodes: list[dict[str, int | str]] | None = None,
         llm_client: Any | None = None,
         skipped_reasons: list[str] | None = None,
@@ -1538,6 +1546,8 @@ Decide which clusters/candidates should map into existing categories, and which 
                 store=store,
                 memory_types=memory_types,
                 categories_prompt_str=categories_prompt_str,
+                all_categories_summary=all_categories_summary,
+                soul_card=soul_card,
                 episodes=episodes,
                 llm_client=client,
                 skipped_reasons=skipped_reasons,
@@ -1559,6 +1569,8 @@ Decide which clusters/candidates should map into existing categories, and which 
         store: Database,
         memory_types: list[MemoryType],
         categories_prompt_str: str,
+        all_categories_summary: str | None,
+        soul_card: str | None,
         episodes: list[dict[str, int | str]] | None,
         llm_client: Any | None = None,
         skipped_reasons: list[str] | None = None,
@@ -1570,6 +1582,8 @@ Decide which clusters/candidates should map into existing categories, and which 
                 store=store,
                 memory_types=memory_types,
                 categories_prompt_str=categories_prompt_str,
+                all_categories_summary=all_categories_summary,
+                soul_card=soul_card,
                 llm_client=llm_client,
                 skipped_reasons=skipped_reasons,
             )
@@ -1580,6 +1594,8 @@ Decide which clusters/candidates should map into existing categories, and which 
             store=store,
             memory_types=memory_types,
             categories_prompt_str=categories_prompt_str,
+            all_categories_summary=all_categories_summary,
+            soul_card=soul_card,
             default_source_message_ids=self._extract_message_indices(resource_text)
             if modality == "conversation"
             else None,
@@ -1594,6 +1610,8 @@ Decide which clusters/candidates should map into existing categories, and which 
         store: Database,
         memory_types: list[MemoryType],
         categories_prompt_str: str,
+        all_categories_summary: str | None,
+        soul_card: str | None,
         llm_client: Any | None = None,
         skipped_reasons: list[str] | None = None,
     ) -> list[StructuredMemoryEntry]:
@@ -1619,6 +1637,8 @@ Decide which clusters/candidates should map into existing categories, and which 
                 store=store,
                 memory_types=applicable_types,
                 categories_prompt_str=categories_prompt_str,
+                all_categories_summary=all_categories_summary,
+                soul_card=soul_card,
                 default_source_message_ids=self._extract_message_indices(episode_text),
                 llm_client=llm_client,
             )
@@ -1695,13 +1715,19 @@ Decide which clusters/candidates should map into existing categories, and which 
         store: Database,
         memory_types: list[MemoryType],
         categories_prompt_str: str,
+        all_categories_summary: str | None = None,
+        soul_card: str | None = None,
         default_source_message_ids: list[int] | None = None,
         llm_client: Any | None = None,
     ) -> list[StructuredMemoryEntry]:
         if not memory_types:
             return []
         client = llm_client or self._get_llm_client()
-        soul_context_str = self._format_soul_context_for_prompt(store)
+        soul_context_str = self._format_soul_context_for_prompt(
+            store,
+            all_categories_summary=all_categories_summary,
+            soul_card=soul_card,
+        )
         typed_prompts = [
             (mtype, self._build_memory_type_prompt(
                 memory_type=mtype,
@@ -2719,7 +2745,13 @@ Decide which clusters/candidates should map into existing categories, and which 
 
         return "\n".join(indexed_lines)
 
-    def _format_soul_context_for_prompt(self, store: Database) -> str:
+    def _format_soul_context_for_prompt(
+        self,
+        store: Database,
+        *,
+        all_categories_summary: str | None = None,
+        soul_card: str | None = None,
+    ) -> str:
         sections: list[str] = []
         for category in store.memory_category_repo.categories.values():
             summary = str(category.summary or "").strip()
@@ -2727,6 +2759,12 @@ Decide which clusters/candidates should map into existing categories, and which 
                 continue
             name = str(category.name or "").strip() or "Unnamed Category"
             sections.append(f"## {name}\n{summary}")
+        compact_summary = str(all_categories_summary or "").strip()
+        if compact_summary:
+            sections.append(f"## All Categories Summary\n{compact_summary}")
+        card = str(soul_card or "").strip()
+        if card:
+            sections.append(f"## Soul Card\n{card}")
         if not sections:
             return "No prior knowledge about these participants exists yet."
         return "\n\n".join(sections)
