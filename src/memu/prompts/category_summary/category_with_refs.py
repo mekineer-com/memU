@@ -6,10 +6,6 @@ when summarizing category content, linking statements to their
 source memory items.
 """
 
-# SONNET WANTED: Add a prompt rule that when input memory lines include
-# "[reinforced Nx]" markers, the summary should preserve recurrence semantics
-# using natural frequency language (for example: often, frequently, repeatedly),
-# while keeping [ref:ITEM_ID] citations intact.
 PROMPT_BLOCK_OBJECTIVE = """
 # Naming
 The human user's name is: {user_name}. Always refer to them as {user_name} (not "the user").
@@ -60,6 +56,7 @@ PROMPT_BLOCK_RULES = """
 - Use the exact item ID from the input — don't modify it
 - Multiple sources can be cited together: [ref:id1,id2]
 - Existing information that isn't being updated doesn't need a reference
+- When an incoming item begins with a `[reinforced Nx]` marker (e.g., `[reinforced 5x] Marcos feels lonely`), this means the same pattern has appeared across N separate sessions — it is not a one-off. Do not strip this signal when merging. Use natural frequency language in the summary: "often", "frequently", "tends to", "repeatedly". Keep the [ref:ITEM_ID] citation alongside the merged statement as usual.
 """
 
 PROMPT_BLOCK_OUTPUT = """
