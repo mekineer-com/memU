@@ -486,6 +486,20 @@ class MemorizeMixin:
                     continue
 
                 store.memory_item_repo.update_item(item_id=redundant.id, merged_into=survivor.id)
+                if self.memorize_config.enable_item_reinforcement:
+                    rolled_count = self._item_reinforcement_count(survivor) + self._item_reinforcement_count(redundant)
+                    reinforced_at = pendulum.now("UTC").isoformat()
+                    store.memory_item_repo.update_item(
+                        item_id=survivor.id,
+                        extra={
+                            "reinforcement_count": rolled_count,
+                            "last_reinforced_at": reinforced_at,
+                        },
+                    )
+                    survivor_extra = dict(getattr(survivor, "extra", {}) or {})
+                    survivor_extra["reinforcement_count"] = rolled_count
+                    survivor_extra["last_reinforced_at"] = reinforced_at
+                    survivor.extra = survivor_extra
                 merged_map[redundant.id] = survivor.id
                 active_pool.pop(redundant.id, None)
                 logger.info("dedupe: merged %s into %s (sim=%.3f)", redundant.id, survivor.id, similarity)
@@ -498,7 +512,14 @@ class MemorizeMixin:
             return state
 
         merged_ids = set(merged_map.keys())
-        state["items"] = [item for item in items if getattr(item, "id", None) not in merged_ids]
+        remaining_items: list[MemoryItem] = []
+        for item in items:
+            item_id = getattr(item, "id", None)
+            if item_id in merged_ids:
+                continue
+            refreshed = active_pool.get(item_id) if isinstance(item_id, str) else None
+            remaining_items.append(refreshed if refreshed is not None else item)
+        state["items"] = remaining_items
         state["relations"] = [
             rel for rel in (state.get("relations") or []) if getattr(rel, "item_id", None) not in merged_ids
         ]
