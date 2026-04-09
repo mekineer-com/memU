@@ -125,7 +125,7 @@ async def test_openrouter_full_workflow():
 
     await _test_memorize(service, file_path, output_data)
     await _test_retrieve(service, queries, "rag", 2, output_data)
-    await _test_retrieve(service, queries, "llm", 3, output_data)
+    await _test_retrieve(service, queries, "rag_plus_llm", 3, output_data)
 
     # Test 4: List memory items
     print("\n[OPENROUTER] Test 4: List memory items...")

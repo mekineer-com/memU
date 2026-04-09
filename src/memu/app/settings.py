@@ -196,13 +196,13 @@ class RetrieveConfig(BaseModel):
     """Configure retrieval behavior for `MemoryUser.retrieve`.
 
     Attributes:
-        method: Retrieval strategy. Use "rag" for embedding-based vector search or
-            "llm" to delegate ranking to the LLM.
+        method: Retrieval strategy. Use "rag" for pure embedding-based retrieval or
+            "rag_plus_llm" to enable LLM-assisted routing/query rewrite/sufficiency checks.
         top_k: Maximum number of results to return per category (and per stage),
             controlling breadth of the retrieved context.
     """
 
-    method: Annotated[Literal["rag", "llm"], Normalize] = "rag"
+    method: Annotated[Literal["rag", "rag_plus_llm"], Normalize] = "rag_plus_llm"
     route_intention: bool = Field(default=False)
     category: RetrieveCategoryConfig = Field(default=RetrieveCategoryConfig())
     item: RetrieveItemConfig = Field(default=RetrieveItemConfig())
