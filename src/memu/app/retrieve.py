@@ -56,12 +56,13 @@ class RetrieveMixin:
         context_queries_objs = queries[:-1] if len(queries) > 1 else []
         route_context_queries, downstream_context_queries = self._split_context_queries(context_queries_objs)
 
-        llm_helpers_enabled = self.retrieve_config.method == "rag_plus_llm"
-        route_intention = llm_helpers_enabled
+        route_intention = self.retrieve_config.route_intention
         retrieve_category = self.retrieve_config.category.enabled
         retrieve_item = self.retrieve_config.item.enabled
         retrieve_resource = self.retrieve_config.resource.enabled
-        sufficiency_check = llm_helpers_enabled
+        sufficiency_check = self.retrieve_config.sufficiency_check
+
+        workflow_name = "retrieve_llm" if self.retrieve_config.method == "llm" else "retrieve_rag"
 
         state: WorkflowState = {
             "method": self.retrieve_config.method,
@@ -78,7 +79,7 @@ class RetrieveMixin:
             "where": where_filters,
         }
 
-        result = await self._run_workflow("retrieve_rag", state)
+        result = await self._run_workflow(workflow_name, state)
         response = cast(dict[str, Any] | None, result.get("response"))
         if response is None:
             msg = "Retrieve workflow failed to produce a response"
