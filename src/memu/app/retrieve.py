@@ -795,6 +795,10 @@ class RetrieveMixin:
                     text = content
                 else:
                     text = str(content)
+                role_text = str(role or "").strip().lower()
+                if role_text == "identity_context":
+                    lines.append(text)
+                    continue
                 lines.append(f"- [{role}]: {text}")
             else:
                 lines.append(f"- {q!s}")
