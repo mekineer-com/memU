@@ -349,19 +349,22 @@ class RetrieveMixin:
 
         return referenced_item_ids
 
-    def _find_entity_matches(self, text: str, store: Database) -> list[Any]:
+    def _find_entity_matches(self, text: str, store: Database, where: Mapping[str, Any] | None = None) -> list[Any]:
         """Find known entities mentioned in query text via string matching.
 
         Sub-millisecond: no LLM, no embeddings — just scans the entities table.
         """
-        all_entities = store.entity_repo.list_all()
+        all_entities = store.entity_repo.list_all(where)
         if not all_entities:
             return []
         text_lower = text.lower()
         return [e for e in all_entities if e.name.lower() in text_lower]
 
     def _get_entity_seed_memory_ids(
-        self, entities: list[Any], store: Database
+        self,
+        entities: list[Any],
+        store: Database,
+        where: Mapping[str, Any] | None = None,
     ) -> tuple[list[str], dict[str, str]]:
         """Get memory IDs linked to matched entities via mentions triples.
 
@@ -372,7 +375,7 @@ class RetrieveMixin:
         seen: set[str] = set()
         provenance: dict[str, str] = {}
         for entity in entities:
-            triples = store.triple_repo.get_edges_to(entity.id, predicate="mentions")
+            triples = store.triple_repo.get_edges_to(entity.id, predicate="mentions", where=where)
             for t in triples:
                 if t.subject_id not in seen:
                     seen.add(t.subject_id)
@@ -413,10 +416,12 @@ class RetrieveMixin:
         graph_provenance: dict[str, str] = {}
 
         if graph_cfg.enabled:
-            matched_entities = self._find_entity_matches(state["active_query"], store)
+            matched_entities = self._find_entity_matches(state["active_query"], store, where_filters)
             if matched_entities:
                 entity_seed_ids, provenance = self._get_entity_seed_memory_ids(
-                    matched_entities, store
+                    matched_entities,
+                    store,
+                    where_filters,
                 )
                 graph_provenance.update(provenance)
 
@@ -429,7 +434,10 @@ class RetrieveMixin:
                     "contextualizes", "parallels", "shaped_by",
                 ]
                 expanded_ids = store.triple_repo.get_connected_memory_ids(
-                    all_seed_ids, predicates=sem_predicates, max_per_source=3
+                    all_seed_ids,
+                    predicates=sem_predicates,
+                    max_per_source=3,
+                    where=where_filters,
                 )
                 for mid in expanded_ids:
                     if mid not in graph_provenance:

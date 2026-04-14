@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 from sqlmodel import select
@@ -51,11 +52,17 @@ class SQLiteTripleRepo(SQLiteRepoBase, TripleRepo):
             updated_at=row.updated_at,
         )
 
-    def add(self, triple: Triple, session: Any | None = None) -> Triple:
+    def add(
+        self,
+        triple: Triple,
+        user_data: Mapping[str, Any] | None = None,
+        session: Any | None = None,
+    ) -> Triple:
         now = self._now()
+        create_scope = {k: v for k, v in dict(user_data or {}).items() if k in self._scope_fields and v is not None}
         if session is None:
             with self._sessions.session() as db_session:
-                persisted = self.add(triple, session=db_session)
+                persisted = self.add(triple, user_data=user_data, session=db_session)
                 db_session.commit()
                 return persisted
 
@@ -73,6 +80,7 @@ class SQLiteTripleRepo(SQLiteRepoBase, TripleRepo):
             properties=triple.properties,
             created_at=now,
             updated_at=now,
+            **create_scope,
         )
         session.add(row)
         session.flush()
@@ -80,12 +88,19 @@ class SQLiteTripleRepo(SQLiteRepoBase, TripleRepo):
         return self._row_to_triple(row)
 
     def get_edges_from(
-        self, subject_id: str, predicate: str | None = None, current_only: bool = True
+        self,
+        subject_id: str,
+        predicate: str | None = None,
+        current_only: bool = True,
+        where: Mapping[str, Any] | None = None,
     ) -> list[Triple]:
         with self._sessions.session() as session:
             stmt = select(self._triple_model).where(
                 self._triple_model.subject_id == subject_id
             )
+            filters = self._build_filters(self._triple_model, where)
+            if filters:
+                stmt = stmt.where(*filters)
             if predicate is not None:
                 stmt = stmt.where(self._triple_model.predicate == predicate)
             if current_only:
@@ -94,12 +109,19 @@ class SQLiteTripleRepo(SQLiteRepoBase, TripleRepo):
             return [self._row_to_triple(r) for r in rows]
 
     def get_edges_to(
-        self, object_id: str, predicate: str | None = None, current_only: bool = True
+        self,
+        object_id: str,
+        predicate: str | None = None,
+        current_only: bool = True,
+        where: Mapping[str, Any] | None = None,
     ) -> list[Triple]:
         with self._sessions.session() as session:
             stmt = select(self._triple_model).where(
                 self._triple_model.object_id == object_id
             )
+            filters = self._build_filters(self._triple_model, where)
+            if filters:
+                stmt = stmt.where(*filters)
             if predicate is not None:
                 stmt = stmt.where(self._triple_model.predicate == predicate)
             if current_only:
@@ -128,6 +150,7 @@ class SQLiteTripleRepo(SQLiteRepoBase, TripleRepo):
         memory_ids: list[str],
         predicates: list[str] | None = None,
         max_per_source: int = 3,
+        where: Mapping[str, Any] | None = None,
     ) -> list[str]:
         if not memory_ids:
             return []
@@ -136,12 +159,15 @@ class SQLiteTripleRepo(SQLiteRepoBase, TripleRepo):
         result: list[str] = []
 
         with self._sessions.session() as session:
+            filters = self._build_filters(self._triple_model, where)
             for mid in memory_ids:
                 # Outgoing edges from this memory
                 stmt_out = select(self._triple_model.object_id).where(
                     self._triple_model.subject_id == mid,
                     self._triple_model.valid_to.is_(None),
                 )
+                if filters:
+                    stmt_out = stmt_out.where(*filters)
                 if predicates:
                     stmt_out = stmt_out.where(self._triple_model.predicate.in_(predicates))
                 stmt_out = stmt_out.limit(max_per_source)
@@ -152,6 +178,8 @@ class SQLiteTripleRepo(SQLiteRepoBase, TripleRepo):
                     self._triple_model.object_id == mid,
                     self._triple_model.valid_to.is_(None),
                 )
+                if filters:
+                    stmt_in = stmt_in.where(*filters)
                 if predicates:
                     stmt_in = stmt_in.where(self._triple_model.predicate.in_(predicates))
                 stmt_in = stmt_in.limit(max_per_source)

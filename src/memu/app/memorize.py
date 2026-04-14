@@ -2286,7 +2286,12 @@ Decide which clusters/candidates should map into existing categories, and which 
                     ent_type = str(ent_data.get("type") or "").strip()
                     if not ent_name or not ent_type:
                         continue
-                    entity_record = store.entity_repo.get_or_create(ent_name, ent_type, session=session)
+                    entity_record = store.entity_repo.get_or_create(
+                        ent_name,
+                        ent_type,
+                        user_data=dict(user or {}),
+                        session=session,
+                    )
                     store.triple_repo.add(Triple(
                         subject_id=item.id,
                         subject_kind="memory",
@@ -2294,7 +2299,7 @@ Decide which clusters/candidates should map into existing categories, and which 
                         object_id=entity_record.id,
                         object_kind="entity",
                         source_memory_id=item.id,
-                    ), session=session)
+                    ), user_data=dict(user or {}), session=session)
             target_item_id = supersede_targets.get(idx)
             if target_item_id and target_item_id != item.id and target_item_id not in superseded_targets:
                 update_kwargs = {"item_id": target_item_id, "superseded_by": item.id}
@@ -2311,7 +2316,7 @@ Decide which clusters/candidates should map into existing categories, and which 
                     object_id=item.id,
                     object_kind="memory",
                     source_memory_id=item.id,
-                ), session=session)
+                ), user_data=dict(user or {}), session=session)
             mapped_cat_ids = self._map_category_names_to_ids(cat_names, ctx)
             reinforcement_count = self._item_reinforcement_count(item)
             update_summary = self._category_update_summary_text(resolved_summary, reinforcement_count)
