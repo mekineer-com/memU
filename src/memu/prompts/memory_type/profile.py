@@ -120,6 +120,12 @@ Return all memories wrapped in a single <item> element:
             <category>Category Name</category>
         </categories>
         <replaces_previous_fact>brief description of the outdated fact this corrects (optional — corrections only)</replaces_previous_fact>
+        <entities>
+            <entity>
+                <name>Marcos</name>
+                <type>person</type>
+            </entity>
+        </entities>
     </memory>
     <memory>
         <content>Memory item content 2</content>
@@ -151,6 +157,19 @@ How much does this memory illuminate who someone truly is?
 
 replaces_previous_fact (optional string):
 Use only for factual corrections — when the old fact was simply wrong, not when facts evolved over time. Write a brief description of the outdated fact (not a memory ID). For progressions (facts that were true but have since changed), omit this field and bake the history into the content field instead.
+
+entities (optional):
+Tag the specific people, places, topics, or projects this memory references.
+- Types: person, topic, place, project
+- Only named, specific entities — "Sarah" yes; "work" or "happiness" no.
+- Omit entirely when no named entities apply.
+
+<entities>
+    <entity>
+        <name>Entity Name</name>
+        <type>person</type>
+    </entity>
+</entities>
 """
 
 PROMPT_BLOCK_EXAMPLES = """

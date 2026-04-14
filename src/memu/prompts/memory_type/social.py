@@ -42,6 +42,12 @@ Return all memories wrapped in a single <item> element:
         <categories>
             <category>Relationships</category>
         </categories>
+        <entities>
+            <entity>
+                <name>Marco</name>
+                <type>person</type>
+            </entity>
+        </entities>
     </memory>
 </item>
 
@@ -61,6 +67,19 @@ How important is this person to understanding the user's world?
 - 0.7-0.9 — an important recurring presence
 - 0.4-0.7 — a named but peripheral figure
 - below 0.4 — context only
+
+entities (optional):
+Tag the specific people, places, topics, or projects this memory references.
+- Types: person, topic, place, project
+- Only named, specific entities — "Sarah" yes; "work" or "happiness" no.
+- Omit entirely when no named entities apply.
+
+<entities>
+    <entity>
+        <name>Entity Name</name>
+        <type>person</type>
+    </entity>
+</entities>
 """
 
 PROMPT_BLOCK_EXAMPLES = """

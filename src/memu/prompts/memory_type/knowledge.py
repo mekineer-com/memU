@@ -141,6 +141,12 @@ Return all memories wrapped in a single <item> element:
             <category>Category Name</category>
         </categories>
         <replaces_previous_fact>brief description of the outdated fact this corrects (optional — corrections only)</replaces_previous_fact>
+        <entities>
+            <entity>
+                <name>Raynaud's syndrome</name>
+                <type>topic</type>
+            </entity>
+        </entities>
     </memory>
     <memory>
         <content>Knowledge memory item content 2</content>
@@ -172,6 +178,19 @@ How much does this knowledge matter to these people's lives?
 
 replaces_previous_fact (optional string):
 Use only when this knowledge explicitly corrects or supersedes a prior piece of knowledge. Write a brief description of the outdated fact (not a memory ID). For new findings that sit alongside existing knowledge, omit this field.
+
+entities (optional):
+Tag the specific people, places, topics, or projects this memory references.
+- Types: person, topic, place, project
+- Only named, specific entities — "Sarah" yes; "work" or "happiness" no.
+- Omit entirely when no named entities apply.
+
+<entities>
+    <entity>
+        <name>Entity Name</name>
+        <type>person</type>
+    </entity>
+</entities>
 """
 
 PROMPT_BLOCK_EXAMPLES = """

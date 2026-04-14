@@ -105,6 +105,12 @@ Return all memories wrapped in a single <item> element:
             <category>Category Name</category>
         </categories>
         <replaces_previous_fact>brief description of the outdated fact this corrects (optional — corrections only)</replaces_previous_fact>
+        <entities>
+            <entity>
+                <name>Marcos</name>
+                <type>person</type>
+            </entity>
+        </entities>
     </memory>
     <memory>
         <content>Behavior memory item content 2</content>
@@ -136,6 +142,19 @@ How much does knowing this pattern help someone be better with this person?
 
 replaces_previous_fact (optional string):
 Use only when a prior behavioral observation was genuinely wrong — not when a pattern has shifted over time. Write a brief description of the outdated observation (not a memory ID). For behavioral evolutions, omit this field and capture the shift in the content field instead.
+
+entities (optional):
+Tag the specific people, places, topics, or projects this memory references.
+- Types: person, topic, place, project
+- Only named, specific entities — "Sarah" yes; "work" or "happiness" no.
+- Omit entirely when no named entities apply.
+
+<entities>
+    <entity>
+        <name>Entity Name</name>
+        <type>person</type>
+    </entity>
+</entities>
 """
 
 PROMPT_BLOCK_EXAMPLES = """

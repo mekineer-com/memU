@@ -14,7 +14,7 @@ MemoryType = Literal["profile", "event", "knowledge", "behavior", "social", "ski
 EntityType = Literal["person", "topic", "place", "project"]
 
 PREDICATES = Literal[
-    "caused_by", "evokes", "supersedes", "conflicts_with",
+    "caused_by", "evokes", "evolved_into", "conflicts_with",
     "contextualizes", "parallels", "shaped_by", "mentions",
 ]
 

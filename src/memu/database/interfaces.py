@@ -6,7 +6,7 @@ from memu.database.models import CategoryItem as CategoryItemRecord
 from memu.database.models import MemoryCategory as MemoryCategoryRecord
 from memu.database.models import MemoryItem as MemoryItemRecord
 from memu.database.models import Resource as ResourceRecord
-from memu.database.repositories import CategoryItemRepo, MemoryCategoryRepo, MemoryItemRepo, ResourceRepo
+from memu.database.repositories import CategoryItemRepo, EntityRepo, MemoryCategoryRepo, MemoryItemRepo, ResourceRepo, TripleRepo
 
 
 @runtime_checkable
@@ -17,6 +17,8 @@ class Database(Protocol):
     memory_category_repo: MemoryCategoryRepo
     memory_item_repo: MemoryItemRepo
     category_item_repo: CategoryItemRepo
+    entity_repo: EntityRepo
+    triple_repo: TripleRepo
 
     resources: dict[str, ResourceRecord]
     items: dict[str, MemoryItemRecord]

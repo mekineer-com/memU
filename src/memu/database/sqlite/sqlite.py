@@ -10,11 +10,13 @@ from sqlmodel import SQLModel
 
 from memu.database.interfaces import Database
 from memu.database.models import CategoryItem, MemoryCategory, MemoryItem, Resource
-from memu.database.repositories import CategoryItemRepo, MemoryCategoryRepo, MemoryItemRepo, ResourceRepo
+from memu.database.repositories import CategoryItemRepo, EntityRepo, MemoryCategoryRepo, MemoryItemRepo, ResourceRepo, TripleRepo
 from memu.database.sqlite.repositories.category_item_repo import SQLiteCategoryItemRepo
+from memu.database.sqlite.repositories.entity_repo import SQLiteEntityRepo
 from memu.database.sqlite.repositories.memory_category_repo import SQLiteMemoryCategoryRepo
 from memu.database.sqlite.repositories.memory_item_repo import SQLiteMemoryItemRepo
 from memu.database.sqlite.repositories.resource_repo import SQLiteResourceRepo
+from memu.database.sqlite.repositories.triple_repo import SQLiteTripleRepo
 from memu.database.sqlite.schema import SQLiteSQLAModels, get_sqlite_sqlalchemy_models
 from memu.database.sqlite.session import SQLiteSessionManager
 from memu.database.state import DatabaseState
@@ -44,6 +46,8 @@ class SQLiteStore(Database):
     memory_category_repo: MemoryCategoryRepo
     memory_item_repo: MemoryItemRepo
     category_item_repo: CategoryItemRepo
+    entity_repo: EntityRepo
+    triple_repo: TripleRepo
     resources: dict[str, Resource]
     items: dict[str, MemoryItem]
     categories: dict[str, MemoryCategory]
@@ -86,6 +90,8 @@ class SQLiteStore(Database):
         memory_category_model = memory_category_model or self._sqla_models.MemoryCategory
         memory_item_model = memory_item_model or self._sqla_models.MemoryItem
         category_item_model = category_item_model or self._sqla_models.CategoryItem
+        entity_model = self._sqla_models.Entity
+        triple_model = self._sqla_models.Triple
 
         # Initialize repositories
         self.resource_repo = SQLiteResourceRepo(
@@ -112,6 +118,20 @@ class SQLiteStore(Database):
         self.category_item_repo = SQLiteCategoryItemRepo(
             state=self._state,
             category_item_model=category_item_model,
+            sqla_models=self._sqla_models,
+            sessions=self._sessions,
+            scope_fields=self._scope_fields,
+        )
+        self.entity_repo = SQLiteEntityRepo(
+            state=self._state,
+            entity_model=entity_model,
+            sqla_models=self._sqla_models,
+            sessions=self._sessions,
+            scope_fields=self._scope_fields,
+        )
+        self.triple_repo = SQLiteTripleRepo(
+            state=self._state,
+            triple_model=triple_model,
             sqla_models=self._sqla_models,
             sessions=self._sessions,
             scope_fields=self._scope_fields,

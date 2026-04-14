@@ -118,6 +118,12 @@ Return all memories wrapped in a single <item> element:
             <category>Category Name</category>
         </categories>
         <replaces_previous_fact>brief description of the outdated fact this corrects (optional — corrections only)</replaces_previous_fact>
+        <entities>
+            <entity>
+                <name>Marcos</name>
+                <type>person</type>
+            </entity>
+        </entities>
     </memory>
     <memory>
         <content>Event memory item content 2</content>
@@ -149,6 +155,19 @@ Would this moment belong in a diary? How much would it stay with someone?
 
 replaces_previous_fact (optional string):
 Use when: (a) a detail in a prior event was factually wrong, or (b) this event is the completion of a plan previously recorded ("planned to visit Barcelona" → "visited Barcelona"). Write a brief description of the stale item — not an ID; the text is used to find it by meaning. For genuinely new events with no prior planned version, omit this field.
+
+entities (optional):
+Tag the specific people, places, topics, or projects this memory references.
+- Types: person, topic, place, project
+- Only named, specific entities — "Sarah" yes; "work" or "happiness" no.
+- Omit entirely when no named entities apply.
+
+<entities>
+    <entity>
+        <name>Entity Name</name>
+        <type>person</type>
+    </entity>
+</entities>
 """
 
 PROMPT_BLOCK_EXAMPLES = """
