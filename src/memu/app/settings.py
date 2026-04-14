@@ -192,6 +192,11 @@ class RetrieveResourceConfig(BaseModel):
     top_k: int = Field(default=5, description="Total number of resources to retrieve.")
 
 
+class RetrieveGraphConfig(BaseModel):
+    enabled: bool = Field(default=True, description="Enable graph-based retrieval alongside vector search.")
+    max_graph_results: int = Field(default=3, description="Max graph-expanded results per retrieval.")
+
+
 class RetrieveConfig(BaseModel):
     """Configure retrieval behavior for `MemoryUser.retrieve`.
 
@@ -207,6 +212,7 @@ class RetrieveConfig(BaseModel):
     category: RetrieveCategoryConfig = Field(default=RetrieveCategoryConfig())
     item: RetrieveItemConfig = Field(default=RetrieveItemConfig())
     resource: RetrieveResourceConfig = Field(default=RetrieveResourceConfig())
+    graph: RetrieveGraphConfig = Field(default=RetrieveGraphConfig())
     sufficiency_check: bool = Field(default=False)
     sufficiency_check_prompt: str = Field(default="")
     sufficiency_check_llm_profile: str = Field(default="default")

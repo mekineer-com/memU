@@ -349,6 +349,37 @@ class RetrieveMixin:
 
         return referenced_item_ids
 
+    def _find_entity_matches(self, text: str, store: Database) -> list[Any]:
+        """Find known entities mentioned in query text via string matching.
+
+        Sub-millisecond: no LLM, no embeddings — just scans the entities table.
+        """
+        all_entities = store.entity_repo.list_all()
+        if not all_entities:
+            return []
+        text_lower = text.lower()
+        return [e for e in all_entities if e.name.lower() in text_lower]
+
+    def _get_entity_seed_memory_ids(
+        self, entities: list[Any], store: Database
+    ) -> tuple[list[str], dict[str, str]]:
+        """Get memory IDs linked to matched entities via mentions triples.
+
+        Returns (memory_ids, provenance_map) where provenance_map maps
+        memory_id → "via <entity_name>" for downstream flagging.
+        """
+        memory_ids: list[str] = []
+        seen: set[str] = set()
+        provenance: dict[str, str] = {}
+        for entity in entities:
+            triples = store.triple_repo.get_edges_to(entity.id, predicate="mentions")
+            for t in triples:
+                if t.subject_id not in seen:
+                    seen.add(t.subject_id)
+                    memory_ids.append(t.subject_id)
+                    provenance[t.subject_id] = f"via {entity.name}"
+        return memory_ids, provenance
+
     async def _rag_recall_items(self, state: WorkflowState, step_context: Any) -> WorkflowState:
         if not state.get("retrieve_item") or not state.get("needs_retrieval") or not state.get("proceed_to_items"):
             state["item_hits"] = []
@@ -363,7 +394,9 @@ class RetrieveMixin:
             qvec = (await embed_client.embed([state["active_query"]]))[0]
             state["query_vector"] = qvec
         item_cfg = self.retrieve_config.item
-        state["item_hits"] = store.memory_item_repo.vector_search_items(
+
+        # --- Vector search (existing path) ---
+        vector_hits = store.memory_item_repo.vector_search_items(
             qvec,
             item_cfg.top_k,
             where=where_filters,
@@ -374,7 +407,54 @@ class RetrieveMixin:
             fts_top_k=item_cfg.fts_top_k,
             rrf_k=item_cfg.rrf_k,
         )
+
+        # --- Graph retrieval (parallel path) ---
+        graph_cfg = self.retrieve_config.graph
+        graph_provenance: dict[str, str] = {}
+
+        if graph_cfg.enabled:
+            matched_entities = self._find_entity_matches(state["active_query"], store)
+            if matched_entities:
+                entity_seed_ids, provenance = self._get_entity_seed_memory_ids(
+                    matched_entities, store
+                )
+                graph_provenance.update(provenance)
+
+                # One-hop expansion from all seeds (vector + entity)
+                vector_ids = [item_id for item_id, _ in vector_hits]
+                all_seed_ids = list(set(vector_ids + entity_seed_ids))
+                # Exclude "mentions" so expansion follows only semantic edges
+                sem_predicates = [
+                    "caused_by", "evokes", "evolved_into", "conflicts_with",
+                    "contextualizes", "parallels", "shaped_by",
+                ]
+                expanded_ids = store.triple_repo.get_connected_memory_ids(
+                    all_seed_ids, predicates=sem_predicates, max_per_source=3
+                )
+                for mid in expanded_ids:
+                    if mid not in graph_provenance:
+                        graph_provenance[mid] = "via graph expansion"
+
+                # Merge: append graph-only hits after vector results
+                vector_id_set = {item_id for item_id, _ in vector_hits}
+                graph_only = [
+                    mid for mid in (entity_seed_ids + expanded_ids)
+                    if mid not in vector_id_set
+                ]
+                # Deduplicate while preserving order
+                seen: set[str] = set()
+                deduped: list[str] = []
+                for mid in graph_only:
+                    if mid not in seen:
+                        seen.add(mid)
+                        deduped.append(mid)
+                # Cap graph-only results
+                deduped = deduped[:graph_cfg.max_graph_results]
+                vector_hits = list(vector_hits) + [(mid, 0.0) for mid in deduped]
+
+        state["item_hits"] = vector_hits
         state["item_pool"] = items_pool
+        state["graph_provenance"] = graph_provenance
         return state
 
     async def _rag_item_sufficiency(self, state: WorkflowState, step_context: Any) -> WorkflowState:
@@ -429,6 +509,13 @@ class RetrieveMixin:
                 categories_pool,
             )
             response["items"] = self._materialize_hits(state.get("item_hits", []), items_pool)
+            # Tag graph-retrieved items with provenance
+            graph_provenance = state.get("graph_provenance") or {}
+            if graph_provenance:
+                for item_data in response["items"]:
+                    item_id = item_data.get("id")
+                    if item_id and item_id in graph_provenance:
+                        item_data["via_graph"] = graph_provenance[item_id]
             response["resources"] = self._materialize_hits(
                 state.get("resource_hits", []),
                 resources_pool,

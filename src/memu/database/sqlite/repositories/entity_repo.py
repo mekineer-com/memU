@@ -103,5 +103,11 @@ class SQLiteEntityRepo(SQLiteRepoBase, EntityRepo):
             rows = session.exec(stmt).all()
             return [self._row_to_entity(r) for r in rows]
 
+    def list_all(self) -> list[Entity]:
+        with self._sessions.session() as session:
+            stmt = select(self._entity_model)
+            rows = session.exec(stmt).all()
+            return [self._row_to_entity(r) for r in rows]
+
 
 __all__ = ["SQLiteEntityRepo"]
