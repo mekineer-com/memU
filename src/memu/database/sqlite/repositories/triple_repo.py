@@ -51,28 +51,33 @@ class SQLiteTripleRepo(SQLiteRepoBase, TripleRepo):
             updated_at=row.updated_at,
         )
 
-    def add(self, triple: Triple) -> Triple:
+    def add(self, triple: Triple, session: Any | None = None) -> Triple:
         now = self._now()
-        with self._sessions.session() as session:
-            row = self._triple_model(
-                id=triple.id,
-                subject_id=triple.subject_id,
-                subject_kind=triple.subject_kind,
-                predicate=triple.predicate,
-                object_id=triple.object_id,
-                object_kind=triple.object_kind,
-                valid_from=triple.valid_from or now,
-                valid_to=triple.valid_to,
-                confidence=triple.confidence,
-                source_memory_id=triple.source_memory_id,
-                properties=triple.properties,
-                created_at=now,
-                updated_at=now,
-            )
-            session.add(row)
-            session.commit()
-            session.refresh(row)
-            return self._row_to_triple(row)
+        if session is None:
+            with self._sessions.session() as db_session:
+                persisted = self.add(triple, session=db_session)
+                db_session.commit()
+                return persisted
+
+        row = self._triple_model(
+            id=triple.id,
+            subject_id=triple.subject_id,
+            subject_kind=triple.subject_kind,
+            predicate=triple.predicate,
+            object_id=triple.object_id,
+            object_kind=triple.object_kind,
+            valid_from=triple.valid_from or now,
+            valid_to=triple.valid_to,
+            confidence=triple.confidence,
+            source_memory_id=triple.source_memory_id,
+            properties=triple.properties,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(row)
+        session.flush()
+        session.refresh(row)
+        return self._row_to_triple(row)
 
     def get_edges_from(
         self, subject_id: str, predicate: str | None = None, current_only: bool = True

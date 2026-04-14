@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from memu.database.models import Triple
 
@@ -9,7 +9,7 @@ from memu.database.models import Triple
 class TripleRepo(Protocol):
     """Repository contract for triple (edge) records."""
 
-    def add(self, triple: Triple) -> Triple: ...
+    def add(self, triple: Triple, session: Any | None = None) -> Triple: ...
 
     def get_edges_from(
         self, subject_id: str, predicate: str | None = None, current_only: bool = True

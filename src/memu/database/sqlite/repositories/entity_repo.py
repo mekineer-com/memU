@@ -51,29 +51,34 @@ class SQLiteEntityRepo(SQLiteRepoBase, EntityRepo):
             updated_at=row.updated_at,
         )
 
-    def get_or_create(self, name: str, entity_type: str) -> Entity:
+    def get_or_create(self, name: str, entity_type: str, session: Any | None = None) -> Entity:
         normalized = _normalize_name(name)
-        with self._sessions.session() as session:
-            stmt = select(self._entity_model).where(
-                self._entity_model.normalized == normalized
-            )
-            row = session.exec(stmt).first()
-            if row is not None:
-                return self._row_to_entity(row)
+        if session is None:
+            with self._sessions.session() as db_session:
+                entity = self.get_or_create(name, entity_type, session=db_session)
+                db_session.commit()
+                return entity
 
-            now = self._now()
-            row = self._entity_model(
-                name=name,
-                entity_type=entity_type,
-                normalized=normalized,
-                properties={},
-                created_at=now,
-                updated_at=now,
-            )
-            session.add(row)
-            session.commit()
-            session.refresh(row)
+        stmt = select(self._entity_model).where(
+            self._entity_model.normalized == normalized
+        )
+        row = session.exec(stmt).first()
+        if row is not None:
             return self._row_to_entity(row)
+
+        now = self._now()
+        row = self._entity_model(
+            name=name,
+            entity_type=entity_type,
+            normalized=normalized,
+            properties={},
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(row)
+        session.flush()
+        session.refresh(row)
+        return self._row_to_entity(row)
 
     def lookup(self, normalized: str) -> Entity | None:
         with self._sessions.session() as session:
