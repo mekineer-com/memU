@@ -11,6 +11,13 @@ from pydantic import BaseModel, ConfigDict, Field
 
 MemoryType = Literal["profile", "event", "knowledge", "behavior", "social", "skill", "tool", "diary"]
 
+EntityType = Literal["person", "topic", "place", "project"]
+
+PREDICATES = Literal[
+    "caused_by", "evokes", "supersedes", "conflicts_with",
+    "contextualizes", "parallels", "shaped_by", "mentions",
+]
+
 
 def compute_content_hash(summary: str, memory_type: str) -> str:
     """
@@ -63,6 +70,28 @@ class ToolCallResult(BaseModel):
         """Ensure call_hash is set, generate if empty."""
         if not self.call_hash:
             self.call_hash = self.generate_hash()
+
+
+class Entity(BaseRecord):
+    """A named entity: person, topic, place, project."""
+    name: str
+    entity_type: str
+    normalized: str  # lowercase, underscores -- for fast lookup
+    properties: dict[str, Any] = {}
+
+
+class Triple(BaseRecord):
+    """A directed edge between a memory and an entity, or two memories."""
+    subject_id: str
+    subject_kind: str  # "entity" or "memory"
+    predicate: str
+    object_id: str
+    object_kind: str  # "entity" or "memory"
+    valid_from: datetime | None = None
+    valid_to: datetime | None = None
+    confidence: float = 1.0
+    source_memory_id: str | None = None
+    properties: dict[str, Any] = {}
 
 
 class Resource(BaseRecord):
@@ -142,7 +171,7 @@ def merge_scope_model[TBaseRecord: BaseRecord](
 
 def build_scoped_models(
     user_model: type[BaseModel],
-) -> tuple[type[Resource], type[MemoryCategory], type[MemoryItem], type[CategoryItem]]:
+) -> tuple[type[Resource], type[MemoryCategory], type[MemoryItem], type[CategoryItem], type[Entity], type[Triple]]:
     """
     Build scoped interface models (Pydantic) that inherit from the base record models and user scope.
     """
@@ -150,17 +179,23 @@ def build_scoped_models(
     memory_category_model = merge_scope_model(user_model, MemoryCategory, name_suffix="MemoryCategory")
     memory_item_model = merge_scope_model(user_model, MemoryItem, name_suffix="MemoryItem")
     category_item_model = merge_scope_model(user_model, CategoryItem, name_suffix="CategoryItem")
-    return resource_model, memory_category_model, memory_item_model, category_item_model
+    entity_model = merge_scope_model(user_model, Entity, name_suffix="Entity")
+    triple_model = merge_scope_model(user_model, Triple, name_suffix="Triple")
+    return resource_model, memory_category_model, memory_item_model, category_item_model, entity_model, triple_model
 
 
 __all__ = [
     "BaseRecord",
     "CategoryItem",
+    "Entity",
+    "EntityType",
     "MemoryCategory",
     "MemoryItem",
     "MemoryType",
+    "PREDICATES",
     "Resource",
     "ToolCallResult",
+    "Triple",
     "build_scoped_models",
     "compute_content_hash",
     "merge_scope_model",

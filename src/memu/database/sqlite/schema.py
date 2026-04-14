@@ -11,9 +11,11 @@ from sqlmodel import SQLModel
 
 from memu.database.sqlite.models import (
     SQLiteCategoryItemModel,
+    SQLiteEntityModel,
     SQLiteMemoryCategoryModel,
     SQLiteMemoryItemModel,
     SQLiteResourceModel,
+    SQLiteTripleModel,
     build_sqlite_table_model,
 )
 
@@ -27,6 +29,8 @@ class SQLiteSQLAModels:
     MemoryCategory: type[Any]
     MemoryItem: type[Any]
     CategoryItem: type[Any]
+    Entity: type[Any]
+    Triple: type[Any]
 
 
 _MODEL_CACHE: dict[type[Any], SQLiteSQLAModels] = {}
@@ -77,6 +81,18 @@ def get_sqlite_sqlalchemy_models(*, scope_model: type[BaseModel] | None = None) 
         tablename="memu_category_items",
         metadata=metadata_obj,
     )
+    entity_model = build_sqlite_table_model(
+        scope,
+        SQLiteEntityModel,
+        tablename="memu_entities",
+        metadata=metadata_obj,
+    )
+    triple_model = build_sqlite_table_model(
+        scope,
+        SQLiteTripleModel,
+        tablename="memu_triples",
+        metadata=metadata_obj,
+    )
 
     class SQLiteBase(SQLModel):
         __abstract__ = True
@@ -88,6 +104,8 @@ def get_sqlite_sqlalchemy_models(*, scope_model: type[BaseModel] | None = None) 
         MemoryCategory=memory_category_model,
         MemoryItem=memory_item_model,
         CategoryItem=category_item_model,
+        Entity=entity_model,
+        Triple=triple_model,
     )
     _MODEL_CACHE[cache_key] = models
     return models

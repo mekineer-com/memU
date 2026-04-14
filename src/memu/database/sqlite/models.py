@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from sqlalchemy import JSON, Float, MetaData, String, Text
 from sqlmodel import Column, DateTime, Field, Index, SQLModel, func
 
-from memu.database.models import CategoryItem, MemoryCategory, MemoryItem, MemoryType, Resource
+from memu.database.models import CategoryItem, Entity, MemoryCategory, MemoryItem, MemoryType, Resource, Triple
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +95,37 @@ class SQLiteCategoryItemModel(SQLiteBaseModelMixin, CategoryItem):
 
     # NOTE: SQLite reserves the "sqlite_" prefix for internal schema objects.
     __table_args__ = (Index("idx_memu_category_items_unique", "item_id", "category_id", unique=True),)
+
+
+class SQLiteEntityModel(SQLiteBaseModelMixin, Entity):
+    """SQLite entity model."""
+
+    name: str = Field(sa_column=Column(String, nullable=False))
+    entity_type: str = Field(sa_column=Column(String, nullable=False))
+    normalized: str = Field(sa_column=Column(String, nullable=False, index=True))
+    properties: dict[str, Any] = Field(default={}, sa_column=Column(JSON, nullable=True))
+
+
+class SQLiteTripleModel(SQLiteBaseModelMixin, Triple):
+    """SQLite triple model."""
+
+    subject_id: str = Field(sa_column=Column(String, nullable=False))
+    subject_kind: str = Field(sa_column=Column(String, nullable=False))
+    predicate: str = Field(sa_column=Column(String, nullable=False))
+    object_id: str = Field(sa_column=Column(String, nullable=False))
+    object_kind: str = Field(sa_column=Column(String, nullable=False))
+    valid_from: datetime | None = Field(default=None, sa_column=Column(DateTime, nullable=True))
+    valid_to: datetime | None = Field(default=None, sa_column=Column(DateTime, nullable=True))
+    confidence: float = Field(default=1.0, sa_column=Column(Float, nullable=True))
+    source_memory_id: str | None = Field(default=None, sa_column=Column(String, nullable=True))
+    properties: dict[str, Any] = Field(default={}, sa_column=Column(JSON, nullable=True))
+
+    __table_args__ = (
+        Index("idx_memu_triples_subject", "subject_id"),
+        Index("idx_memu_triples_object", "object_id"),
+        Index("idx_memu_triples_predicate", "predicate"),
+        Index("idx_memu_triples_valid", "valid_from", "valid_to"),
+    )
 
 
 def _normalize_table_args(table_args: Any) -> tuple[list[Any], dict[str, Any]]:
@@ -183,8 +214,10 @@ def build_sqlite_table_model(
 __all__ = [
     "SQLiteBaseModelMixin",
     "SQLiteCategoryItemModel",
+    "SQLiteEntityModel",
     "SQLiteMemoryCategoryModel",
     "SQLiteMemoryItemModel",
     "SQLiteResourceModel",
+    "SQLiteTripleModel",
     "build_sqlite_table_model",
 ]

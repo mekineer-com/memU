@@ -16,7 +16,7 @@
 | `database/models.py` | Backend-agnostic data models (MemoryItem, MemoryCategory, Resource) |
 | `database/sqlite/schema.py` | SQLAlchemy ORM schema (SQLite) |
 | `database/postgres/schema.py` | SQLAlchemy ORM schema (Postgres) + alembic migrations in `postgres/migrations/` |
-| `database/repositories/` | Data access layer: `memory_item.py`, `memory_category.py`, `resource.py` |
+| `database/repositories/` | Data access layer: `memory_item.py`, `memory_category.py`, `resource.py`, `entity.py`, `triple.py` |
 | `llm/wrapper.py` | LLM client factory — dispatches to backends |
 | `llm/backends/` | Provider impls: `openai.py`, `openrouter.py`, `grok.py`, `doubao.py` |
 | `embedding/` | Embedding client factory + backends (same pattern as llm/) |
@@ -58,3 +58,5 @@
 | `MemoryCategory` | id, name, description, embedding, summary |
 | `CategoryItem` | id, item_id, category_id |
 | `Resource` | id, url, modality, local_path, caption, embedding |
+| `Entity` | id, name, entity_type (person/topic/place/project), normalized (lookup key), properties (JSON) |
+| `Triple` | id, subject_id, subject_kind (entity/memory), predicate, object_id, object_kind, valid_from, valid_to (NULL=current), confidence, source_memory_id, properties (JSON) |

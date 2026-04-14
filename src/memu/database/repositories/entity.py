@@ -1,0 +1,18 @@
+from __future__ import annotations
+
+from typing import Protocol, runtime_checkable
+
+from memu.database.models import Entity
+
+
+@runtime_checkable
+class EntityRepo(Protocol):
+    """Repository contract for entity records."""
+
+    def get_or_create(self, name: str, entity_type: str) -> Entity: ...
+
+    def lookup(self, normalized: str) -> Entity | None: ...
+
+    def lookup_many(self, normalized_names: list[str]) -> list[Entity]: ...
+
+    def list_by_type(self, entity_type: str) -> list[Entity]: ...
