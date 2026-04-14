@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import threading
 from collections.abc import Mapping
 from typing import Any
 
@@ -40,6 +41,7 @@ class SQLiteEntityRepo(SQLiteRepoBase, EntityRepo):
             scope_fields=scope_fields,
         )
         self._entity_model = entity_model
+        self._entity_create_lock = threading.Lock()
 
     def _row_to_entity(self, row: Any) -> Entity:
         return Entity(
@@ -52,22 +54,16 @@ class SQLiteEntityRepo(SQLiteRepoBase, EntityRepo):
             updated_at=row.updated_at,
         )
 
-    def get_or_create(
+    def _get_or_create_in_session(
         self,
+        *,
         name: str,
         entity_type: str,
-        user_data: Mapping[str, Any] | None = None,
-        session: Any | None = None,
+        normalized: str,
+        where: Mapping[str, Any],
+        create_scope: Mapping[str, Any],
+        session: Any,
     ) -> Entity:
-        normalized = _normalize_name(name)
-        where = dict(user_data or {})
-        create_scope = {k: v for k, v in where.items() if k in self._scope_fields and v is not None}
-        if session is None:
-            with self._sessions.session() as db_session:
-                entity = self.get_or_create(name, entity_type, user_data=user_data, session=db_session)
-                db_session.commit()
-                return entity
-
         stmt = select(self._entity_model).where(self._entity_model.normalized == normalized)
         filters = self._build_filters(self._entity_model, where)
         if filters:
@@ -90,6 +86,39 @@ class SQLiteEntityRepo(SQLiteRepoBase, EntityRepo):
         session.flush()
         session.refresh(row)
         return self._row_to_entity(row)
+
+    def get_or_create(
+        self,
+        name: str,
+        entity_type: str,
+        user_data: Mapping[str, Any] | None = None,
+        session: Any | None = None,
+    ) -> Entity:
+        normalized = _normalize_name(name)
+        where = dict(user_data or {})
+        create_scope = {k: v for k, v in where.items() if k in self._scope_fields and v is not None}
+        if session is None:
+            with self._entity_create_lock:
+                with self._sessions.session() as db_session:
+                    entity = self._get_or_create_in_session(
+                        name=name,
+                        entity_type=entity_type,
+                        normalized=normalized,
+                        where=where,
+                        create_scope=create_scope,
+                        session=db_session,
+                    )
+                    db_session.commit()
+                    return entity
+        with self._entity_create_lock:
+            return self._get_or_create_in_session(
+                name=name,
+                entity_type=entity_type,
+                normalized=normalized,
+                where=where,
+                create_scope=create_scope,
+                session=session,
+            )
 
     def lookup(self, normalized: str) -> Entity | None:
         with self._sessions.session() as session:

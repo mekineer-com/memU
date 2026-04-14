@@ -416,6 +416,8 @@ class RetrieveMixin:
         graph_provenance: dict[str, str] = {}
 
         if graph_cfg.enabled:
+            entity_seed_ids: list[str] = []
+            expanded_ids: list[str] = []
             matched_entities = self._find_entity_matches(state["active_query"], store, where_filters)
             if matched_entities:
                 entity_seed_ids, provenance = self._get_entity_seed_memory_ids(
@@ -425,9 +427,10 @@ class RetrieveMixin:
                 )
                 graph_provenance.update(provenance)
 
-                # One-hop expansion from all seeds (vector + entity)
-                vector_ids = [item_id for item_id, _ in vector_hits]
-                all_seed_ids = list(set(vector_ids + entity_seed_ids))
+            # One-hop expansion from all seeds (vector + entity)
+            vector_ids = [item_id for item_id, _ in vector_hits]
+            all_seed_ids = list(dict.fromkeys(vector_ids + entity_seed_ids))
+            if all_seed_ids:
                 # Exclude "mentions" so expansion follows only semantic edges
                 sem_predicates = [
                     "caused_by", "evokes", "evolved_into", "conflicts_with",
@@ -439,26 +442,26 @@ class RetrieveMixin:
                     max_per_source=3,
                     where=where_filters,
                 )
-                for mid in expanded_ids:
-                    if mid not in graph_provenance:
-                        graph_provenance[mid] = "via graph expansion"
+            for mid in expanded_ids:
+                if mid not in graph_provenance:
+                    graph_provenance[mid] = "via graph expansion"
 
-                # Merge: append graph-only hits after vector results
-                vector_id_set = {item_id for item_id, _ in vector_hits}
-                graph_only = [
-                    mid for mid in (entity_seed_ids + expanded_ids)
-                    if mid not in vector_id_set
-                ]
-                # Deduplicate while preserving order
-                seen: set[str] = set()
-                deduped: list[str] = []
-                for mid in graph_only:
-                    if mid not in seen:
-                        seen.add(mid)
-                        deduped.append(mid)
-                # Cap graph-only results
-                deduped = deduped[:graph_cfg.max_graph_results]
-                vector_hits = list(vector_hits) + [(mid, 0.0) for mid in deduped]
+            # Merge: append graph-only hits after vector results
+            vector_id_set = {item_id for item_id, _ in vector_hits}
+            graph_only = [
+                mid for mid in (entity_seed_ids + expanded_ids)
+                if mid not in vector_id_set
+            ]
+            # Deduplicate while preserving order
+            seen: set[str] = set()
+            deduped: list[str] = []
+            for mid in graph_only:
+                if mid not in seen:
+                    seen.add(mid)
+                    deduped.append(mid)
+            # Cap graph-only results
+            deduped = deduped[:graph_cfg.max_graph_results]
+            vector_hits = list(vector_hits) + [(mid, 0.0) for mid in deduped]
 
         state["item_hits"] = vector_hits
         state["item_pool"] = items_pool

@@ -324,10 +324,15 @@ WHERE (merged_into IS NULL OR TRIM(merged_into) = '')
         if not fields:
             return {}
         required = " AND ".join([f"m.{f} IS NOT NULL AND TRIM(m.{f}) != ''" for f in fields])
-        sql = f"SELECT {', '.join([f'm.{f}' for f in fields])} FROM memu_memory_items m WHERE {required} LIMIT 1"
-        row = conn.exec_driver_sql(sql).fetchone()
-        if not row:
+        select_fields = ", ".join([f"m.{f}" for f in fields])
+        sql = (
+            f"SELECT {select_fields} FROM memu_memory_items m "
+            f"WHERE {required} GROUP BY {select_fields} LIMIT 2"
+        )
+        rows = conn.exec_driver_sql(sql).fetchall()
+        if len(rows) != 1:
             return {}
+        row = rows[0]
         out: dict[str, str] = {}
         for idx, field in enumerate(fields):
             value = row[idx]
@@ -338,18 +343,48 @@ WHERE (merged_into IS NULL OR TRIM(merged_into) = '')
                 out[field] = text
         return out
 
+    @staticmethod
+    def _ensure_migrations_table(conn: Any) -> None:
+        conn.exec_driver_sql(
+            """
+CREATE TABLE IF NOT EXISTS memu_migrations (
+    name TEXT PRIMARY KEY,
+    applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+)
+"""
+        )
+
+    def _migration_applied(self, conn: Any, name: str) -> bool:
+        self._ensure_migrations_table(conn)
+        row = conn.exec_driver_sql(
+            "SELECT 1 FROM memu_migrations WHERE name = :name LIMIT 1",
+            {"name": name},
+        ).fetchone()
+        return row is not None
+
+    def _mark_migration_applied(self, conn: Any, name: str) -> None:
+        self._ensure_migrations_table(conn)
+        conn.exec_driver_sql(
+            "INSERT OR IGNORE INTO memu_migrations(name) VALUES (:name)",
+            {"name": name},
+        )
+
     def _backfill_graph_scope(self) -> None:
         scope_fields = [f for f in self._scope_fields if f in {"user_id", "soul_id"}]
         if not scope_fields:
             return
+        migration_name = "graph_scope_backfill_v1"
         try:
             with self._sessions.engine.begin() as conn:
+                if self._migration_applied(conn, migration_name):
+                    return
                 table_names = {
                     str(row[0])
                     for row in conn.exec_driver_sql("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
                     if row and row[0]
                 }
                 if "memu_memory_items" not in table_names:
+                    self._mark_migration_applied(conn, migration_name)
                     return
                 entity_cols = set(self._table_columns(conn, "memu_entities")) if "memu_entities" in table_names else set()
                 triple_cols = set(self._table_columns(conn, "memu_triples")) if "memu_triples" in table_names else set()
@@ -401,25 +436,25 @@ WHERE {missing}
 
                 # Final pass: any remaining missing scope gets the DB fallback scope.
                 fallback = self._resolve_scope_fallback(conn, scope_fields)
-                if not fallback:
-                    return
-                for table_name, cols in (("memu_entities", entity_cols), ("memu_triples", triple_cols)):
-                    if table_name not in table_names or not cols:
-                        continue
-                    for field in scope_fields:
-                        if field not in cols:
+                if fallback:
+                    for table_name, cols in (("memu_entities", entity_cols), ("memu_triples", triple_cols)):
+                        if table_name not in table_names or not cols:
                             continue
-                        value = fallback.get(field)
-                        if not value:
-                            continue
-                        conn.exec_driver_sql(
-                            f"""
+                        for field in scope_fields:
+                            if field not in cols:
+                                continue
+                            value = fallback.get(field)
+                            if not value:
+                                continue
+                            conn.exec_driver_sql(
+                                f"""
 UPDATE {table_name}
 SET {field} = :value
 WHERE {self._missing_scope_expr(field)}
 """,
-                            {"value": value},
-                        )
+                                {"value": value},
+                            )
+                self._mark_migration_applied(conn, migration_name)
         except Exception:
             logger.warning("Graph scope backfill failed", exc_info=True)
 
