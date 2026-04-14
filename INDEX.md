@@ -8,12 +8,12 @@
 | Package | Purpose |
 |---------|---------|
 | `app/service.py` | `MemoryService` — top-level facade, only public API |
-| `app/memorize.py` | Memorize workflow: preprocess → route → extract → store; `all_categories_summary` + `soul_card` threaded into extraction soul-context; reinforcement roll-up on dedupe merge (`reinforcement_count` + `last_reinforced_at` accumulated on survivor when `enable_item_reinforcement=true`) |
+| `app/memorize.py` | Memorize workflow: preprocess → route → extract → store; `all_categories_summary` + `soul_card` threaded into extraction soul-context; reinforcement roll-up on dedupe merge (`reinforcement_count` + `last_reinforced_at` accumulated on survivor when `enable_item_reinforcement=true`); after each MemoryItem is created, `<entities>` XML from the extraction response is parsed → `entity_repo.get_or_create()` per entity → `mentions` triple written; supersession also writes `evolved_into` triple (old item → new) |
 | `app/retrieve.py` | Retrieve workflow: rewrite query → embed → rank → judge; `_split_context_queries()` splits context so route step receives full chat-history context (`history_from_chat_x`, 2-anchor) while downstream sufficiency steps receive trimmed context (`history_from_last_chat_x`, 1-anchor); `identity_context` is preserved across all steps and rendered as plain text at top of soul context |
 | `app/settings.py` | Pydantic config models (MemorizeConfig, RetrieveConfig, LLMProfile, etc.) |
 | `app/crud.py` | Low-level memory CRUD |
 | `app/patch.py` | Memory patching / update logic |
-| `database/models.py` | Backend-agnostic data models (MemoryItem, MemoryCategory, Resource) |
+| `database/models.py` | Backend-agnostic data models (MemoryItem, MemoryCategory, Resource, Entity, Triple); `EntityType` literal; `PREDICATES` literal (`caused_by`, `evokes`, `evolved_into`, `conflicts_with`, `contextualizes`, `parallels`, `shaped_by`, `mentions`) |
 | `database/sqlite/schema.py` | SQLAlchemy ORM schema (SQLite) |
 | `database/postgres/schema.py` | SQLAlchemy ORM schema (Postgres) + alembic migrations in `postgres/migrations/` |
 | `database/repositories/` | Data access layer: `memory_item.py`, `memory_category.py`, `resource.py`, `entity.py`, `triple.py` |
@@ -35,7 +35,7 @@
 | `retrieve/` | `query_rewriter.py`, `llm_category_ranker.py`, `llm_item_ranker.py`, `llm_resource_ranker.py`, `judger.py`, `pre_retrieval_decision.py` | Retrieval ranking & judgment |
 | `category_patch/` | `category.py` | Dynamic category update prompts |
 | `category_summary/` | `category.py`, `category_with_refs.py` | Category synthesis; both prompts treat `[reinforced Nx]` markers as frequency signals — instruct LLM to use "often", "frequently", "tends to" rather than treating as a one-off fact |
-| `diary/` | `self_model_update.py` | Diary generation & self-model reflection. `self_model_update.py` includes `<life_goals>` XML section (add/remove; max 3 active; most sessions leave empty) and `<soul_observations>` with optional `<supersedes><id>...</id></supersedes>` and `<shaped_by><id>...</id></shaped_by>` per observation. `supersedes` IDs mark retrieved background memories as outdated (scope-validated at write time); `shaped_by` IDs record which background memories influenced the observation (stored as `extra.shaped_by_ids` on the written memory item — provenance audit trail). |
+| `diary/` | `self_model_update.py` | Diary generation & self-model reflection. `self_model_update.py` includes `<life_goals>` XML section (add/remove; max 3 active; most sessions leave empty) and `<soul_observations>` with optional `<supersedes><id>...</id></supersedes>` and `<shaped_by><id>...</id></shaped_by>` per observation. `supersedes` IDs mark retrieved background memories as outdated (scope-validated; written as `evolved_into` triples + `superseded_by` column); `shaped_by` IDs record which background memories influenced the observation (written as `shaped_by` triples in `memu_triples` — sole record, `extra.shaped_by_ids` removed in Phase 5). |
 
 ## Task → Files
 
