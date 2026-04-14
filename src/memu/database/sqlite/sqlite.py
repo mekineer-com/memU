@@ -316,6 +316,113 @@ WHERE (merged_into IS NULL OR TRIM(merged_into) = '')
         except Exception:
             logger.warning("FTS5 table creation/backfill failed", exc_info=True)
 
+    @staticmethod
+    def _missing_scope_expr(column: str) -> str:
+        return f"({column} IS NULL OR TRIM({column}) = '')"
+
+    def _resolve_scope_fallback(self, conn: Any, fields: list[str]) -> dict[str, str]:
+        if not fields:
+            return {}
+        required = " AND ".join([f"m.{f} IS NOT NULL AND TRIM(m.{f}) != ''" for f in fields])
+        sql = f"SELECT {', '.join([f'm.{f}' for f in fields])} FROM memu_memory_items m WHERE {required} LIMIT 1"
+        row = conn.exec_driver_sql(sql).fetchone()
+        if not row:
+            return {}
+        out: dict[str, str] = {}
+        for idx, field in enumerate(fields):
+            value = row[idx]
+            if value is None:
+                continue
+            text = str(value).strip()
+            if text:
+                out[field] = text
+        return out
+
+    def _backfill_graph_scope(self) -> None:
+        scope_fields = [f for f in self._scope_fields if f in {"user_id", "soul_id"}]
+        if not scope_fields:
+            return
+        try:
+            with self._sessions.engine.begin() as conn:
+                table_names = {
+                    str(row[0])
+                    for row in conn.exec_driver_sql("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+                    if row and row[0]
+                }
+                if "memu_memory_items" not in table_names:
+                    return
+                entity_cols = set(self._table_columns(conn, "memu_entities")) if "memu_entities" in table_names else set()
+                triple_cols = set(self._table_columns(conn, "memu_triples")) if "memu_triples" in table_names else set()
+
+                # First pass: infer triple scope from source memory rows when missing.
+                if "memu_triples" in table_names and triple_cols:
+                    for field in scope_fields:
+                        if field not in triple_cols:
+                            continue
+                        missing = self._missing_scope_expr(f"t.{field}")
+                        source_ok = f"m.{field} IS NOT NULL AND TRIM(m.{field}) != ''"
+                        conn.exec_driver_sql(
+                            f"""
+UPDATE memu_triples AS t
+SET {field} = (
+  SELECT m.{field}
+  FROM memu_memory_items AS m
+  WHERE m.id = t.source_memory_id
+    AND {source_ok}
+  LIMIT 1
+)
+WHERE {missing}
+  AND t.source_memory_id IS NOT NULL
+"""
+                        )
+
+                # Second pass: infer entity scope from mentions triples when missing.
+                if "memu_entities" in table_names and entity_cols and "memu_triples" in table_names and triple_cols:
+                    for field in scope_fields:
+                        if field not in entity_cols or field not in triple_cols:
+                            continue
+                        missing = self._missing_scope_expr(f"e.{field}")
+                        source_ok = f"t.{field} IS NOT NULL AND TRIM(t.{field}) != ''"
+                        conn.exec_driver_sql(
+                            f"""
+UPDATE memu_entities AS e
+SET {field} = (
+  SELECT t.{field}
+  FROM memu_triples AS t
+  WHERE t.object_id = e.id
+    AND t.predicate = 'mentions'
+    AND t.object_kind = 'entity'
+    AND {source_ok}
+  LIMIT 1
+)
+WHERE {missing}
+"""
+                        )
+
+                # Final pass: any remaining missing scope gets the DB fallback scope.
+                fallback = self._resolve_scope_fallback(conn, scope_fields)
+                if not fallback:
+                    return
+                for table_name, cols in (("memu_entities", entity_cols), ("memu_triples", triple_cols)):
+                    if table_name not in table_names or not cols:
+                        continue
+                    for field in scope_fields:
+                        if field not in cols:
+                            continue
+                        value = fallback.get(field)
+                        if not value:
+                            continue
+                        conn.exec_driver_sql(
+                            f"""
+UPDATE {table_name}
+SET {field} = :value
+WHERE {self._missing_scope_expr(field)}
+""",
+                            {"value": value},
+                        )
+        except Exception:
+            logger.warning("Graph scope backfill failed", exc_info=True)
+
     def _create_tables(self) -> None:
         """Create SQLite tables if they don't exist."""
         SQLModel.metadata.create_all(self._sessions.engine)
@@ -325,6 +432,7 @@ WHERE (merged_into IS NULL OR TRIM(merged_into) = '')
         self._ensure_conversation_state_table()
         self._ensure_diary_tables()
         self._ensure_fts_table()
+        self._backfill_graph_scope()
         logger.debug("SQLite tables created/verified")
 
     def close(self) -> None:
