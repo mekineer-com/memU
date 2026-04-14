@@ -2305,6 +2305,14 @@ Decide which clusters/candidates should map into existing categories, and which 
                     store.memory_item_repo.update_item(**update_kwargs)
                 superseded_targets.add(target_item_id)
                 logger.info("supersede: %s superseded_by %s (%.60s)", target_item_id, item.id, summary_text)
+                store.triple_repo.add(Triple(
+                    subject_id=target_item_id,
+                    subject_kind="memory",
+                    predicate="evolved_into",
+                    object_id=item.id,
+                    object_kind="memory",
+                    source_memory_id=item.id,
+                ))
             mapped_cat_ids = self._map_category_names_to_ids(cat_names, ctx)
             reinforcement_count = self._item_reinforcement_count(item)
             update_summary = self._category_update_summary_text(resolved_summary, reinforcement_count)
