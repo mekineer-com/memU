@@ -295,9 +295,6 @@ class RetrieveMixin:
         if not state.get("needs_retrieval"):
             state["proceed_to_items"] = False
             return state
-        if not state.get("retrieve_category") or not state.get("sufficiency_check"):
-            state["proceed_to_items"] = True
-            return state
 
         retrieved_content = ""
         store = state["store"]
@@ -311,6 +308,24 @@ class RetrieveMixin:
                 store,
                 categories=category_pool,
             )
+
+        if not state.get("retrieve_category") or not state.get("sufficiency_check"):
+            # Keep item-search rewrite active even when category sufficiency gating is disabled.
+            # SONNET WANTED: tune pre_retrieval_decision prompt wording so rewritten_query
+            # explicitly optimizes for item/vector+BM25 lookup in this rewrite-only mode.
+            llm_client = self._get_step_llm_client(step_context)
+            _needs_more, rewritten_query = await self._decide_if_retrieval_needed(
+                state["active_query"],
+                state["context_queries"],
+                retrieved_content=retrieved_content or "No content retrieved yet.",
+                llm_client=llm_client,
+            )
+            state["next_step_query"] = rewritten_query
+            state["active_query"] = rewritten_query
+            state["proceed_to_items"] = True
+            embed_client = self._get_step_embedding_client(step_context)
+            state["query_vector"] = (await embed_client.embed([state["active_query"]]))[0]
+            return state
 
         llm_client = self._get_step_llm_client(step_context)
         needs_more, rewritten_query = await self._decide_if_retrieval_needed(
@@ -672,14 +687,27 @@ class RetrieveMixin:
         if not state.get("needs_retrieval"):
             state["proceed_to_items"] = False
             return state
-        if not state.get("retrieve_category") or not state.get("sufficiency_check"):
-            state["proceed_to_items"] = True
-            return state
 
         retrieved_content = ""
         hits = state.get("category_hits") or []
         if hits:
             retrieved_content = self._format_llm_category_content(hits)
+
+        if not state.get("retrieve_category") or not state.get("sufficiency_check"):
+            # Keep item-search rewrite active even when category sufficiency gating is disabled.
+            # SONNET WANTED: tune pre_retrieval_decision prompt wording so rewritten_query
+            # explicitly optimizes for item/vector+BM25 lookup in this rewrite-only mode.
+            llm_client = self._get_step_llm_client(step_context)
+            _needs_more, rewritten_query = await self._decide_if_retrieval_needed(
+                state["active_query"],
+                state["context_queries"],
+                retrieved_content=retrieved_content or "No content retrieved yet.",
+                llm_client=llm_client,
+            )
+            state["next_step_query"] = rewritten_query
+            state["active_query"] = rewritten_query
+            state["proceed_to_items"] = True
+            return state
 
         llm_client = self._get_step_llm_client(step_context)
         needs_more, rewritten_query = await self._decide_if_retrieval_needed(
