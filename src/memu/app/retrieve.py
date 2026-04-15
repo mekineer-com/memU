@@ -938,7 +938,7 @@ class RetrieveMixin:
             for q in context_queries
             if not (
                 isinstance(q, dict)
-                and str(q.get("role") or "").strip().lower() == "history_from_recent_chat_x"
+                and str(q.get("role") or "").strip().lower() == "history_from_chat_x"
             )
         ]
         downstream_context = [
@@ -946,7 +946,7 @@ class RetrieveMixin:
             for q in context_queries
             if not (
                 isinstance(q, dict)
-                and str(q.get("role") or "").strip().lower() == "history_from_chat_x"
+                and str(q.get("role") or "").strip().lower() == "history_from_second_chat_x"
             )
         ]
         return route_context, downstream_context
