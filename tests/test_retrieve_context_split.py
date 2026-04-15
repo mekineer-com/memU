@@ -5,7 +5,7 @@ def test_split_context_queries_route_keeps_twox_downstream_keeps_onex():
     queries = [
         {"role": "all_categories_summary", "content": {"text": "cats"}},
         {"role": "history_from_chat_x", "content": {"text": "history-2x"}},
-        {"role": "history_from_last_chat_x", "content": {"text": "history-1x"}},
+        {"role": "history_from_recent_chat_x", "content": {"text": "history-1x"}},
         {"role": "memory_cache", "content": {"text": "cache"}},
     ]
     route_ctx, downstream_ctx = RetrieveMixin._split_context_queries(queries)
@@ -16,7 +16,7 @@ def test_split_context_queries_route_keeps_twox_downstream_keeps_onex():
     ]
     assert [q.get("role") for q in downstream_ctx] == [
         "all_categories_summary",
-        "history_from_last_chat_x",
+        "history_from_recent_chat_x",
         "memory_cache",
     ]
 
