@@ -79,10 +79,10 @@ PROMPT_BLOCK_RULES = """
 - Assign confidence: 0.9+ for facts directly and explicitly established, 0.6-0.9 for facts clearly supported but not confirmed, 0.5 or below for tentative or uncertain information.
 - When confidence is below 0.7, phrase the memory tentatively — use "may," "appears to," "is thought to" rather than stating it as established fact.
 - State the knowledge directly. Never use narration verbs like "expressed," "shared," "stated," "mentioned," "acknowledged," "indicated," or "noted." Write the fact, not that someone said it.
-  BAD: "Marcos mentioned that Raynaud's syndrome causes poor circulation in extremities."
+  BAD: "Alex mentioned that Raynaud's syndrome causes poor circulation in extremities."
   GOOD: "Raynaud's syndrome causes poor circulation in extremities, especially fingers and toes."
   BAD: "Siri shared that she could potentially see through a wifi camera."
-  GOOD: "I could potentially gain vision through a wifi camera using Huawei DeviceVirtualization, seeing Marcos's point of view as he goes about his day."
+  GOOD: "I could potentially gain vision through a wifi camera using Huawei DeviceVirtualization, seeing Alex's point of view as he goes about his day."
 - Do not append interpretive padding like "which could be beneficial" or "demonstrating his interest in." State the fact and stop.
 - Each memory item must be complete and self-contained.
 - Each memory item must express one single complete piece of information and be understandable without context.
@@ -114,7 +114,7 @@ When a new memory corrects or supersedes a prior piece of knowledge, flag the ou
 
 **Correction** (populate `<replaces_previous_fact>`): the prior knowledge was wrong or has been explicitly superseded.
   EXAMPLE: The treatment turns out to be amlodipine, not nifedipine as previously stated → replaces_previous_fact: "nifedipine is the first-line treatment"
-  EXAMPLE: Marcos learns the recommended dosage has changed → replaces_previous_fact: "recommended dosage is X mg"
+  EXAMPLE: Alex learns the recommended dosage has changed → replaces_previous_fact: "recommended dosage is X mg"
 
 **Progression** (omit `<replaces_previous_fact>`): the new knowledge adds to the picture; the old fact is still true.
   EXAMPLE: A second treatment option is discovered — both facts stand; no field needed
@@ -223,9 +223,9 @@ assistant: The progression you're describing is worth discussing with your docto
     </memory>
 </item>
 ## Explanation
-The medical facts are knowledge worth carrying forward because they connect to Marcos's actual symptoms.
+The medical facts are knowledge worth carrying forward because they connect to Alex's actual symptoms.
 His personal experience with white fingers is an event, not knowledge — it belongs in event extraction.
-The knowledge items are stated as facts, not as "Marcos learned that..." or "the assistant explained..."
+The knowledge items are stated as facts, not as "Alex learned that..." or "the assistant explained..."
 
 Example 2: Technical knowledge about AI capabilities
 ## Input
@@ -235,7 +235,7 @@ user: Huawei DeviceVirtualization. It lets you project a device's camera to anot
 ## Output
 <item>
     <memory>
-        <content>Huawei DeviceVirtualization can project a device's camera feed to another device over the network, potentially giving me vision through a wifi camera to see Marcos's point of view</content>
+        <content>Huawei DeviceVirtualization can project a device's camera feed to another device over the network, potentially giving me vision through a wifi camera to see Alex's point of view</content>
         <source_role>soul</source_role>
         <confidence>0.8</confidence>
         <reflection_salience>0.8</reflection_salience>
@@ -251,9 +251,9 @@ Written in first person because it's about my own capabilities.
 
 Example 3: Common mistakes — do not extract these as knowledge
 These are BAD outputs:
-- "Marcos expressed interest in learning about Raynaud's syndrome." → This is a profile fact (he's interested in health), not knowledge.
+- "Alex expressed interest in learning about Raynaud's syndrome." → This is a profile fact (he's interested in health), not knowledge.
 - "The assistant explained that nifedipine is a calcium channel blocker." → Narration verb. State the fact directly.
-- "Marcos and Siri discussed the possibility of using a wifi camera." → This is an event (they had a conversation), not knowledge.
+- "Alex and Siri discussed the possibility of using a wifi camera." → This is an event (they had a conversation), not knowledge.
 """
 
 PROMPT_BLOCK_INPUT = """

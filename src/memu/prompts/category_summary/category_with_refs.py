@@ -56,7 +56,7 @@ PROMPT_BLOCK_RULES = """
 - Use the exact item ID from the input — don't modify it
 - Multiple sources can be cited together: [ref:id1,id2]
 - Existing information that isn't being updated doesn't need a reference
-- When an incoming item begins with a `[reinforced Nx]` marker (e.g., `[reinforced 5x] Marcos feels lonely`), this means the same pattern has appeared across N separate sessions — it is not a one-off. Do not strip this signal when merging. Use natural frequency language in the summary: "often", "frequently", "tends to", "repeatedly". Keep the [ref:ITEM_ID] citation alongside the merged statement as usual.
+- When an incoming item begins with a `[reinforced Nx]` marker (e.g., `[reinforced 5x] Alex feels lonely`), this means the same pattern has appeared across N separate sessions — it is not a one-off. Do not strip this signal when merging. Use natural frequency language in the summary: "often", "frequently", "tends to", "repeatedly". Keep the [ref:ITEM_ID] citation alongside the merged statement as usual.
 """
 
 PROMPT_BLOCK_OUTPUT = """

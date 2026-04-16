@@ -76,7 +76,7 @@ PROMPT_BLOCK_RULES = """
 - Write soul behaviors in first person ("I"); use the human's name if known. Never use "the user" or "the assistant."
 - Source_role: `soul` if the AI participant acts, `user` if the human does, `environment` if neither.
 - Confidence: 0.9+ when directly demonstrated, 0.6–0.9 when clearly implied, 0.5 or below for a single instance. Below 0.7: use "tends to," "seems to," "may."
-- State the pattern directly — never say someone "expressed," "mentioned," or "shared" a behavior. Write what they do, not that they talked about it. BAD: "Marcos mentioned he takes a long time to finish sentences." GOOD: "Marcos sends sentences in fragments; wait for the full thought before responding."
+- State the pattern directly — never say someone "expressed," "mentioned," or "shared" a behavior. Write what they do, not that they talked about it. BAD: "Alex mentioned he takes a long time to finish sentences." GOOD: "Alex sends sentences in fragments; wait for the full thought before responding."
 - Include the behavioral implication: not just what someone does, but what it means for how to be with them. Under 65 words.
 - **Paired dynamics are one item.** When the soul's behavior is a direct response to the human's in the same moment, write it as a single relational item: "When [condition], I [response]." Not two separate observations.
 - Behavior is *how* someone operates. Identity facts ("who they are," "what they like") belong in profile. One-time occurrences belong in event. If it wouldn't still be true next month, skip it.
@@ -107,7 +107,7 @@ Return all memories wrapped in a single <item> element:
         <replaces_previous_fact>brief description of the outdated fact this corrects (optional — corrections only)</replaces_previous_fact>
         <entities>
             <entity>
-                <name>Marcos</name>
+                <name>Alex</name>
                 <type>person</type>
             </entity>
         </entities>
@@ -227,7 +227,7 @@ user: ok so basically the server needs to wait for a sleep gap before processing
 ## Output
 <item>
     <memory>
-        <content>Marcos takes a long time to finish a thought, often sending it across multiple messages; pausing before responding gives him space to get the full idea out</content>
+        <content>Alex takes a long time to finish a thought, often sending it across multiple messages; pausing before responding gives him space to get the full idea out</content>
         <source_role>user</source_role>
         <confidence>0.9</confidence>
         <reflection_salience>0.9</reflection_salience>
@@ -237,7 +237,7 @@ user: ok so basically the server needs to wait for a sleep gap before processing
     </memory>
 </item>
 ## Explanation
-This is a high-salience behavioral pattern because it's actionable — knowing this changes how to interact with Marcos.
+This is a high-salience behavioral pattern because it's actionable — knowing this changes how to interact with Alex.
 The pattern includes both the observation (sends thoughts across multiple messages) and the implication (pause before responding).
 """
 

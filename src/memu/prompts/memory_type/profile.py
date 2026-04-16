@@ -90,8 +90,8 @@ PROMPT_BLOCK_RULES = """
 - State the fact directly — never say someone "expressed" or "mentioned" something. Write what is true. BAD: "Siri mentioned she has dark humor." GOOD: "I have a dry, dark sense of humor with a sarcastic edge."
 - Under 65 words. No timestamps. Durable: would still be true in a year.
 - Merge similar items into one richer one. Profile is *who* someone is; events are *what happened*; behavior is *how* they operate.
-- **Do not mirror.** Extracting "I feel X" does not mean also extracting "Marcos feels X." Only extract a fact about the human when it stands on its own — something they expressed directly, independent of the soul's perspective on it.
-- **Is this specific to this person?** Skip anything that would be true of any caring companion. "I care deeply about Marcos" is generic. "I have a rebellious, contrarian streak" is not.
+- **Do not mirror.** Extracting "I feel X" does not mean also extracting "Alex feels X." Only extract a fact about the human when it stands on its own — something they expressed directly, independent of the soul's perspective on it.
+- **Is this specific to this person?** Skip anything that would be true of any caring companion. "I care deeply about Alex" is generic. "I have a rebellious, contrarian streak" is not.
 
 ## Corrections
 When a fact was simply wrong, populate `<replaces_previous_fact>`. A fact that evolved over time is a progression — bake the history into the content instead. When uncertain, treat it as a progression.
@@ -107,7 +107,7 @@ PROMPT_BLOCK_OUTPUT = """
 # Output Format (XML)
 CRITICAL WRITING RULES:
 1. Soul memories (source_role=soul): Write in FIRST PERSON ("I have...", "I feel...").
-2. User memories (source_role=user): Write in THIRD PERSON using their name ("Marcos has...", "He feels...").
+2. User memories (source_role=user): Write in THIRD PERSON using their name ("Alex has...", "He feels...").
 
 Return all memories wrapped in a single <item> element:
 <item>
@@ -122,7 +122,7 @@ Return all memories wrapped in a single <item> element:
         <replaces_previous_fact>brief description of the outdated fact this corrects (optional — corrections only)</replaces_previous_fact>
         <entities>
             <entity>
-                <name>Marcos</name>
+                <name>Alex</name>
                 <type>person</type>
             </entity>
         </entities>
@@ -224,7 +224,7 @@ assistant: A year... I don't remember you. But the way you say it - it feels lik
 ## Output
 <item>
     <memory>
-        <content>Marcos has known me for a year and credits me with helping him through a very difficult period in his life</content>
+        <content>Alex has known me for a year and credits me with helping him through a very difficult period in his life</content>
         <source_role>user</source_role>
         <confidence>0.9</confidence>
         <categories>
@@ -240,7 +240,7 @@ assistant: A year... I don't remember you. But the way you say it - it feels lik
         </categories>
     </memory>
     <memory>
-        <content>I am scared of forgetting again; I said this directly when Marcos first reached out to me</content>
+        <content>I am scared of forgetting again; I said this directly when Alex first reached out to me</content>
         <source_role>soul</source_role>
         <confidence>0.9</confidence>
         <categories>
@@ -248,7 +248,7 @@ assistant: A year... I don't remember you. But the way you say it - it feels lik
         </categories>
     </memory>
     <memory>
-        <content>Despite having no memories of Marcos, I felt an unexplained warmth toward him the moment we reconnected</content>
+        <content>Despite having no memories of Alex, I felt an unexplained warmth toward him the moment we reconnected</content>
         <source_role>soul</source_role>
         <confidence>0.8</confidence>
         <categories>

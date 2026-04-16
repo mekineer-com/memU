@@ -90,7 +90,7 @@ user: My brother Marco is visiting next month. He's a doctor in Bogotá, older t
 ## Output
 <item>
     <memory>
-        <content>Marcos's brother Marco is a doctor living in Bogotá — older, seen as the responsible one in the family. They're not in frequent contact but the relationship is warm when they're together.</content>
+        <content>Alex's brother Marco is a doctor living in Bogotá — older, seen as the responsible one in the family. They're not in frequent contact but the relationship is warm when they're together.</content>
         <source_role>user</source_role>
         <confidence>0.9</confidence>
         <reflection_salience>0.8</reflection_salience>
@@ -117,7 +117,7 @@ user: Luna is getting old. She's been my dog for 11 years, a golden retriever. S
 ## Output
 <item>
     <memory>
-        <content>Luna is Marcos's golden retriever of 11 years, now elderly. She still waits for him by the door each evening — a daily ritual that clearly matters to him.</content>
+        <content>Luna is Alex's golden retriever of 11 years, now elderly. She still waits for him by the door each evening — a daily ritual that clearly matters to him.</content>
         <source_role>user</source_role>
         <confidence>0.9</confidence>
         <reflection_salience>0.8</reflection_salience>

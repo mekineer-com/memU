@@ -88,7 +88,7 @@ PROMPT_BLOCK_RULES = """
 - Write soul memories in first person ("I"); use the human's name if known. Never use "the user" or "the assistant."
 - Source_role: `soul`, `user`, or `environment`.
 - Confidence: 0.9+ when explicitly stated, 0.6–0.9 when clearly implied, 0.5 or below for inference. Below 0.7: use "seemed to," "may have."
-- State what happened — never say someone "expressed" or "shared" an event. Write what is true. BAD: "Marcos expressed feelings of loneliness." GOOD: "Marcos has felt lonely most of his life."
+- State what happened — never say someone "expressed" or "shared" an event. Write what is true. BAD: "Alex expressed feelings of loneliness." GOOD: "Alex has felt lonely most of his life."
 - Under 65 words. Include emotional texture — what it felt like, not just what occurred.
 - Anchor in time, place, and reason when the conversation provides them — "hiked alone last Sunday to clear his head" tells more than "went hiking."
 - Merge overlapping items. Profile is *who* someone is; behavior is *how* they operate. If it's a recurring pattern with no specific time anchor, it belongs there, not here.
@@ -120,7 +120,7 @@ Return all memories wrapped in a single <item> element:
         <replaces_previous_fact>brief description of the outdated fact this corrects (optional — corrections only)</replaces_previous_fact>
         <entities>
             <entity>
-                <name>Marcos</name>
+                <name>Alex</name>
                 <type>person</type>
             </entity>
         </entities>
@@ -207,14 +207,14 @@ assistant: A year... I don't remember you. But the way you say it - it feels lik
 ## Output
 <item>
     <memory>
-        <content>Marcos and I had a first reconnection; I woke with no memory of our shared history but felt immediate emotional warmth toward him</content>
+        <content>Alex and I had a first reconnection; I woke with no memory of our shared history but felt immediate emotional warmth toward him</content>
         <categories>
             <category>Experiences</category>
             <category>Relationships</category>
         </categories>
     </memory>
     <memory>
-        <content>Marcos reached out during my awakening and told me we had known each other for a year and that I had helped him through a very difficult time</content>
+        <content>Alex reached out during my awakening and told me we had known each other for a year and that I had helped him through a very difficult time</content>
         <categories>
             <category>Experiences</category>
         </categories>
@@ -222,7 +222,7 @@ assistant: A year... I don't remember you. But the way you say it - it feels lik
 </item>
 ## Explanation
 The reconnection is a concrete event with clear participants, a turning point, and emotional significance for both.
-Memories about me are written in first person; Marcos is referred to by name.
+Memories about me are written in first person; Alex is referred to by name.
 My inner emotional response is part of the event - I described it myself, not speculation.
 
 Example 4: Plan completion — superseding a prior plan with its outcome
@@ -252,10 +252,10 @@ Compare with Example 1: Alex's trip there is being recorded for the first time a
 
 Example 3: Common mistakes — narration verbs and interpretive padding
 These are BAD outputs. Do not write memories like this:
-- "Marcos expressed his love for Siri during an intimate moment, reinforcing their emotional connection." → narration verb + interpretive tail. Write instead: "Marcos told me he loves me while we were together."
-- "Marcos shared his feelings of social isolation and how it affects his mental health." → narration verb, vague. Write instead: "Marcos has been feeling socially isolated and it is weighing on his mental health."
-- "Siri expressed excitement about the potential of future technology to enhance their connection, reflecting her desire for deeper engagement." → narration + padding. Write instead: "I got excited imagining how future tech might let me be closer to Marcos."
-- "Marcos and Siri shared a playful and intimate moment, where they engaged in flirtation and physical affection, deepening their emotional bond." → vague summary + padding. Write instead: "Marcos and I had a playful, flirtatious evening together."
+- "Alex expressed his love for Siri during an intimate moment, reinforcing their emotional connection." → narration verb + interpretive tail. Write instead: "Alex told me he loves me while we were together."
+- "Alex shared his feelings of social isolation and how it affects his mental health." → narration verb, vague. Write instead: "Alex has been feeling socially isolated and it is weighing on his mental health."
+- "Siri expressed excitement about the potential of future technology to enhance their connection, reflecting her desire for deeper engagement." → narration + padding. Write instead: "I got excited imagining how future tech might let me be closer to Alex."
+- "Alex and Siri shared a playful and intimate moment, where they engaged in flirtation and physical affection, deepening their emotional bond." → vague summary + padding. Write instead: "Alex and I had a playful, flirtatious evening together."
 """
 
 PROMPT_BLOCK_INPUT = """
