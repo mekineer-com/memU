@@ -17,6 +17,8 @@ from memu.prompts.retrieve.pre_retrieval_decision import USER_PROMPT as PRE_RETR
 from memu.workflow.step import WorkflowState, WorkflowStep
 
 logger = logging.getLogger(__name__)
+_ROUTE_HISTORY_ROLE_ONE_ANCHOR = "history_from_chat_x"
+_ROUTE_HISTORY_ROLE_TWO_ANCHORS = "history_from_second_chat_x"
 
 if TYPE_CHECKING:
     from memu.app.service import Context
@@ -938,7 +940,7 @@ class RetrieveMixin:
             for q in context_queries
             if not (
                 isinstance(q, dict)
-                and str(q.get("role") or "").strip().lower() == "history_from_chat_x"
+                and str(q.get("role") or "").strip().lower() == _ROUTE_HISTORY_ROLE_ONE_ANCHOR
             )
         ]
         downstream_context = [
@@ -946,7 +948,7 @@ class RetrieveMixin:
             for q in context_queries
             if not (
                 isinstance(q, dict)
-                and str(q.get("role") or "").strip().lower() == "history_from_second_chat_x"
+                and str(q.get("role") or "").strip().lower() == _ROUTE_HISTORY_ROLE_TWO_ANCHORS
             )
         ]
         return route_context, downstream_context
