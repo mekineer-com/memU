@@ -3396,19 +3396,6 @@ Decide which clusters/candidates should map into existing categories, and which 
             if reflection_salience is not None and 0.0 <= reflection_salience <= 1.0:
                 memory_dict["reflection_salience"] = reflection_salience
 
-        source_message_ids_elem = memory_elem.find("source_message_ids")
-        if source_message_ids_elem is not None:
-            message_ids: list[int] = []
-            for id_elem in source_message_ids_elem.findall("id"):
-                if id_elem.text is None:
-                    continue
-                try:
-                    message_ids.append(int(id_elem.text.strip()))
-                except (TypeError, ValueError):
-                    continue
-            if message_ids:
-                memory_dict["source_message_ids"] = message_ids
-
         replaces_previous_fact_elem = memory_elem.find("replaces_previous_fact")
         if replaces_previous_fact_elem is not None and replaces_previous_fact_elem.text:
             replaces_previous_fact = self._normalize_replaces_previous_fact(replaces_previous_fact_elem.text)
