@@ -1649,7 +1649,7 @@ Decide which clusters/candidates should map into existing categories, and which 
             episode_text = self._extract_episode_text(lines, start_idx, end_idx)
             if not episode_text:
                 continue
-            applicable_types = await self._route_episode(
+            applicable_types, _ = await self._route_episode(
                 episode_text,
                 memory_types,
                 llm_client,
