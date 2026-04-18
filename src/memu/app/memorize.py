@@ -41,6 +41,9 @@ from memu.workflow.step import WorkflowState, WorkflowStep
 
 logger = logging.getLogger(__name__)
 
+_HEDGE_THRESHOLD = 0.6          # below this, soften claims with tentative phrasing
+_STRONG_HEDGE_THRESHOLD = 0.35  # below this, use stronger hedges like "faint suspicion"
+
 
 class StructuredMemoryEntry(NamedTuple):
     memory_type: MemoryType
@@ -122,10 +125,10 @@ class MemorizeMixin:
     @staticmethod
     def _hedge_summary_for_confidence(summary: str, confidence: float | None) -> str:
         text = str(summary or "").strip()
-        if not text or confidence is None or confidence >= 0.6:
+        if not text or confidence is None or confidence >= _HEDGE_THRESHOLD:
             return text
         lowered = text[:1].lower() + text[1:] if text[:1].isupper() else text
-        if confidence < 0.35:
+        if confidence < _STRONG_HEDGE_THRESHOLD:
             return f"I have a faint suspicion that {lowered}"
         return f"I have an inkling that {lowered}"
     async def memorize(

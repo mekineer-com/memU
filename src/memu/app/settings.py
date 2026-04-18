@@ -153,6 +153,18 @@ class BlobConfig(BaseModel):
 class RetrieveCategoryConfig(BaseModel):
     enabled: bool = Field(default=True, description="Whether to enable category retrieval.")
     top_k: int = Field(default=5, description="Total number of categories to retrieve.")
+    min_score: float = Field(
+        default=0.40,
+        description="Absolute floor score for category hits; categories below this are dropped regardless of window.",
+    )
+    score_window: float = Field(
+        default=0.07,
+        description="Max gap from the top hit score; categories more than this far below the top are dropped.",
+    )
+    max_count: int = Field(
+        default=2,
+        description="Maximum number of categories forwarded to item retrieval after score gating.",
+    )
 
 
 class RetrieveItemConfig(BaseModel):

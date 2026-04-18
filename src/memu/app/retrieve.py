@@ -18,6 +18,8 @@ from memu.prompts.retrieve.pre_retrieval_decision import USER_PROMPT as PRE_RETR
 from memu.workflow.step import WorkflowState, WorkflowStep
 
 logger = logging.getLogger(__name__)
+# These role strings must stay in sync with _build_retrieve_soul_context_queries() in
+# mcp-memu-server/app/main.py, which assigns the same names server-side before calling retrieve.
 _ROUTE_HISTORY_ROLE_ONE_ANCHOR = "history_from_chat_x"
 _ROUTE_HISTORY_ROLE_TWO_ANCHORS = "history_from_second_chat_x"
 
@@ -281,13 +283,14 @@ class RetrieveMixin:
             embed_client=embed_client,
             categories=category_pool,
         )
-        # Apply top+0.07 filter with absolute floor 0.40 — keep at most 2
+        # Gate by absolute floor and top-score window; cap at max_count
+        cat_cfg = self.retrieve_config.category
         if hits:
             top_score = hits[0][1] if isinstance(hits[0], (list, tuple)) and len(hits[0]) > 1 else 1.0
             hits = [h for h in hits if (
-                (h[1] if isinstance(h, (list, tuple)) and len(h) > 1 else 0) >= 0.40
-                and (h[1] if isinstance(h, (list, tuple)) and len(h) > 1 else 0) >= (top_score - 0.07)
-            )][:2]
+                (h[1] if isinstance(h, (list, tuple)) and len(h) > 1 else 0) >= cat_cfg.min_score
+                and (h[1] if isinstance(h, (list, tuple)) and len(h) > 1 else 0) >= (top_score - cat_cfg.score_window)
+            )][:cat_cfg.max_count]
         state.update({
             "query_vector": qvec,
             "category_hits": hits,
@@ -461,6 +464,7 @@ class RetrieveMixin:
                     deduped.append(mid)
             # Cap graph-only results
             deduped = deduped[:graph_cfg.max_graph_results]
+            # score=0.0 is a sentinel for graph-expanded hits (no cosine score); not a weak match
             vector_hits = list(vector_hits) + [(mid, 0.0) for mid in deduped]
 
         state["item_hits"] = vector_hits
