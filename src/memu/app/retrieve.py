@@ -300,6 +300,11 @@ class RetrieveMixin:
         return state
 
     async def _rag_category_sufficiency(self, state: WorkflowState, step_context: Any) -> WorkflowState:
+        # Near-duplicate of _llm_category_sufficiency. The only structural difference is how
+        # retrieved_content is formatted: RAG uses _format_category_content (needs store +
+        # summary_lookup + category_pool); LLM uses _format_llm_category_content (hits only).
+        # Intentionally kept separate — injecting a formatter callable adds more coupling
+        # than the duplication costs.
         if not state.get("needs_retrieval"):
             state["proceed_to_items"] = False
             return state
@@ -318,6 +323,8 @@ class RetrieveMixin:
             )
 
         if not state.get("retrieve_category") or not state.get("sufficiency_check"):
+            # Rewrite-only mode: gating disabled, LLM called for query rewrite only,
+            # retrieval proceeds regardless of what the LLM would decide about sufficiency.
             # Keep item-search rewrite active even when category sufficiency gating is disabled.
             # SONNET WANTED: tune pre_retrieval_decision prompt wording so rewritten_query
             # explicitly optimizes for item/vector+BM25 lookup in this rewrite-only mode.
@@ -1232,77 +1239,42 @@ class RetrieveMixin:
         llm_response = await client.chat(prompt)
         return self._parse_llm_resource_response(llm_response, store, resources=resource_pool)
 
-    def _parse_llm_category_response(
-        self, raw_response: str, store: Database, categories: Mapping[str, Any] | None = None
+    def _parse_llm_id_list_response(
+        self, raw_response: str, key: str, pool: Mapping[str, Any], label: str
     ) -> list[dict[str, Any]]:
-        """Parse LLM category ranking response"""
-        category_pool = categories if categories is not None else store.memory_category_repo.categories
+        """Extract a JSON blob from raw_response, read pool[id] for each id in parsed[key],
+        and return model-dumped results in LLM-provided order (already sorted by relevance)."""
         results = []
         try:
             json_blob = self._extract_json_blob(raw_response)
             parsed = json.loads(json_blob)
-
-            if "categories" in parsed and isinstance(parsed["categories"], list):
-                category_ids = parsed["categories"]
-                # Return categories in the order provided by LLM (already sorted by relevance)
-                for cat_id in category_ids:
-                    if isinstance(cat_id, str):
-                        cat = category_pool.get(cat_id)
-                        if cat:
-                            cat_data = self._model_dump_without_embeddings(cat)
-                            results.append(cat_data)
+            if key in parsed and isinstance(parsed[key], list):
+                for obj_id in parsed[key]:
+                    if isinstance(obj_id, str):
+                        obj = pool.get(obj_id)
+                        if obj:
+                            results.append(self._model_dump_without_embeddings(obj))
         except Exception as e:
-            logger.warning(f"Failed to parse LLM category ranking response: {e}")
-
+            logger.warning(f"Failed to parse LLM {label} ranking response: {e}")
         return results
+
+    def _parse_llm_category_response(
+        self, raw_response: str, store: Database, categories: Mapping[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
+        pool = categories if categories is not None else store.memory_category_repo.categories
+        return self._parse_llm_id_list_response(raw_response, "categories", pool, "category")
 
     def _parse_llm_item_response(
         self, raw_response: str, store: Database, items: Mapping[str, Any] | None = None
     ) -> list[dict[str, Any]]:
-        """Parse LLM item ranking response"""
-        item_pool = items if items is not None else store.memory_item_repo.list_items()
-        results = []
-        try:
-            json_blob = self._extract_json_blob(raw_response)
-            parsed = json.loads(json_blob)
-
-            if "items" in parsed and isinstance(parsed["items"], list):
-                item_ids = parsed["items"]
-                # Return items in the order provided by LLM (already sorted by relevance)
-                for item_id in item_ids:
-                    if isinstance(item_id, str):
-                        mem_item = item_pool.get(item_id)
-                        if mem_item:
-                            item_data = self._model_dump_without_embeddings(mem_item)
-                            results.append(item_data)
-        except Exception as e:
-            logger.warning(f"Failed to parse LLM item ranking response: {e}")
-
-        return results
+        pool = items if items is not None else store.memory_item_repo.list_items()
+        return self._parse_llm_id_list_response(raw_response, "items", pool, "item")
 
     def _parse_llm_resource_response(
         self, raw_response: str, store: Database, resources: Mapping[str, Any] | None = None
     ) -> list[dict[str, Any]]:
-        """Parse LLM resource ranking response"""
-        resource_pool = resources if resources is not None else store.resource_repo.resources
-        results = []
-        try:
-            json_blob = self._extract_json_blob(raw_response)
-            parsed = json.loads(json_blob)
-
-            if "resources" in parsed and isinstance(parsed["resources"], list):
-                resource_ids = parsed["resources"]
-                # Return resources in the order provided by LLM (already sorted by relevance)
-                for res_id in resource_ids:
-                    if isinstance(res_id, str):
-                        res = resource_pool.get(res_id)
-                        if res:
-                            res_data = self._model_dump_without_embeddings(res)
-                            results.append(res_data)
-        except Exception as e:
-            logger.warning(f"Failed to parse LLM resource ranking response: {e}")
-
-        return results
+        pool = resources if resources is not None else store.resource_repo.resources
+        return self._parse_llm_id_list_response(raw_response, "resources", pool, "resource")
 
     def _format_llm_category_content(self, hits: list[dict[str, Any]]) -> str:
         """Format LLM-ranked category content for judger"""

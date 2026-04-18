@@ -866,35 +866,11 @@ class MemorizeMixin:
         updated: list[StructuredMemoryEntry] = []
         gated_indexes: set[int] = set()
 
-        for idx, (
-            (
-                memory_type,
-                summary_text,
-                cat_names,
-                source_role,
-                confidence,
-                source_message_ids,
-                reflection_salience,
-                replaces_previous_fact,
-                entities,
-            ),
-            raw_embedding,
-        ) in enumerate(zip(structured_entries, item_embeddings, strict=True)):
+        for idx, (entry, raw_embedding) in enumerate(zip(structured_entries, item_embeddings, strict=True)):
+            cat_names = entry.categories
             embedding = self._normalize_embedding_vector(raw_embedding)
             if embedding is None:
-                updated.append(
-                    StructuredMemoryEntry(
-                        memory_type,
-                        summary_text,
-                        cat_names,
-                        source_role,
-                        confidence,
-                        source_message_ids,
-                        reflection_salience,
-                        replaces_previous_fact,
-                        entities,
-                    )
-                )
+                updated.append(entry)
                 continue
 
             existing_names: list[str] = []
@@ -906,19 +882,7 @@ class MemorizeMixin:
                 else:
                     unknown_names.append(name)
             if not existing_names:
-                updated.append(
-                    StructuredMemoryEntry(
-                        memory_type,
-                        summary_text,
-                        cat_names,
-                        source_role,
-                        confidence,
-                        source_message_ids,
-                        reflection_salience,
-                        replaces_previous_fact,
-                        entities,
-                    )
-                )
+                updated.append(entry)
                 continue
 
             max_similarity: float | None = None
@@ -930,35 +894,11 @@ class MemorizeMixin:
                     max_similarity = similarity
 
             if max_similarity is None or max_similarity >= threshold:
-                updated.append(
-                    StructuredMemoryEntry(
-                        memory_type,
-                        summary_text,
-                        cat_names,
-                        source_role,
-                        confidence,
-                        source_message_ids,
-                        reflection_salience,
-                        replaces_previous_fact,
-                        entities,
-                    )
-                )
+                updated.append(entry)
                 continue
 
             gated_indexes.add(idx)
-            updated.append(
-                StructuredMemoryEntry(
-                    memory_type,
-                    summary_text,
-                    unknown_names,
-                    source_role,
-                    confidence,
-                    source_message_ids,
-                    reflection_salience,
-                    replaces_previous_fact,
-                    entities,
-                )
-            )
+            updated.append(entry._replace(categories=unknown_names))
 
         return updated, gated_indexes
 
@@ -1271,6 +1211,73 @@ Decide which clusters/candidates should map into existing categories, and which 
 
         return cluster_mapping, label_mapping, new_defs
 
+    async def _process_plan(
+        self,
+        plan: dict[str, Any],
+        *,
+        modality: str,
+        local_path: str | None,
+        ctx: Any,
+        store: Any,
+        category_centroids: dict[str, Any],
+        embed_client: Any,
+        user_scope: dict[str, Any],
+        conversation_id: str | None,
+        items: list[MemoryItem],
+        relations: list[CategoryItem],
+        category_updates: dict[str, list[tuple[str, str]]],
+        pending_diary_episode_ids: list[str],
+        session: Any = None,
+    ) -> tuple[list[Resource], int]:
+        """Process one resource plan: create resource, collect diary episodes, persist items.
+
+        Returns (resources, homeless_delta). Callers pass session=session for SQLite
+        transactional path, or omit (None) for the sessionless path.
+        """
+        kwargs: dict[str, Any] = {}
+        if session is not None:
+            kwargs["session"] = session
+        res = await self._create_resource_with_caption(
+            resource_url=plan["resource_url"],
+            modality=modality,
+            local_path=local_path,
+            caption=plan.get("caption"),
+            store=store,
+            embed_client=embed_client,
+            user=user_scope,
+            **kwargs,
+        )
+
+        entries = plan.get("entries") or []
+        if plan.get("diary_worthy"):
+            episode_id = str(plan.get("episode_id") or "").strip()
+            if episode_id:
+                pending_diary_episode_ids.append(episode_id)
+        if not entries:
+            return [res], 0
+
+        persist_kwargs: dict[str, Any] = {}
+        if session is not None:
+            persist_kwargs["session"] = session
+        mem_items, rels, cat_updates, homeless_delta = await self._persist_memory_items(
+            resource_id=res.id,
+            structured_entries=entries,
+            ctx=ctx,
+            store=store,
+            category_centroids=category_centroids,
+            embed_client=embed_client,
+            user=user_scope,
+            conversation_id=conversation_id,
+            episode_id=plan.get("episode_id"),
+            message_happened_at_map=plan.get("message_happened_at_map"),
+            **persist_kwargs,
+        )
+        items.extend(mem_items)
+        relations.extend(rels)
+        for cat_id, mems in cat_updates.items():
+            category_updates.setdefault(cat_id, []).extend(mems)
+        return [res], homeless_delta
+
     async def _memorize_categorize_items(self, state: WorkflowState, step_context: Any) -> WorkflowState:
         embed_client = self._get_step_embedding_client(step_context)
         ctx = state["ctx"]
@@ -1286,91 +1293,38 @@ Decide which clusters/candidates should map into existing categories, and which 
         category_centroids = self._build_category_centroids(store=store, user=user_scope)
         homeless_item_count = 0
 
+        common = dict(
+            modality=modality,
+            local_path=local_path,
+            ctx=ctx,
+            store=store,
+            category_centroids=category_centroids,
+            embed_client=embed_client,
+            user_scope=user_scope,
+            conversation_id=state.get("conversation_id"),
+            items=items,
+            relations=relations,
+            category_updates=category_updates,
+            pending_diary_episode_ids=pending_diary_episode_ids,
+        )
+
         session_cm = self._sqlite_write_session(store)
         if session_cm is not None:
             with session_cm as session:
                 try:
                     for plan in state.get("resource_plans", []):
-                        res = await self._create_resource_with_caption(
-                            resource_url=plan["resource_url"],
-                            modality=modality,
-                            local_path=local_path,
-                            caption=plan.get("caption"),
-                            store=store,
-                            embed_client=embed_client,
-                            user=user_scope,
-                            session=session,
-                        )
-                        resources.append(res)
-
-                        entries = plan.get("entries") or []
-                        if plan.get("diary_worthy"):
-                            episode_id = str(plan.get("episode_id") or "").strip()
-                            if episode_id:
-                                pending_diary_episode_ids.append(episode_id)
-                        if not entries:
-                            continue
-
-                        mem_items, rels, cat_updates, homeless_delta = await self._persist_memory_items(
-                            resource_id=res.id,
-                            structured_entries=entries,
-                            ctx=ctx,
-                            store=store,
-                            category_centroids=category_centroids,
-                            embed_client=embed_client,
-                            user=user_scope,
-                            conversation_id=state.get("conversation_id"),
-                            episode_id=plan.get("episode_id"),
-                            message_happened_at_map=plan.get("message_happened_at_map"),
-                            session=session,
-                        )
-                        items.extend(mem_items)
-                        relations.extend(rels)
-                        homeless_item_count += homeless_delta
-                        for cat_id, mems in cat_updates.items():
-                            category_updates.setdefault(cat_id, []).extend(mems)
+                        plan_resources, delta = await self._process_plan(plan, session=session, **common)
+                        resources.extend(plan_resources)
+                        homeless_item_count += delta
                     session.commit()
                 except Exception:
                     session.rollback()
                     raise
         else:
             for plan in state.get("resource_plans", []):
-                res = await self._create_resource_with_caption(
-                    resource_url=plan["resource_url"],
-                    modality=modality,
-                    local_path=local_path,
-                    caption=plan.get("caption"),
-                    store=store,
-                    embed_client=embed_client,
-                    user=user_scope,
-                )
-                resources.append(res)
-
-                entries = plan.get("entries") or []
-                if plan.get("diary_worthy"):
-                    episode_id = str(plan.get("episode_id") or "").strip()
-                    if episode_id:
-                        pending_diary_episode_ids.append(episode_id)
-                if not entries:
-                    continue
-
-                mem_items, rels, cat_updates, homeless_delta = await self._persist_memory_items(
-                    resource_id=res.id,
-                    structured_entries=entries,
-                    ctx=ctx,
-                    store=store,
-                    category_centroids=category_centroids,
-                    embed_client=embed_client,
-                    user=user_scope,
-                    conversation_id=state.get("conversation_id"),
-                    episode_id=plan.get("episode_id"),
-                    message_happened_at_map=plan.get("message_happened_at_map"),
-                )
-                items.extend(mem_items)
-                relations.extend(rels)
-                homeless_item_count += homeless_delta
-                for cat_id, mems in cat_updates.items():
-                    category_updates.setdefault(cat_id, []).extend(mems)
+                plan_resources, delta = await self._process_plan(plan, **common)
+                resources.extend(plan_resources)
+                homeless_item_count += delta
 
         state.update({
             "resources": resources,
@@ -2007,53 +1961,20 @@ Decide which clusters/candidates should map into existing categories, and which 
         remaining = (max_total - cur_total) if max_total else None
         if remaining is not None and remaining <= 0:
             # No capacity for new categories; drop unknowns.
-            filtered: list[StructuredMemoryEntry] = []
-            for (
-                mtype,
-                content,
-                cats,
-                source_role,
-                confidence,
-                source_message_ids,
-                reflection_salience,
-                replaces_previous_fact,
-                entities,
-            ) in structured_entries:
-                kept = [c for c in (cats or []) if c in ctx.category_name_to_id]
-                filtered.append(
-                    StructuredMemoryEntry(
-                        mtype,
-                        content,
-                        kept,
-                        source_role,
-                        confidence,
-                        source_message_ids,
-                        reflection_salience,
-                        replaces_previous_fact,
-                        entities,
-                    )
-                )
-            return filtered
+            return [
+                entry._replace(categories=[c for c in (entry.categories or []) if c in ctx.category_name_to_id])
+                for entry in structured_entries
+            ]
 
         # Split known vs unknown categories, while counting unknown mentions.
         unknown_counts: dict[str, int] = {}
         per_entry_unknowns: list[list[str]] = []
         filtered_entries: list[StructuredMemoryEntry] = []
 
-        for (
-            mtype,
-            content,
-            cats,
-            source_role,
-            confidence,
-            source_message_ids,
-            reflection_salience,
-            replaces_previous_fact,
-            entities,
-        ) in structured_entries:
+        for entry in structured_entries:
             known: list[str] = []
             unknown: list[str] = []
-            for c in cats or []:
+            for c in entry.categories or []:
                 n = self._normalize_category_name(c)
                 if not n:
                     continue
@@ -2072,19 +1993,7 @@ Decide which clusters/candidates should map into existing categories, and which 
             homeless_unknowns = unknown if not known_dedup else []
             for n in homeless_unknowns:
                 unknown_counts[n] = unknown_counts.get(n, 0) + 1
-            filtered_entries.append(
-                StructuredMemoryEntry(
-                    mtype,
-                    content,
-                    known_dedup,
-                    source_role,
-                    confidence,
-                    source_message_ids,
-                    reflection_salience,
-                    replaces_previous_fact,
-                    entities,
-                )
-            )
+            filtered_entries.append(entry._replace(categories=known_dedup))
             per_entry_unknowns.append(homeless_unknowns)
 
         if not unknown_counts:
@@ -2142,21 +2051,8 @@ Decide which clusters/candidates should map into existing categories, and which 
 
         # Rebuild entries with mapped categories.
         updated: list[StructuredMemoryEntry] = []
-        for idx, (
-            (
-                mtype,
-                content,
-                known,
-                source_role,
-                confidence,
-                source_message_ids,
-                reflection_salience,
-                replaces_previous_fact,
-                entities,
-            ),
-            unk,
-        ) in enumerate(zip(filtered_entries, per_entry_unknowns, strict=True)):
-            cats = list(known)
+        for idx, (entry, unk) in enumerate(zip(filtered_entries, per_entry_unknowns, strict=True)):
+            cats = list(entry.categories)
             cluster_target = cluster_mapping.get(entry_cluster_ids.get(idx, ""))
             mapped_cluster_name = self._normalize_category_name(cluster_target) if cluster_target else None
             if (
@@ -2172,19 +2068,7 @@ Decide which clusters/candidates should map into existing categories, and which 
                 mapped_name = self._normalize_category_name(target_name)
                 if mapped_name and mapped_name in ctx.category_name_to_id and mapped_name not in cats:
                     cats.append(mapped_name)
-            updated.append(
-                StructuredMemoryEntry(
-                    mtype,
-                    content,
-                    cats,
-                    source_role,
-                    confidence,
-                    source_message_ids,
-                    reflection_salience,
-                    replaces_previous_fact,
-                    entities,
-                )
-            )
+            updated.append(entry._replace(categories=cats))
 
         return updated
 
