@@ -2302,13 +2302,8 @@ Decide which clusters/candidates should map into existing categories, and which 
                     ), user_data=dict(user or {}), session=session)
             target_item_id = supersede_targets.get(idx)
             if target_item_id and target_item_id != item.id and target_item_id not in superseded_targets:
-                update_kwargs = {"item_id": target_item_id, "superseded_by": item.id}
-                if session is not None:
-                    cast(Any, store.memory_item_repo).update_item(**update_kwargs, session=session)
-                else:
-                    store.memory_item_repo.update_item(**update_kwargs)
                 superseded_targets.add(target_item_id)
-                logger.info("supersede: %s superseded_by %s (%.60s)", target_item_id, item.id, summary_text)
+                logger.info("supersede: %s evolved_into %s (%.60s)", target_item_id, item.id, summary_text)
                 store.triple_repo.add(Triple(
                     subject_id=target_item_id,
                     subject_kind="memory",

@@ -66,7 +66,6 @@ class MemoryItemModel(BaseModelMixin, MemoryItem):
     affective_tags: dict[str, Any] | None = Field(default=None, sa_column=Column(JSONB, nullable=True))
     unresolved: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
     merged_into: str | None = Field(default=None, sa_column=Column(String, nullable=True))
-    superseded_by: str | None = Field(default=None, sa_column=Column(String, nullable=True))
     extra: dict[str, Any] = Field(default={}, sa_column=Column(JSONB, nullable=True))
 
 

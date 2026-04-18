@@ -73,7 +73,6 @@ class SQLiteMemoryItemModel(SQLiteBaseModelMixin, MemoryItem):
     affective_tags: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
     unresolved: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
     merged_into: str | None = Field(default=None, sa_column=Column(String, nullable=True))
-    superseded_by: str | None = Field(default=None, sa_column=Column(String, nullable=True))
     extra: dict[str, Any] = Field(default={}, sa_column=Column(JSON, nullable=True))
 
 
@@ -124,6 +123,7 @@ class SQLiteTripleModel(SQLiteBaseModelMixin, Triple):
         Index("idx_memu_triples_subject", "subject_id"),
         Index("idx_memu_triples_object", "object_id"),
         Index("idx_memu_triples_predicate", "predicate"),
+        Index("idx_memu_triples_predicate_subject", "predicate", "subject_id"),
         Index("idx_memu_triples_valid", "valid_from", "valid_to"),
     )
 

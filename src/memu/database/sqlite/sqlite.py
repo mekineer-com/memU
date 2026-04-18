@@ -170,7 +170,6 @@ class SQLiteStore(Database):
                 self._add_column_if_missing(conn, "memu_memory_items", "affective_tags", "affective_tags JSON")
                 self._add_column_if_missing(conn, "memu_memory_items", "unresolved", "unresolved TEXT")
                 self._add_column_if_missing(conn, "memu_memory_items", "merged_into", "merged_into VARCHAR")
-                self._add_column_if_missing(conn, "memu_memory_items", "superseded_by", "superseded_by VARCHAR")
 
         except Exception:
             return
@@ -307,14 +306,30 @@ USING fts5(
                         conn.exec_driver_sql(
                             """
 INSERT INTO memu_memory_items_fts(summary, memory_type, item_id)
-SELECT summary, memory_type, id FROM memu_memory_items
-WHERE (merged_into IS NULL OR TRIM(merged_into) = '')
-  AND (superseded_by IS NULL OR TRIM(superseded_by) = '')
+SELECT m.summary, m.memory_type, m.id
+FROM memu_memory_items AS m
+WHERE (m.merged_into IS NULL OR TRIM(m.merged_into) = '')
+  AND NOT EXISTS (
+    SELECT 1 FROM memu_triples AS t
+    WHERE t.subject_id = m.id
+      AND t.subject_kind = 'memory'
+      AND t.predicate = 'evolved_into'
+      AND t.valid_to IS NULL
+  )
 """
                         )
                         logger.info("FTS5: backfilled %d items", items_count)
         except Exception:
             logger.warning("FTS5 table creation/backfill failed", exc_info=True)
+
+    def _ensure_triple_indexes(self) -> None:
+        try:
+            with self._sessions.engine.begin() as conn:
+                conn.exec_driver_sql(
+                    "CREATE INDEX IF NOT EXISTS idx_memu_triples_predicate_subject ON memu_triples(predicate, subject_id)"
+                )
+        except Exception:
+            logger.warning("Triple index creation failed", exc_info=True)
 
     @staticmethod
     def _missing_scope_expr(column: str) -> str:
@@ -466,6 +481,7 @@ WHERE {self._missing_scope_expr(field)}
         self._ensure_memory_item_provenance_columns()
         self._ensure_conversation_state_table()
         self._ensure_diary_tables()
+        self._ensure_triple_indexes()
         self._ensure_fts_table()
         self._backfill_graph_scope()
         logger.debug("SQLite tables created/verified")

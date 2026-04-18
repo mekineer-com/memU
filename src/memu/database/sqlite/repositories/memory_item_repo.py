@@ -59,23 +59,34 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
             return raw.strip()
         return None
 
-    @staticmethod
-    def _active_item_filter(model: Any) -> Any | None:
+    def _active_item_filter(self, model: Any) -> Any | None:
         merged_into_col = getattr(model, "merged_into", None)
-        superseded_by_col = getattr(model, "superseded_by", None)
-        if merged_into_col is None and superseded_by_col is None:
-            return None
-        from sqlalchemy import func, or_
+        from sqlalchemy import and_, func, or_, select
 
         active_conditions: list[Any] = []
         if merged_into_col is not None:
             active_conditions.append(or_(merged_into_col.is_(None), func.trim(merged_into_col) == ""))
-        if superseded_by_col is not None:
-            active_conditions.append(or_(superseded_by_col.is_(None), func.trim(superseded_by_col) == ""))
+        triple_model = getattr(self._sqla_models, "Triple", None)
+        if triple_model is not None:
+            evolved_filters: list[Any] = [
+                triple_model.subject_id == model.id,
+                triple_model.predicate == "evolved_into",
+                triple_model.valid_to.is_(None),
+            ]
+            triple_subject_kind = getattr(triple_model, "subject_kind", None)
+            if triple_subject_kind is not None:
+                evolved_filters.append(triple_subject_kind == "memory")
+            for field in self._scope_fields:
+                triple_scope = getattr(triple_model, field, None)
+                item_scope = getattr(model, field, None)
+                if triple_scope is not None and item_scope is not None:
+                    evolved_filters.append(triple_scope == item_scope)
+            active_conditions.append(~select(1).where(*evolved_filters).exists())
+
+        if not active_conditions:
+            return None
         if len(active_conditions) == 1:
             return active_conditions[0]
-        from sqlalchemy import and_
-
         return and_(*active_conditions)
 
     def _to_memory_item(
@@ -103,7 +114,6 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
             affective_tags=getattr(row, "affective_tags", None),
             unresolved=getattr(row, "unresolved", None),
             merged_into=getattr(row, "merged_into", None),
-            superseded_by=getattr(row, "superseded_by", None),
             extra=getattr(row, "extra", {}) or {},
             created_at=row.created_at,
             updated_at=row.updated_at,
@@ -501,7 +511,6 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
         extra: dict[str, Any] | None = None,
         tool_record: dict[str, Any] | None = None,
         merged_into: str | None = None,
-        superseded_by: str | None = None,
         affective_tags: dict[str, Any] | None = None,
         unresolved: str | None = None,
         session: Any | None = None,
@@ -532,7 +541,6 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
                     extra=extra,
                     tool_record=tool_record,
                     merged_into=merged_into,
-                    superseded_by=superseded_by,
                     affective_tags=affective_tags,
                     unresolved=unresolved,
                     session=managed_session,
@@ -555,8 +563,6 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
             self._set_row_embedding(row, embedding)
         if merged_into is not None:
             row.merged_into = merged_into
-        if superseded_by is not None:
-            row.superseded_by = superseded_by
         if affective_tags is not None:
             row.affective_tags = affective_tags
         if unresolved is not None:
@@ -580,7 +586,7 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
         session.refresh(row)
 
         # Sync FTS: remove if item became inactive, otherwise upsert
-        if merged_into or superseded_by:
+        if merged_into:
             self._fts_delete(session, item_id)
         elif summary is not None:
             self._fts_upsert(session, item_id, row.summary, row.memory_type)

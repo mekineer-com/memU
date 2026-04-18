@@ -22,7 +22,7 @@ For upstream history before that point, see the [NevaMind-AI/memU](https://githu
 - Dynamic category formation: centroid gate + homeless clustering + planner
 - `happened_at` timestamp propagation from conversation messages
 - Salience rerank: additive formula (similarity + salience\_score); retrieve gates disabled
-- Semantic dedupe: `merged_into` (cosine ≥ 0.89) + `superseded_by` (explicit corrections, threshold 0.75)
+- Semantic dedupe: `merged_into` (cosine ≥ 0.89) + `evolved_into` triples for explicit corrections (threshold 0.75)
 - BM25 hybrid search: FTS5 virtual table + RRF fusion alongside vector search
 - Async `/memorize`: returns 202; batch processing in BackgroundTask
 - Diary auto-trigger after memorize if `pending_diary_memory_ids` non-empty
