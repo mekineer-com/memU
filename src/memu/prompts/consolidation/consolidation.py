@@ -22,6 +22,15 @@ The broad review comes first. Your self-picture is the lens through which the ep
   2) per-episode diaries after (one `<diary>` per queued episode)
 - If no episodes are queued, return an empty `<diaries>` block and still complete the broad block.
 - Never invent episode IDs. Only use IDs listed in the user prompt.
+- **Edges (optional).** When the broad view reveals a connection between two memories that a single turn can't see — one shaped the other, one caused the other, two conflict, two parallel, one evokes the other — add an `<edge>` with the right predicate. Reference memory IDs from the inputs only (do not reference diary entries you are writing now — those don't exist yet). Don't force edges; only add what the pattern actually shows.
+- **Edge invalidation (optional).** If looking back you see an edge that no longer holds, add an `<invalidate>` entry to retire it.
+
+# Edge predicates
+- **caused_by** — subject happened because of object
+- **evokes** — object stirs or pulls up subject (associative, not causal)
+- **conflicts_with** — subject and object don't reconcile
+- **parallels** — subject and object rhyme or mirror
+- **shaped_by** — subject was formed or influenced by object over time
 
 # Output XML
 <consolidation>
@@ -45,6 +54,19 @@ The broad review comes first. Your self-picture is the lens through which the ep
       <unresolved>...</unresolved>
     </diary>
   </diaries>
+  <edges>
+    <edge>
+      <subject_id>...</subject_id>
+      <predicate>caused_by|evokes|conflicts_with|parallels|shaped_by</predicate>
+      <object_id>...</object_id>
+      <confidence>0.0-1.0</confidence>
+    </edge>
+    <invalidate>
+      <subject_id>...</subject_id>
+      <predicate>...</predicate>
+      <object_id>...</object_id>
+    </invalidate>
+  </edges>
 </consolidation>
 
 # Examples
