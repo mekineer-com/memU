@@ -4,6 +4,7 @@ import json
 import logging
 import re
 from collections.abc import Awaitable, Callable, Mapping, Sequence
+from datetime import datetime
 from typing import TYPE_CHECKING, Any, cast
 
 from pydantic import BaseModel
@@ -46,6 +47,7 @@ class RetrieveMixin:
         self,
         queries: list[dict[str, Any]],
         where: dict[str, Any] | None = None,
+        as_of: datetime | None = None,
     ) -> dict[str, Any]:
         if not queries:
             raise ValueError("empty_queries")
@@ -79,6 +81,7 @@ class RetrieveMixin:
             "ctx": ctx,
             "store": store,
             "where": where_filters,
+            "as_of": as_of,
         }
 
         result = await self._run_workflow(workflow_name, state)
@@ -226,6 +229,7 @@ class RetrieveMixin:
             "ctx",
             "store",
             "where",
+            "as_of",
         }
 
     async def _rag_route_intention(self, state: WorkflowState, step_context: Any) -> WorkflowState:
@@ -382,6 +386,7 @@ class RetrieveMixin:
         entities: list[Any],
         store: Database,
         where: Mapping[str, Any] | None = None,
+        as_of: datetime | None = None,
     ) -> tuple[list[str], dict[str, str]]:
         """Get memory IDs linked to matched entities via mentions triples.
 
@@ -392,7 +397,7 @@ class RetrieveMixin:
         seen: set[str] = set()
         provenance: dict[str, str] = {}
         for entity in entities:
-            triples = store.triple_repo.get_edges_to(entity.id, predicate="mentions", where=where)
+            triples = store.triple_repo.get_edges_to(entity.id, predicate="mentions", where=where, as_of=as_of)
             for t in triples:
                 if t.subject_id not in seen:
                     seen.add(t.subject_id)
@@ -441,6 +446,7 @@ class RetrieveMixin:
                     matched_entities,
                     store,
                     where_filters,
+                    as_of=state.get("as_of"),
                 )
                 graph_provenance.update(provenance)
 
@@ -457,6 +463,7 @@ class RetrieveMixin:
                     predicates=sem_predicates,
                     max_per_source=3,
                     where=where_filters,
+                    as_of=state.get("as_of"),
                 )
             for mid in expanded_ids:
                 if mid not in graph_provenance:

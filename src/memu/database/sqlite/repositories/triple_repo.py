@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from datetime import datetime
 from typing import Any
 
 from sqlmodel import select
@@ -93,6 +94,7 @@ class SQLiteTripleRepo(SQLiteRepoBase, TripleRepo):
         predicate: str | None = None,
         current_only: bool = True,
         where: Mapping[str, Any] | None = None,
+        as_of: datetime | None = None,
     ) -> list[Triple]:
         with self._sessions.session() as session:
             stmt = select(self._triple_model).where(
@@ -103,7 +105,12 @@ class SQLiteTripleRepo(SQLiteRepoBase, TripleRepo):
                 stmt = stmt.where(*filters)
             if predicate is not None:
                 stmt = stmt.where(self._triple_model.predicate == predicate)
-            if current_only:
+            if as_of is not None:
+                stmt = stmt.where(
+                    self._triple_model.valid_from <= as_of,
+                    (self._triple_model.valid_to.is_(None)) | (self._triple_model.valid_to >= as_of),
+                )
+            elif current_only:
                 stmt = stmt.where(self._triple_model.valid_to.is_(None))
             rows = session.exec(stmt).all()
             return [self._row_to_triple(r) for r in rows]
@@ -114,6 +121,7 @@ class SQLiteTripleRepo(SQLiteRepoBase, TripleRepo):
         predicate: str | None = None,
         current_only: bool = True,
         where: Mapping[str, Any] | None = None,
+        as_of: datetime | None = None,
     ) -> list[Triple]:
         with self._sessions.session() as session:
             stmt = select(self._triple_model).where(
@@ -124,7 +132,12 @@ class SQLiteTripleRepo(SQLiteRepoBase, TripleRepo):
                 stmt = stmt.where(*filters)
             if predicate is not None:
                 stmt = stmt.where(self._triple_model.predicate == predicate)
-            if current_only:
+            if as_of is not None:
+                stmt = stmt.where(
+                    self._triple_model.valid_from <= as_of,
+                    (self._triple_model.valid_to.is_(None)) | (self._triple_model.valid_to >= as_of),
+                )
+            elif current_only:
                 stmt = stmt.where(self._triple_model.valid_to.is_(None))
             rows = session.exec(stmt).all()
             return [self._row_to_triple(r) for r in rows]
@@ -151,6 +164,7 @@ class SQLiteTripleRepo(SQLiteRepoBase, TripleRepo):
         predicates: list[str] | None = None,
         max_per_source: int = 3,
         where: Mapping[str, Any] | None = None,
+        as_of: datetime | None = None,
     ) -> list[str]:
         if not memory_ids:
             return []
@@ -164,8 +178,14 @@ class SQLiteTripleRepo(SQLiteRepoBase, TripleRepo):
                 # Outgoing edges from this memory
                 stmt_out = select(self._triple_model.object_id).where(
                     self._triple_model.subject_id == mid,
-                    self._triple_model.valid_to.is_(None),
                 )
+                if as_of is not None:
+                    stmt_out = stmt_out.where(
+                        self._triple_model.valid_from <= as_of,
+                        (self._triple_model.valid_to.is_(None)) | (self._triple_model.valid_to >= as_of),
+                    )
+                else:
+                    stmt_out = stmt_out.where(self._triple_model.valid_to.is_(None))
                 if filters:
                     stmt_out = stmt_out.where(*filters)
                 if predicates:
@@ -176,8 +196,14 @@ class SQLiteTripleRepo(SQLiteRepoBase, TripleRepo):
                 # Incoming edges to this memory
                 stmt_in = select(self._triple_model.subject_id).where(
                     self._triple_model.object_id == mid,
-                    self._triple_model.valid_to.is_(None),
                 )
+                if as_of is not None:
+                    stmt_in = stmt_in.where(
+                        self._triple_model.valid_from <= as_of,
+                        (self._triple_model.valid_to.is_(None)) | (self._triple_model.valid_to >= as_of),
+                    )
+                else:
+                    stmt_in = stmt_in.where(self._triple_model.valid_to.is_(None))
                 if filters:
                     stmt_in = stmt_in.where(*filters)
                 if predicates:

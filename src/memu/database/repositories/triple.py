@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from datetime import datetime
 from typing import Any, Protocol, runtime_checkable
 
 from memu.database.models import Triple
@@ -23,6 +24,7 @@ class TripleRepo(Protocol):
         predicate: str | None = None,
         current_only: bool = True,
         where: Mapping[str, Any] | None = None,
+        as_of: datetime | None = None,
     ) -> list[Triple]: ...
 
     def get_edges_to(
@@ -31,6 +33,7 @@ class TripleRepo(Protocol):
         predicate: str | None = None,
         current_only: bool = True,
         where: Mapping[str, Any] | None = None,
+        as_of: datetime | None = None,
     ) -> list[Triple]: ...
 
     def invalidate(self, subject_id: str, predicate: str, object_id: str) -> None: ...
@@ -41,4 +44,5 @@ class TripleRepo(Protocol):
         predicates: list[str] | None = None,
         max_per_source: int = 3,
         where: Mapping[str, Any] | None = None,
+        as_of: datetime | None = None,
     ) -> list[str]: ...
