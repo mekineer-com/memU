@@ -36,7 +36,13 @@ class TripleRepo(Protocol):
         as_of: datetime | None = None,
     ) -> list[Triple]: ...
 
-    def invalidate(self, subject_id: str, predicate: str, object_id: str) -> None: ...
+    def invalidate(
+        self,
+        subject_id: str,
+        predicate: str,
+        object_id: str,
+        scope: Mapping[str, Any] | None = None,
+    ) -> None: ...
 
     def get_connected_memory_ids(
         self,

@@ -142,7 +142,13 @@ class SQLiteTripleRepo(SQLiteRepoBase, TripleRepo):
             rows = session.exec(stmt).all()
             return [self._row_to_triple(r) for r in rows]
 
-    def invalidate(self, subject_id: str, predicate: str, object_id: str) -> None:
+    def invalidate(
+        self,
+        subject_id: str,
+        predicate: str,
+        object_id: str,
+        scope: Mapping[str, Any] | None = None,
+    ) -> None:
         now = self._now()
         with self._sessions.session() as session:
             stmt = select(self._triple_model).where(
@@ -151,6 +157,9 @@ class SQLiteTripleRepo(SQLiteRepoBase, TripleRepo):
                 self._triple_model.object_id == object_id,
                 self._triple_model.valid_to.is_(None),
             )
+            scope_filters = self._build_filters(self._triple_model, scope)
+            if scope_filters:
+                stmt = stmt.where(*scope_filters)
             rows = session.exec(stmt).all()
             for row in rows:
                 row.valid_to = now
