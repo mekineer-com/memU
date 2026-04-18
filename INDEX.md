@@ -9,7 +9,7 @@
 |---------|---------|
 | `app/service.py` | `MemoryService` — top-level facade, only public API |
 | `app/memorize.py` | Memorize workflow: preprocess → route → extract → store; `all_categories_summary` + `soul_card` threaded into extraction soul-context; reinforcement roll-up on dedupe merge (`reinforcement_count` + `last_reinforced_at` accumulated on survivor when `enable_item_reinforcement=true`); after each MemoryItem is created, `<entities>` XML from the extraction response is parsed → `entity_repo.get_or_create()` per entity → `mentions` triple written; supersession also writes `evolved_into` triple (old item → new) |
-| `app/retrieve.py` | Retrieve workflow: rewrite query → embed → rank → judge; `_split_context_queries()` splits context so route step receives full chat-history context (`history_from_second_chat_x`, 2-anchor) while downstream sufficiency steps receive trimmed context (`history_from_chat_x`, 1-anchor); `identity_context` is preserved across all steps and rendered as plain text at top of soul context |
+| `app/retrieve.py` | Retrieve workflow: rewrite query → embed → rank → judge; `_split_context_queries()` keeps both history windows for route (`history_from_second_chat_x` = previous-window slice, `history_from_chat_x` = current-window slice), while downstream sufficiency steps keep only `history_from_chat_x`; `identity_context` is preserved across all steps and rendered as plain text at top of soul context |
 | `app/settings.py` | Pydantic config models (MemorizeConfig, RetrieveConfig, LLMProfile, etc.) |
 | `app/crud.py` | Low-level memory CRUD |
 | `app/patch.py` | Memory patching / update logic |

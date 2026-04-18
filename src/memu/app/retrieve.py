@@ -935,14 +935,7 @@ class RetrieveMixin:
 
     @staticmethod
     def _split_context_queries(context_queries: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        route_context = [
-            q
-            for q in context_queries
-            if not (
-                isinstance(q, dict)
-                and str(q.get("role") or "").strip().lower() == _ROUTE_HISTORY_ROLE_ONE_ANCHOR
-            )
-        ]
+        route_context = list(context_queries)
         downstream_context = [
             q
             for q in context_queries
