@@ -12,8 +12,7 @@
 | `app/retrieve.py` | Retrieve workflow: rewrite query → embed → rank → judge; `_split_context_queries()` keeps both history windows for route (`history_from_second_chat_x` = previous-window slice, `history_from_chat_x` = current-window slice), while downstream sufficiency steps keep only `history_from_chat_x`; `identity_context` is preserved across all steps and rendered as plain text at top of soul context; optional `as_of` filters graph edges by `valid_from`/`valid_to` |
 | `app/settings.py` | Pydantic config models (MemorizeConfig, RetrieveConfig, LLMProfile, etc.) |
 | `app/crud.py` | Low-level memory CRUD |
-| `app/patch.py` | Memory patching / update logic |
-| `database/models.py` | Backend-agnostic data models (MemoryItem, MemoryCategory, Resource, Entity, Triple); `EntityType` literal; `PREDICATES` literal (`caused_by`, `evokes`, `evolved_into`, `conflicts_with`, `contextualizes`, `parallels`, `shaped_by`, `mentions`) |
+| `database/models.py` | Backend-agnostic data models (MemoryItem, MemoryCategory, Resource, Entity, Triple); `EntityType` literal; `PREDICATES` literal (`caused_by`, `evokes`, `evolved_into`, `conflicts_with`, `parallels`, `shaped_by`, `mentions`) |
 | `database/sqlite/schema.py` | SQLAlchemy ORM schema (SQLite) |
 | `database/postgres/schema.py` | SQLAlchemy ORM schema (Postgres) + alembic migrations in `postgres/migrations/` |
 | `database/repositories/` | Data access layer: `memory_item.py`, `memory_category.py`, `resource.py`, `entity.py`, `triple.py` |
