@@ -54,7 +54,6 @@ class RetrieveMixin:
         ctx = self._get_context()
         store = self._get_database()
         original_query = self._extract_query_text(queries[-1])
-        # await self._ensure_categories_ready(ctx, store)
         where_filters = self._normalize_where(where)
 
         context_queries_objs = queries[:-1] if len(queries) > 1 else []
@@ -770,7 +769,6 @@ class RetrieveMixin:
             relations=relations,
         )
         state["item_pool"] = items_pool
-        state["relation_pool"] = relations
         return state
 
     async def _llm_item_sufficiency(self, state: WorkflowState, step_context: Any) -> WorkflowState:

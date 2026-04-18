@@ -3340,7 +3340,7 @@ Decide which clusters/candidates should map into existing categories, and which 
 
     def _find_xml_boundaries(self, raw: str) -> tuple[int, int, str] | None:
         """Find the start index, end index, and closing tag for XML root element."""
-        root_tags = ["item", "profile", "behaviors", "events", "knowledge", "social", "skills"]
+        root_tags = ["item"]
         for tag in root_tags:
             opening = f"<{tag}>"
             closing = f"</{tag}>"

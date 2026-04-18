@@ -88,7 +88,6 @@ def _default_memory_categories() -> list[CategoryConfig]:
                 "description": "Relationship context, role asymmetries, and interaction patterns between participants.",
             },
             {"name": "activities", "description": "Activities, hobbies, and interests."},
-            {"name": "goals", "description": "Goals, commitments, and objectives."},
             {"name": "experiences", "description": "Past experiences and events."},
             {"name": "knowledge", "description": "Knowledge, facts, and learned information."},
             {"name": "opinions", "description": "Opinions, viewpoints, and perspectives."},
@@ -272,7 +271,6 @@ class MemorizeConfig(BaseModel):
         default="",
         description="Optional extra guidance used when proposing/creating new categories. Leave empty to use only dynamic_category_description + rules.",
     )
-    # default_category_summary_prompt: str | CustomPrompt = Field(
     default_category_summary_prompt: str | Annotated[CustomPrompt, CompleteCategoryPrompt] = Field(
         default=CATEGORY_SUMMARY_PROMPT,
         description="Default system prompt for auto-generated category summaries.",
@@ -307,8 +305,6 @@ class PatchConfig(BaseModel):
 
 class DefaultUserModel(BaseModel):
     user_id: str | None = None
-    # Soul scoping for multi-soul memory filtering.
-    # soul_id: str | None = None
 
 
 class UserConfig(BaseModel):
@@ -327,12 +323,6 @@ class LLMProfilesConfig(RootModel[dict[Key, LLMConfig]]):
     @model_validator(mode="before")
     @classmethod
     def ensure_default(cls, data: Any) -> Any:
-        # if data is None:
-        #     return {"default": LLMConfig()}
-        # if isinstance(data, dict) and "default" not in data:
-        #     data = dict(data)
-        #     data["default"] = LLMConfig()
-        # return data
         if data is None:
             data = {}
         elif isinstance(data, dict):
