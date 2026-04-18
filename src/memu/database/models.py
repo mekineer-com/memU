@@ -15,7 +15,7 @@ EntityType = Literal["person", "topic", "place", "project"]
 
 PREDICATES = Literal[
     "caused_by", "evokes", "evolved_into", "conflicts_with",
-    "contextualizes", "parallels", "shaped_by", "mentions",
+    "parallels", "shaped_by", "mentions",
 ]
 
 
