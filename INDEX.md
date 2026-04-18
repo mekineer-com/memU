@@ -35,7 +35,8 @@
 | `retrieve/` | `query_rewriter.py`, `llm_category_ranker.py`, `llm_item_ranker.py`, `llm_resource_ranker.py`, `judger.py`, `pre_retrieval_decision.py` | Retrieval ranking & judgment |
 | `category_patch/` | `category.py` | Dynamic category update prompts |
 | `category_summary/` | `category.py`, `category_with_refs.py` | Category synthesis; both prompts treat `[reinforced Nx]` markers as frequency signals — instruct LLM to use "often", "frequently", "tends to" rather than treating as a one-off fact |
-| `diary/` | `self_model_update.py` | Diary generation & self-model reflection. `self_model_update.py` includes `<life_goals>` XML section (add/remove; max 3 active; most sessions leave empty) and `<soul_observations>` with optional `<supersedes><id>...</id></supersedes>` and `<shaped_by><id>...</id></shaped_by>` per observation. `supersedes` IDs mark retrieved background memories as outdated (scope-validated; written as `evolved_into` triples + `superseded_by` column); `shaped_by` IDs record which background memories influenced the observation (written as `shaped_by` triples in `memu_triples` — sole record, `extra.shaped_by_ids` removed in Phase 5). |
+| `diary/` | `__init__.py` | Diary prompt package placeholder (consolidation now drives diary writes from server-side orchestration). |
+| `consolidation/` | `consolidation.py` | Consolidation prompt contract (broad review + per-episode diary outputs). Contains explicit `SONNET WANTED` placeholders for voice-tuning blocks. |
 
 ## Task → Files
 
