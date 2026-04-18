@@ -2825,9 +2825,6 @@ Decide which clusters/candidates should map into existing categories, and which 
                 continue
             name = str(category.name or "").strip() or "Unnamed Category"
             sections.append(f"## {name}\n{summary}")
-        compact_summary = str(all_categories_summary or "").strip()
-        if compact_summary:
-            sections.append(f"## All Categories Summary\n{compact_summary}")
         card = str(soul_card or "").strip()
         if card:
             sections.append(f"## Soul Card\n{card}")
