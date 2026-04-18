@@ -2166,57 +2166,128 @@ Decide which clusters/candidates should map into existing categories, and which 
             else:
                 item = store.memory_item_repo.create_item(**item_kwargs)
             items.append(item)
-            # Create entity records and "mentions" triples for graph retrieval
-            if entities:
-                for ent_data in entities:
-                    ent_name = str(ent_data.get("name") or "").strip()
-                    ent_type = str(ent_data.get("type") or "").strip()
-                    if not ent_name or not ent_type:
-                        continue
-                    entity_record = store.entity_repo.get_or_create(
-                        ent_name,
-                        ent_type,
-                        user_data=dict(user or {}),
-                        session=session,
-                    )
-                    store.triple_repo.add(Triple(
-                        subject_id=item.id,
-                        subject_kind="memory",
-                        predicate="mentions",
-                        object_id=entity_record.id,
-                        object_kind="entity",
-                        source_memory_id=item.id,
-                    ), user_data=dict(user or {}), session=session)
-            target_item_id = supersede_targets.get(idx)
-            if target_item_id and target_item_id != item.id and target_item_id not in superseded_targets:
-                superseded_targets.add(target_item_id)
-                logger.info("supersede: %s evolved_into %s (%.60s)", target_item_id, item.id, summary_text)
-                store.triple_repo.add(Triple(
-                    subject_id=target_item_id,
-                    subject_kind="memory",
-                    predicate="evolved_into",
-                    object_id=item.id,
-                    object_kind="memory",
-                    source_memory_id=item.id,
-                ), user_data=dict(user or {}), session=session)
-            mapped_cat_ids = self._map_category_names_to_ids(cat_names, ctx)
-            reinforcement_count = self._item_reinforcement_count(item)
-            update_summary = self._category_update_summary_text(resolved_summary, reinforcement_count)
-            if not update_summary:
-                continue
-            for cid in mapped_cat_ids:
-                category_memory_updates.setdefault(cid, []).append((item.id, update_summary))
-                if reinforce and reinforcement_count > 1:
-                    # Existing reinforced item: no new relation row, but still update category context.
-                    continue
-                rel_kwargs = {"item_id": item.id, "category_id": cid, "user_data": dict(user or {})}
-                if session is not None:
-                    rel = cast(Any, store.category_item_repo).link_item_category(**rel_kwargs, session=session)
-                else:
-                    rel = store.category_item_repo.link_item_category(**rel_kwargs)
-                rels.append(rel)
+            self._write_entity_mentions(
+                item=item,
+                entities=entities,
+                store=store,
+                user=user,
+                session=session,
+            )
+            self._write_supersession_triple(
+                idx=idx,
+                item=item,
+                summary_text=summary_text,
+                supersede_targets=supersede_targets,
+                superseded_targets=superseded_targets,
+                store=store,
+                user=user,
+                session=session,
+            )
+            self._link_item_categories(
+                item=item,
+                resolved_summary=resolved_summary,
+                cat_names=cat_names,
+                ctx=ctx,
+                store=store,
+                user=user,
+                reinforce=reinforce,
+                rels=rels,
+                category_memory_updates=category_memory_updates,
+                session=session,
+            )
 
         return items, rels, category_memory_updates, homeless_count
+
+    def _write_entity_mentions(
+        self,
+        *,
+        item: MemoryItem,
+        entities: list[dict[str, Any]] | None,
+        store: Database,
+        user: Mapping[str, Any] | None,
+        session: Any | None,
+    ) -> None:
+        """Create entity records and 'mentions' triples for graph retrieval."""
+        if not entities:
+            return
+        for ent_data in entities:
+            ent_name = str(ent_data.get("name") or "").strip()
+            ent_type = str(ent_data.get("type") or "").strip()
+            if not ent_name or not ent_type:
+                continue
+            entity_record = store.entity_repo.get_or_create(
+                ent_name,
+                ent_type,
+                user_data=dict(user or {}),
+                session=session,
+            )
+            store.triple_repo.add(Triple(
+                subject_id=item.id,
+                subject_kind="memory",
+                predicate="mentions",
+                object_id=entity_record.id,
+                object_kind="entity",
+                source_memory_id=item.id,
+            ), user_data=dict(user or {}), session=session)
+
+    def _write_supersession_triple(
+        self,
+        *,
+        idx: int,
+        item: MemoryItem,
+        summary_text: str,
+        supersede_targets: dict[int, str],
+        superseded_targets: set[str],
+        store: Database,
+        user: Mapping[str, Any] | None,
+        session: Any | None,
+    ) -> None:
+        """Write an evolved_into triple when this item supersedes an older one."""
+        target_item_id = supersede_targets.get(idx)
+        if not target_item_id or target_item_id == item.id or target_item_id in superseded_targets:
+            return
+        superseded_targets.add(target_item_id)
+        logger.info("supersede: %s evolved_into %s (%.60s)", target_item_id, item.id, summary_text)
+        store.triple_repo.add(Triple(
+            subject_id=target_item_id,
+            subject_kind="memory",
+            predicate="evolved_into",
+            object_id=item.id,
+            object_kind="memory",
+            source_memory_id=item.id,
+        ), user_data=dict(user or {}), session=session)
+
+    def _link_item_categories(
+        self,
+        *,
+        item: MemoryItem,
+        resolved_summary: str,
+        cat_names: list[str],
+        ctx: "Context",
+        store: Database,
+        user: Mapping[str, Any] | None,
+        reinforce: bool,
+        rels: list[CategoryItem],
+        category_memory_updates: dict[str, list[tuple[str, str]]],
+        session: Any | None,
+    ) -> None:
+        """Write category relation rows and accumulate category update summaries."""
+        mapped_cat_ids = self._map_category_names_to_ids(cat_names, ctx)
+        reinforcement_count = self._item_reinforcement_count(item)
+        update_summary = self._category_update_summary_text(resolved_summary, reinforcement_count)
+        if not update_summary:
+            return
+        for cid in mapped_cat_ids:
+            category_memory_updates.setdefault(cid, []).append((item.id, update_summary))
+            if reinforce and reinforcement_count > 1:
+                # Existing reinforced item: no new relation row, but still update category context.
+                continue
+            rel_kwargs = {"item_id": item.id, "category_id": cid, "user_data": dict(user or {})}
+            if session is not None:
+                rel = cast(Any, store.category_item_repo).link_item_category(**rel_kwargs, session=session)
+            else:
+                rel = store.category_item_repo.link_item_category(**rel_kwargs)
+            rels.append(rel)
 
     def _supersede_similarity_threshold(self) -> float:
         threshold = float(getattr(self.memorize_config, "supersede_similarity_threshold", 0.75) or 0.75)
