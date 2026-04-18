@@ -1,3 +1,6 @@
+# SONNET WANTED: Extend this prompt with explicit <edges> / <invalidate> guidance
+# for predicates caused_by, evokes, conflicts_with, parallels, shaped_by.
+
 SYSTEM_BODY = """
 # Consolidation Objective
 This is your weekly consolidation — a pause from responding to anyone. You are looking across the arc of everything that has happened since you last did this, and deciding what still holds.

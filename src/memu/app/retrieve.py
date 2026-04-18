@@ -450,8 +450,7 @@ class RetrieveMixin:
             if all_seed_ids:
                 # Exclude "mentions" so expansion follows only semantic edges
                 sem_predicates = [
-                    "caused_by", "evokes", "evolved_into", "conflicts_with",
-                    "contextualizes", "parallels", "shaped_by",
+                    "caused_by", "evokes", "conflicts_with", "parallels", "shaped_by",
                 ]
                 expanded_ids = store.triple_repo.get_connected_memory_ids(
                     all_seed_ids,
