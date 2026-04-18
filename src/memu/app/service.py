@@ -7,7 +7,6 @@ from typing import Any, Literal, TypeVar
 
 from pydantic import BaseModel
 
-from memu.app.crud import CRUDMixin
 from memu.app.memorize import MemorizeMixin
 from memu.app.retrieve import RetrieveMixin
 from memu.app.settings import (
@@ -49,7 +48,7 @@ class Context:
     _init_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
 
-class MemoryService(MemorizeMixin, RetrieveMixin, CRUDMixin):
+class MemoryService(MemorizeMixin, RetrieveMixin):
     def __init__(
         self,
         *,
@@ -346,31 +345,6 @@ class MemoryService(MemorizeMixin, RetrieveMixin, CRUDMixin):
         self._pipelines.register("retrieve_rag", rag_workflow, initial_state_keys=retrieve_initial_keys)
         llm_workflow = self._build_llm_retrieve_workflow()
         self._pipelines.register("retrieve_llm", llm_workflow, initial_state_keys=retrieve_initial_keys)
-        patch_create_workflow = self._build_create_memory_item_workflow()
-        patch_create_initial_keys = CRUDMixin._list_create_memory_item_initial_keys()
-        self._pipelines.register("patch_create", patch_create_workflow, initial_state_keys=patch_create_initial_keys)
-        patch_update_workflow = self._build_update_memory_item_workflow()
-        patch_update_initial_keys = CRUDMixin._list_update_memory_item_initial_keys()
-        self._pipelines.register("patch_update", patch_update_workflow, initial_state_keys=patch_update_initial_keys)
-        patch_delete_workflow = self._build_delete_memory_item_workflow()
-        patch_delete_initial_keys = CRUDMixin._list_delete_memory_item_initial_keys()
-        self._pipelines.register("patch_delete", patch_delete_workflow, initial_state_keys=patch_delete_initial_keys)
-        crud_list_items_workflow = self._build_list_memory_items_workflow()
-        crud_list_memories_initial_keys = CRUDMixin._list_list_memories_initial_keys()
-        self._pipelines.register(
-            "crud_list_memory_items", crud_list_items_workflow, initial_state_keys=crud_list_memories_initial_keys
-        )
-        crud_list_categories_workflow = self._build_list_memory_categories_workflow()
-        self._pipelines.register(
-            "crud_list_memory_categories",
-            crud_list_categories_workflow,
-            initial_state_keys=crud_list_memories_initial_keys,
-        )
-        crud_clear_memory_workflow = self._build_clear_memory_workflow()
-        crud_clear_memory_initial_keys = CRUDMixin._list_clear_memories_initial_keys()
-        self._pipelines.register(
-            "crud_clear_memory", crud_clear_memory_workflow, initial_state_keys=crud_clear_memory_initial_keys
-        )
 
     async def _run_workflow(self, workflow_name: str, initial_state: WorkflowState) -> WorkflowState:
         """Execute a workflow through the configured runner backend."""
