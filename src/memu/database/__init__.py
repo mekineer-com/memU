@@ -1,6 +1,5 @@
-"""Storage backends for MemU."""
+"""Lightweight database interfaces and record aliases."""
 
-from memu.database.factory import build_database
 from memu.database.interfaces import (
     CategoryItemRecord,
     Database,
@@ -8,20 +7,25 @@ from memu.database.interfaces import (
     MemoryItemRecord,
     ResourceRecord,
 )
-from memu.database.repositories import CategoryItemRepo, MemoryCategoryRepo, MemoryItemRepo, ResourceRepo
+from memu.database.repositories import (
+    CategoryItemRepo,
+    EntityRepo,
+    MemoryCategoryRepo,
+    MemoryItemRepo,
+    ResourceRepo,
+    TripleRepo,
+)
 
 __all__ = [
     "CategoryItemRecord",
     "CategoryItemRepo",
     "Database",
+    "EntityRepo",
     "MemoryCategoryRecord",
     "MemoryCategoryRepo",
     "MemoryItemRecord",
     "MemoryItemRepo",
     "ResourceRecord",
     "ResourceRepo",
-    "build_database",
-    "postgres",
-    "schema",
-    "sqlite",
+    "TripleRepo",
 ]
