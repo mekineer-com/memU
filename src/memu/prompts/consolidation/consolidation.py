@@ -118,7 +118,7 @@ USER_PROMPT = """
 # Categories (full summaries)
 {categories}
 
-# Current life goals
+# Life goals
 {life_goals}
 
 # Intention activity since last consolidation
