@@ -168,9 +168,6 @@ class MemorizeMixin:
             "soul_card": str(soul_card or "").strip() or None,
         }
 
-        # Optional fast path for callers that already have the resource text.
-        # This avoids forcing the caller to write a temporary file and avoids
-        # duplicating local files into blob_config.resources_dir.
         if raw_text is not None:
             state["raw_text"] = raw_text
             state["local_path"] = local_path or resource_url
@@ -274,7 +271,6 @@ class MemorizeMixin:
         }
 
     async def _memorize_ingest_resource(self, state: WorkflowState, step_context: Any) -> WorkflowState:
-        # If a caller pre-provided the resource contents, don't fetch/copy anything.
         if state.get("raw_text") is not None and state.get("local_path") is not None:
             return state
 
@@ -391,7 +387,7 @@ class MemorizeMixin:
         seen_new: set[str] = set()
         for item in items:
             item_id = getattr(item, "id", None)
-            if not isinstance(item_id, str) or not item_id or item_id in seen_new:
+            if not item_id or item_id in seen_new:
                 continue
             seen_new.add(item_id)
             pool_item = active_pool.get(item_id)
@@ -446,8 +442,6 @@ class MemorizeMixin:
                 compare_anchor: list[float] | None = anchor_embedding
                 compare_candidate: list[float] | None = candidate_embedding
 
-                # Old rows may have vectors from a different embedding model/dimension.
-                # Re-embed summaries on-demand so dedupe still works after model changes.
                 if candidate_embedding is None or len(anchor_embedding) != len(candidate_embedding):
                     if dedupe_embed_client is None:
                         dedupe_embed_client = self._get_llm_client("embedding")
@@ -469,7 +463,6 @@ class MemorizeMixin:
             if not candidates:
                 continue
 
-            # Deterministic order: highest similarity first, then stable by id.
             candidates.sort(key=lambda row: (-row[0], row[1]))
             for similarity, candidate_id in candidates:
                 current_anchor = active_pool.get(new_item_id)
@@ -502,7 +495,6 @@ class MemorizeMixin:
                 active_pool.pop(redundant.id, None)
                 logger.info("dedupe: merged %s into %s (sim=%.3f)", redundant.id, survivor.id, similarity)
 
-                # Once a new item is merged into an existing survivor, stop comparing it.
                 if redundant.id == new_item_id:
                     break
 
@@ -515,7 +507,7 @@ class MemorizeMixin:
             item_id = getattr(item, "id", None)
             if item_id in merged_ids:
                 continue
-            refreshed = active_pool.get(item_id) if isinstance(item_id, str) else None
+            refreshed = active_pool.get(item_id)
             remaining_items.append(refreshed if refreshed is not None else item)
         state["items"] = remaining_items
         state["relations"] = [
@@ -1323,7 +1315,7 @@ Decide which clusters/candidates should map into existing categories, and which 
             "relations": relations,
             "category_updates": category_updates,
             "homeless_item_count": homeless_item_count,
-            "pending_diary_episode_ids": list(dict.fromkeys(str(x).strip() for x in pending_diary_episode_ids if str(x).strip())),
+            "pending_diary_episode_ids": list(dict.fromkeys(x for x in pending_diary_episode_ids if x)),
         })
         return state
 
@@ -2742,8 +2734,6 @@ Decide which clusters/candidates should map into existing categories, and which 
         target_length = (
             category_config and category_config.target_length
         ) or self.memorize_config.default_category_summary_target_length
-        # Prefer human-readable names for summaries.
-        # user scope varies by integration; accept common keys.
         user_scope = user or {}
         user_name = self._summary_user_name(user_scope, default="the user")
         raw_agent = (
