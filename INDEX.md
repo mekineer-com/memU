@@ -48,7 +48,7 @@
 | Add LLM provider | `llm/backends/base.py`, any existing backend | New `llm/backends/{provider}.py`, register in `llm/wrapper.py` |
 | Add embedding provider | `embedding/backends/base.py` | New `embedding/backends/{provider}.py`, register in `embedding/http_client.py` |
 | Change DB schema | `database/models.py`, `database/sqlite/schema.py` | Both files + postgres schema if needed |
-| Run the test suite | `tests/README.md` | — (Makefile assumes upstream `uv`; README has the working Alpine command) |
+| Run the test suite | `tests/README.md` | — |
 
 ## Database Tables
 
