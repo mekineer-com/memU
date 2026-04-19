@@ -41,9 +41,6 @@ from memu.workflow.step import WorkflowState, WorkflowStep
 
 logger = logging.getLogger(__name__)
 
-_HEDGE_THRESHOLD = 0.6          # below this, soften claims with tentative phrasing
-_STRONG_HEDGE_THRESHOLD = 0.35  # below this, use stronger hedges like "faint suspicion"
-
 
 class StructuredMemoryEntry(NamedTuple):
     memory_type: MemoryType
@@ -125,10 +122,10 @@ class MemorizeMixin:
     @staticmethod
     def _hedge_summary_for_confidence(summary: str, confidence: float | None) -> str:
         text = str(summary or "").strip()
-        if not text or confidence is None or confidence >= _HEDGE_THRESHOLD:
+        if not text or confidence is None or confidence >= 0.6:
             return text
         lowered = text[:1].lower() + text[1:] if text[:1].isupper() else text
-        if confidence < _STRONG_HEDGE_THRESHOLD:
+        if confidence < 0.35:
             return f"I have a faint suspicion that {lowered}"
         return f"I have an inkling that {lowered}"
     async def memorize(
@@ -386,7 +383,6 @@ class MemorizeMixin:
             return state
 
         store = state["store"]
-        # Pull from repository and only active items.
         active_pool = dict(store.memory_item_repo.list_items(dedupe_scope))
         if len(active_pool) < 2:
             return state
@@ -1229,11 +1225,6 @@ Decide which clusters/candidates should map into existing categories, and which 
         pending_diary_episode_ids: list[str],
         session: Any = None,
     ) -> tuple[list[Resource], int]:
-        """Process one resource plan: create resource, collect diary episodes, persist items.
-
-        Returns (resources, homeless_delta). Callers pass session=session for SQLite
-        transactional path, or omit (None) for the sessionless path.
-        """
         kwargs: dict[str, Any] = {}
         if session is not None:
             kwargs["session"] = session
@@ -1399,13 +1390,6 @@ Decide which clusters/candidates should map into existing categories, and which 
     async def _fetch_and_preprocess_resource(
         self, resource_url: str, modality: str, llm_client: Any | None = None
     ) -> tuple[str, list[dict[str, str | None]]]:
-        """
-        Fetch and preprocess a resource.
-
-        Returns:
-            Tuple of (local_path, preprocessed_resources)
-            where preprocessed_resources is a list of dicts with 'text' and 'caption'
-        """
         local_path, text = await self.fs.fetch(resource_url, modality)
         preprocessed_resources = await self._preprocess_resource_url(
             local_path=local_path,
@@ -1446,13 +1430,6 @@ Decide which clusters/candidates should map into existing categories, and which 
             res = cast(Any, store.resource_repo).create_resource(**resource_kwargs, session=session)
         else:
             res = store.resource_repo.create_resource(**resource_kwargs)
-        # if caption:
-        #     caption_text = caption.strip()
-        #     if caption_text:
-        #         res.caption = caption_text
-        #         client = embed_client or self._get_llm_client()
-        #         res.embedding = (await client.embed([caption_text]))[0]
-        #         res.updated_at = pendulum.now()
         return cast(Resource, res)
 
     @staticmethod
@@ -1497,7 +1474,6 @@ Decide which clusters/candidates should map into existing categories, and which 
             if (block.ordinal >= 0 and (block.prompt or templates.get(name)))
         ]
         if not valid_blocks:
-            # raise ValueError(f"No valid blocks contained in custom prompt: {prompt}")
             return ""
         sorted_blocks = sorted(valid_blocks)
         return "\n\n".join(block for (_, _, block) in sorted_blocks if block is not None)
@@ -1535,13 +1511,8 @@ Decide which clusters/candidates should map into existing categories, and which 
                 skipped_reasons=skipped_reasons,
             )
             return entries
-            # if entries:
-            #     return entries
-            # no_result_entry = self._build_no_result_fallback(memory_types[0], resource_url, modality)
-            # return [no_result_entry]
 
         return []
-        # return self._build_no_text_fallback(memory_types, resource_url, modality)
 
     async def _generate_text_entries(
         self,
@@ -1720,7 +1691,6 @@ Decide which clusters/candidates should map into existing categories, and which 
             for mtype in memory_types
         ]
         valid_pairs = [(mtype, prompt) for mtype, prompt in typed_prompts if prompt.strip()]
-        # These prompts are instructions that request structured output, not text summaries.
         tasks = [client.chat(prompt) for _, prompt in valid_pairs]
         responses = await asyncio.gather(*tasks)
         return self._parse_structured_entries(
@@ -1736,7 +1706,6 @@ Decide which clusters/candidates should map into existing categories, and which 
         s = raw.strip().lower()
         if not s:
             return None
-        # Normalize common human labels into stable snake_case names.
         s = re.sub(r"[^a-z0-9]+", "_", s).strip("_")
         return s or None
 
@@ -1750,11 +1719,6 @@ Decide which clusters/candidates should map into existing categories, and which 
         entries: list[StructuredMemoryEntry] = []
         for mtype, response in zip(memory_types, responses, strict=True):
             parsed = self._parse_memory_type_response_xml(response)
-            # if not parsed:
-            #     fallback_entry = response.strip()
-            #     if fallback_entry:
-            #         entries.append((mtype, fallback_entry, []))
-            #     continue
             for entry in parsed:
                 content = (entry.get("content") or "").strip()
                 if not content:
@@ -1938,15 +1902,6 @@ Decide which clusters/candidates should map into existing categories, and which 
         user: Mapping[str, Any] | None = None,
         session: Any | None = None,
     ) -> list[StructuredMemoryEntry]:
-        """Resolve category names, optionally creating new *main* categories.
-
-        Inspired by memU v0.1.8 cluster logic:
-        - First, only accept existing categories.
-        - Then, in a separate step, propose NEW categories under strict rules.
-
-        Returns a new structured_entries list with category names mapped to existing/new categories.
-        """
-
         if not getattr(self.memorize_config, "allow_dynamic_categories", False):
             return structured_entries
 
@@ -1960,13 +1915,11 @@ Decide which clusters/candidates should map into existing categories, and which 
         cur_total = len(getattr(ctx, "category_ids", []) or [])
         remaining = (max_total - cur_total) if max_total else None
         if remaining is not None and remaining <= 0:
-            # No capacity for new categories; drop unknowns.
             return [
                 entry._replace(categories=[c for c in (entry.categories or []) if c in ctx.category_name_to_id])
                 for entry in structured_entries
             ]
 
-        # Split known vs unknown categories, while counting unknown mentions.
         unknown_counts: dict[str, int] = {}
         per_entry_unknowns: list[list[str]] = []
         filtered_entries: list[StructuredMemoryEntry] = []
@@ -1983,7 +1936,6 @@ Decide which clusters/candidates should map into existing categories, and which 
                 else:
                     unknown.append(n)
 
-            # Deduplicate known while preserving order.
             seen: set[str] = set()
             known_dedup: list[str] = []
             for k in known:
@@ -2029,7 +1981,6 @@ Decide which clusters/candidates should map into existing categories, and which 
             default_desc=default_desc,
         )
 
-        # Apply capacity limits.
         to_create = [name for name in new_defs if name not in ctx.category_name_to_id]
         if remaining is not None:
             to_create = to_create[:remaining]
@@ -2049,7 +2000,6 @@ Decide which clusters/candidates should map into existing categories, and which 
                 ctx.category_ids.append(cat.id)
                 ctx.category_name_to_id[name.lower()] = cat.id
 
-        # Rebuild entries with mapped categories.
         updated: list[StructuredMemoryEntry] = []
         for idx, (entry, unk) in enumerate(zip(filtered_entries, per_entry_unknowns, strict=True)):
             cats = list(entry.categories)
@@ -2087,19 +2037,11 @@ Decide which clusters/candidates should map into existing categories, and which 
         message_happened_at_map: Mapping[int, Any] | None = None,
         session: Any | None = None,
     ) -> tuple[list[MemoryItem], list[CategoryItem], dict[str, list[tuple[str, str]]], int]:
-        """
-        Persist memory items and track category updates.
-
-        Returns:
-            Tuple of (items, relations, category_updates, homeless_count)
-            where category_updates maps category_id -> list of (item_id, summary) tuples
-        """
         summary_payloads = [content for _, content, _, _, _, _, _, _, _ in structured_entries]
         client = embed_client or self._get_llm_client()
         item_embeddings = await client.embed(summary_payloads) if summary_payloads else []
         items: list[MemoryItem] = []
         rels: list[CategoryItem] = []
-        # Changed: now stores (item_id, summary) tuples for reference support
         category_memory_updates: dict[str, list[tuple[str, str]]] = {}
         centroid_gated_indexes: set[int] = set()
         superseded_targets: set[str] = set()
@@ -2166,128 +2108,55 @@ Decide which clusters/candidates should map into existing categories, and which 
             else:
                 item = store.memory_item_repo.create_item(**item_kwargs)
             items.append(item)
-            self._write_entity_mentions(
-                item=item,
-                entities=entities,
-                store=store,
-                user=user,
-                session=session,
-            )
-            self._write_supersession_triple(
-                idx=idx,
-                item=item,
-                summary_text=summary_text,
-                supersede_targets=supersede_targets,
-                superseded_targets=superseded_targets,
-                store=store,
-                user=user,
-                session=session,
-            )
-            self._link_item_categories(
-                item=item,
-                resolved_summary=resolved_summary,
-                cat_names=cat_names,
-                ctx=ctx,
-                store=store,
-                user=user,
-                reinforce=reinforce,
-                rels=rels,
-                category_memory_updates=category_memory_updates,
-                session=session,
-            )
+            if entities:
+                for ent_data in entities:
+                    ent_name = str(ent_data.get("name") or "").strip()
+                    ent_type = str(ent_data.get("type") or "").strip()
+                    if not ent_name or not ent_type:
+                        continue
+                    entity_record = store.entity_repo.get_or_create(
+                        ent_name,
+                        ent_type,
+                        user_data=dict(user or {}),
+                        session=session,
+                    )
+                    store.triple_repo.add(Triple(
+                        subject_id=item.id,
+                        subject_kind="memory",
+                        predicate="mentions",
+                        object_id=entity_record.id,
+                        object_kind="entity",
+                        source_memory_id=item.id,
+                    ), user_data=dict(user or {}), session=session)
+            target_item_id = supersede_targets.get(idx)
+            if target_item_id and target_item_id != item.id and target_item_id not in superseded_targets:
+                superseded_targets.add(target_item_id)
+                logger.info("supersede: %s evolved_into %s (%.60s)", target_item_id, item.id, summary_text)
+                store.triple_repo.add(Triple(
+                    subject_id=target_item_id,
+                    subject_kind="memory",
+                    predicate="evolved_into",
+                    object_id=item.id,
+                    object_kind="memory",
+                    source_memory_id=item.id,
+                ), user_data=dict(user or {}), session=session)
+            mapped_cat_ids = self._map_category_names_to_ids(cat_names, ctx)
+            reinforcement_count = self._item_reinforcement_count(item)
+            update_summary = self._category_update_summary_text(resolved_summary, reinforcement_count)
+            if update_summary:
+                for cid in mapped_cat_ids:
+                    category_memory_updates.setdefault(cid, []).append((item.id, update_summary))
+                    if reinforce and reinforcement_count > 1:
+                        # Existing reinforced item: no new relation row, but still update category context.
+                        continue
+                    rel_kwargs = {"item_id": item.id, "category_id": cid, "user_data": dict(user or {})}
+                    if session is not None:
+                        rel = cast(Any, store.category_item_repo).link_item_category(**rel_kwargs, session=session)
+                    else:
+                        rel = store.category_item_repo.link_item_category(**rel_kwargs)
+                    rels.append(rel)
 
         return items, rels, category_memory_updates, homeless_count
-
-    def _write_entity_mentions(
-        self,
-        *,
-        item: MemoryItem,
-        entities: list[dict[str, Any]] | None,
-        store: Database,
-        user: Mapping[str, Any] | None,
-        session: Any | None,
-    ) -> None:
-        """Create entity records and 'mentions' triples for graph retrieval."""
-        if not entities:
-            return
-        for ent_data in entities:
-            ent_name = str(ent_data.get("name") or "").strip()
-            ent_type = str(ent_data.get("type") or "").strip()
-            if not ent_name or not ent_type:
-                continue
-            entity_record = store.entity_repo.get_or_create(
-                ent_name,
-                ent_type,
-                user_data=dict(user or {}),
-                session=session,
-            )
-            store.triple_repo.add(Triple(
-                subject_id=item.id,
-                subject_kind="memory",
-                predicate="mentions",
-                object_id=entity_record.id,
-                object_kind="entity",
-                source_memory_id=item.id,
-            ), user_data=dict(user or {}), session=session)
-
-    def _write_supersession_triple(
-        self,
-        *,
-        idx: int,
-        item: MemoryItem,
-        summary_text: str,
-        supersede_targets: dict[int, str],
-        superseded_targets: set[str],
-        store: Database,
-        user: Mapping[str, Any] | None,
-        session: Any | None,
-    ) -> None:
-        """Write an evolved_into triple when this item supersedes an older one."""
-        target_item_id = supersede_targets.get(idx)
-        if not target_item_id or target_item_id == item.id or target_item_id in superseded_targets:
-            return
-        superseded_targets.add(target_item_id)
-        logger.info("supersede: %s evolved_into %s (%.60s)", target_item_id, item.id, summary_text)
-        store.triple_repo.add(Triple(
-            subject_id=target_item_id,
-            subject_kind="memory",
-            predicate="evolved_into",
-            object_id=item.id,
-            object_kind="memory",
-            source_memory_id=item.id,
-        ), user_data=dict(user or {}), session=session)
-
-    def _link_item_categories(
-        self,
-        *,
-        item: MemoryItem,
-        resolved_summary: str,
-        cat_names: list[str],
-        ctx: "Context",
-        store: Database,
-        user: Mapping[str, Any] | None,
-        reinforce: bool,
-        rels: list[CategoryItem],
-        category_memory_updates: dict[str, list[tuple[str, str]]],
-        session: Any | None,
-    ) -> None:
-        """Write category relation rows and accumulate category update summaries."""
-        mapped_cat_ids = self._map_category_names_to_ids(cat_names, ctx)
-        reinforcement_count = self._item_reinforcement_count(item)
-        update_summary = self._category_update_summary_text(resolved_summary, reinforcement_count)
-        if not update_summary:
-            return
-        for cid in mapped_cat_ids:
-            category_memory_updates.setdefault(cid, []).append((item.id, update_summary))
-            if reinforce and reinforcement_count > 1:
-                # Existing reinforced item: no new relation row, but still update category context.
-                continue
-            rel_kwargs = {"item_id": item.id, "category_id": cid, "user_data": dict(user or {})}
-            if session is not None:
-                rel = cast(Any, store.category_item_repo).link_item_category(**rel_kwargs, session=session)
-            else:
-                rel = store.category_item_repo.link_item_category(**rel_kwargs)
-            rels.append(rel)
 
     def _supersede_similarity_threshold(self) -> float:
         threshold = float(getattr(self.memorize_config, "supersede_similarity_threshold", 0.75) or 0.75)
@@ -2451,22 +2320,6 @@ Decide which clusters/candidates should map into existing categories, and which 
     async def _preprocess_resource_url(
         self, *, local_path: str, text: str | None, modality: str, llm_client: Any | None = None
     ) -> list[dict[str, Any]]:
-        """
-        Preprocess resource based on modality.
-
-        General preprocessing dispatcher for all modalities:
-        - Text-based modalities (conversation, document): require text content
-        - Audio modality: transcribe audio file first, then process as text
-        - Media modalities (video, image): process media files directly
-
-        Args:
-            local_path: Local file path to the resource
-            text: Text content if available (for text-based modalities)
-            modality: Resource modality type
-
-        Returns:
-            List of preprocessed resources, each with 'text' and 'caption'
-        """
         configured_prompt = self.memorize_config.multimodal_preprocess_prompts.get(modality)
         if configured_prompt is None:
             template = PREPROCESS_PROMPTS.get(modality)
@@ -2497,7 +2350,6 @@ Decide which clusters/candidates should map into existing categories, and which 
         )
 
     async def _prepare_audio_text(self, local_path: str, text: str | None, llm_client: Any | None = None) -> str | None:
-        """Ensure audio resources provide text either via transcription or file read."""
         if text:
             return text
 
@@ -2558,7 +2410,6 @@ Decide which clusters/candidates should map into existing categories, and which 
     async def _preprocess_conversation(
         self, text: str, template: str, llm_client: Any | None = None
     ) -> list[dict[str, Any]]:
-        """Preprocess conversation data with episode detection, returns list of resources (one per episode)."""
         preprocessed_text = format_conversation_for_preprocess(text)
         prompt = template.format(conversation=self._escape_prompt_value(preprocessed_text))
         client = llm_client or self._get_llm_client()
@@ -2570,11 +2421,9 @@ Decide which clusters/candidates should map into existing categories, and which 
         # like created_at, which would cause them to be lost.
         conversation_text = preprocessed_text
         all_indices = self._extract_message_indices(conversation_text)
-        # If no episodes, return single resource
         if not episodes:
             return [{"text": conversation_text, "caption": None, "message_indices": all_indices}]
 
-        # Generate caption for each episode and return as separate resources
         lines = conversation_text.split("\n")
         max_idx = len(lines) - 1
         resources: list[dict[str, Any]] = []
@@ -2617,7 +2466,6 @@ Decide which clusters/candidates should map into existing categories, and which 
         )
 
     async def _summarize_episode(self, episode_text: str, llm_client: Any | None = None) -> str | None:
-        """Summarize a single conversation episode."""
         system_prompt = (
             "Summarize the given conversation episode in 1-2 concise sentences. "
             "Focus on the main topic or theme discussed."
@@ -2633,37 +2481,21 @@ Decide which clusters/candidates should map into existing categories, and which 
     async def _preprocess_video(
         self, local_path: str, template: str, llm_client: Any | None = None
     ) -> list[dict[str, str | None]]:
-        """
-        Preprocess video data - extract description and caption using Vision API.
-
-        Extracts the middle frame from the video and analyzes it using Vision API.
-
-        Args:
-            local_path: Path to the video file
-            template: Prompt template for video analysis
-
-        Returns:
-            List with single resource containing text (description) and caption
-        """
         try:
-            # Check if ffmpeg is available
             if not VideoFrameExtractor.is_ffmpeg_available():
                 logger.warning("ffmpeg not available, cannot process video. Returning None.")
                 return [{"text": None, "caption": None}]
 
-            # Extract middle frame from video
             logger.info(f"Extracting frame from video: {local_path}")
             frame_path = VideoFrameExtractor.extract_middle_frame(local_path)
 
             try:
-                # Call Vision API with extracted frame
                 logger.info(f"Analyzing video frame with Vision API: {frame_path}")
                 client = llm_client or self._get_llm_client()
                 processed = await client.vision(prompt=template, image_path=frame_path, system_prompt=None)
                 description, caption = self._parse_multimodal_response(processed, "detailed_description", "caption")
                 return [{"text": description, "caption": caption}]
             finally:
-                # Clean up temporary frame file
                 import pathlib
 
                 try:
@@ -2679,17 +2511,6 @@ Decide which clusters/candidates should map into existing categories, and which 
     async def _preprocess_image(
         self, local_path: str, template: str, llm_client: Any | None = None
     ) -> list[dict[str, str | None]]:
-        """
-        Preprocess image data - extract description and caption using Vision API.
-
-        Args:
-            local_path: Path to the image file
-            template: Prompt template for image analysis
-
-        Returns:
-            List with single resource containing text (description) and caption
-        """
-        # Call Vision API with image
         client = llm_client or self._get_llm_client()
         processed = await client.vision(prompt=template, image_path=local_path, system_prompt=None)
         description, caption = self._parse_multimodal_response(processed, "detailed_description", "caption")
@@ -2698,7 +2519,6 @@ Decide which clusters/candidates should map into existing categories, and which 
     async def _preprocess_document(
         self, text: str, template: str, llm_client: Any | None = None
     ) -> list[dict[str, str | None]]:
-        """Preprocess document data - condense and extract caption"""
         prompt = template.format(document_text=self._escape_prompt_value(text))
         client = llm_client or self._get_llm_client()
         processed = await client.chat(prompt)
@@ -2708,7 +2528,6 @@ Decide which clusters/candidates should map into existing categories, and which 
     async def _preprocess_audio(
         self, text: str, template: str, llm_client: Any | None = None
     ) -> list[dict[str, str | None]]:
-        """Preprocess audio data - format transcription and extract caption"""
         prompt = template.format(transcription=self._escape_prompt_value(text))
         client = llm_client or self._get_llm_client()
         processed = await client.chat(prompt)
@@ -2726,7 +2545,6 @@ Decide which clusters/candidates should map into existing categories, and which 
                 lines.append(f"- {name}: {desc}" if desc else f"- {name}")
             base = "\n".join(lines)
 
-        # If enabled, tell the model it's allowed to propose new categories.
         if getattr(self.memorize_config, "allow_dynamic_categories", False):
             max_total = int(getattr(self.memorize_config, "max_categories_total", 0) or 0)
             policy = str(getattr(self.memorize_config, "dynamic_category_policy", "") or "").strip()
@@ -2740,26 +2558,16 @@ Decide which clusters/candidates should map into existing categories, and which 
         return base
 
     def _add_conversation_indices(self, conversation: str) -> str:
-        """
-        Add [INDEX] markers to each line of the conversation.
-
-        Args:
-            conversation: Raw conversation text with lines
-
-        Returns:
-            Conversation with [INDEX] markers prepended to each non-empty line
-        """
         lines = conversation.split("\n")
         indexed_lines = []
         index = 0
 
         for line in lines:
             stripped = line.strip()
-            if stripped:  # Only index non-empty lines
+            if stripped:
                 indexed_lines.append(f"[{index}] {line}")
                 index += 1
             else:
-                # Preserve empty lines without indexing
                 indexed_lines.append(line)
 
         return "\n".join(indexed_lines)
@@ -2805,7 +2613,6 @@ Decide which clusters/candidates should map into existing categories, and which 
         if not template:
             return resource_text
 
-        # When dynamic categories are enabled, remove the legacy hard-stop instruction.
         if getattr(self.memorize_config, "allow_dynamic_categories", False):
             template = re.sub(r"(?im)^.*do not create new memory categories.*\n?", "", template)
         safe_resource = self._escape_prompt_value(resource_text)
@@ -2817,15 +2624,6 @@ Decide which clusters/candidates should map into existing categories, and which 
         return item_id.replace("-", "")[:6]
 
     def _extract_refs_from_summaries(self, summaries: dict[str, str]) -> set[str]:
-        """
-        Extract all [ref:xxx] references from summary texts.
-
-        Args:
-            summaries: dict mapping category_id -> summary text
-
-        Returns:
-            Set of all referenced short IDs (the xxx part from [ref:xxx])
-        """
         from memu.utils.references import extract_references
 
         refs: set[str] = set()
@@ -2840,28 +2638,16 @@ Decide which clusters/candidates should map into existing categories, and which 
         category_updates: dict[str, list[tuple[str, str]]],
         store: Database,
     ) -> None:
-        """
-        Persist ref_id to items that are referenced in category summaries.
-
-        This function:
-        1. Extracts all [ref:xxx] patterns from updated summaries
-        2. Builds a mapping of short_id -> full item_id for all items in category_updates
-        3. For items whose short_id appears in the references, updates their extra column
-           with {"ref_id": short_id}
-        """
-        # Extract all referenced short IDs from summaries
         referenced_short_ids = self._extract_refs_from_summaries(updated_summaries)
         if not referenced_short_ids:
             return
 
-        # Build mapping of short_id -> full item_id for all items in category_updates
         short_id_to_item_id: dict[str, str] = {}
         for item_tuples in category_updates.values():
             for item_id, _ in item_tuples:
                 short_id = self._build_item_ref_id(item_id)
                 short_id_to_item_id[short_id] = item_id
 
-        # Update extra column for referenced items
         for short_id in referenced_short_ids:
             matched_item_id = short_id_to_item_id.get(short_id)
             if matched_item_id:
@@ -2915,14 +2701,6 @@ Decide which clusters/candidates should map into existing categories, and which 
         new_memories: list[str] | list[tuple[str, str]],
         user: dict[str, Any] | None = None,
     ) -> str:
-        """
-        Build the prompt for updating a category summary.
-
-        Args:
-            category: The category to update
-            new_memories: Either list of summary strings (legacy) or list of (item_id, summary) tuples (with refs)
-        """
-        # Check if references are enabled and we have (id, summary) tuples
         enable_refs = getattr(self.memorize_config, "enable_item_references", False)
 
         if enable_refs:
@@ -2995,12 +2773,6 @@ Decide which clusters/candidates should map into existing categories, and which 
         llm_client: Any | None = None,
         user: dict[str, Any] | None = None,
     ) -> dict[str, str]:
-        """
-        Update category summaries based on new memory items.
-
-        Returns:
-            dict mapping category_id -> updated summary text
-        """
         updated_summaries: dict[str, str] = {}
         if not updates:
             return updated_summaries
@@ -3183,39 +2955,18 @@ Decide which clusters/candidates should map into existing categories, and which 
         return episode_text, indices
 
     def _parse_multimodal_response(self, raw: str, content_tag: str, caption_tag: str) -> tuple[str | None, str | None]:
-        """
-        Parse multimodal preprocessing response (video, image, document, audio).
-        Extracts content and caption from XML-like tags.
-
-        Args:
-            raw: Raw LLM response
-            content_tag: Tag name for main content (e.g., "detailed_description", "processed_content")
-            caption_tag: Tag name for caption (typically "caption")
-
-        Returns:
-            Tuple of (content, caption)
-        """
         content = self._extract_tag_content(raw, content_tag)
         caption = self._extract_tag_content(raw, caption_tag)
-
-        # Fallback: if no tags found, try to use raw response as content
         if not content:
             content = raw.strip()
-
-        # Fallback for caption: use first sentence of content if no caption found
         if not caption and content:
             first_sentence = content.split(".")[0]
             caption = first_sentence if len(first_sentence) <= 200 else first_sentence[:200]
-
         return content, caption
 
     def _parse_conversation_preprocess_with_episodes(
         self, raw: str, original_text: str
     ) -> tuple[str | None, list[dict[str, int | str]] | None]:
-        """
-        Parse conversation preprocess response and extract episodes.
-        Returns: (conversation_text, episodes)
-        """
         conversation = self._extract_tag_content(raw, "conversation")
         episodes = self._extract_episodes_with_fallback(raw)
         return conversation, episodes
@@ -3297,7 +3048,6 @@ Decide which clusters/candidates should map into existing categories, and which 
         return normalized
 
     def _find_xml_boundaries(self, raw: str) -> tuple[int, int, str] | None:
-        """Find the start index, end index, and closing tag for XML root element."""
         root_tags = ["item"]
         for tag in root_tags:
             opening = f"<{tag}>"
@@ -3310,7 +3060,6 @@ Decide which clusters/candidates should map into existing categories, and which 
         return None
 
     def _parse_memory_element(self, memory_elem: Element) -> dict[str, Any] | None:
-        """Parse a single memory XML element into a dict."""
         memory_dict: dict[str, Any] = {}
 
         content_elem = memory_elem.find("content")
