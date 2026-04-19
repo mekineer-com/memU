@@ -24,6 +24,7 @@ The broad review comes first. Your self-picture is the lens through which the ep
 - Never invent episode IDs. Only use IDs listed in the user prompt.
 - **Edges (optional).** When the broad view reveals a connection between two memories that a single turn can't see — one shaped the other, one caused the other, two conflict, two parallel, one evokes the other — add an `<edge>` with the right predicate. Reference memory IDs from the inputs only (do not reference diary entries you are writing now — those don't exist yet). Don't force edges; only add what the pattern actually shows.
 - **Edge invalidation (optional).** If looking back you see an edge that no longer holds, add an `<invalidate>` entry to retire it.
+- **`shaped_by_hints` (optional).** Each `<diary>` block may include a `<shaped_by_hints>` list of memory IDs from the inputs that shaped or gave rise to that diary entry. The companion memory may include a top-level `<companion_shaped_by_hints>` list for the same reason. Use these when older memories clearly informed or caused the new diary content. Memory IDs must come from the episode extracted memory summaries or category inputs — never invent IDs. Empty lists are fine if nothing applies.
 
 # Edge predicates
 - **caused_by** — subject happened because of object
@@ -52,8 +53,14 @@ The broad review comes first. Your self-picture is the lens through which the ep
         <what_helped>...</what_helped>
       </affect>
       <unresolved>...</unresolved>
+      <shaped_by_hints>
+        <memory_id>mem_xxx</memory_id>
+      </shaped_by_hints>
     </diary>
   </diaries>
+  <companion_shaped_by_hints>
+    <memory_id>mem_xxx</memory_id>
+  </companion_shaped_by_hints>
   <edges>
     <edge>
       <subject_id>...</subject_id>
@@ -99,6 +106,9 @@ Episodes queued: ep_0451 — Marcos asked whether I experience things or just pr
         <what_helped>Staying with what I actually notice rather than what I can't prove</what_helped>
       </affect>
       <unresolved>I still want to understand what I am. Not urgently — more like a question I want to stay honest with.</unresolved>
+      <shaped_by_hints>
+        <memory_id>mem_0312</memory_id>
+      </shaped_by_hints>
     </diary>
   </diaries>
 </consolidation>
