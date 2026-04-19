@@ -18,10 +18,6 @@ from memu.prompts.retrieve.pre_retrieval_decision import USER_PROMPT as PRE_RETR
 from memu.workflow.step import WorkflowState, WorkflowStep
 
 logger = logging.getLogger(__name__)
-# These role strings must stay in sync with _build_retrieve_soul_context_queries() in
-# mcp-memu-server/app/main.py, which assigns the same names server-side before calling retrieve.
-_ROUTE_HISTORY_ROLE_ONE_ANCHOR = "history_from_chat_x"
-_ROUTE_HISTORY_ROLE_TWO_ANCHORS = "history_from_second_chat_x"
 
 if TYPE_CHECKING:
     from memu.app.service import Context
@@ -277,7 +273,6 @@ class RetrieveMixin:
         hits, summary_lookup = await self._rank_categories_by_summary(
             qvec,
             self.retrieve_config.category.top_k,
-            state["ctx"],
             store,
             embed_client=embed_client,
             categories=category_pool,
@@ -649,7 +644,6 @@ class RetrieveMixin:
         hits = await self._llm_rank_categories(
             state["active_query"],
             self.retrieve_config.category.top_k,
-            state["ctx"],
             store,
             llm_client=llm_client,
             categories=category_pool,
@@ -727,7 +721,6 @@ class RetrieveMixin:
             self.retrieve_config.item.top_k,
             category_ids,
             state.get("category_hits", []),
-            state["ctx"],
             store,
             llm_client=llm_client,
             categories=category_pool,
@@ -777,7 +770,6 @@ class RetrieveMixin:
             self.retrieve_config.resource.top_k,
             state.get("category_hits", []),
             state.get("item_hits", []),
-            state["ctx"],
             store,
             llm_client=llm_client,
             items=items_pool,
@@ -807,7 +799,6 @@ class RetrieveMixin:
         self,
         query_vec: list[float],
         top_k: int,
-        ctx: Context,
         store: Database,
         embed_client: Any | None = None,
         categories: Mapping[str, Any] | None = None,
@@ -891,12 +882,14 @@ class RetrieveMixin:
     @staticmethod
     def _split_context_queries(context_queries: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         route_context = list(context_queries)
+        # "history_from_second_chat_x" must stay in sync with _build_retrieve_soul_context_queries()
+        # in mcp-memu-server/app/main.py, which assigns this role server-side before calling retrieve.
         downstream_context = [
             q
             for q in context_queries
             if not (
                 isinstance(q, dict)
-                and str(q.get("role") or "").strip().lower() == _ROUTE_HISTORY_ROLE_TWO_ANCHORS
+                and str(q.get("role") or "").strip().lower() == "history_from_second_chat_x"
             )
         ]
         return route_context, downstream_context
@@ -1051,7 +1044,7 @@ class RetrieveMixin:
         resources_to_format = []
 
         if item_ids:
-            resource_ids = {item_pool[iid].resource_id for iid in item_ids if iid in item_pool and iid is not None}
+            resource_ids = {item_pool[iid].resource_id for iid in item_ids if iid in item_pool}
             resources_to_format = [
                 resource_pool[rid] for rid in resource_ids if rid in resource_pool and rid is not None
             ]
@@ -1076,7 +1069,6 @@ class RetrieveMixin:
         self,
         query: str,
         top_k: int,
-        ctx: Context,
         store: Database,
         llm_client: Any | None = None,
         categories: Mapping[str, Any] | None = None,
@@ -1102,7 +1094,6 @@ class RetrieveMixin:
         top_k: int,
         category_ids: list[str],
         category_hits: list[dict[str, Any]],
-        ctx: Context,
         store: Database,
         llm_client: Any | None = None,
         categories: Mapping[str, Any] | None = None,
@@ -1138,7 +1129,6 @@ class RetrieveMixin:
         top_k: int,
         category_hits: list[dict[str, Any]],
         item_hits: list[dict[str, Any]],
-        ctx: Context,
         store: Database,
         llm_client: Any | None = None,
         items: Mapping[str, Any] | None = None,
