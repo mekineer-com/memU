@@ -1332,7 +1332,7 @@ Decide which clusters/candidates should map into existing categories, and which 
             "relations": relations,
             "category_updates": category_updates,
             "homeless_item_count": homeless_item_count,
-            "pending_diary_episode_ids": list(dict.fromkeys(pending_diary_episode_ids)),
+            "pending_diary_episode_ids": list(dict.fromkeys(str(x).strip() for x in pending_diary_episode_ids if str(x).strip())),
         })
         return state
 
