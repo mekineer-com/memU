@@ -117,7 +117,6 @@ class MemoryItem(BaseRecord):
     # Conversation anchor.
     conversation_id: str | None = None
     episode_id: str | None = None
-    affective_tags: dict[str, Any] | None = None
     unresolved: str | None = None
     # Soft-merge marker for conservative semantic dedupe.
     # When set, this item is treated as merged into another canonical item.

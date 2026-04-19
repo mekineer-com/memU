@@ -167,7 +167,6 @@ class SQLiteStore(Database):
                 )
                 self._add_column_if_missing(conn, "memu_memory_items", "conversation_id", "conversation_id VARCHAR")
                 self._add_column_if_missing(conn, "memu_memory_items", "episode_id", "episode_id VARCHAR")
-                self._add_column_if_missing(conn, "memu_memory_items", "affective_tags", "affective_tags JSON")
                 self._add_column_if_missing(conn, "memu_memory_items", "unresolved", "unresolved TEXT")
                 self._add_column_if_missing(conn, "memu_memory_items", "merged_into", "merged_into VARCHAR")
 

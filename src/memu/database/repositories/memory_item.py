@@ -36,7 +36,6 @@ class MemoryItemRepo(Protocol):
         reflection_salience: float | None = None,
         conversation_id: str | None = None,
         episode_id: str | None = None,
-        affective_tags: dict[str, Any] | None = None,
         unresolved: str | None = None,
     ) -> MemoryItem: ...
 
@@ -50,7 +49,6 @@ class MemoryItemRepo(Protocol):
         extra: dict[str, Any] | None = None,
         tool_record: dict[str, Any] | None = None,
         merged_into: str | None = None,
-        affective_tags: dict[str, Any] | None = None,
         unresolved: str | None = None,
         session: Any | None = None,
     ) -> MemoryItem: ...

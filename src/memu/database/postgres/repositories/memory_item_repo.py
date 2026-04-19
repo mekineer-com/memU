@@ -165,7 +165,6 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
         reflection_salience: float | None = None,
         conversation_id: str | None = None,
         episode_id: str | None = None,
-        affective_tags: dict[str, Any] | None = None,
         unresolved: str | None = None,
     ) -> MemoryItem:
         if reinforce and memory_type != "tool":
@@ -181,7 +180,6 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
                 happened_at=happened_at,
                 reflection_salience=reflection_salience,
                 conversation_id=conversation_id,
-                affective_tags=affective_tags,
                 unresolved=unresolved,
             )
 
@@ -213,7 +211,6 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
             reflection_salience=reflection_salience,
             conversation_id=conv_id,
             episode_id=episode_id,
-            affective_tags=affective_tags,
             unresolved=unresolved,
             extra=extra if extra else {},
             **create_user_data,
@@ -243,7 +240,6 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
         happened_at: datetime | None = None,
         reflection_salience: float | None = None,
         conversation_id: str | None = None,
-        affective_tags: dict[str, Any] | None = None,
         unresolved: str | None = None,
     ) -> MemoryItem:
         from sqlmodel import select
@@ -287,8 +283,6 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
                     existing.reflection_salience = reflection_salience
                 if conv_id is not None:
                     existing.conversation_id = conv_id
-                if affective_tags is not None:
-                    existing.affective_tags = affective_tags
                 if unresolved is not None:
                     existing.unresolved = unresolved
                 existing.updated_at = self._now()
@@ -314,7 +308,6 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
                 happened_at=happened_at,
                 reflection_salience=reflection_salience,
                 conversation_id=conv_id,
-                affective_tags=affective_tags,
                 unresolved=unresolved,
                 **create_user_data,
                 created_at=now,
@@ -343,7 +336,6 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
         extra: dict[str, Any] | None = None,
         tool_record: dict[str, Any] | None = None,
         merged_into: str | None = None,
-        affective_tags: dict[str, Any] | None = None,
         unresolved: str | None = None,
         session: Any | None = None,
     ) -> MemoryItem:
@@ -360,7 +352,6 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
                     extra=extra,
                     tool_record=tool_record,
                     merged_into=merged_into,
-                    affective_tags=affective_tags,
                     unresolved=unresolved,
                     session=managed_session,
                 )
@@ -380,8 +371,6 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
             item.embedding = self._prepare_embedding(embedding)
         if merged_into is not None:
             item.merged_into = merged_into
-        if affective_tags is not None:
-            item.affective_tags = affective_tags
         if unresolved is not None:
             item.unresolved = unresolved
 
