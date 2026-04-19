@@ -96,7 +96,7 @@ class RetrieveMixin:
         if not where:
             return {}
 
-        valid_fields = set(getattr(self.user_model, "model_fields", {}).keys())
+        valid_fields = set(self.user_model.model_fields.keys())
         cleaned: dict[str, Any] = {}
 
         for raw_key, value in where.items():
@@ -271,7 +271,7 @@ class RetrieveMixin:
 
         embed_client = self._get_step_embedding_client(step_context)
         store = state["store"]
-        where_filters = state.get("where") or {}
+        where_filters = state["where"]
         category_pool = store.memory_category_repo.list_categories(where_filters)
         qvec = (await embed_client.embed([state["active_query"]]))[0]
         hits, summary_lookup = await self._rank_categories_by_summary(
@@ -306,7 +306,7 @@ class RetrieveMixin:
 
         retrieved_content = ""
         store = state["store"]
-        where_filters = state.get("where") or {}
+        where_filters = state["where"]
         category_pool = state.get("category_pool") or store.memory_category_repo.list_categories(where_filters)
         hits = state.get("category_hits") or []
         if hits:
@@ -353,7 +353,6 @@ class RetrieveMixin:
         return state
 
     def _find_entity_matches(self, text: str, store: Database, where: Mapping[str, Any] | None = None) -> list[Any]:
-        # No LLM, no embeddings — just scans the entities table.
         all_entities = store.entity_repo.list_all(where)
         if not all_entities:
             return []
@@ -385,7 +384,7 @@ class RetrieveMixin:
             return state
 
         store = state["store"]
-        where_filters = state.get("where") or {}
+        where_filters = state["where"]
         items_pool = store.memory_item_repo.list_items(where_filters)
         qvec = state.get("query_vector")
         if qvec is None:
@@ -394,7 +393,6 @@ class RetrieveMixin:
             state["query_vector"] = qvec
         item_cfg = self.retrieve_config.item
 
-        # --- Vector search (existing path) ---
         vector_hits = store.memory_item_repo.vector_search_items(
             qvec,
             item_cfg.top_k,
@@ -407,7 +405,6 @@ class RetrieveMixin:
             rrf_k=item_cfg.rrf_k,
         )
 
-        # --- Graph retrieval (parallel path) ---
         graph_cfg = self.retrieve_config.graph
         graph_provenance: dict[str, str] = {}
 
@@ -424,7 +421,6 @@ class RetrieveMixin:
                 )
                 graph_provenance.update(provenance)
 
-            # One-hop expansion from all seeds (vector + entity)
             vector_ids = [item_id for item_id, _ in vector_hits]
             all_seed_ids = list(dict.fromkeys(vector_ids + entity_seed_ids))
             if all_seed_ids:
@@ -443,20 +439,17 @@ class RetrieveMixin:
                 if mid not in graph_provenance:
                     graph_provenance[mid] = "via graph expansion"
 
-            # Merge: append graph-only hits after vector results
             vector_id_set = {item_id for item_id, _ in vector_hits}
             graph_only = [
                 mid for mid in (entity_seed_ids + expanded_ids)
                 if mid not in vector_id_set
             ]
-            # Deduplicate while preserving order
             seen: set[str] = set()
             deduped: list[str] = []
             for mid in graph_only:
                 if mid not in seen:
                     seen.add(mid)
                     deduped.append(mid)
-            # Cap graph-only results
             deduped = deduped[:graph_cfg.max_graph_results]
             # score=0.0 is a sentinel for graph-expanded hits (no cosine score); not a weak match
             vector_hits = list(vector_hits) + [(mid, 0.0) for mid in deduped]
@@ -481,7 +474,7 @@ class RetrieveMixin:
             return state
 
         store = state["store"]
-        where_filters = state.get("where") or {}
+        where_filters = state["where"]
         resource_pool = store.resource_repo.list_resources(where_filters)
         state["resource_pool"] = resource_pool
         corpus = self._resource_caption_corpus(store, resources=resource_pool)
@@ -509,7 +502,7 @@ class RetrieveMixin:
         }
         if state.get("needs_retrieval"):
             store = state["store"]
-            where_filters = state.get("where") or {}
+            where_filters = state["where"]
             categories_pool = state.get("category_pool") or store.memory_category_repo.list_categories(where_filters)
             items_pool = state.get("item_pool") or store.memory_item_repo.list_items(where_filters)
             resources_pool = state.get("resource_pool") or store.resource_repo.list_resources(where_filters)
@@ -518,8 +511,7 @@ class RetrieveMixin:
                 categories_pool,
             )
             response["items"] = self._materialize_hits(state.get("item_hits", []), items_pool)
-            # Tag graph-retrieved items with provenance
-            graph_provenance = state.get("graph_provenance") or {}
+            graph_provenance = state.get("graph_provenance")
             if graph_provenance:
                 for item_data in response["items"]:
                     item_id = item_data.get("id")
@@ -652,7 +644,7 @@ class RetrieveMixin:
             return state
         llm_client = self._get_step_llm_client(step_context)
         store = state["store"]
-        where_filters = state.get("where") or {}
+        where_filters = state["where"]
         category_pool = store.memory_category_repo.list_categories(where_filters)
         hits = await self._llm_rank_categories(
             state["active_query"],
@@ -709,23 +701,21 @@ class RetrieveMixin:
             state["item_hits"] = []
             return state
 
-        where_filters = state.get("where") or {}
+        where_filters = state["where"]
         category_hits = state.get("category_hits", [])
         category_ids = [cat["id"] for cat in category_hits]
         llm_client = self._get_step_llm_client(step_context)
         store = state["store"]
 
-        use_refs = getattr(self.retrieve_config.item, "use_category_references", False)
+        use_refs = self.retrieve_config.item.use_category_references
         ref_ids: list[str] = []
         if use_refs and category_hits:
-            # Extract all ref_ids from category summaries
             from memu.utils.references import extract_references
 
             for cat in category_hits:
                 summary = cat.get("summary") or ""
                 ref_ids.extend(extract_references(summary))
         if ref_ids:
-            # Query items by ref_ids
             items_pool = store.memory_item_repo.list_items_by_ref_ids(ref_ids, where_filters)
         else:
             items_pool = store.memory_item_repo.list_items(where_filters)
@@ -779,7 +769,7 @@ class RetrieveMixin:
 
         llm_client = self._get_step_llm_client(step_context)
         store = state["store"]
-        where_filters = state.get("where") or {}
+        where_filters = state["where"]
         resource_pool = store.resource_repo.list_resources(where_filters)
         items_pool = state.get("item_pool") or store.memory_item_repo.list_items(where_filters)
         state["resource_hits"] = await self._llm_rank_resources(
@@ -1120,7 +1110,6 @@ class RetrieveMixin:
         relations: Sequence[Any] | None = None,
     ) -> list[dict[str, Any]]:
         if not category_ids:
-            logger.debug("[LLM Rank Items] No category_ids provided")
             return []
 
         item_pool = items if items is not None else store.memory_item_repo.list_items()
