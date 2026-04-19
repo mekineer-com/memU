@@ -205,8 +205,11 @@ class MemoryService(MemorizeMixin, RetrieveMixin):
         system_prompt: str | None = None,
         temperature: float = 0.2,
         response_format: dict[str, Any] | None = None,
+        op: str | None = None,
+        step: str | None = None,
     ) -> Any:
-        return await self._get_llm_client(profile).chat(
+        step_context = {"operation": op, "step_id": step} if (op or step) else None
+        return await self._get_llm_client(profile, step_context=step_context).chat(
             prompt,
             max_tokens=max_tokens,
             system_prompt=system_prompt,
