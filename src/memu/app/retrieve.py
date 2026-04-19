@@ -315,9 +315,6 @@ class RetrieveMixin:
         if not state.get("retrieve_category") or not state.get("sufficiency_check"):
             # Rewrite-only mode: gating disabled, LLM called for query rewrite only,
             # retrieval proceeds regardless of what the LLM would decide about sufficiency.
-            # Keep item-search rewrite active even when category sufficiency gating is disabled.
-            # SONNET WANTED: tune pre_retrieval_decision prompt wording so rewritten_query
-            # explicitly optimizes for item/vector+BM25 lookup in this rewrite-only mode.
             llm_client = self._get_step_llm_client(step_context)
             _needs_more, rewritten_query = await self._decide_if_retrieval_needed(
                 state["active_query"],
@@ -663,9 +660,6 @@ class RetrieveMixin:
             retrieved_content = self._format_llm_category_content(hits)
 
         if not state.get("retrieve_category") or not state.get("sufficiency_check"):
-            # Keep item-search rewrite active even when category sufficiency gating is disabled.
-            # SONNET WANTED: tune pre_retrieval_decision prompt wording so rewritten_query
-            # explicitly optimizes for item/vector+BM25 lookup in this rewrite-only mode.
             llm_client = self._get_step_llm_client(step_context)
             _needs_more, rewritten_query = await self._decide_if_retrieval_needed(
                 state["active_query"],
