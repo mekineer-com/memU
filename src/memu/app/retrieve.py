@@ -93,7 +93,6 @@ class RetrieveMixin:
         return response
 
     def _normalize_where(self, where: Mapping[str, Any] | None) -> dict[str, Any]:
-        """Validate and clean the `where` scope filters against the configured user model."""
         if not where:
             return {}
 
@@ -283,14 +282,10 @@ class RetrieveMixin:
             embed_client=embed_client,
             categories=category_pool,
         )
-        # Gate by absolute floor and top-score window; cap at max_count
         cat_cfg = self.retrieve_config.category
         if hits:
-            top_score = hits[0][1] if isinstance(hits[0], (list, tuple)) and len(hits[0]) > 1 else 1.0
-            hits = [h for h in hits if (
-                (h[1] if isinstance(h, (list, tuple)) and len(h) > 1 else 0) >= cat_cfg.min_score
-                and (h[1] if isinstance(h, (list, tuple)) and len(h) > 1 else 0) >= (top_score - cat_cfg.score_window)
-            )][:cat_cfg.max_count]
+            top_score = hits[0][1]
+            hits = [h for h in hits if h[1] >= cat_cfg.min_score and h[1] >= (top_score - cat_cfg.score_window)][:cat_cfg.max_count]
         state.update({
             "query_vector": qvec,
             "category_hits": hits,
@@ -358,10 +353,7 @@ class RetrieveMixin:
         return state
 
     def _find_entity_matches(self, text: str, store: Database, where: Mapping[str, Any] | None = None) -> list[Any]:
-        """Find known entities mentioned in query text via string matching.
-
-        Sub-millisecond: no LLM, no embeddings — just scans the entities table.
-        """
+        # No LLM, no embeddings — just scans the entities table.
         all_entities = store.entity_repo.list_all(where)
         if not all_entities:
             return []
@@ -375,11 +367,6 @@ class RetrieveMixin:
         where: Mapping[str, Any] | None = None,
         as_of: datetime | None = None,
     ) -> tuple[list[str], dict[str, str]]:
-        """Get memory IDs linked to matched entities via mentions triples.
-
-        Returns (memory_ids, provenance_map) where provenance_map maps
-        memory_id → "via <entity_name>" for downstream flagging.
-        """
         memory_ids: list[str] = []
         seen: set[str] = set()
         provenance: dict[str, str] = {}
@@ -865,20 +852,6 @@ class RetrieveMixin:
         system_prompt: str | None = None,
         llm_client: Any | None = None,
     ) -> tuple[bool, str]:
-        """
-        Decide if the query requires memory retrieval (or MORE retrieval) and rewrite it with context.
-
-        Args:
-            query: The current query string
-            context_queries: List of previous query objects with role and content
-            retrieved_content: Content retrieved so far (if checking for sufficiency)
-            system_prompt: Optional system prompt override
-
-        Returns:
-            Tuple of (needs_retrieval: bool, rewritten_query: str)
-            - needs_retrieval: True if retrieval/more retrieval is needed
-            - rewritten_query: The rewritten query for the next step
-        """
         history_text = self._format_query_context(context_queries)
         content_text = retrieved_content or "No content retrieved yet."
 
@@ -898,7 +871,6 @@ class RetrieveMixin:
         return decision == "RETRIEVE", rewritten
 
     def _format_query_context(self, queries: list[dict[str, Any]] | None) -> str:
-        """Format query context for prompts, including role information"""
         if not queries:
             return "No query context."
 
@@ -941,22 +913,10 @@ class RetrieveMixin:
 
     @staticmethod
     def _extract_query_text(query: dict[str, Any]) -> str:
-        """
-        Extract text content from query message structure.
-
-        Args:
-            query: Query in format {"role": "user", "content": {"text": "..."}}
-
-        Returns:
-            The extracted text string
-        """
         if isinstance(query, str):
-            # Backward compatibility: if it's already a string, return it
             return query
-
         if not isinstance(query, dict):
             raise TypeError("INVALID")
-
         content = query.get("content")
         if isinstance(content, dict):
             text = content.get("text", "")
@@ -964,15 +924,13 @@ class RetrieveMixin:
                 raise ValueError("EMPTY")
             return str(text)
         elif isinstance(content, str):
-            # Also support {"role": "user", "content": "text"} format
             return content
         else:
             raise TypeError("INVALID")
 
     def _extract_decision(self, raw: str) -> str:
-        """Extract RETRIEVE or NO_RETRIEVE decision from LLM response"""
         if not raw:
-            return "RETRIEVE"  # Default to retrieve if uncertain
+            return "RETRIEVE"
 
         match = re.search(r"<decision>(.*?)</decision>", raw, re.IGNORECASE | re.DOTALL)
         if match:
@@ -986,10 +944,9 @@ class RetrieveMixin:
         if "NO_RETRIEVE" in upper or "NO RETRIEVE" in upper:
             return "NO_RETRIEVE"
 
-        return "RETRIEVE"  # Default to retrieve
+        return "RETRIEVE"
 
     def _extract_rewritten_query(self, raw: str) -> str | None:
-        """Extract rewritten query from LLM response"""
         match = re.search(r"<rewritten_query>(.*?)</rewritten_query>", raw, re.IGNORECASE | re.DOTALL)
         if match:
             return match.group(1).strip()
@@ -1039,7 +996,6 @@ class RetrieveMixin:
         category_ids: list[str] | None = None,
         categories: Mapping[str, Any] | None = None,
     ) -> str:
-        """Format categories for LLM consumption"""
         categories_to_format = categories if categories is not None else store.memory_category_repo.categories
         if category_ids:
             categories_to_format = {cid: cat for cid, cat in categories_to_format.items() if cid in category_ids}
@@ -1066,14 +1022,12 @@ class RetrieveMixin:
         items: Mapping[str, Any] | None = None,
         relations: Sequence[Any] | None = None,
     ) -> str:
-        """Format memory items for LLM consumption, optionally filtered by category"""
         item_pool = items if items is not None else store.memory_item_repo.list_items()
         relation_pool = relations if relations is not None else store.category_item_repo.relations
         items_to_format = []
         seen_item_ids = set()
 
         if category_ids:
-            # Get items that belong to the specified categories
             for rel in relation_pool:
                 if rel.category_id in category_ids:
                     item = item_pool.get(rel.item_id)
@@ -1102,13 +1056,11 @@ class RetrieveMixin:
         items: Mapping[str, Any] | None = None,
         resources: Mapping[str, Any] | None = None,
     ) -> str:
-        """Format resources for LLM consumption, optionally filtered by related items"""
         resource_pool = resources if resources is not None else store.resource_repo.resources
         item_pool = items if items is not None else store.memory_item_repo.list_items()
         resources_to_format = []
 
         if item_ids:
-            # Get resources that are related to the specified items
             resource_ids = {item_pool[iid].resource_id for iid in item_ids if iid in item_pool and iid is not None}
             resources_to_format = [
                 resource_pool[rid] for rid in resource_ids if rid in resource_pool and rid is not None
@@ -1139,7 +1091,6 @@ class RetrieveMixin:
         llm_client: Any | None = None,
         categories: Mapping[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
-        """Use LLM to rank categories based on query relevance"""
         category_pool = categories if categories is not None else store.memory_category_repo.categories
         if not category_pool:
             return []
@@ -1168,7 +1119,6 @@ class RetrieveMixin:
         items: Mapping[str, Any] | None = None,
         relations: Sequence[Any] | None = None,
     ) -> list[dict[str, Any]]:
-        """Use LLM to rank memory items from relevant categories"""
         if not category_ids:
             logger.debug("[LLM Rank Items] No category_ids provided")
             return []
@@ -1178,7 +1128,6 @@ class RetrieveMixin:
         if items_data == "No memory items available.":
             return []
 
-        # Format relevant categories for context
         relevant_categories_info = "\n".join([
             f"- {cat['name']}: {cat.get('summary', cat.get('description', ''))}" for cat in category_hits
         ])
@@ -1206,8 +1155,6 @@ class RetrieveMixin:
         items: Mapping[str, Any] | None = None,
         resources: Mapping[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
-        """Use LLM to rank resources related to the context"""
-        # Get item IDs to filter resources
         item_ids = [item["id"] for item in item_hits]
         if not item_ids:
             return []
@@ -1218,7 +1165,6 @@ class RetrieveMixin:
         if resources_data == "No resources available.":
             return []
 
-        # Build context info
         context_parts = []
         if category_hits:
             context_parts.append("Relevant Categories:")
@@ -1242,8 +1188,6 @@ class RetrieveMixin:
     def _parse_llm_id_list_response(
         self, raw_response: str, key: str, pool: Mapping[str, Any], label: str
     ) -> list[dict[str, Any]]:
-        """Extract a JSON blob from raw_response, read pool[id] for each id in parsed[key],
-        and return model-dumped results in LLM-provided order (already sorted by relevance)."""
         results = []
         try:
             json_blob = self._extract_json_blob(raw_response)
@@ -1277,7 +1221,6 @@ class RetrieveMixin:
         return self._parse_llm_id_list_response(raw_response, "resources", pool, "resource")
 
     def _format_llm_category_content(self, hits: list[dict[str, Any]]) -> str:
-        """Format LLM-ranked category content for judger"""
         lines = []
         for cat in hits:
             summary = cat.get("summary", "") or cat.get("description", "")
@@ -1285,14 +1228,12 @@ class RetrieveMixin:
         return "\n\n".join(lines).strip()
 
     def _format_llm_item_content(self, hits: list[dict[str, Any]]) -> str:
-        """Format LLM-ranked item content for judger"""
         lines = []
         for item in hits:
             lines.append(f"Memory Item ({item['memory_type']}): {item['summary']}")
         return "\n\n".join(lines).strip()
 
     def _format_llm_resource_content(self, hits: list[dict[str, Any]]) -> str:
-        """Format LLM-ranked resource content for judger"""
         lines = []
         for res in hits:
             caption = res.get("caption", "") or f"Resource {res['url']}"
