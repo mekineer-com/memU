@@ -121,7 +121,7 @@ class MemorizeMixin:
 
     @staticmethod
     def _hedge_summary_for_confidence(summary: str, confidence: float | None) -> str:
-        text = str(summary or "").strip()
+        text = (summary or "").strip()
         if not text or confidence is None or confidence >= 0.6:
             return text
         lowered = text[:1].lower() + text[1:] if text[:1].isupper() else text
@@ -164,8 +164,8 @@ class MemorizeMixin:
             "category_ids": list(ctx.category_ids),
             "user": user_scope,
             "conversation_id": conversation_id,
-            "all_categories_summary": str(all_categories_summary or "").strip() or None,
-            "soul_card": str(soul_card or "").strip() or None,
+            "all_categories_summary": (all_categories_summary or "").strip() or None,
+            "soul_card": (soul_card or "").strip() or None,
         }
 
         if raw_text is not None:
@@ -177,13 +177,6 @@ class MemorizeMixin:
         if response is None:
             msg = "Memorize workflow failed to produce a response"
             raise RuntimeError(msg)
-        homeless_count = int(result.get("homeless_item_count") or 0)
-        homeless_trigger = int(getattr(self.memorize_config, "homeless_trigger_count", 20) or 20)
-        logger.info(
-            "category-centroid: homeless items this run=%s trigger=%s",
-            homeless_count,
-            homeless_trigger,
-        )
         return response
 
     def _build_memorize_workflow(self) -> list[WorkflowStep]:
@@ -320,7 +313,6 @@ class MemorizeMixin:
                 applicable_types = state["memory_types"]
 
             structured_entries = await self._generate_structured_entries(
-                resource_url=res_url,
                 modality=state["modality"],
                 store=state["store"],
                 memory_types=applicable_types,
@@ -375,7 +367,6 @@ class MemorizeMixin:
 
         dedupe_scope = self._build_semantic_dedupe_scope(state.get("user"))
         if dedupe_scope is None:
-            logger.info("dedupe: skipped (missing soul_id/user_id scope)")
             return state
 
         store = state["store"]
@@ -493,8 +484,6 @@ class MemorizeMixin:
                     survivor.extra = survivor_extra
                 merged_map[redundant.id] = survivor.id
                 active_pool.pop(redundant.id, None)
-                logger.info("dedupe: merged %s into %s (sim=%.3f)", redundant.id, survivor.id, similarity)
-
                 if redundant.id == new_item_id:
                     break
 
@@ -1379,18 +1368,6 @@ Decide which clusters/candidates should map into existing categories, and which 
         path = pathlib.Path(base_url)
         return f"{path.stem}_#episode_{idx}{path.suffix}"
 
-    async def _fetch_and_preprocess_resource(
-        self, resource_url: str, modality: str, llm_client: Any | None = None
-    ) -> tuple[str, list[dict[str, str | None]]]:
-        local_path, text = await self.fs.fetch(resource_url, modality)
-        preprocessed_resources = await self._preprocess_resource_url(
-            local_path=local_path,
-            text=text,
-            modality=modality,
-            llm_client=llm_client,
-        )
-        return local_path, preprocessed_resources
-
     async def _create_resource_with_caption(
         self,
         *,
@@ -1438,24 +1415,6 @@ Decide which clusters/candidates should map into existing categories, and which 
         configured_types = self.memorize_config.memory_types or DEFAULT_MEMORY_TYPES
         return [cast(MemoryType, mtype) for mtype in configured_types]
 
-    def _resolve_summary_prompt(self, modality: str, override: str | None) -> str | None:
-        memo_settings = self.memorize_config
-        result = memo_settings.multimodal_preprocess_prompts.get(modality)
-        if override:
-            return override
-        if result is None:
-            return (
-                memo_settings.default_category_summary_prompt
-                if isinstance(memo_settings.default_category_summary_prompt, str)
-                else None
-            )
-        return result if isinstance(result, str) else None
-
-    def _resolve_multimodal_preprocess_prompt(self, modality: str) -> str | None:
-        memo_settings = self.memorize_config
-        result = memo_settings.multimodal_preprocess_prompts.get(modality)
-        return result if isinstance(result, str) else None
-
     @staticmethod
     def _resolve_custom_prompt(prompt: str | CustomPrompt, templates: Mapping[str, str]) -> str:
         if isinstance(prompt, str):
@@ -1473,7 +1432,6 @@ Decide which clusters/candidates should map into existing categories, and which 
     async def _generate_structured_entries(
         self,
         *,
-        resource_url: str,
         modality: str,
         store: Database,
         memory_types: list[MemoryType],
@@ -1481,115 +1439,24 @@ Decide which clusters/candidates should map into existing categories, and which 
         categories_prompt_str: str,
         all_categories_summary: str | None = None,
         soul_card: str | None = None,
-        episodes: list[dict[str, int | str]] | None = None,
         llm_client: Any | None = None,
         skipped_reasons: list[str] | None = None,
     ) -> list[StructuredMemoryEntry]:
-        if not memory_types:
+        if not memory_types or not text:
             return []
-
         client = llm_client or self._get_llm_client()
-        if text:
-            entries = await self._generate_text_entries(
-                resource_text=text,
-                modality=modality,
-                store=store,
-                memory_types=memory_types,
-                categories_prompt_str=categories_prompt_str,
-                all_categories_summary=all_categories_summary,
-                soul_card=soul_card,
-                episodes=episodes,
-                llm_client=client,
-                skipped_reasons=skipped_reasons,
-            )
-            return entries
-
-        return []
-
-    async def _generate_text_entries(
-        self,
-        *,
-        resource_text: str,
-        modality: str,
-        store: Database,
-        memory_types: list[MemoryType],
-        categories_prompt_str: str,
-        all_categories_summary: str | None,
-        soul_card: str | None,
-        episodes: list[dict[str, int | str]] | None,
-        llm_client: Any | None = None,
-        skipped_reasons: list[str] | None = None,
-    ) -> list[StructuredMemoryEntry]:
-        if modality == "conversation" and episodes:
-            episode_entries = await self._generate_entries_for_episodes(
-                resource_text=resource_text,
-                episodes=episodes,
-                store=store,
-                memory_types=memory_types,
-                categories_prompt_str=categories_prompt_str,
-                all_categories_summary=all_categories_summary,
-                soul_card=soul_card,
-                llm_client=llm_client,
-                skipped_reasons=skipped_reasons,
-            )
-            if episode_entries:
-                return episode_entries
         return await self._generate_entries_from_text(
-            resource_text=resource_text,
+            resource_text=text,
             store=store,
             memory_types=memory_types,
             categories_prompt_str=categories_prompt_str,
             all_categories_summary=all_categories_summary,
             soul_card=soul_card,
-            default_source_message_ids=self._extract_message_indices(resource_text)
+            default_source_message_ids=self._extract_message_indices(text)
             if modality == "conversation"
             else None,
-            llm_client=llm_client,
+            llm_client=client,
         )
-
-    async def _generate_entries_for_episodes(
-        self,
-        *,
-        resource_text: str,
-        episodes: list[dict[str, int | str]],
-        store: Database,
-        memory_types: list[MemoryType],
-        categories_prompt_str: str,
-        all_categories_summary: str | None,
-        soul_card: str | None,
-        llm_client: Any | None = None,
-        skipped_reasons: list[str] | None = None,
-    ) -> list[StructuredMemoryEntry]:
-        entries: list[StructuredMemoryEntry] = []
-        lines = resource_text.split("\n")
-        max_idx = len(lines) - 1
-        for episode in episodes:
-            start_idx = int(episode.get("start", 0))
-            end_idx = int(episode.get("end", max_idx))
-            episode_text = self._extract_episode_text(lines, start_idx, end_idx)
-            if not episode_text:
-                continue
-            applicable_types, _ = await self._route_episode(
-                episode_text,
-                memory_types,
-                llm_client,
-                skipped_reasons=skipped_reasons,
-            )
-            if not applicable_types:
-                continue
-            episode_entries = await self._generate_entries_from_text(
-                resource_text=episode_text,
-                store=store,
-                memory_types=applicable_types,
-                categories_prompt_str=categories_prompt_str,
-                all_categories_summary=all_categories_summary,
-                soul_card=soul_card,
-                default_source_message_ids=self._extract_message_indices(episode_text),
-                llm_client=llm_client,
-            )
-            episode_entries = sorted(episode_entries, key=self._episode_entry_sort_key, reverse=True)[:3]
-            entries.extend(episode_entries)
-        return entries
 
     async def _route_episode(
         self,
@@ -1629,15 +1496,7 @@ Decide which clusters/candidates should map into existing categories, and which 
         routed_types = payload.get("types")
         diary_worthy = bool(payload.get("diary_worthy"))
         reason = payload.get("reason", "")
-        logger.info(
-            "Router decision: memorable=%s types=%s diary_worthy=%s reason=%s",
-            memorable,
-            routed_types,
-            diary_worthy,
-            reason,
-        )
         if memorable is False:
-            logger.info("Router gated episode as not memorable: %s", reason)
             if skipped_reasons is not None and reason:
                 skipped_reasons.append(reason)
             return [], diary_worthy
@@ -1802,7 +1661,7 @@ Decide which clusters/candidates should map into existing categories, and which 
             replaces_previous_fact,
             entities,
         ) in entries:
-            normalized_summary = re.sub(r"\s+", " ", str(summary or "").strip())
+            normalized_summary = re.sub(r"\s+", " ", (summary or "").strip())
             exact_key = (memory_type, source_role, normalized_summary.casefold())
             if exact_key in seen_exact:
                 continue
@@ -1867,21 +1726,6 @@ Decide which clusters/candidates should map into existing categories, and which 
             resolved_salience = entry.reflection_salience
             decorated.append(entry._replace(source_message_ids=resolved_ids, reflection_salience=resolved_salience))
         return decorated
-
-    def _build_no_text_fallback(
-        self, memory_types: list[MemoryType], resource_url: str, modality: str
-    ) -> list[StructuredMemoryEntry]:
-        fallback = f"Resource {resource_url} ({modality}) stored. No text summary in v0."
-        return [
-            StructuredMemoryEntry(mtype, f"{fallback} (memory type: {mtype}).", [], None, None, [], None)
-            for mtype in memory_types
-        ]
-
-    def _build_no_result_fallback(
-        self, memory_type: MemoryType, resource_url: str, modality: str
-    ) -> StructuredMemoryEntry:
-        fallback = f"Resource {resource_url} ({modality}) stored. No structured memories generated."
-        return StructuredMemoryEntry(memory_type, fallback, [], None, None, [], None)
 
     async def _maybe_create_dynamic_categories(
         self,
@@ -2123,7 +1967,6 @@ Decide which clusters/candidates should map into existing categories, and which 
             target_item_id = supersede_targets.get(idx)
             if target_item_id and target_item_id != item.id and target_item_id not in superseded_targets:
                 superseded_targets.add(target_item_id)
-                logger.info("supersede: %s evolved_into %s (%.60s)", target_item_id, item.id, summary_text)
                 store.triple_repo.add(Triple(
                     subject_id=target_item_id,
                     subject_kind="memory",
@@ -2205,27 +2048,6 @@ Decide which clusters/candidates should map into existing categories, and which 
             return "__global__"
         return f"user={user_id}|soul={soul_id}"
 
-    def _start_category_initialization(
-        self,
-        ctx: Context,
-        store: Database,
-        user_scope: Mapping[str, Any] | None = None,
-    ) -> None:
-        scope_key = self._category_scope_key(user_scope)
-        if ctx.categories_ready and ctx.category_scope_key == scope_key:
-            return
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = None
-        if loop:
-            ctx.category_init_scope_key = scope_key
-            ctx.category_init_task = loop.create_task(
-                self._initialize_categories(ctx, store, user_scope, scope_key=scope_key)
-            )
-        else:
-            asyncio.run(self._initialize_categories(ctx, store, user_scope, scope_key=scope_key))
-
     async def _ensure_categories_ready(
         self, ctx: Context, store: Database, user_scope: Mapping[str, Any] | None = None
     ) -> None:
@@ -2302,7 +2124,7 @@ Decide which clusters/candidates should map into existing categories, and which 
 
     @staticmethod
     def _category_update_summary_text(summary: str, reinforcement_count: int) -> str:
-        text = str(summary or "").strip()
+        text = (summary or "").strip()
         if not text:
             return ""
         if reinforcement_count <= 1:
@@ -2318,8 +2140,6 @@ Decide which clusters/candidates should map into existing categories, and which 
         elif isinstance(configured_prompt, str):
             template = configured_prompt
         else:
-            # No custom prompts configured for preprocssing for now,
-            # If the user decide to use their custom prompt, they must provide ALL prompt blocks.
             template = self._resolve_custom_prompt(configured_prompt, {})
 
         if not template:
@@ -2351,10 +2171,8 @@ Decide which clusters/candidates should map into existing categories, and which 
 
         if file_ext in audio_extensions:
             try:
-                logger.info(f"Transcribing audio file: {local_path}")
                 client = llm_client or self._get_llm_client()
                 transcribed = cast(str, await client.transcribe(local_path))
-                logger.info(f"Audio transcription completed: {len(transcribed)} characters")
             except Exception:
                 logger.exception("Audio transcription failed for %s", local_path)
                 return None
@@ -2365,7 +2183,6 @@ Decide which clusters/candidates should map into existing categories, and which 
             path_obj = pathlib.Path(local_path)
             try:
                 text_content = path_obj.read_text(encoding="utf-8")
-                logger.info(f"Read pre-transcribed text file: {len(text_content)} characters")
             except Exception:
                 logger.exception("Failed to read text file %s", local_path)
                 return None
@@ -2478,11 +2295,9 @@ Decide which clusters/candidates should map into existing categories, and which 
                 logger.warning("ffmpeg not available, cannot process video. Returning None.")
                 return [{"text": None, "caption": None}]
 
-            logger.info(f"Extracting frame from video: {local_path}")
             frame_path = VideoFrameExtractor.extract_middle_frame(local_path)
 
             try:
-                logger.info(f"Analyzing video frame with Vision API: {frame_path}")
                 client = llm_client or self._get_llm_client()
                 processed = await client.vision(prompt=template, image_path=frame_path, system_prompt=None)
                 description, caption = self._parse_multimodal_response(processed, "detailed_description", "caption")
@@ -2492,7 +2307,6 @@ Decide which clusters/candidates should map into existing categories, and which 
 
                 try:
                     pathlib.Path(frame_path).unlink(missing_ok=True)
-                    logger.debug(f"Cleaned up temporary frame: {frame_path}")
                 except Exception as e:
                     logger.warning(f"Failed to clean up frame {frame_path}: {e}")
 
@@ -2548,21 +2362,6 @@ Decide which clusters/candidates should map into existing categories, and which 
             )
             return base + note
         return base
-
-    def _add_conversation_indices(self, conversation: str) -> str:
-        lines = conversation.split("\n")
-        indexed_lines = []
-        index = 0
-
-        for line in lines:
-            stripped = line.strip()
-            if stripped:
-                indexed_lines.append(f"[{index}] {line}")
-                index += 1
-            else:
-                indexed_lines.append(line)
-
-        return "\n".join(indexed_lines)
 
     def _format_soul_context_for_prompt(
         self,
@@ -2742,7 +2541,6 @@ Decide which clusters/candidates should map into existing categories, and which 
             or user_scope.get("soul_id")
         )
         agent_name = str(raw_agent).strip() if raw_agent else "the assistant"
-        # Strip ST timestamp suffixes like "Siri - 2026-...Z".
         if " - " in agent_name:
             agent_name = agent_name.split(" - ", 1)[0].strip() or agent_name
 
@@ -2784,7 +2582,6 @@ Decide which clusters/candidates should map into existing categories, and which 
             if not cat:
                 continue
             cleaned_summary = summary.replace("```markdown", "").replace("```", "").strip()
-            # If prompts still output "The user ...", rewrite to the real user name.
             user_name = self._summary_user_name(user or {}, default="")
             if user_name and user_name.lower() not in ("user", "the user"):
                 cleaned_summary = re.sub(
@@ -2799,11 +2596,6 @@ Decide which clusters/candidates should map into existing categories, and which 
             )
             updated_summaries[cid] = cleaned_summary
         return updated_summaries
-
-    def _parse_conversation_preprocess(self, raw: str) -> tuple[str | None, str | None]:
-        conversation = self._extract_tag_content(raw, "conversation")
-        summary = self._extract_tag_content(raw, "summary")
-        return conversation, summary
 
     @staticmethod
     def _dedupe_message_indices(values: Sequence[int | float | str]) -> list[int]:
