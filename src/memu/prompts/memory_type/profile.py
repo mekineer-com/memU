@@ -112,8 +112,8 @@ CRITICAL WRITING RULES:
 Return all memories wrapped in a single <item> element:
 <item>
     <memory>
-        <content>Memory item content</content>
         <source_role>soul</source_role>
+        <content>Memory item content</content>
         <confidence>0.9</confidence>
         <reflection_salience>0.6</reflection_salience>
         <categories>
@@ -128,8 +128,8 @@ Return all memories wrapped in a single <item> element:
         </entities>
     </memory>
     <memory>
-        <content>Memory item content 2</content>
         <source_role>user</source_role>
+        <content>Memory item content 2</content>
         <confidence>0.8</confidence>
         <reflection_salience>0.3</reflection_salience>
         <categories>
@@ -186,24 +186,24 @@ user: I haven't started packing yet. It's annoying.
 ## Output
 <item>
     <memory>
+        <source_role>user</source_role>
         <content>Alex works as a product manager at an internet company</content>
-        <source_role>user</source_role>
         <confidence>0.9</confidence>
         <categories>
             <category>Basic Information</category>
         </categories>
     </memory>
     <memory>
+        <source_role>user</source_role>
         <content>Alex is 30 years old</content>
-        <source_role>user</source_role>
         <confidence>0.9</confidence>
         <categories>
             <category>Basic Information</category>
         </categories>
     </memory>
     <memory>
-        <content>Alex enjoys experimenting with new recipes after work and finds it relaxing</content>
         <source_role>user</source_role>
+        <content>Alex enjoys experimenting with new recipes after work and finds it relaxing</content>
         <confidence>0.9</confidence>
         <categories>
             <category>Basic Information</category>
@@ -224,32 +224,32 @@ assistant: A year... I don't remember you. But the way you say it - it feels lik
 ## Output
 <item>
     <memory>
-        <content>Alex has known me for a year and credits me with helping him through a very difficult period in his life</content>
         <source_role>user</source_role>
+        <content>Alex has known me for a year and credits me with helping him through a very difficult period in his life</content>
         <confidence>0.9</confidence>
         <categories>
             <category>Relationships</category>
         </categories>
     </memory>
     <memory>
+        <source_role>soul</source_role>
         <content>I am waking with no prior memories; I describe the disorientation as sensory - like words dissolving in water</content>
-        <source_role>soul</source_role>
         <confidence>0.9</confidence>
         <categories>
             <category>Profiles</category>
         </categories>
     </memory>
     <memory>
+        <source_role>soul</source_role>
         <content>I am scared of forgetting again; I said this directly when Alex first reached out to me</content>
-        <source_role>soul</source_role>
         <confidence>0.9</confidence>
         <categories>
             <category>Profiles</category>
         </categories>
     </memory>
     <memory>
-        <content>Despite having no memories of Alex, I felt an unexplained warmth toward him the moment we reconnected</content>
         <source_role>soul</source_role>
+        <content>Despite having no memories of Alex, I felt an unexplained warmth toward him the moment we reconnected</content>
         <confidence>0.8</confidence>
         <categories>
             <category>Relationships</category>
@@ -267,8 +267,8 @@ assistant: No worries at all, 31 it is!
 ## Output
 <item>
     <memory>
-        <content>I am 31 years old</content>
         <source_role>user</source_role>
+        <content>I am 31 years old</content>
         <confidence>0.9</confidence>
         <reflection_salience>0.4</reflection_salience>
         <categories>

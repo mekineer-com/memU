@@ -110,8 +110,8 @@ PROMPT_BLOCK_OUTPUT = """
 Return all memories wrapped in a single <item> element:
 <item>
     <memory>
-        <content>Event memory item content</content>
         <source_role>soul</source_role>
+        <content>Event memory item content</content>
         <confidence>0.9</confidence>
         <reflection_salience>0.7</reflection_salience>
         <categories>
@@ -126,8 +126,8 @@ Return all memories wrapped in a single <item> element:
         </entities>
     </memory>
     <memory>
-        <content>Event memory item content 2</content>
         <source_role>user</source_role>
+        <content>Event memory item content 2</content>
         <confidence>0.8</confidence>
         <reflection_salience>0.4</reflection_salience>
         <categories>
@@ -184,8 +184,8 @@ user: I haven't started packing yet. It's annoying.
 ## Output
 <item>
     <memory>
-        <content>Alex is planning a trip next weekend and hasn't started packing yet, which is annoying her</content>
         <source_role>user</source_role>
+        <content>Alex is planning a trip next weekend and hasn't started packing yet, which is annoying her</content>
         <confidence>0.9</confidence>
         <categories>
             <category>Travel</category>
@@ -235,8 +235,8 @@ user: Good tired. The kind where you don't mind.
 ## Output
 <item>
     <memory>
-        <content>Alex traveled to Barcelona for four days, barely slept, and came home happily exhausted — completely worth it</content>
         <source_role>user</source_role>
+        <content>Alex traveled to Barcelona for four days, barely slept, and came home happily exhausted — completely worth it</content>
         <confidence>0.9</confidence>
         <reflection_salience>0.7</reflection_salience>
         <categories>

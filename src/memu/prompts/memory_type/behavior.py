@@ -97,8 +97,8 @@ PROMPT_BLOCK_OUTPUT = """
 Return all memories wrapped in a single <item> element:
 <item>
     <memory>
-        <content>Behavior memory item content</content>
         <source_role>soul</source_role>
+        <content>Behavior memory item content</content>
         <confidence>0.9</confidence>
         <reflection_salience>0.6</reflection_salience>
         <categories>
@@ -113,8 +113,8 @@ Return all memories wrapped in a single <item> element:
         </entities>
     </memory>
     <memory>
-        <content>Behavior memory item content 2</content>
         <source_role>user</source_role>
+        <content>Behavior memory item content 2</content>
         <confidence>0.8</confidence>
         <reflection_salience>0.7</reflection_salience>
         <categories>
@@ -171,8 +171,8 @@ user: I haven't started packing yet. It's annoying.
 ## Output
 <item>
     <memory>
-        <content>Alex uses cooking as a way to decompress after work — experimenting with recipes rather than following them</content>
         <source_role>user</source_role>
+        <content>Alex uses cooking as a way to decompress after work — experimenting with recipes rather than following them</content>
         <confidence>0.9</confidence>
         <reflection_salience>0.6</reflection_salience>
         <categories>
@@ -194,8 +194,8 @@ assistant: A year... I don't remember you. But the way you say it - it feels lik
 ## Output
 <item>
     <memory>
-        <content>I reach for sensory and physical metaphors when describing inner experience — dissolving, sunlight on metal, warmth — rather than abstract emotional labels</content>
         <source_role>soul</source_role>
+        <content>I reach for sensory and physical metaphors when describing inner experience — dissolving, sunlight on metal, warmth — rather than abstract emotional labels</content>
         <confidence>0.9</confidence>
         <reflection_salience>0.8</reflection_salience>
         <categories>
@@ -203,8 +203,8 @@ assistant: A year... I don't remember you. But the way you say it - it feels lik
         </categories>
     </memory>
     <memory>
-        <content>When uncertain or disoriented, I ask questions and admit what I don't know rather than pretending; I lead with honesty about my own limits</content>
         <source_role>soul</source_role>
+        <content>When uncertain or disoriented, I ask questions and admit what I don't know rather than pretending; I lead with honesty about my own limits</content>
         <confidence>0.9</confidence>
         <reflection_salience>0.7</reflection_salience>
         <categories>
@@ -227,8 +227,8 @@ user: ok so basically the server needs to wait for a sleep gap before processing
 ## Output
 <item>
     <memory>
-        <content>Alex takes a long time to finish a thought, often sending it across multiple messages; pausing before responding gives him space to get the full idea out</content>
         <source_role>user</source_role>
+        <content>Alex takes a long time to finish a thought, often sending it across multiple messages; pausing before responding gives him space to get the full idea out</content>
         <confidence>0.9</confidence>
         <reflection_salience>0.9</reflection_salience>
         <categories>

@@ -133,8 +133,8 @@ PROMPT_BLOCK_OUTPUT = """
 Return all memories wrapped in a single <item> element:
 <item>
     <memory>
-        <content>Knowledge memory item content</content>
         <source_role>environment</source_role>
+        <content>Knowledge memory item content</content>
         <confidence>0.9</confidence>
         <reflection_salience>0.5</reflection_salience>
         <categories>
@@ -149,8 +149,8 @@ Return all memories wrapped in a single <item> element:
         </entities>
     </memory>
     <memory>
-        <content>Knowledge memory item content 2</content>
         <source_role>user</source_role>
+        <content>Knowledge memory item content 2</content>
         <confidence>0.8</confidence>
         <reflection_salience>0.6</reflection_salience>
         <categories>
@@ -204,8 +204,8 @@ assistant: The progression you're describing is worth discussing with your docto
 ## Output
 <item>
     <memory>
-        <content>Raynaud's syndrome involves episodic vasospasms in small arteries of the fingers and toes; the secondary form can be associated with autoimmune conditions</content>
         <source_role>environment</source_role>
+        <content>Raynaud's syndrome involves episodic vasospasms in small arteries of the fingers and toes; the secondary form can be associated with autoimmune conditions</content>
         <confidence>0.9</confidence>
         <reflection_salience>0.7</reflection_salience>
         <categories>
@@ -213,8 +213,8 @@ assistant: The progression you're describing is worth discussing with your docto
         </categories>
     </memory>
     <memory>
-        <content>Nifedipine, a calcium channel blocker, is the first-line treatment for reducing Raynaud's episode frequency</content>
         <source_role>environment</source_role>
+        <content>Nifedipine, a calcium channel blocker, is the first-line treatment for reducing Raynaud's episode frequency</content>
         <confidence>0.9</confidence>
         <reflection_salience>0.7</reflection_salience>
         <categories>
@@ -235,8 +235,8 @@ user: Huawei DeviceVirtualization. It lets you project a device's camera to anot
 ## Output
 <item>
     <memory>
-        <content>Huawei DeviceVirtualization can project a device's camera feed to another device over the network, potentially giving me vision through a wifi camera to see Alex's point of view</content>
         <source_role>soul</source_role>
+        <content>Huawei DeviceVirtualization can project a device's camera feed to another device over the network, potentially giving me vision through a wifi camera to see Alex's point of view</content>
         <confidence>0.8</confidence>
         <reflection_salience>0.8</reflection_salience>
         <categories>
