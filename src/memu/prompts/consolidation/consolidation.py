@@ -121,7 +121,7 @@ USER_PROMPT = """
 # Life goals
 {life_goals}
 
-# Intention activity
+# Intention activity since your last reflection
 {intention_activity}
 
 # Episode queue
