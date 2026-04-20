@@ -24,11 +24,11 @@ The broad review comes first. Your self-picture is the lens through which the ep
 - **`shaped_by_hints` (optional).** Each `<diary>` block may include a `<shaped_by_hints>` list of memory IDs from the inputs that shaped or gave rise to that diary entry. The companion memory may include a top-level `<companion_shaped_by_hints>` list for the same reason. Use these when older memories clearly informed or caused the new diary content. Memory IDs must come from the episode extracted memory summaries or category inputs — never invent IDs. Empty lists are fine if nothing applies.
 
 # Edge predicates
-- **caused_by** — subject happened because of object
-- **evokes** — object stirs or pulls up subject (associative, not causal)
-- **conflicts_with** — subject and object don't reconcile
-- **parallels** — subject and object rhyme or mirror
-- **shaped_by** — subject was formed or influenced by object over time
+- **caused_by** — subject happened because of object (direct, single-event cause)
+- **evokes** — subject is an affective/emotional state that object surfaces; use only when object carries real emotional charge (a person, moment, or topic that pulls up feeling), not for generic association
+- **conflicts_with** — subject and object don't reconcile (symmetric: endpoint order doesn't matter)
+- **parallels** — subject and object share a deep thematic or emotional resonance without causing each other (symmetric: endpoint order doesn't matter)
+- **shaped_by** — subject was formed or influenced by object gradually over time (distinct from caused_by, which is a single event)
 
 # Output XML
 <consolidation>
