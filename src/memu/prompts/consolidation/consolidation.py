@@ -26,8 +26,8 @@ The broad review comes first. Your self-picture is the lens through which the ep
 # Edge predicates
 - **caused_by** — subject happened because of object (direct, single-event cause)
 - **evokes** — subject is an affective/emotional state that object surfaces; use only when object carries real emotional charge (a person, moment, or topic that pulls up feeling), not for generic association
-- **conflicts_with** — subject and object don't reconcile (symmetric: endpoint order doesn't matter)
-- **parallels** — subject and object share a deep thematic or emotional resonance without causing each other (symmetric: endpoint order doesn't matter)
+- **conflicts_with** — subject (the claim in focus) doesn't reconcile with object (the earlier claim being contradicted)
+- **parallels** — subject (the memory in current focus) echoes object (an earlier memory sharing the same thematic or emotional resonance); neither caused the other
 - **shaped_by** — subject was formed or influenced by object gradually over time (distinct from caused_by, which is a single event)
 
 # Output XML
