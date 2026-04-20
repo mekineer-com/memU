@@ -15,6 +15,19 @@ from memu.database.sqlite.schema import SQLiteSQLAModels
 from memu.database.sqlite.session import SQLiteSessionManager
 from memu.database.state import DatabaseState
 
+# Predicates whose meaning is direction-independent: (A,p,B) == (B,p,A).
+# For these, endpoints are stored in sorted order so two writes from
+# opposite sides dedup into one row. Callers that need to see "all
+# things p-related to X" must query both subject and object directions
+# (get_connected_memory_edges already does this).
+SYMMETRIC_PREDICATES = frozenset({"conflicts_with", "parallels"})
+
+
+def _canonical_endpoints(predicate: str, subject_id: str, object_id: str) -> tuple[str, str]:
+    if predicate in SYMMETRIC_PREDICATES and subject_id > object_id:
+        return object_id, subject_id
+    return subject_id, object_id
+
 
 class SQLiteTripleRepo(SQLiteRepoBase, TripleRepo):
     """SQLite implementation of triple repository."""
@@ -67,12 +80,32 @@ class SQLiteTripleRepo(SQLiteRepoBase, TripleRepo):
                 db_session.commit()
                 return persisted
 
+        subject_id, object_id = _canonical_endpoints(
+            triple.predicate, triple.subject_id, triple.object_id
+        )
+
+        # Skip dedup for historical triples (valid_to set on creation) —
+        # they don't compete for the "current" row.
+        if triple.valid_to is None:
+            stmt = select(self._triple_model).where(
+                self._triple_model.subject_id == subject_id,
+                self._triple_model.predicate == triple.predicate,
+                self._triple_model.object_id == object_id,
+                self._triple_model.valid_to.is_(None),
+            )
+            scope_filters = self._build_filters(self._triple_model, create_scope)
+            if scope_filters:
+                stmt = stmt.where(*scope_filters)
+            existing = session.exec(stmt).first()
+            if existing is not None:
+                return self._row_to_triple(existing)
+
         row = self._triple_model(
             id=triple.id,
-            subject_id=triple.subject_id,
+            subject_id=subject_id,
             subject_kind=triple.subject_kind,
             predicate=triple.predicate,
-            object_id=triple.object_id,
+            object_id=object_id,
             object_kind=triple.object_kind,
             valid_from=triple.valid_from or now,
             valid_to=triple.valid_to,
@@ -150,6 +183,7 @@ class SQLiteTripleRepo(SQLiteRepoBase, TripleRepo):
         scope: Mapping[str, Any] | None = None,
     ) -> None:
         now = self._now()
+        subject_id, object_id = _canonical_endpoints(predicate, subject_id, object_id)
         with self._sessions.session() as session:
             stmt = select(self._triple_model).where(
                 self._triple_model.subject_id == subject_id,
