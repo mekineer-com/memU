@@ -13,9 +13,14 @@ class MemoryItemRepo(Protocol):
 
     items: dict[str, MemoryItem]
 
-    def get_item(self, item_id: str) -> MemoryItem | None: ...
+    def get_item(self, item_id: str, *, include_superseded: bool = False) -> MemoryItem | None: ...
 
-    def list_items(self, where: Mapping[str, Any] | None = None) -> dict[str, MemoryItem]: ...
+    def list_items(
+        self,
+        where: Mapping[str, Any] | None = None,
+        *,
+        include_superseded: bool = False,
+    ) -> dict[str, MemoryItem]: ...
 
     def clear_items(self, where: Mapping[str, Any] | None = None) -> dict[str, MemoryItem]: ...
 
@@ -71,6 +76,7 @@ class MemoryItemRepo(Protocol):
         fts_enabled: bool = False,
         fts_top_k: int = 20,
         rrf_k: int = 60,
+        include_superseded: bool = False,
     ) -> list[tuple[str, float]]: ...
 
     def load_existing(self) -> None: ...

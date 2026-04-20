@@ -59,7 +59,7 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
             return raw.strip()
         return None
 
-    def _active_item_filter(self, model: Any) -> Any | None:
+    def _active_item_filter(self, model: Any, *, include_superseded: bool = False) -> Any | None:
         merged_into_col = getattr(model, "merged_into", None)
         from sqlalchemy import and_, func, or_, select
 
@@ -67,7 +67,7 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
         if merged_into_col is not None:
             active_conditions.append(or_(merged_into_col.is_(None), func.trim(merged_into_col) == ""))
         triple_model = getattr(self._sqla_models, "Triple", None)
-        if triple_model is not None:
+        if triple_model is not None and not include_superseded:
             evolved_filters: list[Any] = [
                 triple_model.subject_id == model.id,
                 triple_model.predicate == "evolved_into",
@@ -119,18 +119,22 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
             **item_scope,
         )
 
-    def get_item(self, item_id: str) -> MemoryItem | None:
+    def get_item(self, item_id: str, *, include_superseded: bool = False) -> MemoryItem | None:
         """Get a memory item by ID.
 
         Args:
             item_id: The item ID to look up.
+            include_superseded: When True, return the item even if it has a live
+                outbound ``evolved_into`` edge (i.e. it's been replaced).
 
         Returns:
             MemoryItem if found, None otherwise.
         """
         with self._sessions.session() as session:
             filters = [self._memory_item_model.id == item_id]
-            active_filter = self._active_item_filter(self._memory_item_model)
+            active_filter = self._active_item_filter(
+                self._memory_item_model, include_superseded=include_superseded
+            )
             if active_filter is not None:
                 filters.append(active_filter)
             stmt = select(self._memory_item_model).where(*filters)
@@ -141,11 +145,18 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
 
         return self._to_memory_item(row)
 
-    def list_items(self, where: Mapping[str, Any] | None = None) -> dict[str, MemoryItem]:
+    def list_items(
+        self,
+        where: Mapping[str, Any] | None = None,
+        *,
+        include_superseded: bool = False,
+    ) -> dict[str, MemoryItem]:
         """List memory items matching the where clause.
 
         Args:
             where: Optional filter conditions.
+            include_superseded: When True, also include items that have a live
+                outbound ``evolved_into`` edge (older versions).
 
         Returns:
             Dictionary of item ID to MemoryItem mapping.
@@ -153,7 +164,9 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
         with self._sessions.session() as session:
             stmt = select(self._memory_item_model)
             filters = self._build_filters(self._memory_item_model, where)
-            active_filter = self._active_item_filter(self._memory_item_model)
+            active_filter = self._active_item_filter(
+                self._memory_item_model, include_superseded=include_superseded
+            )
             if active_filter is not None:
                 filters.append(active_filter)
             if filters:
@@ -670,6 +683,7 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
         fts_enabled: bool = False,
         fts_top_k: int = 20,
         rrf_k: int = 60,
+        include_superseded: bool = False,
     ) -> list[tuple[str, float]]:
         """Vector similarity search with optional FTS5 hybrid fusion.
 
@@ -677,7 +691,7 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
         alongside cosine similarity and merges results via Reciprocal Rank Fusion
         before applying salience reranking.
         """
-        pool = self.list_items(where)
+        pool = self.list_items(where, include_superseded=include_superseded)
 
         # Expand candidate pool when doing hybrid search
         vector_k = max(top_k, fts_top_k) if fts_enabled else top_k

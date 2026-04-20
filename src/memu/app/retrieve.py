@@ -351,6 +351,17 @@ class RetrieveMixin:
         text_lower = text.lower()
         return [e for e in all_entities if e.name.lower() in text_lower]
 
+    def _find_superseded_at(
+        self,
+        store: Database,
+        item_id: str,
+        where: Mapping[str, Any] | None = None,
+    ) -> datetime | None:
+        edges = store.triple_repo.get_edges_from(item_id, predicate="evolved_into", where=where)
+        if not edges:
+            return None
+        return edges[0].valid_from
+
     def _get_entity_seed_memory_ids(
         self,
         entities: list[Any],
@@ -377,7 +388,7 @@ class RetrieveMixin:
 
         store = state["store"]
         where_filters = state["where"]
-        items_pool = store.memory_item_repo.list_items(where_filters)
+        items_pool = store.memory_item_repo.list_items(where_filters, include_superseded=True)
         qvec = state.get("query_vector")
         if qvec is None:
             embed_client = self._get_step_embedding_client(step_context)
@@ -395,10 +406,12 @@ class RetrieveMixin:
             fts_enabled=item_cfg.fts_enabled,
             fts_top_k=item_cfg.fts_top_k,
             rrf_k=item_cfg.rrf_k,
+            include_superseded=True,
         )
 
         graph_cfg = self.retrieve_config.graph
         graph_provenance: dict[str, str] = {}
+        graph_edges: dict[str, tuple[str, str]] = {}
 
         if graph_cfg.enabled:
             entity_seed_ids: list[str] = []
@@ -429,8 +442,8 @@ class RetrieveMixin:
                 )
                 expanded_ids = [mid for (mid, _, _) in expanded_edges]
                 for mid, predicate, seed_id in expanded_edges:
-                    if mid not in graph_provenance:
-                        graph_provenance[mid] = f"via {predicate} {seed_id}"
+                    if mid not in graph_edges:
+                        graph_edges[mid] = (predicate, seed_id)
 
             vector_id_set = {item_id for item_id, _ in vector_hits}
             graph_only = [
@@ -450,6 +463,7 @@ class RetrieveMixin:
         state["item_hits"] = vector_hits
         state["item_pool"] = items_pool
         state["graph_provenance"] = graph_provenance
+        state["graph_edges"] = graph_edges
         return state
 
     async def _rag_item_sufficiency(self, state: WorkflowState, step_context: Any) -> WorkflowState:
@@ -497,19 +511,39 @@ class RetrieveMixin:
             store = state["store"]
             where_filters = state["where"]
             categories_pool = state.get("category_pool") or store.memory_category_repo.list_categories(where_filters)
-            items_pool = state.get("item_pool") or store.memory_item_repo.list_items(where_filters)
+            items_pool = state.get("item_pool") or store.memory_item_repo.list_items(
+                where_filters, include_superseded=True
+            )
             resources_pool = state.get("resource_pool") or store.resource_repo.list_resources(where_filters)
             response["categories"] = self._materialize_hits(
                 state.get("category_hits", []),
                 categories_pool,
             )
             response["items"] = self._materialize_hits(state.get("item_hits", []), items_pool)
-            graph_provenance = state.get("graph_provenance")
-            if graph_provenance:
-                for item_data in response["items"]:
-                    item_id = item_data.get("id")
-                    if item_id and item_id in graph_provenance:
-                        item_data["via_graph"] = graph_provenance[item_id]
+            graph_provenance = state.get("graph_provenance") or {}
+            graph_edges = state.get("graph_edges") or {}
+            for item_data in response["items"]:
+                item_id = item_data.get("id")
+                if not item_id:
+                    continue
+                if item_id in graph_provenance:
+                    item_data["via_graph"] = graph_provenance[item_id]
+                if item_id in graph_edges:
+                    predicate, seed_id = graph_edges[item_id]
+                    seed = store.memory_item_repo.get_item(seed_id, include_superseded=True)
+                    if seed is not None:
+                        item_data["shaped_by"] = {
+                            "predicate": predicate,
+                            "id": seed.id,
+                            "memory_type": seed.memory_type,
+                            "summary": seed.summary,
+                            "happened_at": seed.happened_at,
+                            "extra": seed.extra,
+                            "superseded_at": self._find_superseded_at(store, seed.id, where_filters),
+                        }
+                evolved_at = self._find_superseded_at(store, item_id, where_filters)
+                if evolved_at is not None:
+                    item_data["superseded_at"] = evolved_at
             response["resources"] = self._materialize_hits(
                 state.get("resource_hits", []),
                 resources_pool,
