@@ -420,16 +420,17 @@ class RetrieveMixin:
                 sem_predicates = [
                     "caused_by", "evokes", "conflicts_with", "parallels", "shaped_by",
                 ]
-                expanded_ids = store.triple_repo.get_connected_memory_ids(
+                expanded_edges = store.triple_repo.get_connected_memory_edges(
                     all_seed_ids,
                     predicates=sem_predicates,
                     max_per_source=3,
                     where=where_filters,
                     as_of=state.get("as_of"),
                 )
-            for mid in expanded_ids:
-                if mid not in graph_provenance:
-                    graph_provenance[mid] = "via graph expansion"
+                expanded_ids = [mid for (mid, _, _) in expanded_edges]
+                for mid, predicate, seed_id in expanded_edges:
+                    if mid not in graph_provenance:
+                        graph_provenance[mid] = f"via {predicate} {seed_id}"
 
             vector_id_set = {item_id for item_id, _ in vector_hits}
             graph_only = [

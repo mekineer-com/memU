@@ -167,25 +167,25 @@ class SQLiteTripleRepo(SQLiteRepoBase, TripleRepo):
                 session.add(row)
             session.commit()
 
-    def get_connected_memory_ids(
+    def get_connected_memory_edges(
         self,
         memory_ids: list[str],
         predicates: list[str] | None = None,
         max_per_source: int = 3,
         where: Mapping[str, Any] | None = None,
         as_of: datetime | None = None,
-    ) -> list[str]:
+    ) -> list[tuple[str, str, str]]:
         if not memory_ids:
             return []
 
         seen: set[str] = set()
-        result: list[str] = []
+        result: list[tuple[str, str, str]] = []
 
         with self._sessions.session() as session:
             filters = self._build_filters(self._triple_model, where)
             for mid in memory_ids:
                 # Outgoing edges from this memory
-                stmt_out = select(self._triple_model.object_id).where(
+                stmt_out = select(self._triple_model.object_id, self._triple_model.predicate).where(
                     self._triple_model.subject_id == mid,
                 )
                 if as_of is not None:
@@ -200,10 +200,10 @@ class SQLiteTripleRepo(SQLiteRepoBase, TripleRepo):
                 if predicates:
                     stmt_out = stmt_out.where(self._triple_model.predicate.in_(predicates))
                 stmt_out = stmt_out.limit(max_per_source)
-                out_ids = [r for r in session.exec(stmt_out).all()]
+                out_edges = list(session.exec(stmt_out).all())
 
                 # Incoming edges to this memory
-                stmt_in = select(self._triple_model.subject_id).where(
+                stmt_in = select(self._triple_model.subject_id, self._triple_model.predicate).where(
                     self._triple_model.object_id == mid,
                 )
                 if as_of is not None:
@@ -218,15 +218,15 @@ class SQLiteTripleRepo(SQLiteRepoBase, TripleRepo):
                 if predicates:
                     stmt_in = stmt_in.where(self._triple_model.predicate.in_(predicates))
                 stmt_in = stmt_in.limit(max_per_source)
-                in_ids = [r for r in session.exec(stmt_in).all()]
+                in_edges = list(session.exec(stmt_in).all())
 
                 count = 0
-                for connected_id in out_ids + in_ids:
+                for connected_id, predicate in out_edges + in_edges:
                     if count >= max_per_source:
                         break
                     if connected_id not in seen and connected_id not in memory_ids:
                         seen.add(connected_id)
-                        result.append(connected_id)
+                        result.append((connected_id, predicate, mid))
                         count += 1
 
         return result

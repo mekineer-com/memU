@@ -44,14 +44,19 @@ class TripleRepo(Protocol):
         scope: Mapping[str, Any] | None = None,
     ) -> None: ...
 
-    def get_connected_memory_ids(
+    def get_connected_memory_edges(
         self,
         memory_ids: list[str],
         predicates: list[str] | None = None,
         max_per_source: int = 3,
         where: Mapping[str, Any] | None = None,
         as_of: datetime | None = None,
-    ) -> list[str]: ...
+    ) -> list[tuple[str, str, str]]:
+        """Return ``(connected_id, predicate, seed_id)`` tuples for memories
+        linked to any of ``memory_ids`` via one of ``predicates``.  seed_id
+        is the source memory in ``memory_ids`` that this edge attaches to.
+        """
+        ...
 
     def query_entity(
         self,
