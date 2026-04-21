@@ -388,7 +388,8 @@ class RetrieveMixin:
 
         store = state["store"]
         where_filters = state["where"]
-        items_pool = store.memory_item_repo.list_items(where_filters, include_superseded=True)
+        include_superseded = state.get("as_of") is not None
+        items_pool = store.memory_item_repo.list_items(where_filters, include_superseded=include_superseded)
         qvec = state.get("query_vector")
         if qvec is None:
             embed_client = self._get_step_embedding_client(step_context)
@@ -406,7 +407,7 @@ class RetrieveMixin:
             fts_enabled=item_cfg.fts_enabled,
             fts_top_k=item_cfg.fts_top_k,
             rrf_k=item_cfg.rrf_k,
-            include_superseded=True,
+            include_superseded=include_superseded,
         )
 
         graph_cfg = self.retrieve_config.graph
@@ -510,9 +511,10 @@ class RetrieveMixin:
         if state.get("needs_retrieval"):
             store = state["store"]
             where_filters = state["where"]
+            include_superseded = state.get("as_of") is not None
             categories_pool = state.get("category_pool") or store.memory_category_repo.list_categories(where_filters)
             items_pool = state.get("item_pool") or store.memory_item_repo.list_items(
-                where_filters, include_superseded=True
+                where_filters, include_superseded=include_superseded
             )
             resources_pool = state.get("resource_pool") or store.resource_repo.list_resources(where_filters)
             response["categories"] = self._materialize_hits(
@@ -520,6 +522,14 @@ class RetrieveMixin:
                 categories_pool,
             )
             response["items"] = self._materialize_hits(state.get("item_hits", []), items_pool)
+            # Exclude narrative_self from retrieval — the current narrative_self is
+            # already delivered through the soul_card / self-model path; pulling
+            # paragraph-sized self-identity prose in as a retrieved "memory" is
+            # pure bloat. Evolution awareness is a TODO for a separate surface.
+            response["items"] = [
+                it for it in response["items"]
+                if (it.get("memory_type") or "") != "narrative_self"
+            ]
             graph_provenance = state.get("graph_provenance") or {}
             graph_edges = state.get("graph_edges") or {}
             for item_data in response["items"]:
@@ -530,17 +540,18 @@ class RetrieveMixin:
                     item_data["via_graph"] = graph_provenance[item_id]
                 if item_id in graph_edges:
                     predicate, seed_id = graph_edges[item_id]
-                    seed = store.memory_item_repo.get_item(seed_id, include_superseded=True)
-                    if seed is not None:
-                        item_data["shaped_by"] = {
-                            "predicate": predicate,
-                            "id": seed.id,
-                            "memory_type": seed.memory_type,
-                            "summary": seed.summary,
-                            "happened_at": seed.happened_at,
-                            "extra": seed.extra,
-                            "superseded_at": self._find_superseded_at(store, seed.id, where_filters),
-                        }
+                    seed = store.memory_item_repo.get_item(seed_id, include_superseded=include_superseded)
+                    if seed is None or (seed.memory_type or "") == "narrative_self":
+                        continue
+                    item_data["shaped_by"] = {
+                        "predicate": predicate,
+                        "id": seed.id,
+                        "memory_type": seed.memory_type,
+                        "summary": seed.summary,
+                        "happened_at": seed.happened_at,
+                        "extra": seed.extra,
+                        "superseded_at": self._find_superseded_at(store, seed.id, where_filters),
+                    }
                 evolved_at = self._find_superseded_at(store, item_id, where_filters)
                 if evolved_at is not None:
                     item_data["superseded_at"] = evolved_at
