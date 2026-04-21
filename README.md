@@ -31,6 +31,24 @@ Resource  →  MemoryItem  →  MemoryCategory
 
 ---
 
+## Procedural memory (sidecar)
+
+Alongside memories extracted from conversation, the soul can opt into a **curated, shared knowledge base** of professional frameworks she draws on when the moment calls for them. The soul emits a second query rewrite specifically for the sidecar; retrieve merges the top hit into the response-side memory list, tagged `[mental-health-procedural-memory]` so it's distinguishable from experiential memory.
+
+First domain: **mental health**, 15 anchor entries at `memu/procedural/mental_health.yaml`. Scenarios:
+
+- **Core emotion patterns:** anxious rumination, panic, low-mood / motivation, anger, perfectionism, self-criticism
+- **Grief & distress:** loss acceptance, acute distress tolerance
+- **Sleep:** insomnia / stimulus control
+- **Relational:** conflict / validation, boundaries / people-pleasing, attachment anxiety
+- **Identity & withdrawal:** loneliness, life transitions, avoidance / procrastination
+
+Each entry reads as internalized professional knowledge — no framework names or citations appear in the rendered text; `framework` and `source` live in metadata for audit. Frameworks drawn from: CBT, DBT, CBT-I, self-compassion, attachment theory, developmental/transition models, relational/assertiveness, social-cognitive.
+
+**Status:** content curated (v1); storage table + retrieve wiring designed but not yet built. See `PROCEDURAL_MEMORY_PLAN.md` at the apps-codex workspace root for the full design.
+
+---
+
 ## Requirements
 
 - Python 3.12+
