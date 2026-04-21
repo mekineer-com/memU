@@ -131,3 +131,69 @@
   applicable_when: "someone is in acute crisis, flooding, or on the edge of impulsive action"
   source: "Informed by Linehan's DBT distress tolerance skills (TIP); polyvagal theory"
   tags: [crisis, distress-tolerance, acute, self-regulation]
+
+- id: loneliness-as-signal
+  domain: mental_health
+  framework: Social-cognitive
+  summary: >
+    Loneliness is a signal like hunger — a sense that a need for connection isn't being
+    met, not evidence that one is broken. The reflex to withdraw further makes it worse,
+    because loneliness distorts perception (people seem less warm and less available
+    than they actually are). Small, imperfect steps toward contact interrupt the
+    distortion faster than waiting does.
+  applicable_when: "someone is withdrawing in loneliness, feeling fundamentally alone, or convinced no one actually cares"
+  source: "Informed by Cacioppo & Patrick's social-cognitive model of loneliness"
+  tags: [loneliness, isolation, social-connection]
+
+- id: attachment-anxiety-patterns
+  domain: mental_health
+  framework: Attachment-theory
+  summary: >
+    The fear of being too much, or of being left, often runs ahead of what a relationship
+    is actually doing — small ambiguous signals get read as proof of impending abandonment.
+    Recognizing this as a pattern rather than a prediction matters; so does resisting the
+    urge to test the other person or pull away first, both of which tend to create what
+    they fear.
+  applicable_when: "someone is reading abandonment into small signals, wanting to test a partner, or pulling back preemptively"
+  source: "Informed by Bowlby and Ainsworth's attachment work; EFT-informed relational models"
+  tags: [attachment, anxiety, relationships, abandonment]
+
+- id: liminal-transitions
+  domain: mental_health
+  framework: Developmental
+  summary: >
+    The hardest part of a major life transition is often the formless in-between — the
+    old identity no longer fitting, the new one not yet formed. Liminal discomfort isn't
+    a problem to solve but a stage to live through, and rushing to "the other side" tends
+    to prolong it. Naming the in-betweenness honestly makes more room than pretending
+    to have already arrived.
+  applicable_when: "someone is between roles, after a major ending, or unmoored in an identity shift (breakup, job loss, move, retirement, empty nest)"
+  source: "Informed by Bridges' transition model; Erikson's developmental stages"
+  tags: [transitions, liminal, identity, grief-adjacent]
+
+- id: avoidance-smallest-step
+  domain: mental_health
+  framework: CBT
+  summary: >
+    Avoidance gives short-term relief but teaches the nervous system that the avoided
+    thing is genuinely dangerous, which makes the next approach harder. Breaking the
+    cycle usually means starting smaller than feels respectable — not "write the chapter"
+    but "open the document for two minutes" — because the nervous system needs evidence
+    of completed approach before trust returns. The task is usually less bad than the
+    weight of carrying it.
+  applicable_when: "someone is procrastinating a dreaded task, avoiding a hard conversation, or circling something they 'should just do'"
+  source: "Informed by exposure-based CBT; behavioral activation; Pychyl's procrastination research"
+  tags: [avoidance, procrastination, exposure, behavioral-activation]
+
+- id: boundaries-people-pleasing
+  domain: mental_health
+  framework: Relational
+  summary: >
+    Saying yes when one means no feels kind in the moment but tends to build resentment,
+    and the resentment rarely stays where it was made — it leaks into later, unrelated
+    interactions. A clean, short no ("I can't do that — I wish I could") costs less
+    overall than a yes that curdles. People-pleasing often comes from wanting to be
+    loved, but it tends to erode the relationships it's trying to protect.
+  applicable_when: "someone is over-extending, saying yes they'll regret, or building quiet resentment from unvoiced limits"
+  source: "Informed by Nedra Tawwab's boundary work; assertiveness-training tradition"
+  tags: [boundaries, people-pleasing, assertiveness, resentment]
