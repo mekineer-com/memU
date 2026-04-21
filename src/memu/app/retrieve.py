@@ -247,18 +247,20 @@ class RetrieveMixin:
         # Prompt-diversity: rotate among topic / relation / counterpoint-hint
         # lenses on consecutive RETRIEVE turns. Server picks the angle.
         angle_prompt = _system_prompt_for_angle(state.get("rewrite_angle"))
-        needs_retrieval, rewritten_query = await self._decide_if_retrieval_needed(
+        needs_retrieval, rewritten_query, raw_response = await self._decide_if_retrieval_needed(
             state["original_query"],
             state.get("route_context_queries", state["context_queries"]),
             retrieved_content=None,
             system_prompt=angle_prompt,
             llm_client=llm_client,
         )
+        mental_health_query = self._extract_mental_health_query(raw_response)
 
         state.update({
             "needs_retrieval": needs_retrieval,
             "rewritten_query": rewritten_query,
             "active_query": rewritten_query,
+            "mental_health_query": mental_health_query,
             "next_step_query": None,
             "proceed_to_items": False,
             "proceed_to_resources": False,
@@ -323,7 +325,7 @@ class RetrieveMixin:
             # Rewrite-only mode: gating disabled, LLM called for query rewrite only,
             # retrieval proceeds regardless of what the LLM would decide about sufficiency.
             llm_client = self._get_step_llm_client(step_context)
-            _needs_more, rewritten_query = await self._decide_if_retrieval_needed(
+            _needs_more, rewritten_query, _ = await self._decide_if_retrieval_needed(
                 state["active_query"],
                 state["context_queries"],
                 retrieved_content=retrieved_content or "No content retrieved yet.",
@@ -337,7 +339,7 @@ class RetrieveMixin:
             return state
 
         llm_client = self._get_step_llm_client(step_context)
-        needs_more, rewritten_query = await self._decide_if_retrieval_needed(
+        needs_more, rewritten_query, _ = await self._decide_if_retrieval_needed(
             state["active_query"],
             state["context_queries"],
             retrieved_content=retrieved_content or "No content retrieved yet.",
@@ -510,6 +512,7 @@ class RetrieveMixin:
             "needs_retrieval": bool(state.get("needs_retrieval")),
             "original_query": state["original_query"],
             "rewritten_query": state.get("rewritten_query", state["original_query"]),
+            "mental_health_query": state.get("mental_health_query"),
             "next_step_query": state.get("next_step_query"),
             "categories": [],
             "items": [],
@@ -666,7 +669,7 @@ class RetrieveMixin:
             return state
 
         llm_client = self._get_step_llm_client(step_context)
-        needs_retrieval, rewritten_query = await self._decide_if_retrieval_needed(
+        needs_retrieval, rewritten_query, _ = await self._decide_if_retrieval_needed(
             state["original_query"],
             state.get("route_context_queries", state["context_queries"]),
             retrieved_content=None,
@@ -714,7 +717,7 @@ class RetrieveMixin:
 
         if not state.get("retrieve_category") or not state.get("sufficiency_check"):
             llm_client = self._get_step_llm_client(step_context)
-            _needs_more, rewritten_query = await self._decide_if_retrieval_needed(
+            _needs_more, rewritten_query, _ = await self._decide_if_retrieval_needed(
                 state["active_query"],
                 state["context_queries"],
                 retrieved_content=retrieved_content or "No content retrieved yet.",
@@ -726,7 +729,7 @@ class RetrieveMixin:
             return state
 
         llm_client = self._get_step_llm_client(step_context)
-        needs_more, rewritten_query = await self._decide_if_retrieval_needed(
+        needs_more, rewritten_query, _ = await self._decide_if_retrieval_needed(
             state["active_query"],
             state["context_queries"],
             retrieved_content=retrieved_content or "No content retrieved yet.",
@@ -791,7 +794,7 @@ class RetrieveMixin:
             retrieved_content = self._format_llm_item_content(hits)
 
         llm_client = self._get_step_llm_client(step_context)
-        needs_more, rewritten_query = await self._decide_if_retrieval_needed(
+        needs_more, rewritten_query, _ = await self._decide_if_retrieval_needed(
             state["active_query"],
             state["context_queries"],
             retrieved_content=retrieved_content or "No content retrieved yet.",
@@ -830,6 +833,7 @@ class RetrieveMixin:
             "needs_retrieval": bool(state.get("needs_retrieval")),
             "original_query": state["original_query"],
             "rewritten_query": state.get("rewritten_query", state["original_query"]),
+            "mental_health_query": state.get("mental_health_query"),
             "next_step_query": state.get("next_step_query"),
             "categories": [],
             "items": [],
@@ -879,7 +883,7 @@ class RetrieveMixin:
         retrieved_content: str | None = None,
         system_prompt: str | None = None,
         llm_client: Any | None = None,
-    ) -> tuple[bool, str]:
+    ) -> tuple[bool, str, str]:
         history_text = self._format_query_context(context_queries)
         content_text = retrieved_content or "No content retrieved yet."
 
@@ -896,7 +900,8 @@ class RetrieveMixin:
         decision = self._extract_decision(response)
         rewritten = self._extract_rewritten_query(response) or query
 
-        return decision == "RETRIEVE", rewritten
+        # Caller can pull <mental_health_query> out of `response` if it cares.
+        return decision == "RETRIEVE", rewritten, response
 
     def _format_query_context(self, queries: list[dict[str, Any]] | None) -> str:
         if not queries:
@@ -980,6 +985,13 @@ class RetrieveMixin:
         match = re.search(r"<rewritten_query>(.*?)</rewritten_query>", raw, re.IGNORECASE | re.DOTALL)
         if match:
             return match.group(1).strip()
+        return None
+
+    def _extract_mental_health_query(self, raw: str) -> str | None:
+        match = re.search(r"<mental_health_query>(.*?)</mental_health_query>", raw, re.IGNORECASE | re.DOTALL)
+        if match:
+            text = match.group(1).strip()
+            return text or None
         return None
 
     def _materialize_hits(self, hits: Sequence[tuple[str, float]], pool: dict[str, Any]) -> list[dict[str, Any]]:
