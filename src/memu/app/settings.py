@@ -237,17 +237,17 @@ class MemorizeConfig(BaseModel):
         default=False,
         description="If true, unknown category names returned by the model will be created automatically (up to max_categories_total).",
     )
-    dynamic_category_min_mentions: int = Field(
-        default=10,
-        description="Minimum number of times an unknown category must be mentioned in extracted memories before it can be auto-created (unless clearly important).",
+    dynamic_category_cluster_size: int = Field(
+        default=3,
+        description="Minimum number of homeless items that must cluster together (by embedding similarity) before that cluster becomes a new dynamic category.",
     )
     category_centroid_threshold: float = Field(
         default=0.65,
         description="Minimum cosine similarity to any existing category centroid before keeping an existing-category assignment.",
     )
     homeless_trigger_count: int = Field(
-        default=20,
-        description="Operator-facing threshold for watching unassigned category candidates accumulate in logs.",
+        default=10,
+        description="How many homeless items must accumulate before memu attempts clustering them into a new dynamic category.",
     )
     max_categories_total: int = Field(
         default=12,

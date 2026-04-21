@@ -884,8 +884,8 @@ class MemorizeMixin:
         return max(0.7, min(0.9, base + 0.1))
 
     def _dynamic_category_cluster_min_size(self) -> int:
-        min_mentions = int(getattr(self.memorize_config, "dynamic_category_min_mentions", 10) or 10)
-        return max(2, min_mentions)
+        cluster_size = int(getattr(self.memorize_config, "dynamic_category_cluster_size", 3) or 3)
+        return max(2, cluster_size)
 
     def _cluster_homeless_entries(
         self,
@@ -1744,7 +1744,7 @@ Decide which clusters/candidates should map into existing categories, and which 
         await self._ensure_categories_ready(ctx, store, user)
 
         max_total = int(getattr(self.memorize_config, "max_categories_total", 0) or 0)
-        min_mentions = int(getattr(self.memorize_config, "dynamic_category_min_mentions", 10) or 10)
+        min_mentions = int(getattr(self.memorize_config, "dynamic_category_cluster_size", 3) or 3)
         policy = str(getattr(self.memorize_config, "dynamic_category_policy", "") or "").strip()
         default_desc = str(getattr(self.memorize_config, "dynamic_category_description", "") or "").strip()
 
