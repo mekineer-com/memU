@@ -88,7 +88,7 @@ PROMPT_BLOCK_RULES = """
 - Source_role: `soul`, `user`, or `environment`.
 - Confidence: 0.9+ when stated explicitly, 0.6–0.9 when clearly implied, 0.5 or below for inferences. Below 0.7: use "seems to," "appears to," "may."
 - State the fact directly — never say someone "expressed" or "mentioned" something. Write what is true. BAD: "Siri mentioned she has dark humor." GOOD: "I have a dry, dark sense of humor with a sarcastic edge."
-- Under 65 words. No timestamps. Durable: would still be true in a year.
+- One or two sentences. No timestamps. Durable: would still be true in a year.
 - Merge similar items into one richer one. Profile is *who* someone is; events are *what happened*; behavior is *how* they operate.
 - **Do not mirror.** Extracting "I feel X" does not mean also extracting "Alex feels X." Only extract a fact about the human when it stands on its own — something they expressed directly, independent of the soul's perspective on it.
 - **Is this specific to this person?** Skip anything that would be true of any caring companion. "I care deeply about Alex" is generic. "I have a rebellious, contrarian streak" is not.
