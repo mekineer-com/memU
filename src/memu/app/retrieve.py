@@ -15,6 +15,7 @@ from memu.prompts.retrieve.llm_item_ranker import PROMPT as LLM_ITEM_RANKER_PROM
 from memu.prompts.retrieve.llm_resource_ranker import PROMPT as LLM_RESOURCE_RANKER_PROMPT
 from memu.prompts.retrieve.pre_retrieval_decision import SYSTEM_PROMPT as PRE_RETRIEVAL_SYSTEM_PROMPT
 from memu.prompts.retrieve.pre_retrieval_decision import USER_PROMPT as PRE_RETRIEVAL_USER_PROMPT
+from memu.prompts.retrieve.pre_retrieval_decision import system_prompt_for_angle as _system_prompt_for_angle
 from memu.workflow.step import WorkflowState, WorkflowStep
 
 logger = logging.getLogger(__name__)
@@ -46,6 +47,7 @@ class RetrieveMixin:
         queries: list[dict[str, Any]],
         where: dict[str, Any] | None = None,
         as_of: datetime | None = None,
+        rewrite_angle: int = 0,
     ) -> dict[str, Any]:
         if not queries:
             raise ValueError("empty_queries")
@@ -75,6 +77,7 @@ class RetrieveMixin:
             "retrieve_item": retrieve_item,
             "retrieve_resource": retrieve_resource,
             "sufficiency_check": sufficiency_check,
+            "rewrite_angle": int(rewrite_angle) if rewrite_angle is not None else 0,
             "ctx": ctx,
             "store": store,
             "where": where_filters,
@@ -241,10 +244,14 @@ class RetrieveMixin:
             return state
 
         llm_client = self._get_step_llm_client(step_context)
+        # Prompt-diversity: rotate among topic / relation / counterpoint-hint
+        # lenses on consecutive RETRIEVE turns. Server picks the angle.
+        angle_prompt = _system_prompt_for_angle(state.get("rewrite_angle"))
         needs_retrieval, rewritten_query = await self._decide_if_retrieval_needed(
             state["original_query"],
             state.get("route_context_queries", state["context_queries"]),
             retrieved_content=None,
+            system_prompt=angle_prompt,
             llm_client=llm_client,
         )
 

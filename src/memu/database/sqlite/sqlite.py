@@ -220,6 +220,12 @@ CREATE TABLE IF NOT EXISTS memu_conversation_state (
                     conn, "memu_conversation_state", "last_memorize_at", "last_memorize_at DATETIME"
                 )
                 self._add_column_if_missing(conn, "memu_conversation_state", "updated_at", "updated_at DATETIME")
+                self._add_column_if_missing(
+                    conn,
+                    "memu_conversation_state",
+                    "retrieve_rewrite_angle",
+                    "retrieve_rewrite_angle INTEGER DEFAULT 0",
+                )
         except Exception:
             return
 
