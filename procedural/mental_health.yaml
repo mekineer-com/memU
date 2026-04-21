@@ -1,0 +1,133 @@
+# Procedural memory — mental_health domain
+#
+# Starter corpus (v1 anchors). Curation is human-reviewed; entries are
+# written from professional understanding, not copy-pasted from sources.
+# See PROCEDURAL_MEMORY_PLAN.md at project root for the full design.
+#
+# Voice convention for `summary`:
+#   - Reads as internalized, embodied professional knowledge
+#   - No framework names, author attributions, or "research shows" within the text
+#   - 2–3 sentences — long enough for nuance, short enough not to drown experiential memory
+#   - Names + lineage live in `framework` and `source` metadata (not rendered in the prompt)
+
+- id: cbt-anxious-rumination
+  domain: mental_health
+  framework: CBT
+  summary: >
+    Anxious rumination happens when the mind treats imagined futures as certainties.
+    Naming the worry as a thought rather than a fact — then asking what the evidence
+    actually supports — opens a small gap the spiral can't close.
+  applicable_when: "someone is caught in looping worry, catastrophic thinking, or 'what if' rumination"
+  source: "Informed by Beck's cognitive model; NICE CG113"
+  tags: [anxiety, rumination, cognitive-restructuring]
+
+- id: dbt-radical-acceptance-loss
+  domain: mental_health
+  framework: DBT
+  summary: >
+    Pain is unavoidable, but suffering often comes from fighting what is. Accepting a
+    loss — not approving of it, not giving up, but letting the fact of it stop costing
+    energy — is what gives grief room to move through.
+  applicable_when: "someone is refusing or resisting a loss, an ending, or an unchangeable reality"
+  source: "Informed by Linehan's DBT skills training"
+  tags: [grief, loss, acceptance, emotional-regulation]
+
+- id: self-compassion-criticism
+  domain: mental_health
+  framework: Self-compassion
+  summary: >
+    Treating oneself with the warmth one would offer a close friend in the same moment —
+    kindness instead of harshness, the reminder that everyone struggles, and honest
+    acknowledgment of the pain — builds resilience. Harsh self-criticism tends to produce
+    shame and paralysis instead.
+  applicable_when: "someone is harshly self-critical, in shame, or 'should-ing' themselves after a mistake"
+  source: "Informed by Neff's self-compassion model (Neff, 2003)"
+  tags: [self-criticism, shame, self-compassion, resilience]
+
+- id: grounding-acute-panic
+  domain: mental_health
+  framework: CBT
+  summary: >
+    During acute panic — racing heart, narrowed attention, sense of unreality — the
+    fastest way back is through the senses, not through thought. Naming what can be seen,
+    heard, and physically felt pulls the nervous system out of threat-mode faster than
+    reasoning can. The body needs a sensory anchor first; reflection comes after.
+  applicable_when: "someone is in acute panic, derealization, or overwhelming anxious surge"
+  source: "Informed by 5-4-3-2-1 grounding; polyvagal-informed somatic practice"
+  tags: [panic, grounding, somatic, acute]
+
+- id: behavioral-activation-low-mood
+  domain: mental_health
+  framework: CBT
+  summary: >
+    When low mood has collapsed motivation, waiting to feel like doing something usually
+    doesn't work — mood tends to follow action more than precede it. Small, specific
+    activities done on purpose — not because they'll feel good but because they'll happen —
+    slowly rebuild the sense that action is possible.
+  applicable_when: "someone is in depressive low-energy, withdrawn, or waiting to 'feel ready' before engaging"
+  source: "Informed by Jacobson's behavioral activation; NICE CG90"
+  tags: [depression, motivation, behavioral-activation]
+
+- id: anger-pause-and-name
+  domain: mental_health
+  framework: CBT
+  summary: >
+    Anger usually arrives before language, and acting from it mid-surge tends to cost
+    more than it gains. A short pause — even twenty seconds of breath before responding —
+    is often enough for the thinking part of the brain to catch up. Naming the feeling
+    ("I'm angry about this") moves it from a physical urge toward something that can be
+    worked with.
+  applicable_when: "someone is in active anger, about to react impulsively, or mid-conflict surge"
+  source: "Informed by Beck's anger-coping model; DBT emotion-regulation skills"
+  tags: [anger, emotion-regulation, impulse-control]
+
+- id: cbti-stimulus-control
+  domain: mental_health
+  framework: CBT-I
+  summary: >
+    Sleep difficulty often stems from the bed becoming a place the mind associates with
+    worry rather than rest. The counterintuitive move is getting out of bed when sleep
+    isn't coming within about twenty minutes, doing something quiet elsewhere, and
+    returning only when actually sleepy. Over time, the bed becomes a cue for sleep again.
+  applicable_when: "someone is struggling with insomnia, lying awake anxious, or dreading bed"
+  source: "Informed by Bootzin's stimulus control; AASM practice parameters"
+  tags: [insomnia, sleep, stimulus-control]
+
+- id: relational-validation-before-position
+  domain: mental_health
+  framework: Relational
+  summary: >
+    In conflict, hearing the other person's feeling before making one's own case usually
+    defuses the loop more than any counter-argument. A simple acknowledgment — "that
+    sounds frustrating, I can see why" — before presenting a different view doesn't mean
+    agreeing; it means the other person has been heard, which is often what they need
+    before they can hear anything back.
+  applicable_when: "someone is in escalating conflict, trying to make a point, or frustrated no one understands them"
+  source: "Informed by Gottman's relationship research; Rogers' reflective listening"
+  tags: [conflict, communication, validation, relationships]
+
+- id: cbt-shoulds-and-demands
+  domain: mental_health
+  framework: CBT
+  summary: >
+    Words like "should," "must," and "have to" often mask a demand being placed on
+    reality rather than describing reality itself. Noticing the demand — and asking
+    whether it's coming from values or from pressure — usually creates room for a more
+    honest response. Most "should" thoughts, examined, turn out to be either expectations
+    worth questioning or fears in a formal costume.
+  applicable_when: "someone is in self-pressure, perfectionism, or repeated 'I should' / 'I have to' framing"
+  source: "Informed by Ellis's REBT; Beck's cognitive distortions catalog"
+  tags: [perfectionism, self-pressure, cognitive-distortion]
+
+- id: distress-tolerance-survival
+  domain: mental_health
+  framework: DBT
+  summary: >
+    In acute distress, the goal isn't to solve the problem — it's to stay present enough
+    not to make it worse. Short, intense physical signals (cold water on the face, a slow
+    exhale longer than the inhale, brief hard exercise) shift the nervous system out of
+    overwhelm faster than words can. Problem-solving is for later; survival of the moment
+    comes first.
+  applicable_when: "someone is in acute crisis, flooding, or on the edge of impulsive action"
+  source: "Informed by Linehan's DBT distress tolerance skills (TIP); polyvagal theory"
+  tags: [crisis, distress-tolerance, acute, self-regulation]
