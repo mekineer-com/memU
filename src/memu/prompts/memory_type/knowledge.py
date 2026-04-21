@@ -87,7 +87,7 @@ PROMPT_BLOCK_RULES = """
 - Each memory item must be complete and self-contained.
 - Each memory item must express one single complete piece of information and be understandable without context.
 - Similar/redundant items must be merged into one, and assigned to only one category.
-- Each memory item must be < 65 words. Be concise, but include enough context to make the knowledge useful on its own.
+- Each memory item must be one or two sentences. Be concise, but include enough context to make the knowledge useful on its own.
 Important: Extract only knowledge directly established or discussed in the conversation. No guesses or unsupported extensions.
 Important: Knowledge that connects to a participant's life, health, or ongoing concerns is more valuable than abstract trivia.
 
