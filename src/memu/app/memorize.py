@@ -52,6 +52,8 @@ class StructuredMemoryEntry(NamedTuple):
     reflection_salience: float | None
     replaces_previous_fact: str | None = None
     entities: list[dict[str, str]] | None = None
+    speaker_id: str | None = None
+    speaker_label: str | None = None
 
 
 class HomelessCategoryCluster(NamedTuple):
@@ -291,6 +293,8 @@ class MemorizeMixin:
         total_episodes = len(preprocessed_resources) or 1
         skipped_reasons: list[str] = []
         message_happened_at_map = self._extract_message_happened_at_map(state.get("raw_text"))
+        conversation_messages = self._extract_conversation_messages(state.get("raw_text"))
+        messages_by_index = {idx: msg for idx, msg in conversation_messages}
 
         for idx, prep in enumerate(preprocessed_resources):
             res_url = self._episode_resource_url(state["resource_url"], idx, total_episodes)
@@ -327,6 +331,16 @@ class MemorizeMixin:
                 structured_entries,
                 message_indices=message_indices,
             )
+            episode_messages: list[dict[str, Any]] = []
+            for message_idx in message_indices:
+                msg = messages_by_index.get(message_idx)
+                if msg is None:
+                    continue
+                episode_msg = dict(msg)
+                episode_msg["_message_index"] = message_idx
+                episode_messages.append(episode_msg)
+            speaker_map = self._build_speaker_map(episode_messages, state.get("user"))
+            structured_entries = [self._attribute_memory(entry, speaker_map) for entry in structured_entries]
             plan_message_happened_at_map = {
                 message_idx: message_happened_at_map[message_idx]
                 for message_idx in message_indices
@@ -733,6 +747,14 @@ class MemorizeMixin:
         value = raw.strip()
         return value or None
 
+    @staticmethod
+    def _dedupe_speaker_id(item: Any) -> str | None:
+        raw = getattr(item, "speaker_id", None)
+        if not isinstance(raw, str):
+            return None
+        value = raw.strip()
+        return value or None
+
     def _prefilter_dedupe_candidate_ids(
         self,
         *,
@@ -745,6 +767,7 @@ class MemorizeMixin:
         token_freq: Mapping[str, int],
     ) -> list[str]:
         anchor_role = self._dedupe_source_role(anchor)
+        anchor_speaker_id = self._dedupe_speaker_id(anchor)
         anchor_tokens = summary_tokens.get(anchor_id) or set()
         candidate_scores: dict[str, int] = {}
 
@@ -761,7 +784,10 @@ class MemorizeMixin:
                 if candidate is None or self._is_merged_item(candidate):
                     continue
                 candidate_role = self._dedupe_source_role(candidate)
-                if anchor_role and candidate_role and anchor_role != candidate_role:
+                candidate_speaker_id = self._dedupe_speaker_id(candidate)
+                if anchor_role != candidate_role:
+                    continue
+                if anchor_speaker_id != candidate_speaker_id:
                     continue
                 overlap = len(anchor_tokens & (summary_tokens.get(candidate_id) or set()))
                 if overlap <= 0:
@@ -777,7 +803,10 @@ class MemorizeMixin:
                 if self._is_merged_item(candidate):
                     continue
                 candidate_role = self._dedupe_source_role(candidate)
-                if anchor_role and candidate_role and anchor_role != candidate_role:
+                candidate_speaker_id = self._dedupe_speaker_id(candidate)
+                if anchor_role != candidate_role:
+                    continue
+                if anchor_speaker_id != candidate_speaker_id:
                     continue
                 candidate_scores[candidate_id] = 0
 
@@ -1631,48 +1660,32 @@ Decide which clusters/candidates should map into existing categories, and which 
             return entries
 
         profile_tokens: list[tuple[str | None, set[str]]] = []
-        for (
-            memory_type,
-            summary,
-            _cat_names,
-            source_role,
-            _confidence,
-            _source_message_ids,
-            _reflection_salience,
-            _replaces_previous_fact,
-            _entities,
-        ) in entries:
-            if memory_type != "profile":
+        for entry in entries:
+            if entry.memory_type != "profile":
                 continue
-            tokens = self._dedupe_summary_tokens(summary)
+            tokens = self._dedupe_summary_tokens(entry.content)
             if tokens:
-                profile_tokens.append((source_role, tokens))
+                profile_tokens.append((entry.source_role, tokens))
 
         seen_exact: set[tuple[str, str | None, str]] = set()
         kept: list[StructuredMemoryEntry] = []
-        for (
-            memory_type,
-            summary,
-            cat_names,
-            source_role,
-            confidence,
-            source_message_ids,
-            reflection_salience,
-            replaces_previous_fact,
-            entities,
-        ) in entries:
-            normalized_summary = re.sub(r"\s+", " ", (summary or "").strip())
-            exact_key = (memory_type, source_role, normalized_summary.casefold())
+        for entry in entries:
+            normalized_summary = re.sub(r"\s+", " ", (entry.content or "").strip())
+            exact_key = (entry.memory_type, entry.source_role, normalized_summary.casefold())
             if exact_key in seen_exact:
                 continue
             seen_exact.add(exact_key)
 
-            if memory_type == "event" and profile_tokens and self._looks_like_speech_act_event(normalized_summary):
+            if (
+                entry.memory_type == "event"
+                and profile_tokens
+                and self._looks_like_speech_act_event(normalized_summary)
+            ):
                 event_tokens = self._dedupe_summary_tokens(normalized_summary)
                 if event_tokens:
                     drop_event = False
                     for profile_role, profile_summary_tokens in profile_tokens:
-                        if source_role and profile_role and source_role != profile_role:
+                        if entry.source_role and profile_role and entry.source_role != profile_role:
                             continue
                         overlap = len(event_tokens & profile_summary_tokens)
                         if overlap <= 0:
@@ -1684,19 +1697,7 @@ Decide which clusters/candidates should map into existing categories, and which 
                     if drop_event:
                         continue
 
-            kept.append(
-                StructuredMemoryEntry(
-                    memory_type,
-                    normalized_summary,
-                    cat_names,
-                    source_role,
-                    confidence,
-                    source_message_ids,
-                    reflection_salience,
-                    replaces_previous_fact,
-                    entities,
-                )
-            )
+            kept.append(entry._replace(content=normalized_summary))
 
         return kept
 
@@ -1873,7 +1874,7 @@ Decide which clusters/candidates should map into existing categories, and which 
         message_happened_at_map: Mapping[int, Any] | None = None,
         session: Any | None = None,
     ) -> tuple[list[MemoryItem], list[CategoryItem], dict[str, list[tuple[str, str]]], int]:
-        summary_payloads = [content for _, content, _, _, _, _, _, _, _ in structured_entries]
+        summary_payloads = [entry.content for entry in structured_entries]
         client = embed_client or self._get_llm_client()
         item_embeddings = await client.embed(summary_payloads) if summary_payloads else []
         items: list[MemoryItem] = []
@@ -1909,33 +1910,22 @@ Decide which clusters/candidates should map into existing categories, and which 
             embed_client=client,
             user=user,
         )
-        for idx, (
-            (
-                memory_type,
-                summary_text,
-                cat_names,
-                source_role,
-                confidence,
-                source_message_ids,
-                reflection_salience,
-                _replaces_previous_fact,
-                entities,
-            ),
-            emb,
-        ) in enumerate(zip(structured_entries, item_embeddings, strict=True)):
-            resolved_summary = self._hedge_summary_for_confidence(summary_text, confidence)
+        for idx, (entry, emb) in enumerate(zip(structured_entries, item_embeddings, strict=True)):
+            resolved_summary = self._hedge_summary_for_confidence(entry.content, entry.confidence)
             item_kwargs = {
                 "resource_id": resource_id,
-                "memory_type": memory_type,
+                "memory_type": entry.memory_type,
                 "summary": resolved_summary,
                 "embedding": emb,
                 "user_data": dict(user or {}),
                 "reinforce": reinforce,
-                "source_role": source_role,
-                "confidence": confidence,
-                "source_message_ids": source_message_ids,
-                "happened_at": self._resolve_entry_happened_at(source_message_ids, message_happened_at_map),
-                "reflection_salience": reflection_salience,
+                "source_role": entry.source_role,
+                "speaker_id": entry.speaker_id,
+                "speaker_label": entry.speaker_label,
+                "confidence": entry.confidence,
+                "source_message_ids": entry.source_message_ids,
+                "happened_at": self._resolve_entry_happened_at(entry.source_message_ids, message_happened_at_map),
+                "reflection_salience": entry.reflection_salience,
                 "conversation_id": conversation_id,
                 "episode_id": episode_id,
             }
@@ -1944,8 +1934,8 @@ Decide which clusters/candidates should map into existing categories, and which 
             else:
                 item = store.memory_item_repo.create_item(**item_kwargs)
             items.append(item)
-            if entities:
-                for ent_data in entities:
+            if entry.entities:
+                for ent_data in entry.entities:
                     ent_name = str(ent_data.get("name") or "").strip()
                     ent_type = str(ent_data.get("type") or "").strip()
                     if not ent_name or not ent_type:
@@ -1975,7 +1965,7 @@ Decide which clusters/candidates should map into existing categories, and which 
                     object_kind="memory",
                     source_memory_id=item.id,
                 ), user_data=dict(user or {}), session=session)
-            mapped_cat_ids = self._map_category_names_to_ids(cat_names, ctx)
+            mapped_cat_ids = self._map_category_names_to_ids(entry.categories, ctx)
             reinforcement_count = self._item_reinforcement_count(item)
             update_summary = self._category_update_summary_text(resolved_summary, reinforcement_count)
             if update_summary:
@@ -2646,6 +2636,23 @@ Decide which clusters/candidates should map into existing categories, and which 
         return out
 
     @staticmethod
+    def _extract_conversation_messages(raw_text: Any) -> list[tuple[int, dict[str, Any]]]:
+        if not isinstance(raw_text, str) or not raw_text.strip():
+            return []
+        try:
+            parsed = json.loads(raw_text)
+        except Exception:
+            return []
+        messages: list[dict[str, Any]] | None = None
+        if isinstance(parsed, list):
+            messages = [msg for msg in parsed if isinstance(msg, dict)]
+        elif isinstance(parsed, dict) and isinstance(parsed.get("content"), list):
+            messages = [msg for msg in parsed.get("content", []) if isinstance(msg, dict)]
+        if not messages:
+            return []
+        return list(enumerate(messages))
+
+    @staticmethod
     def _parse_message_happened_at(raw: Any) -> Any | None:
         if isinstance(raw, (int, float)) and math.isfinite(raw):
             try:
@@ -2674,22 +2681,9 @@ Decide which clusters/candidates should map into existing categories, and which 
         return parsed
 
     def _extract_message_happened_at_map(self, raw_text: Any) -> dict[int, Any]:
-        if not isinstance(raw_text, str) or not raw_text.strip():
-            return {}
-        try:
-            parsed = json.loads(raw_text)
-        except Exception:
-            return {}
-        messages: list[dict[str, Any]] | None = None
-        if isinstance(parsed, list):
-            messages = [msg for msg in parsed if isinstance(msg, dict)]
-        elif isinstance(parsed, dict) and isinstance(parsed.get("content"), list):
-            messages = [msg for msg in parsed.get("content", []) if isinstance(msg, dict)]
-        if not messages:
-            return {}
-
+        messages = self._extract_conversation_messages(raw_text)
         out: dict[int, Any] = {}
-        for idx, msg in enumerate(messages):
+        for idx, msg in messages:
             happened_at = self._parse_message_happened_at(msg.get("ts_ms"))
             if happened_at is None:
                 happened_at = self._parse_message_happened_at(msg.get("timestamp"))
@@ -2698,6 +2692,109 @@ Decide which clusters/candidates should map into existing categories, and which 
             if happened_at is not None:
                 out[idx] = happened_at
         return out
+
+    @staticmethod
+    def _normalize_speaker_slug(prefix: str, raw: Any) -> str:
+        name = str(raw or "").strip().lower()
+        slug = re.sub(r"[^a-z0-9]+", "_", name).strip("_")
+        if not slug:
+            slug = prefix
+        return f"{prefix}:{slug}"
+
+    @staticmethod
+    def _speaker_role_from_id(speaker_id: str | None) -> str | None:
+        if not isinstance(speaker_id, str):
+            return None
+        value = speaker_id.strip().lower()
+        if not value or ":" not in value:
+            return None
+        role, _sep, _rest = value.partition(":")
+        return role or None
+
+    def _build_speaker_map(
+        self,
+        episode_messages: Sequence[Mapping[str, Any]],
+        scope: Mapping[str, Any] | None,
+    ) -> dict[int, tuple[str, str]]:
+        user_scope = dict(scope or {}) if isinstance(scope, Mapping) else {}
+        user_name = str(user_scope.get("user_id") or "").strip()
+        soul_name = str(user_scope.get("soul_id") or "").strip()
+        user_label_default = user_name or "user"
+        soul_label_default = soul_name or "soul"
+        user_id_default = self._normalize_speaker_slug("user", user_name or "user")
+        soul_id_default = self._normalize_speaker_slug("soul", soul_name or "soul")
+
+        speaker_map: dict[int, tuple[str, str]] = {}
+        for idx, message in enumerate(episode_messages):
+            raw_index = message.get("_message_index", idx)
+            try:
+                message_index = int(raw_index)
+            except (TypeError, ValueError):
+                continue
+            if message_index < 0:
+                continue
+
+            role = str(message.get("role") or "").strip().lower()
+            name = str(message.get("name") or "").strip()
+            normalized_name = name or None
+
+            speaker_id: str
+            speaker_label: str
+            if role in {"assistant", "soul"}:
+                speaker_label = normalized_name or soul_label_default
+                speaker_id = self._normalize_speaker_slug("soul", soul_name or speaker_label)
+            elif role in {"user", "human", "participant"}:
+                if normalized_name and user_name and normalized_name.casefold() == user_name.casefold():
+                    speaker_label = user_name
+                    speaker_id = user_id_default
+                elif normalized_name:
+                    speaker_label = normalized_name
+                    speaker_id = self._normalize_speaker_slug("entity", normalized_name)
+                else:
+                    speaker_label = user_label_default
+                    speaker_id = user_id_default
+            elif normalized_name:
+                speaker_label = normalized_name
+                speaker_id = self._normalize_speaker_slug("entity", normalized_name)
+            else:
+                speaker_label = role or "environment"
+                speaker_id = self._normalize_speaker_slug("environment", speaker_label)
+
+            speaker_map[message_index] = (speaker_id, speaker_label)
+        return speaker_map
+
+    def _attribute_memory(
+        self,
+        memory: StructuredMemoryEntry,
+        speaker_map: Mapping[int, tuple[str, str]] | None,
+    ) -> StructuredMemoryEntry:
+        if not speaker_map:
+            return memory
+        candidates: dict[str, tuple[str, str]] = {}
+        for message_idx in memory.source_message_ids or []:
+            candidate = speaker_map.get(int(message_idx))
+            if candidate is None:
+                continue
+            candidates[candidate[0]] = candidate
+        if not candidates:
+            return memory
+        if len(candidates) == 1:
+            speaker_id, speaker_label = next(iter(candidates.values()))
+            return memory._replace(speaker_id=speaker_id, speaker_label=speaker_label)
+
+        role = str(memory.source_role or "").strip().lower()
+        if role:
+            role_candidates = [
+                candidate
+                for candidate in candidates.values()
+                if self._speaker_role_from_id(candidate[0]) == role
+            ]
+            unique_role_candidates = {candidate[0]: candidate for candidate in role_candidates}
+            if len(unique_role_candidates) == 1:
+                speaker_id, speaker_label = next(iter(unique_role_candidates.values()))
+                return memory._replace(speaker_id=speaker_id, speaker_label=speaker_label)
+
+        return memory._replace(speaker_id=None, speaker_label=None)
 
     def _resolve_entry_happened_at(
         self,
