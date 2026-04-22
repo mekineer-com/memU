@@ -1001,6 +1001,9 @@ class RetrieveMixin:
             if not obj:
                 continue
             data = self._model_dump_without_embeddings(obj)
+            if "memory_type" in data:
+                data["speaker_id"] = data.get("speaker_id")
+                data["speaker_label"] = data.get("speaker_label")
             data["score"] = float(score)
             out.append(data)
         return out
@@ -1235,7 +1238,11 @@ class RetrieveMixin:
                     if isinstance(obj_id, str):
                         obj = pool.get(obj_id)
                         if obj:
-                            results.append(self._model_dump_without_embeddings(obj))
+                            data = self._model_dump_without_embeddings(obj)
+                            if "memory_type" in data:
+                                data["speaker_id"] = data.get("speaker_id")
+                                data["speaker_label"] = data.get("speaker_label")
+                            results.append(data)
         except Exception as e:
             logger.warning(f"Failed to parse LLM {label} ranking response: {e}")
         return results

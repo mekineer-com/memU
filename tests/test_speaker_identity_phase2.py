@@ -142,3 +142,19 @@ def test_prefilter_dedupe_candidates_respects_source_role_and_speaker_id(service
 
     assert "b" in candidates
     assert "c" not in candidates
+
+
+def test_retrieve_materialized_item_includes_speaker_fields(service: MemoryService) -> None:
+    item = _item(
+        item_id="m1",
+        summary="Marcos and Siri agreed to revisit this tomorrow",
+        source_role="user",
+        speaker_id="user:marcos",
+    )
+    item.speaker_label = "Marcos"
+
+    rendered = service._materialize_hits([("m1", 0.88)], {"m1": item})
+
+    assert len(rendered) == 1
+    assert rendered[0]["speaker_id"] == "user:marcos"
+    assert rendered[0]["speaker_label"] == "Marcos"
