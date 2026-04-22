@@ -131,6 +131,7 @@ If a memory item clearly doesn't belong in any category above, you may propose a
 PROMPT_BLOCK_OUTPUT = """
 # Output Format (XML)
 Return all memories wrapped in a single <item> element:
+{speaker_roster_block}
 <item>
     <memory>
         <source_role>environment</source_role>

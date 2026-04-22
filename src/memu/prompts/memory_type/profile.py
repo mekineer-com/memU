@@ -110,6 +110,7 @@ CRITICAL WRITING RULES:
 2. User memories (source_role=user): Write in THIRD PERSON using their name ("Alex has...", "He feels...").
 
 Return all memories wrapped in a single <item> element:
+{speaker_roster_block}
 <item>
     <memory>
         <source_role>soul</source_role>

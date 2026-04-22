@@ -56,6 +56,12 @@ class StructuredMemoryEntry(NamedTuple):
     speaker_label: str | None = None
 
 
+class SpeakerRosterEntry(NamedTuple):
+    speaker_id: str
+    speaker_label: str
+    coarse_role: str
+
+
 class HomelessCategoryCluster(NamedTuple):
     cluster_id: str
     entry_indexes: list[int]
@@ -316,21 +322,6 @@ class MemorizeMixin:
             else:
                 applicable_types = state["memory_types"]
 
-            structured_entries = await self._generate_structured_entries(
-                modality=state["modality"],
-                store=state["store"],
-                memory_types=applicable_types,
-                text=text,
-                categories_prompt_str=state["categories_prompt_str"],
-                all_categories_summary=state.get("all_categories_summary"),
-                soul_card=state.get("soul_card"),
-                llm_client=llm_client,
-                skipped_reasons=skipped_reasons,
-            )
-            structured_entries = self._decorate_entries_with_plan_context(
-                structured_entries,
-                message_indices=message_indices,
-            )
             episode_messages: list[dict[str, Any]] = []
             for message_idx in message_indices:
                 msg = messages_by_index.get(message_idx)
@@ -340,6 +331,24 @@ class MemorizeMixin:
                 episode_msg["_message_index"] = message_idx
                 episode_messages.append(episode_msg)
             speaker_map = self._build_speaker_map(episode_messages, state.get("user"))
+            speaker_roster = self._build_speaker_roster_if_ambiguous(speaker_map)
+
+            structured_entries = await self._generate_structured_entries(
+                modality=state["modality"],
+                store=state["store"],
+                memory_types=applicable_types,
+                text=text,
+                categories_prompt_str=state["categories_prompt_str"],
+                all_categories_summary=state.get("all_categories_summary"),
+                soul_card=state.get("soul_card"),
+                speaker_roster=speaker_roster,
+                llm_client=llm_client,
+                skipped_reasons=skipped_reasons,
+            )
+            structured_entries = self._decorate_entries_with_plan_context(
+                structured_entries,
+                message_indices=message_indices,
+            )
             structured_entries = [self._attribute_memory(entry, speaker_map) for entry in structured_entries]
             plan_message_happened_at_map = {
                 message_idx: message_happened_at_map[message_idx]
@@ -1468,6 +1477,7 @@ Decide which clusters/candidates should map into existing categories, and which 
         categories_prompt_str: str,
         all_categories_summary: str | None = None,
         soul_card: str | None = None,
+        speaker_roster: Sequence[SpeakerRosterEntry] | None = None,
         llm_client: Any | None = None,
         skipped_reasons: list[str] | None = None,
     ) -> list[StructuredMemoryEntry]:
@@ -1481,6 +1491,7 @@ Decide which clusters/candidates should map into existing categories, and which 
             categories_prompt_str=categories_prompt_str,
             all_categories_summary=all_categories_summary,
             soul_card=soul_card,
+            speaker_roster=speaker_roster,
             default_source_message_ids=self._extract_message_indices(text)
             if modality == "conversation"
             else None,
@@ -1550,6 +1561,7 @@ Decide which clusters/candidates should map into existing categories, and which 
         categories_prompt_str: str,
         all_categories_summary: str | None = None,
         soul_card: str | None = None,
+        speaker_roster: Sequence[SpeakerRosterEntry] | None = None,
         default_source_message_ids: list[int] | None = None,
         llm_client: Any | None = None,
     ) -> list[StructuredMemoryEntry]:
@@ -1567,6 +1579,7 @@ Decide which clusters/candidates should map into existing categories, and which 
                 resource_text=resource_text,
                 categories_str=categories_prompt_str,
                 soul_context_str=soul_context_str,
+                speaker_roster=speaker_roster,
             ))
             for mtype in memory_types
         ]
@@ -1577,6 +1590,7 @@ Decide which clusters/candidates should map into existing categories, and which 
             [mtype for mtype, _ in valid_pairs],
             responses,
             default_source_message_ids=default_source_message_ids,
+            speaker_roster=speaker_roster,
         )
 
     @staticmethod
@@ -1595,6 +1609,7 @@ Decide which clusters/candidates should map into existing categories, and which 
         responses: Sequence[str],
         *,
         default_source_message_ids: list[int] | None = None,
+        speaker_roster: Sequence[SpeakerRosterEntry] | None = None,
     ) -> list[StructuredMemoryEntry]:
         entries: list[StructuredMemoryEntry] = []
         for mtype, response in zip(memory_types, responses, strict=True):
@@ -1607,8 +1622,12 @@ Decide which clusters/candidates should map into existing categories, and which 
                 source_role = None
                 if isinstance(source_role_raw, str):
                     normalized_role = source_role_raw.strip().lower()
-                    if normalized_role in {"soul", "user", "environment"}:
+                    if normalized_role in {"soul", "user", "peer", "entity", "environment"}:
                         source_role = normalized_role
+                parsed_speaker_id, parsed_speaker_label = self._parse_speaker_ref(
+                    entry.get("speaker_ref"),
+                    speaker_roster,
+                )
 
                 confidence = None
                 confidence_raw = entry.get("confidence")
@@ -1648,6 +1667,8 @@ Decide which clusters/candidates should map into existing categories, and which 
                         reflection_salience,
                         replaces_previous_fact,
                         entities,
+                        parsed_speaker_id,
+                        parsed_speaker_label,
                     )
                 )
         return self._prune_extracted_entry_duplicates(entries)
@@ -2381,6 +2402,7 @@ Decide which clusters/candidates should map into existing categories, and which 
         resource_text: str,
         categories_str: str,
         soul_context_str: str,
+        speaker_roster: Sequence[SpeakerRosterEntry] | None = None,
     ) -> str:
         configured_prompt = self.memorize_config.memory_type_prompts.get(memory_type)
         if configured_prompt is None:
@@ -2399,7 +2421,17 @@ Decide which clusters/candidates should map into existing categories, and which 
         safe_resource = self._escape_prompt_value(resource_text)
         safe_categories = self._escape_prompt_value(categories_str)
         safe_soul_context = self._escape_prompt_value(soul_context_str)
-        return template.format(resource=safe_resource, categories_str=safe_categories, soul_context=safe_soul_context)
+        speaker_roster_block = self._format_speaker_roster_block_for_prompt(speaker_roster)
+        rendered = template.format(
+            resource=safe_resource,
+            categories_str=safe_categories,
+            soul_context=safe_soul_context,
+            speaker_roster_block=speaker_roster_block,
+        )
+        if not speaker_roster_block:
+            while "\n\n\n" in rendered:
+                rendered = rendered.replace("\n\n\n", "\n\n")
+        return rendered
 
     def _build_item_ref_id(self, item_id: str) -> str:
         return item_id.replace("-", "")[:6]
@@ -2711,6 +2743,82 @@ Decide which clusters/candidates should map into existing categories, and which 
         role, _sep, _rest = value.partition(":")
         return role or None
 
+    @staticmethod
+    def _normalize_coarse_role(role: str | None) -> str:
+        value = str(role or "").strip().lower()
+        if value in {"user", "soul", "peer", "entity", "environment"}:
+            return value
+        return "environment"
+
+    def _build_speaker_roster(
+        self,
+        speaker_map: Mapping[int, tuple[str, str]] | None,
+    ) -> list[SpeakerRosterEntry]:
+        if not speaker_map:
+            return []
+        roster: list[SpeakerRosterEntry] = []
+        seen_ids: set[str] = set()
+        for message_index in sorted(speaker_map):
+            speaker_id, speaker_label = speaker_map[message_index]
+            normalized_id = str(speaker_id or "").strip()
+            if not normalized_id or normalized_id in seen_ids:
+                continue
+            seen_ids.add(normalized_id)
+            coarse_role = self._normalize_coarse_role(self._speaker_role_from_id(normalized_id))
+            roster.append(SpeakerRosterEntry(normalized_id, str(speaker_label or "").strip() or normalized_id, coarse_role))
+        return roster
+
+    @staticmethod
+    def _has_ambiguous_speaker_role(roster: Sequence[SpeakerRosterEntry]) -> bool:
+        role_counts: dict[str, int] = {}
+        for entry in roster:
+            if entry.coarse_role == "environment":
+                continue
+            role_counts[entry.coarse_role] = role_counts.get(entry.coarse_role, 0) + 1
+        return any(count > 1 for count in role_counts.values())
+
+    def _build_speaker_roster_if_ambiguous(
+        self,
+        speaker_map: Mapping[int, tuple[str, str]] | None,
+    ) -> list[SpeakerRosterEntry] | None:
+        roster = self._build_speaker_roster(speaker_map)
+        if not roster or not self._has_ambiguous_speaker_role(roster):
+            return None
+        return roster
+
+    @staticmethod
+    def _format_speaker_roster_block_for_prompt(
+        speaker_roster: Sequence[SpeakerRosterEntry] | None,
+    ) -> str:
+        if not speaker_roster:
+            return ""
+        lines = [
+            "# Speaker Roster (ambiguous episode fallback)",
+            "Allowed source_role schema for this episode: <source_role>user|soul|peer|entity|environment</source_role>.",
+            "Only emit <speaker_ref> if the speaker is in this roster. Never invent a slug.",
+            "Use source_role for coarse role; use speaker_ref only to disambiguate when multiple speakers share that role.",
+        ]
+        for entry in speaker_roster:
+            lines.append(f"- {entry.speaker_id} | label={entry.speaker_label} | role={entry.coarse_role}")
+        lines.append("When needed, add <speaker_ref>speaker_id_from_roster</speaker_ref> inside <memory>.")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _parse_speaker_ref(
+        raw: Any,
+        roster: Sequence[SpeakerRosterEntry] | None,
+    ) -> tuple[str | None, str | None]:
+        if not isinstance(raw, str) or not roster:
+            return None, None
+        candidate = raw.strip()
+        if not candidate:
+            return None, None
+        normalized = candidate.casefold()
+        for entry in roster:
+            if entry.speaker_id.casefold() == normalized:
+                return entry.speaker_id, entry.speaker_label
+        return None, None
+
     def _build_speaker_map(
         self,
         episode_messages: Sequence[Mapping[str, Any]],
@@ -2794,6 +2902,8 @@ Decide which clusters/candidates should map into existing categories, and which 
                 speaker_id, speaker_label = next(iter(unique_role_candidates.values()))
                 return memory._replace(speaker_id=speaker_id, speaker_label=speaker_label)
 
+        if memory.speaker_id and memory.speaker_label:
+            return memory
         return memory._replace(speaker_id=None, speaker_label=None)
 
     def _resolve_entry_happened_at(
@@ -2950,11 +3060,22 @@ Decide which clusters/candidates should map into existing categories, and which 
             categories = [cat_elem.text.strip() for cat_elem in categories_elem.findall("category") if cat_elem.text]
             memory_dict["categories"] = categories
 
+        source_ids_elem = memory_elem.find("source_message_ids")
+        if source_ids_elem is not None:
+            raw_ids = [id_elem.text.strip() for id_elem in source_ids_elem.findall("id") if id_elem.text]
+            source_ids = self._dedupe_message_indices(raw_ids)
+            if source_ids:
+                memory_dict["source_message_ids"] = source_ids
+
         source_role_elem = memory_elem.find("source_role")
         if source_role_elem is not None and source_role_elem.text:
             raw_role = source_role_elem.text.strip().lower()
-            if raw_role in {"soul", "user", "environment"}:
+            if raw_role in {"soul", "user", "peer", "entity", "environment"}:
                 memory_dict["source_role"] = raw_role
+
+        speaker_ref_elem = memory_elem.find("speaker_ref")
+        if speaker_ref_elem is not None and speaker_ref_elem.text:
+            memory_dict["speaker_ref"] = speaker_ref_elem.text.strip()
 
         confidence_elem = memory_elem.find("confidence")
         if confidence_elem is not None and confidence_elem.text:
@@ -3006,7 +3127,8 @@ Decide which clusters/candidates should map into existing categories, and which 
                 <categories>
                     <category>...</category>
                 </categories>
-                <source_role>soul|user|environment</source_role>  <!-- optional -->
+                <source_role>user|soul|peer|entity|environment</source_role>  <!-- optional -->
+                <speaker_ref>speaker_id_from_roster</speaker_ref> <!-- optional; only when roster is provided -->
                 <confidence>0.0-1.0</confidence>                 <!-- optional -->
                 <replaces_previous_fact>older fact text</replaces_previous_fact> <!-- optional -->
             </memory>
