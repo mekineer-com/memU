@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 from pydantic import BaseModel
 
+from memu.app.memorize import SpeakerRosterEntry
 from memu.app.service import MemoryService
 
 
@@ -122,3 +123,44 @@ def test_parser_rejects_hallucinated_speaker_ref_and_leaves_speaker_null(service
     attributed = service._attribute_memory(entries[0], speaker_map)
     assert attributed.speaker_id is None
     assert attributed.speaker_label is None
+
+
+def test_declared_entity_mention_triggers_roster_without_role_ambiguity(service: MemoryService) -> None:
+    speaker_map = {
+        30: ("user:marcos", "Marcos"),
+        31: ("soul:siri", "Siri"),
+    }
+    roster = service._build_speaker_roster_for_episode(
+        speaker_map=speaker_map,
+        declared_entities=[SpeakerRosterEntry("entity:brother", "Brother", "entity")],
+        episode_text="[30] [Marcos] My brother said he'll call tomorrow.",
+    )
+    assert roster is not None
+    ids = {entry.speaker_id for entry in roster}
+    assert "entity:brother" in ids
+    assert "user:marcos" in ids
+
+
+def test_attribute_memory_keeps_valid_parsed_speaker_ref_even_with_single_message_speaker(service: MemoryService) -> None:
+    speaker_map = {40: ("user:marcos", "Marcos")}
+    entry = service._parse_structured_entries(
+        ["event"],
+        [
+            """
+<item>
+  <memory>
+    <source_role>entity</source_role>
+    <speaker_ref>entity:brother</speaker_ref>
+    <content>Brother said he will call tomorrow</content>
+    <categories><category>Relationships</category></categories>
+  </memory>
+</item>
+""".strip()
+        ],
+        default_source_message_ids=[40],
+        speaker_roster=[SpeakerRosterEntry("entity:brother", "Brother", "entity")],
+    )[0]
+
+    attributed = service._attribute_memory(entry, speaker_map)
+    assert attributed.speaker_id == "entity:brother"
+    assert attributed.speaker_label == "Brother"

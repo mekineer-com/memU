@@ -301,6 +301,10 @@ class MemorizeMixin:
         message_happened_at_map = self._extract_message_happened_at_map(state.get("raw_text"))
         conversation_messages = self._extract_conversation_messages(state.get("raw_text"))
         messages_by_index = {idx: msg for idx, msg in conversation_messages}
+        declared_entity_roster = self._list_declared_relationship_roster(
+            store=state["store"],
+            user=state.get("user"),
+        )
 
         for idx, prep in enumerate(preprocessed_resources):
             res_url = self._episode_resource_url(state["resource_url"], idx, total_episodes)
@@ -331,7 +335,11 @@ class MemorizeMixin:
                 episode_msg["_message_index"] = message_idx
                 episode_messages.append(episode_msg)
             speaker_map = self._build_speaker_map(episode_messages, state.get("user"))
-            speaker_roster = self._build_speaker_roster_if_ambiguous(speaker_map)
+            speaker_roster = self._build_speaker_roster_for_episode(
+                speaker_map=speaker_map,
+                declared_entities=declared_entity_roster,
+                episode_text=text,
+            )
 
             structured_entries = await self._generate_structured_entries(
                 modality=state["modality"],
@@ -2787,6 +2795,80 @@ Decide which clusters/candidates should map into existing categories, and which 
         return roster
 
     @staticmethod
+    def _is_user_declared_relationship_entity(entity: Any) -> bool:
+        props = getattr(entity, "properties", None)
+        if not isinstance(props, Mapping):
+            return False
+        origin = str(props.get("origin") or "").strip()
+        if origin != "user_declared":
+            return False
+        return props.get("active") is not False
+
+    def _list_declared_relationship_roster(
+        self,
+        *,
+        store: Database,
+        user: Mapping[str, Any] | None,
+    ) -> list[SpeakerRosterEntry]:
+        where = dict(user or {}) if isinstance(user, Mapping) else {}
+        entities = store.entity_repo.list_all(where=where)
+        roster: list[SpeakerRosterEntry] = []
+        seen_ids: set[str] = set()
+        for entity in entities:
+            if not self._is_user_declared_relationship_entity(entity):
+                continue
+            normalized = str(getattr(entity, "normalized", "") or "").strip().lower()
+            if not normalized:
+                continue
+            speaker_id = f"entity:{normalized}"
+            if speaker_id in seen_ids:
+                continue
+            seen_ids.add(speaker_id)
+            label = str(getattr(entity, "name", "") or "").strip() or normalized
+            roster.append(SpeakerRosterEntry(speaker_id, label, "entity"))
+        return roster
+
+    @staticmethod
+    def _episode_mentions_roster_entry(episode_text: Any, entry: SpeakerRosterEntry) -> bool:
+        text = str(episode_text or "").strip().lower()
+        if not text:
+            return False
+        label = str(entry.speaker_label or "").strip().lower()
+        if label and label in text:
+            return True
+        speaker_tail = entry.speaker_id.split(":", 1)[1] if ":" in entry.speaker_id else entry.speaker_id
+        speaker_tail = speaker_tail.replace("_", " ").strip().lower()
+        if speaker_tail and speaker_tail in text:
+            return True
+        return False
+
+    def _build_speaker_roster_for_episode(
+        self,
+        *,
+        speaker_map: Mapping[int, tuple[str, str]] | None,
+        declared_entities: Sequence[SpeakerRosterEntry] | None,
+        episode_text: Any,
+    ) -> list[SpeakerRosterEntry] | None:
+        map_roster = self._build_speaker_roster(speaker_map)
+        map_has_ambiguity = self._has_ambiguous_speaker_role(map_roster)
+        mentioned_declared = [
+            entry
+            for entry in (declared_entities or [])
+            if self._episode_mentions_roster_entry(episode_text, entry)
+        ]
+        if not map_has_ambiguity and not mentioned_declared:
+            return None
+
+        merged: list[SpeakerRosterEntry] = []
+        seen_ids: set[str] = set()
+        for entry in [*map_roster, *mentioned_declared]:
+            if entry.speaker_id in seen_ids:
+                continue
+            seen_ids.add(entry.speaker_id)
+            merged.append(entry)
+        return merged or None
+
+    @staticmethod
     def _format_speaker_roster_block_for_prompt(
         speaker_roster: Sequence[SpeakerRosterEntry] | None,
     ) -> str:
@@ -2876,6 +2958,8 @@ Decide which clusters/candidates should map into existing categories, and which 
         memory: StructuredMemoryEntry,
         speaker_map: Mapping[int, tuple[str, str]] | None,
     ) -> StructuredMemoryEntry:
+        if memory.speaker_id and memory.speaker_label:
+            return memory
         if not speaker_map:
             return memory
         candidates: dict[str, tuple[str, str]] = {}
@@ -2901,9 +2985,6 @@ Decide which clusters/candidates should map into existing categories, and which 
             if len(unique_role_candidates) == 1:
                 speaker_id, speaker_label = next(iter(unique_role_candidates.values()))
                 return memory._replace(speaker_id=speaker_id, speaker_label=speaker_label)
-
-        if memory.speaker_id and memory.speaker_label:
-            return memory
         return memory._replace(speaker_id=None, speaker_label=None)
 
     def _resolve_entry_happened_at(
