@@ -20,6 +20,35 @@ logger = logging.getLogger(__name__)
 DDLMode = Literal["create", "validate"]
 
 
+def _add_column_if_missing(conn: Any, table_name: str, column_name: str, ddl: str) -> bool:
+    row = conn.execute(
+        text(
+            """
+SELECT 1
+FROM information_schema.columns
+WHERE table_schema = current_schema()
+  AND table_name = :table_name
+  AND column_name = :column_name
+LIMIT 1
+"""
+        ),
+        {"table_name": table_name, "column_name": column_name},
+    ).fetchone()
+    if row is not None:
+        return False
+    conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {ddl}"))
+    return True
+
+
+def _ensure_memory_item_speaker_columns(engine: Any) -> None:
+    try:
+        with engine.begin() as conn:
+            _add_column_if_missing(conn, "memory_items", "speaker_id", "speaker_id VARCHAR")
+            _add_column_if_missing(conn, "memory_items", "speaker_label", "speaker_label VARCHAR")
+    except Exception:
+        return
+
+
 def make_alembic_config(*, dsn: str, scope_model: type[Any]) -> AlembicConfig:
     cfg = AlembicConfig()
     cfg.set_main_option("script_location", str(Path(__file__).with_name("migrations")))
@@ -61,6 +90,7 @@ def run_migrations(*, dsn: str, scope_model: type[Any], ddl_mode: DDLMode = "cre
 
         # Create all tables that don't exist
         metadata.create_all(engine)
+        _ensure_memory_item_speaker_columns(engine)
         logger.info("Database tables created/verified")
     elif ddl_mode == "validate":
         # Validate that all expected tables exist

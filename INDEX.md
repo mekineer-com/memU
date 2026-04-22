@@ -54,7 +54,7 @@
 
 | Table | Key Fields |
 |-------|-----------|
-| `MemoryItem` | id, memory_type, summary, embedding, happened_at, source_role, confidence, reflection_salience, conversation_id, affective_tags, merged_into, extra (JSON) |
+| `MemoryItem` | id, memory_type, summary, embedding, happened_at, source_role, speaker_id, speaker_label, confidence, source_message_ids, reflection_salience, conversation_id, episode_id, merged_into, extra (JSON) |
 | `MemoryCategory` | id, name, description, embedding, summary |
 | `CategoryItem` | id, item_id, category_id |
 | `Resource` | id, url, modality, local_path, caption, embedding |

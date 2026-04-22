@@ -58,6 +58,8 @@ class MemoryItemModel(BaseModelMixin, MemoryItem):
     embedding: list[float] | None = Field(default=None, sa_column=Column(Vector(), nullable=True))
     happened_at: datetime | None = Field(default=None, sa_column=Column(DateTime, nullable=True))
     source_role: str | None = Field(default=None, sa_column=Column(String, nullable=True))
+    speaker_id: str | None = Field(default=None, sa_column=Column(String, nullable=True))
+    speaker_label: str | None = Field(default=None, sa_column=Column(String, nullable=True))
     confidence: float | None = Field(default=None, sa_column=Column(Float, nullable=True))
     source_message_ids: list[int] | None = Field(default=None, sa_column=Column(JSONB, nullable=True))
     reflection_salience: float | None = Field(default=None, sa_column=Column(Float, nullable=True))

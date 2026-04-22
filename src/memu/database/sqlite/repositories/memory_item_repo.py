@@ -106,6 +106,8 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
             embedding=embedding if embedding is not None else self._normalize_embedding(self._get_row_embedding(row)),
             happened_at=getattr(row, "happened_at", None),
             source_role=getattr(row, "source_role", None),
+            speaker_id=getattr(row, "speaker_id", None),
+            speaker_label=getattr(row, "speaker_label", None),
             confidence=getattr(row, "confidence", None),
             source_message_ids=getattr(row, "source_message_ids", None),
             reflection_salience=getattr(row, "reflection_salience", None),
@@ -268,6 +270,8 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
         reinforce: bool = False,
         tool_record: dict[str, Any] | None = None,
         source_role: str | None = None,
+        speaker_id: str | None = None,
+        speaker_label: str | None = None,
         confidence: float | None = None,
         source_message_ids: list[int] | None = None,
         happened_at: datetime | None = None,
@@ -299,6 +303,8 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
                 embedding=embedding,
                 user_data=user_data,
                 source_role=source_role,
+                speaker_id=speaker_id,
+                speaker_label=speaker_label,
                 confidence=confidence,
                 happened_at=happened_at,
                 conversation_id=conversation_id,
@@ -317,6 +323,8 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
                     reinforce=reinforce,
                     tool_record=tool_record,
                     source_role=source_role,
+                    speaker_id=speaker_id,
+                    speaker_label=speaker_label,
                     confidence=confidence,
                     source_message_ids=source_message_ids,
                     happened_at=happened_at,
@@ -349,6 +357,8 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
             summary=summary,
             embedding=None,
             source_role=source_role,
+            speaker_id=speaker_id,
+            speaker_label=speaker_label,
             confidence=confidence,
             source_message_ids=source_message_ids,
             happened_at=happened_at,
@@ -378,6 +388,8 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
         embedding: list[float],
         user_data: dict[str, Any],
         source_role: str | None = None,
+        speaker_id: str | None = None,
+        speaker_label: str | None = None,
         confidence: float | None = None,
         source_message_ids: list[int] | None = None,
         happened_at: datetime | None = None,
@@ -415,6 +427,8 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
                     embedding=embedding,
                     user_data=user_data,
                     source_role=source_role,
+                    speaker_id=speaker_id,
+                    speaker_label=speaker_label,
                     confidence=confidence,
                     source_message_ids=source_message_ids,
                     happened_at=happened_at,
@@ -448,6 +462,10 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
             }
             if source_role is not None:
                 existing.source_role = source_role
+            if speaker_id is not None:
+                existing.speaker_id = speaker_id
+            if speaker_label is not None:
+                existing.speaker_label = speaker_label
             if confidence is not None:
                 existing.confidence = confidence
             if source_message_ids is not None:
@@ -484,6 +502,8 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
             summary=summary,
             embedding=None,
             source_role=source_role,
+            speaker_id=speaker_id,
+            speaker_label=speaker_label,
             confidence=confidence,
             source_message_ids=source_message_ids,
             happened_at=happened_at,

@@ -109,8 +109,11 @@ class MemoryItem(BaseRecord):
     embedding: list[float] | None = None
     happened_at: datetime | None = None
     # Provenance fields for retrieval control and auditability.
-    # source_role vocabulary is fixed: soul | user | environment.
+    # source_role is a coarse speaker channel (for example soul/user/environment).
     source_role: str | None = None
+    # Stable speaker identifier + display label (nullable for legacy rows).
+    speaker_id: str | None = None
+    speaker_label: str | None = None
     confidence: float | None = None
     source_message_ids: list[int] | None = None
     reflection_salience: float | None = None

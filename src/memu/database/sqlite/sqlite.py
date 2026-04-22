@@ -160,6 +160,8 @@ class SQLiteStore(Database):
         try:
             with self._sessions.engine.begin() as conn:
                 self._add_column_if_missing(conn, "memu_memory_items", "source_role", "source_role VARCHAR")
+                self._add_column_if_missing(conn, "memu_memory_items", "speaker_id", "speaker_id VARCHAR")
+                self._add_column_if_missing(conn, "memu_memory_items", "speaker_label", "speaker_label VARCHAR")
                 self._add_column_if_missing(conn, "memu_memory_items", "confidence", "confidence REAL")
                 self._add_column_if_missing(conn, "memu_memory_items", "source_message_ids", "source_message_ids JSON")
                 self._add_column_if_missing(

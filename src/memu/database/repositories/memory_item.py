@@ -35,6 +35,8 @@ class MemoryItemRepo(Protocol):
         reinforce: bool = False,
         tool_record: dict[str, Any] | None = None,
         source_role: str | None = None,
+        speaker_id: str | None = None,
+        speaker_label: str | None = None,
         confidence: float | None = None,
         source_message_ids: list[int] | None = None,
         happened_at: datetime | None = None,

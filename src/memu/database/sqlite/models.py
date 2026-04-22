@@ -65,6 +65,8 @@ class SQLiteMemoryItemModel(SQLiteBaseModelMixin, MemoryItem):
     embedding: str | None = Field(default=None, sa_column=Column(Text, nullable=True))  # type: ignore[assignment]
     happened_at: datetime | None = Field(default=None, sa_column=Column(DateTime, nullable=True))
     source_role: str | None = Field(default=None, sa_column=Column(String, nullable=True))
+    speaker_id: str | None = Field(default=None, sa_column=Column(String, nullable=True))
+    speaker_label: str | None = Field(default=None, sa_column=Column(String, nullable=True))
     confidence: float | None = Field(default=None, sa_column=Column(Float, nullable=True))
     source_message_ids: list[int] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
     reflection_salience: float | None = Field(default=None, sa_column=Column(Float, nullable=True))

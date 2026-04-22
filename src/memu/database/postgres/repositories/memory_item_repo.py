@@ -159,6 +159,8 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
         reinforce: bool = False,
         tool_record: dict[str, Any] | None = None,
         source_role: str | None = None,
+        speaker_id: str | None = None,
+        speaker_label: str | None = None,
         confidence: float | None = None,
         source_message_ids: list[int] | None = None,
         happened_at: datetime | None = None,
@@ -175,6 +177,8 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
                 embedding=embedding,
                 user_data=user_data,
                 source_role=source_role,
+                speaker_id=speaker_id,
+                speaker_label=speaker_label,
                 confidence=confidence,
                 source_message_ids=source_message_ids,
                 happened_at=happened_at,
@@ -205,6 +209,8 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
             summary=summary,
             embedding=self._prepare_embedding(embedding),
             source_role=source_role,
+            speaker_id=speaker_id,
+            speaker_label=speaker_label,
             confidence=confidence,
             source_message_ids=source_message_ids,
             happened_at=happened_at,
@@ -235,6 +241,8 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
         embedding: list[float],
         user_data: dict[str, Any],
         source_role: str | None = None,
+        speaker_id: str | None = None,
+        speaker_label: str | None = None,
         confidence: float | None = None,
         source_message_ids: list[int] | None = None,
         happened_at: datetime | None = None,
@@ -273,6 +281,10 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
                 }
                 if source_role is not None:
                     existing.source_role = source_role
+                if speaker_id is not None:
+                    existing.speaker_id = speaker_id
+                if speaker_label is not None:
+                    existing.speaker_label = speaker_label
                 if confidence is not None:
                     existing.confidence = confidence
                 if source_message_ids is not None:
@@ -303,6 +315,8 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
                 summary=summary,
                 embedding=self._prepare_embedding(embedding),
                 source_role=source_role,
+                speaker_id=speaker_id,
+                speaker_label=speaker_label,
                 confidence=confidence,
                 source_message_ids=source_message_ids,
                 happened_at=happened_at,
