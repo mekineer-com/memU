@@ -2684,6 +2684,9 @@ Decide which clusters/candidates should map into existing categories, and which 
 
     @staticmethod
     def _extract_message_indices(text: str | None) -> list[int]:
+        # Empty return = "no `[N] ` prefix lines found". Callers
+        # (_prepare_diary_episode, _memorize_memory_type) treat [] as "no
+        # episode metadata available" and fall back to the full range.
         if not isinstance(text, str) or not text.strip():
             return []
         out: list[int] = []
@@ -2699,6 +2702,10 @@ Decide which clusters/candidates should map into existing categories, and which 
 
     @staticmethod
     def _extract_conversation_messages(raw_text: Any) -> list[tuple[int, dict[str, Any]]]:
+        # Empty return = "raw_text isn't a parseable conversation payload".
+        # Callers (_memorize_workflow) use this to build messages_by_index;
+        # empty means no speaker_map resolution, which gracefully degrades
+        # to source_role-only attribution.
         if not isinstance(raw_text, str) or not raw_text.strip():
             return []
         try:
@@ -2924,6 +2931,9 @@ Decide which clusters/candidates should map into existing categories, and which 
         raw: Any,
         roster: Sequence[SpeakerRosterEntry] | None,
     ) -> tuple[str | None, str | None]:
+        # (None, None) = "no valid roster match". Fail-closed by design:
+        # a hallucinated speaker_ref from the LLM must not create a new
+        # identity, so the caller falls back to deterministic attribution.
         if not isinstance(raw, str) or not roster:
             return None, None
         candidate = raw.strip()
@@ -3121,6 +3131,12 @@ Decide which clusters/candidates should map into existing categories, and which 
         return content or None
 
     def _parse_memory_type_response(self, raw: str) -> list[dict[str, Any]]:
+        # Empty return = "LLM output couldn't be coerced into the expected
+        # shape" (empty string, JSON parse failure, wrong top-level type,
+        # or missing `memories_items`). Caller treats [] as "nothing
+        # extracted this batch" — not as an error. This preserves robustness
+        # on flaky LLM output; the tradeoff is that a model consistently
+        # emitting the wrong shape would extract zero memories silently.
         if not raw:
             return []
         raw = raw.strip()
@@ -3160,6 +3176,12 @@ Decide which clusters/candidates should map into existing categories, and which 
         return None
 
     def _parse_memory_element(self, memory_elem: Element) -> dict[str, Any] | None:
+        # None return = "this memory element is missing required fields
+        # (content AND categories)". Caller (_parse_memory_type_response_xml)
+        # filters out None results silently — partial memories don't reach
+        # extraction. If an LLM consistently emits malformed elements, the
+        # batch extracts nothing, which matches _parse_memory_type_response's
+        # robustness contract above.
         memory_dict: dict[str, Any] = {}
 
         content_elem = memory_elem.find("content")
