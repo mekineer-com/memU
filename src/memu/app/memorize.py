@@ -7,6 +7,7 @@ import logging
 import math
 import pathlib
 import re
+from datetime import UTC, datetime
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from typing import TYPE_CHECKING, Any, NamedTuple, cast
 from xml.etree.ElementTree import Element
@@ -2725,7 +2726,18 @@ Decide which clusters/candidates should map into existing categories, and which 
     def _parse_message_happened_at(raw: Any) -> Any | None:
         if isinstance(raw, (int, float)) and math.isfinite(raw):
             try:
-                return pendulum.from_timestamp(float(raw) / 1000.0, tz="UTC")
+                # Avoid pendulum's deprecated utcfromtimestamp() path on Python 3.12+.
+                ts = datetime.fromtimestamp(float(raw) / 1000.0, tz=UTC)
+                return pendulum.datetime(
+                    ts.year,
+                    ts.month,
+                    ts.day,
+                    ts.hour,
+                    ts.minute,
+                    ts.second,
+                    ts.microsecond,
+                    tz="UTC",
+                )
             except Exception:
                 return None
         if not isinstance(raw, str) or not raw.strip():
