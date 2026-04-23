@@ -2936,15 +2936,11 @@ Decide which clusters/candidates should map into existing categories, and which 
                 speaker_label = normalized_name or soul_label_default
                 speaker_id = self._normalize_speaker_slug("soul", soul_name or speaker_label)
             elif role in {"user", "human", "participant"}:
-                if normalized_name and user_name and normalized_name.casefold() == user_name.casefold():
-                    speaker_label = user_name
-                    speaker_id = user_id_default
-                elif normalized_name:
-                    speaker_label = normalized_name
-                    speaker_id = self._normalize_speaker_slug("entity", normalized_name)
-                else:
-                    speaker_label = user_label_default
-                    speaker_id = user_id_default
+                # A user-role message is always the current scope user.
+                # message.name is a display label (ST display name, handle, etc.),
+                # not a different identity — slug stays user:<scope.user_id>.
+                speaker_label = normalized_name or user_label_default
+                speaker_id = user_id_default
             elif normalized_name:
                 speaker_label = normalized_name
                 speaker_id = self._normalize_speaker_slug("entity", normalized_name)
