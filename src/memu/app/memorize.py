@@ -1647,8 +1647,11 @@ Decide which clusters/candidates should map into existing categories, and which 
                     if parsed_confidence is not None and 0.0 <= parsed_confidence <= 1.0:
                         confidence = parsed_confidence
 
+                # Prompts no longer request source_message_ids (02d8bde).
+                # The resolver treats None / [] / malformed input as "LLM emitted nothing"
+                # and falls back to the full episode range.
                 source_message_ids = self._resolve_source_message_ids(
-                    entry.get("source_message_ids") if isinstance(entry.get("source_message_ids"), list) else None,
+                    entry.get("source_message_ids"),
                     default_source_message_ids,
                 )
 
@@ -2644,23 +2647,38 @@ Decide which clusters/candidates should map into existing categories, and which 
 
     def _resolve_source_message_ids(
         self,
-        values: Sequence[int | float | str] | None,
-        allowed_values: Sequence[int | float | str] | None = None,
+        values: Any,
+        allowed_values: Any = None,
     ) -> list[int]:
         """Resolve source IDs to the valid episode range, with code-owned fallback.
 
-        Prompts no longer ask the LLM to emit source_message_ids (commit 02d8bde),
-        so values is almost always empty. Fall back to the full allowed episode
-        range so downstream provenance (speaker attribution, happened_at, retrieve
-        rendering) is populated. Model-emitted out-of-range IDs are still dropped.
+        This is the single normalization boundary for anything the LLM might
+        emit under `source_message_ids`. Prompts stopped requesting the field
+        in 02d8bde, so `values` is usually None or empty, but callers may still
+        pass through raw extraction output. Non-iterable or malformed input is
+        treated as "LLM emitted nothing"; the resolver falls back to the full
+        allowed episode range so downstream provenance (speaker attribution,
+        happened_at, retrieve rendering) stays populated.
         """
-        parsed = self._dedupe_message_indices(values or [])
-        allowed = self._dedupe_message_indices(allowed_values or [])
+        parsed = self._dedupe_message_indices(self._coerce_to_iterable(values))
+        allowed = self._dedupe_message_indices(self._coerce_to_iterable(allowed_values))
         if not allowed:
             return parsed
         allowed_set = set(allowed)
         filtered = [candidate for candidate in parsed if candidate in allowed_set]
         return filtered if filtered else allowed
+
+    @staticmethod
+    def _coerce_to_iterable(values: Any) -> Sequence[Any]:
+        """Return a list-like view over values or [] if the input isn't a list/tuple.
+
+        Strings, ints, dicts, and None all collapse to []. This centralizes the
+        "LLM emitted something unexpected" handling so callers don't need their
+        own isinstance narrowing.
+        """
+        if isinstance(values, (list, tuple)):
+            return values
+        return []
 
     @staticmethod
     def _extract_message_indices(text: str | None) -> list[int]:

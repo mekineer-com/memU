@@ -53,3 +53,17 @@ def test_resolve_source_message_ids_falls_back_to_episode_when_model_emits_nothi
     assert service._resolve_source_message_ids([1, 2], episode) == [1, 2]  # valid subset kept
     assert service._resolve_source_message_ids([1, 99], episode) == [1]  # keep valid, drop invalid
     assert service._resolve_source_message_ids([1, 2], None) == [1, 2]  # no episode → pass through
+
+
+def test_resolve_source_message_ids_handles_malformed_input_without_raising() -> None:
+    # The narrowing guard at memorize.py:1651 was removed; the resolver is
+    # now the single normalization boundary for anything the LLM might emit.
+    service = _service()
+    episode = [0, 1, 2]
+
+    # Strings, dicts, scalars, mixed garbage — all coerce to "empty emitted",
+    # falling back to the full episode range.
+    assert service._resolve_source_message_ids("unexpected string", episode) == episode
+    assert service._resolve_source_message_ids({"malformed": "dict"}, episode) == episode
+    assert service._resolve_source_message_ids(42, episode) == episode  # not iterable → parsed empty
+    assert service._resolve_source_message_ids([None, "x", 2.5, {"k": 1}], episode) == [2]
