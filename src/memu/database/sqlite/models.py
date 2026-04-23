@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy as _copy
 import logging
 import uuid
 from datetime import datetime
@@ -182,7 +183,8 @@ def build_sqlite_table_model(
 
     scope_fields = list(user_model.model_fields.keys())
     base_table_args, table_kwargs = _normalize_table_args(getattr(core_model, "__table_args__", None))
-    table_args = list(base_table_args)
+    # Clone Index / UniqueConstraint / etc. — same single-Table binding rule as Columns.
+    table_args = [_copy.deepcopy(arg) for arg in base_table_args]
     if extra_table_args:
         table_args.extend(extra_table_args)
     if scope_fields:
@@ -201,6 +203,12 @@ def build_sqlite_table_model(
             base_attrs["__table_args__"] = tuple(table_args)
 
     base = _merge_models(user_model, core_model, name_suffix="SQLiteBase", base_attrs=base_attrs)
+    # Each scoped derivation gets fresh Column objects. SQLAlchemy binds a Column
+    # to exactly one Table; without this, a second scope reusing the same Column
+    # instance fails with "Column object already assigned to Table". Production
+    # only uses one scope so this is test-hygiene in practice, but the original
+    # code was quietly relying on that.
+    _clone_scoped_sa_columns(base)
 
     # Use type() instead of create_model to properly preserve SQLModel table behavior
     table_attrs: dict[str, Any] = {"__module__": core_model.__module__}
@@ -210,6 +218,24 @@ def build_sqlite_table_model(
         table_attrs,
         table=True,
     )
+
+
+def _clone_scoped_sa_columns(cls: type[SQLModel]) -> None:
+    for fi in cls.model_fields.values():
+        col = getattr(fi, "sa_column", None)
+        if col is None:
+            continue
+        new_col = _copy.deepcopy(col)
+        fi.sa_column = new_col
+        # FieldInfoMetadata instances inside fi.metadata are shared with the core
+        # model's FieldInfo. Replace the shared entry with a shallow copy carrying
+        # the new Column — mutating the shared entry in place would corrupt the
+        # core model for subsequent scoped builds.
+        for i, meta_entry in enumerate(fi.metadata):
+            if getattr(meta_entry, "sa_column", None) is col:
+                new_entry = _copy.copy(meta_entry)
+                new_entry.sa_column = new_col
+                fi.metadata[i] = new_entry
 
 
 __all__ = [

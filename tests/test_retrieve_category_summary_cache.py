@@ -30,7 +30,6 @@ def _service() -> MemoryService:
 async def test_rank_categories_by_summary_reuses_cached_embeddings_until_summary_changes() -> None:
     service = _service()
     store = service._get_database()
-    ctx = service._get_context()
     client = DummyEmbedClient()
     categories = {
         "cat_health": MemoryCategory(id="cat_health", name="health", description="", summary="Health concerns"),
@@ -38,10 +37,10 @@ async def test_rank_categories_by_summary_reuses_cached_embeddings_until_summary
     }
 
     hits_1, lookup_1 = await service._rank_categories_by_summary(
-        [1.0, 0.0], 2, ctx, store, embed_client=client, categories=categories
+        [1.0, 0.0], 2, store, embed_client=client, categories=categories
     )
     hits_2, lookup_2 = await service._rank_categories_by_summary(
-        [1.0, 0.0], 2, ctx, store, embed_client=client, categories=categories
+        [1.0, 0.0], 2, store, embed_client=client, categories=categories
     )
 
     assert client.calls == [["Health concerns", "Work projects"]]
@@ -51,7 +50,7 @@ async def test_rank_categories_by_summary_reuses_cached_embeddings_until_summary
     categories["cat_work"].summary = "Health-adjacent work"
 
     hits_3, lookup_3 = await service._rank_categories_by_summary(
-        [1.0, 0.0], 2, ctx, store, embed_client=client, categories=categories
+        [1.0, 0.0], 2, store, embed_client=client, categories=categories
     )
 
     assert client.calls == [["Health concerns", "Work projects"], ["Health-adjacent work"]]
