@@ -41,3 +41,15 @@ def test_resolve_entry_happened_at_uses_source_message_ids_then_episode_fallback
     assert fallback is not None
     assert direct.to_iso8601_string() == "2025-01-26T00:01:00Z"
     assert fallback.to_iso8601_string() == "2025-01-26T00:00:00Z"
+
+
+def test_resolve_source_message_ids_falls_back_to_episode_when_model_emits_nothing() -> None:
+    service = _service()
+    episode = [0, 1, 2, 3]
+
+    assert service._resolve_source_message_ids(None, episode) == episode
+    assert service._resolve_source_message_ids([], episode) == episode
+    assert service._resolve_source_message_ids([99], episode) == episode  # all out-of-range → fallback
+    assert service._resolve_source_message_ids([1, 2], episode) == [1, 2]  # valid subset kept
+    assert service._resolve_source_message_ids([1, 99], episode) == [1]  # keep valid, drop invalid
+    assert service._resolve_source_message_ids([1, 2], None) == [1, 2]  # no episode → pass through

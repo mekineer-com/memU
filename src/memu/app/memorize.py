@@ -2647,18 +2647,20 @@ Decide which clusters/candidates should map into existing categories, and which 
         values: Sequence[int | float | str] | None,
         allowed_values: Sequence[int | float | str] | None = None,
     ) -> list[int]:
-        """Clamp extracted source IDs to the valid episode range.
+        """Resolve source IDs to the valid episode range, with code-owned fallback.
 
-        If the model emits IDs outside the episode, drop them silently rather
-        than falling back to the entire episode — an empty anchor is honest,
-        a full-episode anchor is noise.
+        Prompts no longer ask the LLM to emit source_message_ids (commit 02d8bde),
+        so values is almost always empty. Fall back to the full allowed episode
+        range so downstream provenance (speaker attribution, happened_at, retrieve
+        rendering) is populated. Model-emitted out-of-range IDs are still dropped.
         """
         parsed = self._dedupe_message_indices(values or [])
         allowed = self._dedupe_message_indices(allowed_values or [])
         if not allowed:
             return parsed
         allowed_set = set(allowed)
-        return [candidate for candidate in parsed if candidate in allowed_set]
+        filtered = [candidate for candidate in parsed if candidate in allowed_set]
+        return filtered if filtered else allowed
 
     @staticmethod
     def _extract_message_indices(text: str | None) -> list[int]:
