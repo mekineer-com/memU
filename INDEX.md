@@ -12,9 +12,16 @@
 | `app/retrieve.py` | Retrieve workflow: rewrite query → embed → rank → judge; `_split_context_queries()` keeps both history windows for route (`history_from_second_chat_x` = previous-window slice, `history_from_chat_x` = current-window slice), while downstream sufficiency steps keep only `history_from_chat_x`; `identity_context` is preserved across all steps and rendered as plain text at top of soul context; optional `as_of` filters graph edges by `valid_from`/`valid_to`; serialized retrieved memory items explicitly carry `speaker_id` + `speaker_label` when present |
 | `app/settings.py` | Pydantic config models (MemorizeConfig, RetrieveConfig, LLMProfile, etc.) |
 | `database/models.py` | Backend-agnostic data models (MemoryItem, MemoryCategory, Resource, Entity, Triple); `EntityType` literal; `PREDICATES` literal (`caused_by`, `evokes`, `evolved_into`, `conflicts_with`, `parallels`, `shaped_by`, `mentions`) |
-| `database/sqlite/schema.py` | SQLAlchemy ORM schema (SQLite) |
+| `database/factory.py` | `build_database()` — picks sqlite or postgres store from config |
+| `database/interfaces.py` | `Database` Protocol — the repo surface engine code programs against |
+| `database/state.py` | `DatabaseState` dataclass — in-memory cache of loaded categories/resources used by workflow ctx |
+| `database/vector.py` | Cosine + RRF helpers: `cosine_topk`, `reciprocal_rank_fusion`, `salience_score`, `rerank_by_salience` |
+| `database/sqlite/sqlite.py` | `SQLiteStore` — concrete backend; includes idempotent `_ensure_*_columns` migration helpers |
+| `database/sqlite/schema.py` | Per-scope SQLAlchemy model factory (`get_sqlite_sqlalchemy_models`); deep-copies columns per derivation |
+| `database/sqlite/models.py` | Per-table model classes + `build_sqlite_table_model` — wires scope fields into each table |
+| `database/sqlite/session.py` | Session factory + async engine wrapper |
 | `database/postgres/schema.py` | SQLAlchemy ORM schema (Postgres) + alembic migrations in `postgres/migrations/` |
-| `database/repositories/` | Data access layer: `memory_item.py`, `memory_category.py`, `resource.py`, `entity.py`, `triple.py` |
+| `database/repositories/` | Backend-agnostic Protocol contracts: `memory_item.py`, `memory_category.py`, `resource.py`, `entity.py`, `triple.py`, `category_item.py` |
 | `llm/wrapper.py` | LLM client factory — dispatches to backends |
 | `llm/backends/` | Provider impls: `openai.py`, `openrouter.py`, `grok.py`, `doubao.py` |
 | `embedding/` | Embedding client factory + backends (same pattern as llm/) |
