@@ -1064,10 +1064,14 @@ class RetrieveMixin:
         self,
         store: Database,
         category_ids: list[str] | None = None,
-        items: Mapping[str, Any] | None = None,
+        *,
+        items: Mapping[str, Any],
         relations: Sequence[Any] | None = None,
     ) -> str:
-        item_pool = items if items is not None else store.memory_item_repo.list_items()
+        # items is required (scoped by the caller). Removed a fallback
+        # `list_items()` that would've run a full-table scan under a
+        # per-soul DB — all production call sites pass a scoped pool.
+        item_pool = items
         relation_pool = relations if relations is not None else store.category_item_repo.relations
         items_to_format = []
         seen_item_ids = set()
@@ -1098,11 +1102,13 @@ class RetrieveMixin:
         self,
         store: Database,
         item_ids: list[str] | None = None,
-        items: Mapping[str, Any] | None = None,
+        *,
+        items: Mapping[str, Any],
         resources: Mapping[str, Any] | None = None,
     ) -> str:
+        # items is required; same rationale as _format_items_for_llm above.
         resource_pool = resources if resources is not None else store.resource_repo.resources
-        item_pool = items if items is not None else store.memory_item_repo.list_items()
+        item_pool = items
         resources_to_format = []
 
         if item_ids:
@@ -1157,15 +1163,16 @@ class RetrieveMixin:
         category_ids: list[str],
         category_hits: list[dict[str, Any]],
         store: Database,
+        *,
+        items: Mapping[str, Any],
         llm_client: Any | None = None,
         categories: Mapping[str, Any] | None = None,
-        items: Mapping[str, Any] | None = None,
         relations: Sequence[Any] | None = None,
     ) -> list[dict[str, Any]]:
         if not category_ids:
             return []
 
-        item_pool = items if items is not None else store.memory_item_repo.list_items()
+        item_pool = items
         items_data = self._format_items_for_llm(store, category_ids, items=item_pool, relations=relations)
         if items_data == "No memory items available.":
             return []
@@ -1192,15 +1199,16 @@ class RetrieveMixin:
         category_hits: list[dict[str, Any]],
         item_hits: list[dict[str, Any]],
         store: Database,
+        *,
+        items: Mapping[str, Any],
         llm_client: Any | None = None,
-        items: Mapping[str, Any] | None = None,
         resources: Mapping[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         item_ids = [item["id"] for item in item_hits]
         if not item_ids:
             return []
 
-        item_pool = items if items is not None else store.memory_item_repo.list_items()
+        item_pool = items
         resource_pool = resources if resources is not None else store.resource_repo.resources
         resources_data = self._format_resources_for_llm(store, item_ids, items=item_pool, resources=resource_pool)
         if resources_data == "No resources available.":
@@ -1254,10 +1262,10 @@ class RetrieveMixin:
         return self._parse_llm_id_list_response(raw_response, "categories", pool, "category")
 
     def _parse_llm_item_response(
-        self, raw_response: str, store: Database, items: Mapping[str, Any] | None = None
+        self, raw_response: str, store: Database, *, items: Mapping[str, Any]
     ) -> list[dict[str, Any]]:
-        pool = items if items is not None else store.memory_item_repo.list_items()
-        return self._parse_llm_id_list_response(raw_response, "items", pool, "item")
+        # items required; caller (_llm_rank_items) owns pool scoping.
+        return self._parse_llm_id_list_response(raw_response, "items", items, "item")
 
     def _parse_llm_resource_response(
         self, raw_response: str, store: Database, resources: Mapping[str, Any] | None = None
