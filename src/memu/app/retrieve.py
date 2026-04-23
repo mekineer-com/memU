@@ -814,7 +814,8 @@ class RetrieveMixin:
         store = state["store"]
         where_filters = state["where"]
         resource_pool = store.resource_repo.list_resources(where_filters)
-        items_pool = state.get("item_pool") or store.memory_item_repo.list_items(where_filters)
+        item_pool_state = state.get("item_pool")
+        items_pool = item_pool_state if isinstance(item_pool_state, dict) else {}
         state["resource_hits"] = await self._llm_rank_resources(
             state["active_query"],
             self.retrieve_config.resource.top_k,
