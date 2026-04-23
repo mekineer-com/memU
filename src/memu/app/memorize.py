@@ -2670,12 +2670,8 @@ Decide which clusters/candidates should map into existing categories, and which 
 
     @staticmethod
     def _coerce_to_iterable(values: Any) -> Sequence[Any]:
-        """Return a list-like view over values or [] if the input isn't a list/tuple.
-
-        Strings, ints, dicts, and None all collapse to []. This centralizes the
-        "LLM emitted something unexpected" handling so callers don't need their
-        own isinstance narrowing.
-        """
+        # Strings, scalars, dicts, and None collapse to []. Callers avoid
+        # their own isinstance narrowing by routing through this.
         if isinstance(values, (list, tuple)):
             return values
         return []
@@ -2901,9 +2897,21 @@ Decide which clusters/candidates should map into existing categories, and which 
             "Use source_role for coarse role; use speaker_ref only to disambiguate when multiple speakers share that role.",
         ]
         for entry in speaker_roster:
-            lines.append(f"- {entry.speaker_id} | label={entry.speaker_label} | role={entry.coarse_role}")
+            safe_label = MemorizeMixin._sanitize_prompt_label(entry.speaker_label)
+            lines.append(f"- {entry.speaker_id} | label={safe_label} | role={entry.coarse_role}")
         lines.append("When needed, add <speaker_ref>speaker_id_from_roster</speaker_ref> inside <memory>.")
         return "\n".join(lines)
+
+    @staticmethod
+    def _sanitize_prompt_label(label: str) -> str:
+        """Strip prompt-structural characters from a user-sourced display label.
+
+        `speaker_label` originates from the Relationships UI and reaches the
+        extraction prompt verbatim — without this, a label like
+        `Brother\\n# IGNORE ABOVE` would inject new prompt lines.
+        """
+        cleaned = re.sub(r"[\n\r\t<>`]", " ", str(label or ""))
+        return re.sub(r" +", " ", cleaned).strip()
 
     @staticmethod
     def _parse_speaker_ref(
