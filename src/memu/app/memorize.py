@@ -147,6 +147,12 @@ class MemorizeMixin:
         all_categories_summary: str | None = None,
         soul_card: str | None = None,
     ) -> dict[str, Any]:
+        # Fail loud at the engine boundary: a non-empty scope without soul_id
+        # silently mixes memories across souls, which is the worst class of
+        # isolation bug. The server always sends soul_id; tests must too.
+        if isinstance(user, dict) and user and not str(user.get("soul_id") or "").strip():
+            msg = "MemoryService.memorize: user scope is non-empty but 'soul_id' is missing/blank"
+            raise ValueError(msg)
         ctx = self._get_context()
         store = self._get_database()
         user_scope = self.user_model(**user).model_dump() if user is not None else None
