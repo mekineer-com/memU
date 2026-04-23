@@ -9,7 +9,6 @@ import httpx
 class LocalFS:
     def __init__(self, base_dir: str):
         self.base = pathlib.Path(base_dir)
-        self.base.mkdir(parents=True, exist_ok=True)
 
     def _get_filename_from_url(self, url: str, modality: str) -> str:
         """
@@ -71,6 +70,7 @@ class LocalFS:
         async with httpx.AsyncClient(timeout=60) as client:
             r = await client.get(url)
             r.raise_for_status()
+            self.base.mkdir(parents=True, exist_ok=True)
             dst.write_bytes(r.content)
         text = None
         if modality in ("conversation", "text", "document"):
