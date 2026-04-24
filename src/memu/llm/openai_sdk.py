@@ -16,6 +16,12 @@ from openai.types.chat import (
 
 logger = logging.getLogger(__name__)
 
+# Runaway-protection floor for LLM calls that don't pass max_tokens explicitly.
+# Callers (memorize, retrieve, consolidation inside the engine) mostly pass
+# None, which would otherwise mean "whatever the provider defaults to." We cap
+# at 4000 tokens — generous for any observed call, protective against runaway.
+_DEFAULT_MAX_TOKENS = 4000
+
 
 class OpenAISDKClient:
     """OpenAI LLM client that relies on the official Python SDK."""
@@ -58,7 +64,7 @@ class OpenAISDKClient:
             model=self.chat_model,
             messages=messages,
             temperature=temperature,
-            max_tokens=max_tokens,
+            max_tokens=max_tokens if max_tokens is not None else _DEFAULT_MAX_TOKENS,
             response_format=response_format,
         )
         content = response.choices[0].message.content
@@ -82,7 +88,7 @@ class OpenAISDKClient:
             model=self.chat_model,
             messages=messages,
             temperature=1,
-            max_tokens=max_tokens,
+            max_tokens=max_tokens if max_tokens is not None else _DEFAULT_MAX_TOKENS,
         )
         content = response.choices[0].message.content
         logger.debug("OpenAI summarize response: %s", response)
@@ -148,7 +154,7 @@ class OpenAISDKClient:
             model=self.chat_model,
             messages=messages,
             temperature=1,
-            max_tokens=max_tokens,
+            max_tokens=max_tokens if max_tokens is not None else _DEFAULT_MAX_TOKENS,
         )
         content = response.choices[0].message.content
         logger.debug("OpenAI vision response: %s", response)
