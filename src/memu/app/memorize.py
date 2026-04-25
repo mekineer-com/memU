@@ -42,6 +42,13 @@ from memu.workflow.step import WorkflowState, WorkflowStep
 
 logger = logging.getLogger(__name__)
 
+_EPISODE_SUMMARY_EXTRACTION_GUIDANCE = (
+    "The summary helps give you perspective on what matters. "
+    "Create individual memory items that don't treat every verbose tangent as a "
+    "separate memory. The items should still capture both big-picture and specific "
+    "details, just without the verbosity noise."
+)
+
 
 class StructuredMemoryEntry(NamedTuple):
     memory_type: MemoryType
@@ -324,8 +331,9 @@ class MemorizeMixin:
             )
             diary_worthy = False
 
+            episode_summary: str | None = None
             if state["modality"] == "conversation" and isinstance(text, str):
-                applicable_types, diary_worthy = await self._route_episode(
+                applicable_types, diary_worthy, episode_summary = await self._route_episode(
                     text, state["memory_types"], llm_client, skipped_reasons=skipped_reasons
                 )
                 if not applicable_types and not diary_worthy:
@@ -348,11 +356,19 @@ class MemorizeMixin:
                 episode_text=text,
             )
 
+            extraction_text = text
+            if episode_summary:
+                extraction_text = (
+                    f"Episode Summary:\n{episode_summary}\n\n"
+                    f"{_EPISODE_SUMMARY_EXTRACTION_GUIDANCE}\n\n"
+                    f"---\n{text}"
+                )
+
             structured_entries = await self._generate_structured_entries(
                 modality=state["modality"],
                 store=state["store"],
                 memory_types=applicable_types,
-                text=text,
+                text=extraction_text,
                 categories_prompt_str=state["categories_prompt_str"],
                 all_categories_summary=state.get("all_categories_summary"),
                 soul_card=state.get("soul_card"),
@@ -379,7 +395,8 @@ class MemorizeMixin:
             plan: dict[str, Any] = {
                 "resource_url": res_url,
                 "text": text,
-                "caption": caption,
+                "caption": episode_summary or caption,
+                "episode_summary": episode_summary,
                 "message_indices": message_indices,
                 "message_happened_at_map": plan_message_happened_at_map,
                 "entries": structured_entries,
@@ -1519,9 +1536,9 @@ Decide which clusters/candidates should map into existing categories, and which 
         memory_types: list[MemoryType],
         llm_client: Any | None = None,
         skipped_reasons: list[str] | None = None,
-    ) -> tuple[list[MemoryType], bool]:
+    ) -> tuple[list[MemoryType], bool, str | None]:
         if not memory_types:
-            return [], False
+            return [], False, None
         client = llm_client or self._get_llm_client()
         prompt = ROUTER_PROMPT.format(
             episode=episode_text,
@@ -1541,31 +1558,32 @@ Decide which clusters/candidates should map into existing categories, and which 
                 logger.warning("Router returned unparseable response, skipping episode: %.120s", raw)
                 if skipped_reasons is not None:
                     skipped_reasons.append("router returned unparseable JSON")
-                return [], False
+                return [], False, None
         if not isinstance(payload, dict):
             logger.warning("Router returned non-dict payload, skipping episode: %s", type(payload).__name__)
             if skipped_reasons is not None:
                 skipped_reasons.append("router returned non-dict payload")
-            return [], False
+            return [], False, None
         memorable = payload.get("memorable")
         routed_types = payload.get("types")
         diary_worthy = bool(payload.get("diary_worthy"))
         reason = payload.get("reason", "")
+        episode_summary = str(payload.get("episode_summary") or "").strip() or None
         if memorable is False:
             if skipped_reasons is not None and reason:
                 skipped_reasons.append(reason)
-            return [], diary_worthy
+            return [], diary_worthy, episode_summary
         if not isinstance(routed_types, list):
             logger.warning("Router returned no types list, skipping episode")
             if skipped_reasons is not None:
                 skipped_reasons.append("router returned no types list")
-            return [], diary_worthy
+            return [], diary_worthy, episode_summary
         allowed_types = {
             routed_type
             for routed_type in routed_types
             if isinstance(routed_type, str) and routed_type in set(memory_types)
         }
-        return [mtype for mtype in memory_types if mtype in allowed_types], diary_worthy
+        return [mtype for mtype in memory_types if mtype in allowed_types], diary_worthy, episode_summary
 
     async def _generate_entries_from_text(
         self,

@@ -51,11 +51,13 @@ JSON only. No explanation. No markdown.
 Return only types from this allowed set: {allowed_types}
 Route to the fewest types that genuinely apply — usually 1 or 2, rarely 3, almost never all 5.
 
+When memorable, also write an episode_summary: a short paragraph capturing what matters in this episode. Write in first person for the soul's observations, third person for the user. Focus on what shifted, what was revealed, what would still matter later — not a play-by-play.
+
 When memorable (include only the types that apply):
-{{"memorable": true, "types": ["profile", "event"], "diary_worthy": true}}
+{{"memorable": true, "types": ["profile", "event"], "diary_worthy": true, "episode_summary": "short paragraph"}}
 
 When not memorable but has an emotional/relational shift (diary-worthy):
-{{"memorable": false, "types": [], "diary_worthy": true, "reason": "brief explanation"}}
+{{"memorable": false, "types": [], "diary_worthy": true, "reason": "brief explanation", "episode_summary": "short paragraph"}}
 
 When neither memorable nor diary-worthy:
 {{"memorable": false, "types": [], "diary_worthy": false, "reason": "brief explanation for debugging"}}
