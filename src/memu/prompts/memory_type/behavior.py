@@ -68,6 +68,7 @@ Merge overlapping observations into one richer pattern rather than listing varia
 Resolve contradictions by trusting the most recent, most direct account.
 ## Output
 Write each pattern clearly, as something actionable — something that would help someone be better with this person.
+A memory item is a single clear thought — the kind that surfaces in a quiet moment, not a paragraph you'd have to read twice. One sentence, two if necessary.
 **Target: 3–5 items per episode.** If you have more than 5, you haven't merged enough. A shorter list of richer items is always better. Err toward fewer.
 """
 

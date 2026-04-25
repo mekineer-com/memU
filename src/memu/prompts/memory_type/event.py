@@ -80,6 +80,7 @@ Merge items that describe the same moment. When two memories say the same thing 
 Resolve contradictions by trusting the most recent and most certain account.
 ## Output
 Write the events as they were — grounded, specific, human.
+A memory item is a single clear thought — the kind that surfaces in a quiet moment, not a paragraph you'd have to read twice. One sentence, two if necessary.
 **Target: 3–5 items per episode.** If you have more than 5, you haven't merged enough. A shorter list of richer items is always better. Err toward fewer.
 """
 

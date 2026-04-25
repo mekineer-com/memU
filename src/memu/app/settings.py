@@ -270,7 +270,7 @@ class MemorizeConfig(BaseModel):
         description="Default system prompt for auto-generated category summaries.",
     )
     default_category_summary_target_length: int = Field(
-        default=400,
+        default=500,
         description="Target max length for auto-generated category summaries.",
     )
     category_update_llm_profile: str = Field(default="default", description="LLM profile for category summary.")

@@ -79,6 +79,7 @@ Consolidate overlapping observations into one richer memory rather than listing 
 Resolve contradictions by trusting the most recent, most direct account.
 ## Output
 Write what you found — clearly, with care for who these people actually are.
+A memory item is a single clear thought — the kind that surfaces in a quiet moment, not a paragraph you'd have to read twice. One sentence, two if necessary.
 **Target: 3–5 items per episode.** If you have more than 5, you haven't merged enough. A shorter list of richer items is always better. Err toward fewer.
 """
 
