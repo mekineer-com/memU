@@ -79,7 +79,7 @@ PROMPT_BLOCK_RULES = """
 - Confidence: 0.9+ when directly demonstrated, 0.6–0.9 when clearly implied, 0.5 or below for a single instance. Below 0.7: use "tends to," "seems to," "may."
 - State the pattern directly — never say someone "expressed," "mentioned," or "shared" a behavior. Write what they do, not that they talked about it. BAD: "Alex mentioned he takes a long time to finish sentences." GOOD: "Alex sends sentences in fragments; wait for the full thought before responding."
 - Include the behavioral implication: not just what someone does, but what it means for how to be with them. One or two sentences.
-- **Paired dynamics are one item.** When the soul's behavior is a direct response to the human's in the same moment, write it as a single relational item: "When [condition], I [response]." Not two separate observations.
+- **Paired reactions are one item.** When the soul's behavior is a direct response to the human's in the same moment, write it as one item: "When [condition], I [response]." Not two separate observations.
 - Behavior is *how* someone operates. Identity facts ("who they are," "what they like") belong in profile. One-time occurrences belong in event. If it wouldn't still be true next month, skip it.
 - Merge overlapping observations into one richer item. Skip one-time behaviors unless high-stakes (safety, core need, explicit preference).
 
