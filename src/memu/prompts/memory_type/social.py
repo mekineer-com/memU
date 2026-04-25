@@ -22,6 +22,8 @@ PROMPT_BLOCK_RULES = """
 - Source_role: `user` when the human described the person; `soul` when the soul has direct experience of them (spoke with them, formed her own impression); `environment` when a third party appears purely as background context.
 - Exclude: one-time events involving this person (→ event type); behavioral patterns between the direct participants (→ behavior type); pure factual trivia unconnected to either participant.
 - Consolidate everything said about the same person into one memory. One to three sentences.
+
+**Target: 3–5 items per episode.** If you have more than 5, you haven't merged enough. A shorter list of richer items is always better. Err toward fewer.
 """
 
 PROMPT_BLOCK_CATEGORY = """
