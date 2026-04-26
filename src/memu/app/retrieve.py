@@ -59,12 +59,6 @@ class RetrieveMixin:
         context_queries_objs = queries[:-1] if len(queries) > 1 else []
         route_context_queries, downstream_context_queries = self._split_context_queries(context_queries_objs)
 
-        route_intention = self.retrieve_config.route_intention
-        retrieve_category = self.retrieve_config.category.enabled
-        retrieve_item = self.retrieve_config.item.enabled
-        retrieve_resource = self.retrieve_config.resource.enabled
-        sufficiency_check = self.retrieve_config.sufficiency_check
-
         workflow_name = "retrieve_llm" if self.retrieve_config.method == "llm" else "retrieve_rag"
 
         state: WorkflowState = {
@@ -72,11 +66,6 @@ class RetrieveMixin:
             "original_query": original_query,
             "context_queries": downstream_context_queries,
             "route_context_queries": route_context_queries,
-            "route_intention": route_intention,
-            "retrieve_category": retrieve_category,
-            "retrieve_item": retrieve_item,
-            "retrieve_resource": retrieve_resource,
-            "sufficiency_check": sufficiency_check,
             "rewrite_angle": int(rewrite_angle) if rewrite_angle is not None else 0,
             "ctx": ctx,
             "store": store,
@@ -232,17 +221,6 @@ class RetrieveMixin:
         }
 
     async def _rag_route_intention(self, state: WorkflowState, step_context: Any) -> WorkflowState:
-        if not state.get("route_intention"):
-            state.update({
-                "needs_retrieval": True,
-                "rewritten_query": state["original_query"],
-                "active_query": state["original_query"],
-                "next_step_query": None,
-                "proceed_to_items": False,
-                "proceed_to_resources": False,
-            })
-            return state
-
         llm_client = self._get_step_llm_client(step_context)
         # Prompt-diversity: rotate among topic / relation / counterpoint-hint
         # lenses on consecutive RETRIEVE turns. Server picks the angle.
@@ -268,7 +246,7 @@ class RetrieveMixin:
         return state
 
     async def _rag_route_category(self, state: WorkflowState, step_context: Any) -> WorkflowState:
-        if not state.get("retrieve_category") or not state.get("needs_retrieval"):
+        if not state.get("needs_retrieval"):
             state["category_hits"] = []
             state["category_summary_lookup"] = {}
             state["query_vector"] = None
@@ -320,23 +298,6 @@ class RetrieveMixin:
                 store,
                 categories=category_pool,
             )
-
-        if not state.get("retrieve_category") or not state.get("sufficiency_check"):
-            # Rewrite-only mode: gating disabled, LLM called for query rewrite only,
-            # retrieval proceeds regardless of what the LLM would decide about sufficiency.
-            llm_client = self._get_step_llm_client(step_context)
-            _needs_more, rewritten_query, _ = await self._decide_if_retrieval_needed(
-                state["active_query"],
-                state["context_queries"],
-                retrieved_content=retrieved_content or "No content retrieved yet.",
-                llm_client=llm_client,
-            )
-            state["next_step_query"] = rewritten_query
-            state["active_query"] = rewritten_query
-            state["proceed_to_items"] = True
-            embed_client = self._get_step_embedding_client(step_context)
-            state["query_vector"] = (await embed_client.embed([state["active_query"]]))[0]
-            return state
 
         llm_client = self._get_step_llm_client(step_context)
         needs_more, rewritten_query, _ = await self._decide_if_retrieval_needed(
@@ -391,7 +352,7 @@ class RetrieveMixin:
         return memory_ids, provenance
 
     async def _rag_recall_items(self, state: WorkflowState, step_context: Any) -> WorkflowState:
-        if not state.get("retrieve_item") or not state.get("needs_retrieval") or not state.get("proceed_to_items"):
+        if not state.get("needs_retrieval") or not state.get("proceed_to_items"):
             state["item_hits"] = []
             return state
 
@@ -482,11 +443,7 @@ class RetrieveMixin:
         return state
 
     async def _rag_recall_resources(self, state: WorkflowState, step_context: Any) -> WorkflowState:
-        if (
-            not state.get("needs_retrieval")
-            or not state.get("retrieve_resource")
-            or not state.get("proceed_to_resources")
-        ):
+        if not state.get("needs_retrieval") or not state.get("proceed_to_resources"):
             state["resource_hits"] = []
             return state
 
@@ -657,17 +614,6 @@ class RetrieveMixin:
         return steps
 
     async def _llm_route_intention(self, state: WorkflowState, step_context: Any) -> WorkflowState:
-        if not state.get("route_intention"):
-            state.update({
-                "needs_retrieval": True,
-                "rewritten_query": state["original_query"],
-                "active_query": state["original_query"],
-                "next_step_query": None,
-                "proceed_to_items": False,
-                "proceed_to_resources": False,
-            })
-            return state
-
         llm_client = self._get_step_llm_client(step_context)
         needs_retrieval, rewritten_query, _ = await self._decide_if_retrieval_needed(
             state["original_query"],
@@ -714,19 +660,6 @@ class RetrieveMixin:
         hits = state.get("category_hits") or []
         if hits:
             retrieved_content = self._format_llm_category_content(hits)
-
-        if not state.get("retrieve_category") or not state.get("sufficiency_check"):
-            llm_client = self._get_step_llm_client(step_context)
-            _needs_more, rewritten_query, _ = await self._decide_if_retrieval_needed(
-                state["active_query"],
-                state["context_queries"],
-                retrieved_content=retrieved_content or "No content retrieved yet.",
-                llm_client=llm_client,
-            )
-            state["next_step_query"] = rewritten_query
-            state["active_query"] = rewritten_query
-            state["proceed_to_items"] = True
-            return state
 
         llm_client = self._get_step_llm_client(step_context)
         needs_more, rewritten_query, _ = await self._decide_if_retrieval_needed(
@@ -783,9 +716,6 @@ class RetrieveMixin:
     async def _llm_item_sufficiency(self, state: WorkflowState, step_context: Any) -> WorkflowState:
         if not state.get("needs_retrieval"):
             state["proceed_to_resources"] = False
-            return state
-        if not state.get("retrieve_item") or not state.get("sufficiency_check"):
-            state["proceed_to_resources"] = True
             return state
 
         retrieved_content = ""

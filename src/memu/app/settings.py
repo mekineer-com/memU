@@ -201,13 +201,10 @@ class RetrieveGraphConfig(BaseModel):
 
 class RetrieveConfig(BaseModel):
     method: Annotated[Literal["rag", "llm"], Normalize] = "rag"
-    route_intention: bool = Field(default=False)
     category: RetrieveCategoryConfig = Field(default=RetrieveCategoryConfig())
     item: RetrieveItemConfig = Field(default=RetrieveItemConfig())
     resource: RetrieveResourceConfig = Field(default=RetrieveResourceConfig())
     graph: RetrieveGraphConfig = Field(default=RetrieveGraphConfig())
-    sufficiency_check: bool = Field(default=False)
-    sufficiency_check_prompt: str = Field(default="")
     sufficiency_check_llm_profile: str = Field(default="default")
     llm_ranking_llm_profile: str = Field(default="default")
 
