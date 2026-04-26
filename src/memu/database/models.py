@@ -100,6 +100,8 @@ class Resource(BaseRecord):
     local_path: str
     caption: str | None = None
     embedding: list[float] | None = None
+    episode_id: str | None = None
+    conversation_id: str | None = None
 
 
 class MemoryItem(BaseRecord):

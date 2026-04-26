@@ -143,6 +143,8 @@ class SQLiteResourceRepo(SQLiteRepoBase, ResourceRepo):
         caption: str | None,
         embedding: list[float] | None,
         user_data: dict[str, Any],
+        episode_id: str | None = None,
+        conversation_id: str | None = None,
         session: Any | None = None,
     ) -> Resource:
         """Create a new resource record.
@@ -169,6 +171,8 @@ class SQLiteResourceRepo(SQLiteRepoBase, ResourceRepo):
                     caption=caption,
                     embedding=embedding,
                     user_data=user_data,
+                    episode_id=episode_id,
+                    conversation_id=conversation_id,
                     session=session,
                 )
                 session.commit()
@@ -186,7 +190,10 @@ class SQLiteResourceRepo(SQLiteRepoBase, ResourceRepo):
             existing.local_path = local_path
             if caption is not None:
                 existing.caption = caption
-            # Only overwrite embedding if provided; avoid wiping a previously computed vector.
+            if episode_id is not None:
+                existing.episode_id = episode_id
+            if conversation_id is not None:
+                existing.conversation_id = conversation_id
             if embedding is not None:
                 self._set_row_embedding(existing, embedding)
             existing.updated_at = now
@@ -201,6 +208,8 @@ class SQLiteResourceRepo(SQLiteRepoBase, ResourceRepo):
                 local_path=local_path,
                 caption=caption,
                 embedding=None,
+                episode_id=episode_id,
+                conversation_id=conversation_id,
                 created_at=now,
                 updated_at=now,
                 **user_data,
@@ -217,6 +226,8 @@ class SQLiteResourceRepo(SQLiteRepoBase, ResourceRepo):
             local_path=row.local_path,
             caption=row.caption,
             embedding=self._normalize_embedding(self._get_row_embedding(row)),
+            episode_id=getattr(row, "episode_id", None),
+            conversation_id=getattr(row, "conversation_id", None),
             created_at=row.created_at,
             updated_at=row.updated_at,
             **user_data,

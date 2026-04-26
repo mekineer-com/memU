@@ -1279,14 +1279,24 @@ Decide which clusters/candidates should map into existing categories, and which 
         kwargs: dict[str, Any] = {}
         if session is not None:
             kwargs["session"] = session
+
+        episode_local_path = local_path
+        episode_text = plan.get("text")
+        if isinstance(episode_text, str) and episode_text.strip():
+            episode_file = pathlib.Path(self.fs.base) / f"{pathlib.Path(plan['resource_url']).stem}.txt"
+            episode_file.write_text(episode_text, encoding="utf-8")
+            episode_local_path = str(episode_file)
+
         res = await self._create_resource_with_caption(
             resource_url=plan["resource_url"],
             modality=modality,
-            local_path=local_path,
+            local_path=episode_local_path,
             caption=plan.get("caption"),
             store=store,
             embed_client=embed_client,
             user=user_scope,
+            episode_id=plan.get("episode_id"),
+            conversation_id=conversation_id,
             **kwargs,
         )
 
@@ -1448,6 +1458,8 @@ Decide which clusters/candidates should map into existing categories, and which 
         store: Database,
         embed_client: Any | None = None,
         user: Mapping[str, Any] | None = None,
+        episode_id: str | None = None,
+        conversation_id: str | None = None,
         session: Any | None = None,
     ) -> Resource:
         caption_text = caption.strip() if caption else None
@@ -1457,7 +1469,7 @@ Decide which clusters/candidates should map into existing categories, and which 
         else:
             caption_embedding = None
 
-        resource_kwargs = {
+        resource_kwargs: dict[str, Any] = {
             "url": resource_url,
             "modality": modality,
             "local_path": local_path,
@@ -1465,6 +1477,10 @@ Decide which clusters/candidates should map into existing categories, and which 
             "embedding": caption_embedding,
             "user_data": dict(user or {}),
         }
+        if episode_id:
+            resource_kwargs["episode_id"] = episode_id
+        if conversation_id:
+            resource_kwargs["conversation_id"] = conversation_id
         if session is not None:
             res = cast(Any, store.resource_repo).create_resource(**resource_kwargs, session=session)
         else:

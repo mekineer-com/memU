@@ -54,6 +54,8 @@ class SQLiteResourceModel(SQLiteBaseModelMixin, Resource):
     caption: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
     # Store embedding as JSON (SQLite stores it as TEXT under the hood)
     embedding: str | None = Field(default=None, sa_column=Column(Text, nullable=True))  # type: ignore[assignment]
+    episode_id: str | None = Field(default=None, sa_column=Column(String, nullable=True))
+    conversation_id: str | None = Field(default=None, sa_column=Column(String, nullable=True))
 
 
 class SQLiteMemoryItemModel(SQLiteBaseModelMixin, MemoryItem):
