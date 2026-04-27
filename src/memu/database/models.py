@@ -102,6 +102,7 @@ class Resource(BaseRecord):
     embedding: list[float] | None = None
     episode_id: str | None = None
     conversation_id: str | None = None
+    memory_retrieve_history: list[str] | None = None
 
 
 class MemoryItem(BaseRecord):

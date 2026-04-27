@@ -145,6 +145,7 @@ class SQLiteResourceRepo(SQLiteRepoBase, ResourceRepo):
         user_data: dict[str, Any],
         episode_id: str | None = None,
         conversation_id: str | None = None,
+        memory_retrieve_history: list[str] | None = None,
         session: Any | None = None,
     ) -> Resource:
         """Create a new resource record.
@@ -173,6 +174,7 @@ class SQLiteResourceRepo(SQLiteRepoBase, ResourceRepo):
                     user_data=user_data,
                     episode_id=episode_id,
                     conversation_id=conversation_id,
+                    memory_retrieve_history=memory_retrieve_history,
                     session=session,
                 )
                 session.commit()
@@ -194,6 +196,8 @@ class SQLiteResourceRepo(SQLiteRepoBase, ResourceRepo):
                 existing.episode_id = episode_id
             if conversation_id is not None:
                 existing.conversation_id = conversation_id
+            if memory_retrieve_history is not None:
+                existing.memory_retrieve_history = memory_retrieve_history
             if embedding is not None:
                 self._set_row_embedding(existing, embedding)
             existing.updated_at = now
@@ -210,6 +214,7 @@ class SQLiteResourceRepo(SQLiteRepoBase, ResourceRepo):
                 embedding=None,
                 episode_id=episode_id,
                 conversation_id=conversation_id,
+                memory_retrieve_history=memory_retrieve_history,
                 created_at=now,
                 updated_at=now,
                 **user_data,
@@ -228,6 +233,7 @@ class SQLiteResourceRepo(SQLiteRepoBase, ResourceRepo):
             embedding=self._normalize_embedding(self._get_row_embedding(row)),
             episode_id=getattr(row, "episode_id", None),
             conversation_id=getattr(row, "conversation_id", None),
+            memory_retrieve_history=getattr(row, "memory_retrieve_history", None),
             created_at=row.created_at,
             updated_at=row.updated_at,
             **user_data,
