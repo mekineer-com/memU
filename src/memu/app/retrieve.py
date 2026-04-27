@@ -104,7 +104,7 @@ class RetrieveMixin:
                 step_id="route_intention",
                 role="route_intention",
                 handler=self._rag_route_intention,
-                requires={"route_intention", "original_query", "context_queries"},
+                requires={"original_query", "context_queries"},
                 produces={"needs_retrieval", "rewritten_query", "active_query", "next_step_query"},
                 capabilities={"llm"},
                 config={"chat_llm_profile": self.retrieve_config.sufficiency_check_llm_profile},
@@ -113,7 +113,7 @@ class RetrieveMixin:
                 step_id="route_category",
                 role="route_category",
                 handler=self._rag_route_category,
-                requires={"retrieve_category", "needs_retrieval", "active_query", "ctx", "store", "where"},
+                requires={"needs_retrieval", "active_query", "ctx", "store", "where"},
                 produces={"category_hits", "category_summary_lookup", "query_vector"},
                 capabilities={"vector"},
                 config={"embed_llm_profile": "embedding"},
@@ -123,7 +123,6 @@ class RetrieveMixin:
                 role="sufficiency_check",
                 handler=self._rag_category_sufficiency,
                 requires={
-                    "retrieve_category",
                     "needs_retrieval",
                     "active_query",
                     "context_queries",
@@ -209,11 +208,6 @@ class RetrieveMixin:
             "method",
             "original_query",
             "context_queries",
-            "route_intention",
-            "retrieve_category",
-            "retrieve_item",
-            "retrieve_resource",
-            "sufficiency_check",
             "ctx",
             "store",
             "where",
@@ -818,7 +812,7 @@ class RetrieveMixin:
         history_text = self._format_query_context(context_queries)
         content_text = retrieved_content or "No content retrieved yet."
 
-        prompt = self.retrieve_config.sufficiency_check_prompt or PRE_RETRIEVAL_USER_PROMPT
+        prompt = PRE_RETRIEVAL_USER_PROMPT
         user_prompt = prompt.format(
             query=self._escape_prompt_value(query),
             conversation_history=self._escape_prompt_value(history_text),
