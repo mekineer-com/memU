@@ -124,6 +124,9 @@ USER_PROMPT = """
 # Intention activity since your last reflection
 {intention_activity}
 
+# Memories that surfaced this week
+{retrieved_memories}
+
 # Episode queue
 {episodes}
 """.strip()
