@@ -103,6 +103,7 @@ class Resource(BaseRecord):
     episode_id: str | None = None
     conversation_id: str | None = None
     memory_retrieve_history: list[str] | None = None
+    memory_prior_context: list[str] | None = None
 
 
 class MemoryItem(BaseRecord):

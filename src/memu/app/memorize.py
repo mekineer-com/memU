@@ -155,6 +155,7 @@ class MemorizeMixin:
         all_categories_summary: str | None = None,
         soul_card: str | None = None,
         memory_retrieve_history: list[str] | None = None,
+        memory_prior_context: list[str] | None = None,
     ) -> dict[str, Any]:
         # Fail loud at the engine boundary: a non-empty scope without soul_id
         # silently mixes memories across souls, which is the worst class of
@@ -189,6 +190,7 @@ class MemorizeMixin:
             "conversation_id": conversation_id,
             "all_categories_summary": (all_categories_summary or "").strip() or None,
             "memory_retrieve_history": memory_retrieve_history,
+            "memory_prior_context": memory_prior_context,
             "soul_card": (soul_card or "").strip() or None,
         }
 
@@ -405,6 +407,7 @@ class MemorizeMixin:
                 "episode_id": episode_id,
                 "diary_worthy": diary_worthy,
                 "memory_retrieve_history": state.get("memory_retrieve_history"),
+                "memory_prior_context": state.get("memory_prior_context"),
             }
             resource_plans.append(plan)
 
@@ -1301,6 +1304,7 @@ Decide which clusters/candidates should map into existing categories, and which 
             episode_id=plan.get("episode_id"),
             conversation_id=conversation_id,
             memory_retrieve_history=plan.get("memory_retrieve_history"),
+            memory_prior_context=plan.get("memory_prior_context"),
             **kwargs,
         )
 
@@ -1465,6 +1469,7 @@ Decide which clusters/candidates should map into existing categories, and which 
         episode_id: str | None = None,
         conversation_id: str | None = None,
         memory_retrieve_history: list[str] | None = None,
+        memory_prior_context: list[str] | None = None,
         session: Any | None = None,
     ) -> Resource:
         caption_text = caption.strip() if caption else None
@@ -1488,6 +1493,8 @@ Decide which clusters/candidates should map into existing categories, and which 
             resource_kwargs["conversation_id"] = conversation_id
         if memory_retrieve_history:
             resource_kwargs["memory_retrieve_history"] = memory_retrieve_history
+        if memory_prior_context:
+            resource_kwargs["memory_prior_context"] = memory_prior_context
         if session is not None:
             res = cast(Any, store.resource_repo).create_resource(**resource_kwargs, session=session)
         else:

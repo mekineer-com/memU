@@ -57,6 +57,7 @@ class SQLiteResourceModel(SQLiteBaseModelMixin, Resource):
     episode_id: str | None = Field(default=None, sa_column=Column(String, nullable=True))
     conversation_id: str | None = Field(default=None, sa_column=Column(String, nullable=True))
     memory_retrieve_history: list[str] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
+    memory_prior_context: list[str] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
 
 
 class SQLiteMemoryItemModel(SQLiteBaseModelMixin, MemoryItem):
