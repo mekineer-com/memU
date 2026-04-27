@@ -408,6 +408,7 @@ class MemorizeMixin:
                 "diary_worthy": diary_worthy,
                 "memory_retrieve_history": state.get("memory_retrieve_history"),
                 "memory_prior_context": state.get("memory_prior_context"),
+                "episode_messages": episode_messages,
             }
             resource_plans.append(plan)
 
@@ -1287,10 +1288,15 @@ Decide which clusters/candidates should map into existing categories, and which 
             kwargs["session"] = session
 
         episode_local_path = local_path
-        episode_text = plan.get("text")
-        if isinstance(episode_text, str) and episode_text.strip():
+        episode_messages = plan.get("episode_messages") or []
+        if episode_messages:
+            episode_file = pathlib.Path(self.fs.base) / f"{pathlib.Path(plan['resource_url']).stem}.jsonl"
+            lines = [json.dumps(msg, ensure_ascii=False) for msg in episode_messages]
+            episode_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            episode_local_path = str(episode_file)
+        elif isinstance(plan.get("text"), str) and plan["text"].strip():
             episode_file = pathlib.Path(self.fs.base) / f"{pathlib.Path(plan['resource_url']).stem}.txt"
-            episode_file.write_text(episode_text, encoding="utf-8")
+            episode_file.write_text(plan["text"], encoding="utf-8")
             episode_local_path = str(episode_file)
 
         res = await self._create_resource_with_caption(
@@ -2243,7 +2249,7 @@ Decide which clusters/candidates should map into existing categories, and which 
             return text
 
         audio_extensions = {".mp3", ".mp4", ".mpeg", ".mpga", ".m4a", ".wav", ".webm"}
-        text_extensions = {".txt", ".text"}
+        text_extensions = {".txt", ".text", ".jsonl"}
         file_ext = pathlib.Path(local_path).suffix.lower()
 
         if file_ext in audio_extensions:
