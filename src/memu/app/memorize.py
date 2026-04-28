@@ -1314,6 +1314,21 @@ Decide which clusters/candidates should map into existing categories, and which 
             **kwargs,
         )
 
+        episode_summary_text = str(plan.get("episode_summary") or "").strip()
+        if episode_summary_text and res.embedding is not None:
+            summary_item = store.memory_item_repo.create_item(
+                resource_id=res.id,
+                memory_type="event",
+                source_role="environment",
+                summary=episode_summary_text,
+                embedding=res.embedding,
+                user_data=dict(user_scope or {}),
+                conversation_id=conversation_id,
+                episode_id=plan.get("episode_id"),
+                **({"session": session} if session is not None else {}),
+            )
+            items.append(summary_item)
+
         entries = plan.get("entries") or []
         if plan.get("diary_worthy"):
             episode_id = str(plan.get("episode_id") or "").strip()
