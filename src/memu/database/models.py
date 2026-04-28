@@ -19,26 +19,6 @@ PREDICATES = Literal[
 ]
 
 
-def compute_content_hash(summary: str, memory_type: str) -> str:
-    """
-    Generate unique hash for memory deduplication.
-
-    Operates on post-summary content. Normalizes whitespace to handle
-    minor formatting differences like "I love coffee" vs "I  love  coffee".
-
-    Args:
-        summary: The memory summary text
-        memory_type: The type of memory (profile, event, etc.)
-
-    Returns:
-        A 16-character hex hash string
-    """
-    # Normalize: lowercase, strip, collapse whitespace
-    normalized = " ".join(summary.lower().split())
-    content = f"{memory_type}:{normalized}"
-    return hashlib.sha256(content.encode()).hexdigest()[:16]
-
-
 class BaseRecord(BaseModel):
     """Backend-agnostic record interface."""
 
@@ -129,13 +109,6 @@ class MemoryItem(BaseRecord):
     # When set, this item is treated as merged into another canonical item.
     merged_into: str | None = None
     extra: dict[str, Any] = {}
-    # extra may contain:
-    # # reinforcement tracking fields
-    # - content_hash: str
-    # - reinforcement_count: int
-    # - last_reinforced_at: str (isoformat)
-    # # Reference tracking field
-    # - ref_id: str
     # # Tool memory fields
     # - when_to_use: str - Hint for when this memory should be retrieved
     # - metadata: dict - Type-specific metadata (e.g., tool_name, avg_success_rate)
@@ -196,6 +169,5 @@ __all__ = [
     "ToolCallResult",
     "Triple",
     "build_scoped_models",
-    "compute_content_hash",
     "merge_scope_model",
 ]

@@ -59,7 +59,6 @@ PROMPT_BLOCK_RULES = """
 - Before merging, deduplicate the incoming new items themselves: if two or more new items express substantially the same fact about the same person, merge them into one. Keep the version that is most complete and specific. Do not carry both into the output.
 - An item that already appears — in identical or near-identical form — in the existing content must not be added again. Update it only if the new version is meaningfully more complete.
 - Every output item must belong to exactly one subcategory (## heading). Do not repeat the same item under multiple headings.
-- When an incoming item begins with a `[reinforced Nx]` marker (e.g., `[reinforced 5x] Alex feels lonely`), this means the same pattern has appeared across N separate sessions — it is not a one-off. Do not strip this signal when merging. Use natural frequency language in the summary: "often", "frequently", "tends to", "repeatedly". A memory reinforced once is a fact; reinforced five times is a pattern.
 """
 
 PROMPT_BLOCK_OUTPUT = """

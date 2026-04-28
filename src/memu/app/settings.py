@@ -169,7 +169,7 @@ class RetrieveItemConfig(BaseModel):
     # Salience-aware retrieval settings
     ranking: Literal["similarity", "salience"] = Field(
         default="salience",
-        description="Ranking strategy: 'similarity' (cosine only) or 'salience' (weighted by reinforcement + recency).",
+        description="Ranking strategy: 'similarity' (cosine only) or 'salience' (weighted by reflection salience).",
     )
     recency_decay_days: float = Field(
         default=30.0,

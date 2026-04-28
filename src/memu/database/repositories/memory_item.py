@@ -32,7 +32,6 @@ class MemoryItemRepo(Protocol):
         summary: str,
         embedding: list[float],
         user_data: dict[str, Any],
-        reinforce: bool = False,
         tool_record: dict[str, Any] | None = None,
         source_role: str | None = None,
         speaker_id: str | None = None,

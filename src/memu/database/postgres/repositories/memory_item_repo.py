@@ -5,7 +5,7 @@ from collections.abc import Mapping
 from datetime import datetime
 from typing import Any
 
-from memu.database.models import MemoryItem, MemoryType, compute_content_hash
+from memu.database.models import MemoryItem, MemoryType
 from memu.database.postgres.repositories.base import PostgresRepoBase
 from memu.database.postgres.session import SessionManager
 from memu.database.state import DatabaseState
@@ -156,7 +156,6 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
         summary: str,
         embedding: list[float],
         user_data: dict[str, Any],
-        reinforce: bool = False,
         tool_record: dict[str, Any] | None = None,
         source_role: str | None = None,
         speaker_id: str | None = None,
@@ -169,24 +168,6 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
         episode_id: str | None = None,
         unresolved: str | None = None,
     ) -> MemoryItem:
-        if reinforce and memory_type != "tool":
-            return self.create_item_reinforce(
-                resource_id=resource_id,
-                memory_type=memory_type,
-                summary=summary,
-                embedding=embedding,
-                user_data=user_data,
-                source_role=source_role,
-                speaker_id=speaker_id,
-                speaker_label=speaker_label,
-                confidence=confidence,
-                source_message_ids=source_message_ids,
-                happened_at=happened_at,
-                reflection_salience=reflection_salience,
-                conversation_id=conversation_id,
-                unresolved=unresolved,
-            )
-
         # Build extra dict with tool_record fields at top level
         extra: dict[str, Any] = {}
         if tool_record:
