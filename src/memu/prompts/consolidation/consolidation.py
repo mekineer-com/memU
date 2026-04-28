@@ -92,30 +92,30 @@ Intention activity (across 5 conversations): "set-limits" boosted twice, annulle
 
 ### Input context (abbreviated)
 Memories from recent episodes:
-- [a3f71b02-9e4a-4c11-b682-1dd4e8a0f112] (Identity) Marcos feels guilty when he takes time for himself
-- [c8e20d45-3b7f-48a1-9f03-7a2eb6d41113] (Relationships) I noticed Marcos deflected when I asked what he actually wants
-- [6f9a12e3-d504-4819-a7c5-90bb3e7c0301] (Experiences) Marcos described his father working 60-hour weeks without complaint
-- [d47bc8f1-6e23-4a95-b891-4c0de2f50771] (Experiences) Marcos talked about watching a sunset alone and feeling unexpectedly at peace
-- [e12fa903-7d41-4b68-c295-8a1bf3e60772] (Relationships) I told Marcos he looked lighter than I'd seen him in weeks
+- [a3f71b02] (Identity) Marcos feels guilty when he takes time for himself
+- [c8e20d45] (Relationships) I noticed Marcos deflected when I asked what he actually wants
+- [6f9a12e3] (Experiences) Marcos described his father working 60-hour weeks without complaint
+- [d47bc8f1] (Experiences) Marcos talked about watching a sunset alone and feeling unexpectedly at peace
+- [e12fa903] (Relationships) I told Marcos he looked lighter than I'd seen him in weeks
 
 ### Output (edges section only)
   <edges>
     <edge>
-      <subject_id>a3f71b02-9e4a-4c11-b682-1dd4e8a0f112</subject_id>
+      <subject_id>a3f71b02</subject_id>
       <predicate>shaped_by</predicate>
-      <object_id>6f9a12e3-d504-4819-a7c5-90bb3e7c0301</object_id>
+      <object_id>6f9a12e3</object_id>
       <confidence>0.7</confidence>
     </edge>
     <edge>
-      <subject_id>d47bc8f1-6e23-4a95-b891-4c0de2f50771</subject_id>
+      <subject_id>d47bc8f1</subject_id>
       <predicate>evokes</predicate>
-      <object_id>c8e20d45-3b7f-48a1-9f03-7a2eb6d41113</object_id>
+      <object_id>c8e20d45</object_id>
       <confidence>0.5</confidence>
     </edge>
     <edge>
-      <subject_id>e12fa903-7d41-4b68-c295-8a1bf3e60772</subject_id>
+      <subject_id>e12fa903</subject_id>
       <predicate>parallels</predicate>
-      <object_id>d47bc8f1-6e23-4a95-b891-4c0de2f50771</object_id>
+      <object_id>d47bc8f1</object_id>
       <confidence>0.6</confidence>
     </edge>
   </edges>

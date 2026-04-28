@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-import uuid
+import secrets
 from datetime import datetime
 from typing import Any, Literal
 
@@ -22,7 +22,7 @@ PREDICATES = Literal[
 class BaseRecord(BaseModel):
     """Backend-agnostic record interface."""
 
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    id: str = Field(default_factory=lambda: secrets.token_hex(4))
     created_at: datetime = Field(default_factory=lambda: pendulum.now("UTC"))
     updated_at: datetime = Field(default_factory=lambda: pendulum.now("UTC"))
 

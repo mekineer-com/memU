@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import uuid
+import secrets
 from datetime import datetime
 from typing import Any
 
@@ -27,7 +27,7 @@ class TZDateTime(DateTime):
 
 class BaseModelMixin(SQLModel):
     id: str = Field(
-        default_factory=lambda: str(uuid.uuid4()),
+        default_factory=lambda: secrets.token_hex(4),
         primary_key=True,
         index=True,
         sa_type=String,
