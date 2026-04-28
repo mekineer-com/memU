@@ -310,6 +310,7 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
                 happened_at=happened_at,
                 reflection_salience=reflection_salience,
                 conversation_id=conversation_id,
+                episode_id=episode_id,
                 unresolved=unresolved,
                 session=session,
             )
@@ -397,6 +398,7 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
         happened_at: datetime | None = None,
         reflection_salience: float | None = None,
         conversation_id: str | None = None,
+        episode_id: str | None = None,
         unresolved: str | None = None,
         session: Any | None = None,
     ) -> MemoryItem:
@@ -436,6 +438,7 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
                     happened_at=happened_at,
                     reflection_salience=reflection_salience,
                     conversation_id=conversation_id,
+                    episode_id=episode_id,
                     unresolved=unresolved,
                     session=session,
                 )
@@ -478,6 +481,8 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
                 existing.reflection_salience = reflection_salience
             if conv_id is not None:
                 existing.conversation_id = conv_id
+            if episode_id is not None:
+                existing.episode_id = episode_id
             if unresolved is not None:
                 existing.unresolved = unresolved
             existing.updated_at = self._now()
@@ -511,6 +516,7 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
             happened_at=happened_at,
             reflection_salience=reflection_salience,
             conversation_id=conv_id,
+            episode_id=episode_id,
             unresolved=unresolved,
             extra=item_extra,
             created_at=now,
