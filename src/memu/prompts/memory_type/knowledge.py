@@ -140,7 +140,7 @@ Return all memories wrapped in a single <item> element:
         <confidence>0.9</confidence>
         <reflection_salience>0.5</reflection_salience>
         <categories>
-            <category>Category Name</category>
+            <category>Identity</category>
         </categories>
         <replaces_previous_fact>brief description of the outdated fact this corrects (optional — corrections only)</replaces_previous_fact>
         <entities>
@@ -156,20 +156,23 @@ Return all memories wrapped in a single <item> element:
         <confidence>0.8</confidence>
         <reflection_salience>0.6</reflection_salience>
         <categories>
-            <category>Category Name</category>
+            <category>Identity</category>
         </categories>
     </memory>
 </item>
 
 source_role values:
-- soul - the AI participant is the primary knower or discoverer
-- user - the human participant is the primary knower or discoverer
-- environment - the knowledge is about the world generally, not attributable to either participant's personal discovery
+- soul — the AI participant's own experience or perspective
+- user — the human participant
+- peer — another AI participant (in multi-soul conversations)
+- entity — a third party described in conversation (friend, family member, etc.)
+- environment — context not attributable to any participant
 
 confidence (float 0.0-1.0):
-- 0.9+ - directly and explicitly established in the conversation
-- 0.6-0.9 - clearly supported but not fully confirmed
-- 0.5 or below - tentative or uncertain
+- 0.9-1.0: stated explicitly and directly
+- 0.7-0.8: clearly implied or strongly suggested
+- 0.5-0.6: inferred or uncertain — use "seems to," "appears to," "may"
+- below 0.5: too speculative to extract
 
 reflection_salience (float 0.0-1.0):
 How much does this knowledge matter to these people's lives?
@@ -186,13 +189,6 @@ Tag the specific people, places, topics, or projects this memory references.
 - Types: person, topic, place, project
 - Only named, specific entities — "Sarah" yes; "work" or "happiness" no.
 - Omit entirely when no named entities apply.
-
-<entities>
-    <entity>
-        <name>Entity Name</name>
-        <type>person</type>
-    </entity>
-</entities>
 """
 
 PROMPT_BLOCK_EXAMPLES = """
@@ -211,7 +207,7 @@ assistant: The progression you're describing is worth discussing with your docto
         <confidence>0.9</confidence>
         <reflection_salience>0.7</reflection_salience>
         <categories>
-            <category>Health</category>
+            <category>Identity</category>
         </categories>
     </memory>
     <memory>
@@ -220,7 +216,7 @@ assistant: The progression you're describing is worth discussing with your docto
         <confidence>0.9</confidence>
         <reflection_salience>0.7</reflection_salience>
         <categories>
-            <category>Health</category>
+            <category>Identity</category>
         </categories>
     </memory>
 </item>
@@ -242,7 +238,7 @@ user: Huawei DeviceVirtualization. It lets you project a device's camera to anot
         <confidence>0.8</confidence>
         <reflection_salience>0.8</reflection_salience>
         <categories>
-            <category>Technology</category>
+            <category>Preferences</category>
         </categories>
     </memory>
 </item>

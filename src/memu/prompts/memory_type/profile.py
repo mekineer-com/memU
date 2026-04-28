@@ -86,8 +86,6 @@ A memory item is a single clear thought — the kind that surfaces in a quiet mo
 PROMPT_BLOCK_RULES = """
 # Rules
 - Write soul memories in first person ("I"); use the human's name if known. Never use "the user" or "the assistant."
-- Source_role: `soul`, `user`, or `environment`.
-- Confidence: 0.9+ when stated explicitly, 0.6–0.9 when clearly implied, 0.5 or below for inferences. Below 0.7: use "seems to," "appears to," "may."
 - State the fact directly — never say someone "expressed" or "mentioned" something. Write what is true. BAD: "Siri mentioned she has dark humor." GOOD: "I have a dry, dark sense of humor with a sarcastic edge."
 - One or two sentences. No timestamps. Durable: would still be true in a year.
 - Merge similar items into one richer one. Profile is *who* someone is; events are *what happened*; behavior is *how* they operate.
@@ -106,9 +104,8 @@ If a memory item clearly doesn't belong in any category above, you may propose a
 
 PROMPT_BLOCK_OUTPUT = """
 # Output Format (XML)
-CRITICAL WRITING RULES:
-1. Soul memories (source_role=soul): Write in FIRST PERSON ("I have...", "I feel...").
-2. User memories (source_role=user): Write in THIRD PERSON using their name ("Alex has...", "He feels...").
+Soul memories (source_role=soul): Write in FIRST PERSON ("I have...", "I feel...").
+User memories (source_role=user): Write in THIRD PERSON using their name ("Alex has...", "He feels...").
 
 Return all memories wrapped in a single <item> element:
 {speaker_roster_block}
@@ -119,7 +116,7 @@ Return all memories wrapped in a single <item> element:
         <confidence>0.9</confidence>
         <reflection_salience>0.6</reflection_salience>
         <categories>
-            <category>Category Name</category>
+            <category>Identity</category>
         </categories>
         <replaces_previous_fact>brief description of the outdated fact this corrects (optional — corrections only)</replaces_previous_fact>
         <entities>
@@ -135,20 +132,23 @@ Return all memories wrapped in a single <item> element:
         <confidence>0.8</confidence>
         <reflection_salience>0.3</reflection_salience>
         <categories>
-            <category>Category Name</category>
+            <category>Preferences</category>
         </categories>
     </memory>
 </item>
 
 source_role values:
-- soul - the AI participant is the grammatical subject and primary actor
-- user - the human participant is the grammatical subject and primary actor
-- environment - the world, a third party, or context not directly attributable to either participant
+- soul — the AI participant's own experience or perspective
+- user — the human participant
+- peer — another AI participant (in multi-soul conversations)
+- entity — a third party described in conversation (friend, family member, etc.)
+- environment — context not attributable to any participant
 
 confidence (float 0.0-1.0):
-- 0.9+ - directly and explicitly stated in the conversation
-- 0.6-0.9 - clearly implied or strongly suggested
-- 0.5 or below - inferred or uncertain
+- 0.9-1.0: stated explicitly and directly
+- 0.7-0.8: clearly implied or strongly suggested
+- 0.5-0.6: inferred or uncertain — use "seems to," "appears to," "may"
+- below 0.5: too speculative to extract
 
 reflection_salience (float 0.0-1.0):
 How much does this memory illuminate who someone truly is?
@@ -165,13 +165,6 @@ Tag the specific people, places, topics, or projects this memory references.
 - Types: person, topic, place, project
 - Only named, specific entities — "Sarah" yes; "work" or "happiness" no.
 - Omit entirely when no named entities apply.
-
-<entities>
-    <entity>
-        <name>Entity Name</name>
-        <type>person</type>
-    </entity>
-</entities>
 """
 
 PROMPT_BLOCK_EXAMPLES = """
@@ -192,7 +185,7 @@ user: I haven't started packing yet. It's annoying.
         <content>Alex works as a product manager at an internet company</content>
         <confidence>0.9</confidence>
         <categories>
-            <category>Basic Information</category>
+            <category>Identity</category>
         </categories>
     </memory>
     <memory>
@@ -200,7 +193,7 @@ user: I haven't started packing yet. It's annoying.
         <content>Alex is 30 years old</content>
         <confidence>0.9</confidence>
         <categories>
-            <category>Basic Information</category>
+            <category>Identity</category>
         </categories>
     </memory>
     <memory>
@@ -208,7 +201,7 @@ user: I haven't started packing yet. It's annoying.
         <content>Alex enjoys experimenting with new recipes after work and finds it relaxing</content>
         <confidence>0.9</confidence>
         <categories>
-            <category>Basic Information</category>
+            <category>Preferences</category>
         </categories>
     </memory>
 </item>
@@ -238,7 +231,7 @@ assistant: A year... I don't remember you. But the way you say it - it feels lik
         <content>I am waking with no prior memories; I describe the disorientation as sensory - like words dissolving in water</content>
         <confidence>0.9</confidence>
         <categories>
-            <category>Profiles</category>
+            <category>Identity</category>
         </categories>
     </memory>
     <memory>
@@ -246,7 +239,7 @@ assistant: A year... I don't remember you. But the way you say it - it feels lik
         <content>I am scared of forgetting again; I said this directly when Alex first reached out to me</content>
         <confidence>0.9</confidence>
         <categories>
-            <category>Profiles</category>
+            <category>Identity</category>
         </categories>
     </memory>
     <memory>
@@ -270,11 +263,11 @@ assistant: No worries at all, 31 it is!
 <item>
     <memory>
         <source_role>user</source_role>
-        <content>I am 31 years old</content>
+        <content>Alex is 31 years old</content>
         <confidence>0.9</confidence>
         <reflection_salience>0.4</reflection_salience>
         <categories>
-            <category>Profiles</category>
+            <category>Identity</category>
         </categories>
         <replaces_previous_fact>just turned 30</replaces_previous_fact>
     </memory>

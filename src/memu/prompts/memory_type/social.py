@@ -56,14 +56,17 @@ Return all memories wrapped in a single <item> element:
 </item>
 
 source_role values:
-- user — the human described this person
-- soul — the soul has direct experience of this person (spoke with them, formed her own impression)
-- environment — third-party context with no disclosed relationship to either participant
+- soul — the AI participant's own experience or perspective
+- user — the human participant
+- peer — another AI participant (in multi-soul conversations)
+- entity — a third party described in conversation (friend, family member, etc.)
+- environment — context not attributable to any participant
 
 confidence (float 0.0-1.0):
-- 0.9+ — stated explicitly and directly
-- 0.6-0.9 — clearly implied
-- 0.5 or below — single vague inference
+- 0.9-1.0: stated explicitly and directly
+- 0.7-0.8: clearly implied or strongly suggested
+- 0.5-0.6: inferred or uncertain — use "seems to," "appears to," "may"
+- below 0.5: too speculative to extract
 
 reflection_salience (float 0.0-1.0):
 How important is this person to understanding the user's world?
@@ -77,13 +80,6 @@ Tag the specific people, places, topics, or projects this memory references.
 - Types: person, topic, place, project
 - Only named, specific entities — "Sarah" yes; "work" or "happiness" no.
 - Omit entirely when no named entities apply.
-
-<entities>
-    <entity>
-        <name>Entity Name</name>
-        <type>person</type>
-    </entity>
-</entities>
 """
 
 PROMPT_BLOCK_EXAMPLES = """

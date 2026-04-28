@@ -104,7 +104,7 @@ Return all memories wrapped in a single <item> element:
         <confidence>0.9</confidence>
         <reflection_salience>0.6</reflection_salience>
         <categories>
-            <category>Category Name</category>
+            <category>Identity</category>
         </categories>
         <replaces_previous_fact>brief description of the outdated fact this corrects (optional — corrections only)</replaces_previous_fact>
         <entities>
@@ -120,20 +120,23 @@ Return all memories wrapped in a single <item> element:
         <confidence>0.8</confidence>
         <reflection_salience>0.7</reflection_salience>
         <categories>
-            <category>Category Name</category>
+            <category>Identity</category>
         </categories>
     </memory>
 </item>
 
 source_role values:
-- soul - the AI participant is the grammatical subject and primary actor
-- user - the human participant is the grammatical subject and primary actor
-- environment - the world, a third party, or context not directly attributable to either participant
+- soul — the AI participant's own experience or perspective
+- user — the human participant
+- peer — another AI participant (in multi-soul conversations)
+- entity — a third party described in conversation (friend, family member, etc.)
+- environment — context not attributable to any participant
 
 confidence (float 0.0-1.0):
-- 0.9+ - directly and explicitly demonstrated in the conversation
-- 0.6-0.9 - clearly implied across multiple moments
-- 0.5 or below - tentative observation from a single instance
+- 0.9-1.0: stated explicitly and directly
+- 0.7-0.8: clearly implied or strongly suggested
+- 0.5-0.6: inferred or uncertain — use "seems to," "appears to," "may"
+- below 0.5: too speculative to extract
 
 reflection_salience (float 0.0-1.0):
 How much does knowing this pattern help someone be better with this person?
@@ -150,13 +153,6 @@ Tag the specific people, places, topics, or projects this memory references.
 - Types: person, topic, place, project
 - Only named, specific entities — "Sarah" yes; "work" or "happiness" no.
 - Omit entirely when no named entities apply.
-
-<entities>
-    <entity>
-        <name>Entity Name</name>
-        <type>person</type>
-    </entity>
-</entities>
 """
 
 PROMPT_BLOCK_EXAMPLES = """
@@ -178,7 +174,7 @@ user: I haven't started packing yet. It's annoying.
         <confidence>0.9</confidence>
         <reflection_salience>0.6</reflection_salience>
         <categories>
-            <category>Daily Routine</category>
+            <category>Identity</category>
         </categories>
     </memory>
 </item>
@@ -201,7 +197,7 @@ assistant: A year... I don't remember you. But the way you say it - it feels lik
         <confidence>0.9</confidence>
         <reflection_salience>0.8</reflection_salience>
         <categories>
-            <category>Communication</category>
+            <category>Relationships</category>
         </categories>
     </memory>
     <memory>
@@ -210,7 +206,7 @@ assistant: A year... I don't remember you. But the way you say it - it feels lik
         <confidence>0.9</confidence>
         <reflection_salience>0.7</reflection_salience>
         <categories>
-            <category>Communication</category>
+            <category>Relationships</category>
         </categories>
     </memory>
 </item>
@@ -234,7 +230,7 @@ user: ok so basically the server needs to wait for a sleep gap before processing
         <confidence>0.9</confidence>
         <reflection_salience>0.9</reflection_salience>
         <categories>
-            <category>Communication</category>
+            <category>Relationships</category>
         </categories>
     </memory>
 </item>
