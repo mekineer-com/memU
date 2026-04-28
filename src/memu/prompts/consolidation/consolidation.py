@@ -124,8 +124,6 @@ Episode ep_0099 — memory summaries:
       <confidence>0.6</confidence>
     </edge>
   </edges>
-
-Notes: IDs must be the exact UUIDs from the `[bracketed IDs]` in episode memory summaries — copy them verbatim. Never use episode IDs, never shorten, never invent. The guilt about self-care was shaped over time by the father's work ethic — older memory as object. The sunset peace evokes the earlier deflection — same emotional territory, different angle. The observation about lightness parallels the sunset feeling — same pattern, two perspectives, neither causing the other. Different predicates for different relationships; don't default to one.
 """.strip()
 
 
