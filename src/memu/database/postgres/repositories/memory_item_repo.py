@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import math
 from collections.abc import Mapping
-from datetime import datetime
 from typing import Any
 
 from memu.database.models import MemoryItem, MemoryType
@@ -361,16 +359,8 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
             similarity = self._cosine(query_vec, item.embedding)
 
             if ranking == "salience":
-                # Salience-aware scoring - read from extra dict
-                extra = item.extra or {}
-                reinforcement_count = extra.get("reinforcement_count", 1)
-                last_reinforced_at = self._parse_datetime(extra.get("last_reinforced_at"))
-                score = self._salience_score(
-                    similarity,
-                    reinforcement_count,
-                    last_reinforced_at,
-                    recency_decay_days,
-                )
+                salience = item.reflection_salience if item.reflection_salience is not None else 0.5
+                score = similarity + salience
             else:
                 score = similarity
 
@@ -379,44 +369,9 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
         scored.sort(key=lambda x: x[1], reverse=True)
         return scored[:top_k]
 
-    @staticmethod
-    def _salience_score(
-        similarity: float,
-        reinforcement_count: int,
-        last_reinforced_at: datetime | None,
-        recency_decay_days: float,
-    ) -> float:
-        """Compute salience score: similarity * reinforcement * recency."""
-        reinforcement_factor = math.log(reinforcement_count + 1)
-
-        if last_reinforced_at is None:
-            recency_factor = 0.5
-        else:
-            now = datetime.now(last_reinforced_at.tzinfo) if last_reinforced_at.tzinfo else datetime.utcnow()
-            days_ago = (now - last_reinforced_at).total_seconds() / 86400
-            recency_factor = math.exp(-0.693 * days_ago / recency_decay_days)
-
-        return similarity * reinforcement_factor * recency_factor
-
     def _cache_item(self, item: MemoryItem) -> MemoryItem:
         self.items[item.id] = item
         return item
-
-    @staticmethod
-    def _parse_datetime(dt_str: str | None) -> datetime | None:
-        """Parse ISO datetime string from extra dict."""
-        if dt_str is None:
-            return None
-        try:
-            import pendulum
-
-            parsed = pendulum.parse(dt_str)
-        except (ValueError, TypeError):
-            return None
-        else:
-            if isinstance(parsed, datetime):
-                return parsed
-            return None
 
     @staticmethod
     def _cosine(a: list[float], b: list[float]) -> float:
