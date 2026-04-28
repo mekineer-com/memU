@@ -328,19 +328,19 @@ class MemorizeMixin:
             res_url = self._episode_resource_url(state["resource_url"], idx, total_episodes)
             text = prep.get("text")
             caption = prep.get("caption")
-            _, message_indices = self._prepare_diary_episode(
+            _, message_indices = self._prepare_episode(
                 modality=state["modality"],
                 text=text if isinstance(text, str) else None,
                 message_indices=prep.get("message_indices"),
             )
-            diary_worthy = False
+            notable = False
 
             episode_summary: str | None = None
             if state["modality"] == "conversation" and isinstance(text, str):
-                applicable_types, diary_worthy, episode_summary = await self._route_episode(
+                applicable_types, notable, episode_summary = await self._route_episode(
                     text, state["memory_types"], llm_client, skipped_reasons=skipped_reasons
                 )
-                if not applicable_types and not diary_worthy:
+                if not applicable_types and not notable:
                     continue
             else:
                 applicable_types = state["memory_types"]
@@ -405,7 +405,7 @@ class MemorizeMixin:
                 "message_happened_at_map": plan_message_happened_at_map,
                 "entries": structured_entries,
                 "episode_id": episode_id,
-                "diary_worthy": diary_worthy,
+                "notable": notable,
                 "memory_retrieve_history": state.get("memory_retrieve_history"),
                 "memory_prior_context": state.get("memory_prior_context"),
                 "episode_messages": episode_messages,
@@ -1280,7 +1280,7 @@ Decide which clusters/candidates should map into existing categories, and which 
         items: list[MemoryItem],
         relations: list[CategoryItem],
         category_updates: dict[str, list[tuple[str, str]]],
-        pending_diary_episode_ids: list[str],
+        pending_episode_ids: list[str],
         session: Any = None,
     ) -> tuple[list[Resource], int]:
         kwargs: dict[str, Any] = {}
@@ -1330,10 +1330,10 @@ Decide which clusters/candidates should map into existing categories, and which 
             items.append(summary_item)
 
         entries = plan.get("entries") or []
-        if plan.get("diary_worthy"):
+        if plan.get("notable"):
             episode_id = str(plan.get("episode_id") or "").strip()
             if episode_id:
-                pending_diary_episode_ids.append(episode_id)
+                pending_episode_ids.append(episode_id)
         if not entries:
             return [res], 0
 
@@ -1369,7 +1369,7 @@ Decide which clusters/candidates should map into existing categories, and which 
         items: list[MemoryItem] = []
         relations: list[CategoryItem] = []
         category_updates: dict[str, list[tuple[str, str]]] = {}
-        pending_diary_episode_ids: list[str] = []
+        pending_episode_ids: list[str] = []
         user_scope = state.get("user", {})
         category_centroids = self._build_category_centroids(store=store, user=user_scope)
         homeless_item_count = 0
@@ -1386,7 +1386,7 @@ Decide which clusters/candidates should map into existing categories, and which 
             items=items,
             relations=relations,
             category_updates=category_updates,
-            pending_diary_episode_ids=pending_diary_episode_ids,
+            pending_episode_ids=pending_episode_ids,
         )
 
         session_cm = self._sqlite_write_session(store)
@@ -1413,7 +1413,7 @@ Decide which clusters/candidates should map into existing categories, and which 
             "relations": relations,
             "category_updates": category_updates,
             "homeless_item_count": homeless_item_count,
-            "pending_diary_episode_ids": list(dict.fromkeys(x for x in pending_diary_episode_ids if x)),
+            "pending_episode_ids": list(dict.fromkeys(x for x in pending_episode_ids if x)),
         })
         return state
 
@@ -1455,7 +1455,7 @@ Decide which clusters/candidates should map into existing categories, and which 
                 "items": items,
                 "categories": categories,
                 "relations": relations,
-                "pending_diary_episode_ids": state.get("pending_diary_episode_ids", []),
+                "pending_episode_ids": state.get("pending_episode_ids", []),
             }
         else:
             response = {
@@ -1463,7 +1463,7 @@ Decide which clusters/candidates should map into existing categories, and which 
                 "items": items,
                 "categories": categories,
                 "relations": relations,
-                "pending_diary_episode_ids": state.get("pending_diary_episode_ids", []),
+                "pending_episode_ids": state.get("pending_episode_ids", []),
             }
         skipped = state.get("skipped_reasons")
         if skipped:
@@ -1617,24 +1617,24 @@ Decide which clusters/candidates should map into existing categories, and which 
             return [], False, None
         memorable = payload.get("memorable")
         routed_types = payload.get("types")
-        diary_worthy = bool(payload.get("diary_worthy"))
+        notable = bool(payload.get("notable"))
         reason = payload.get("reason", "")
         episode_summary = str(payload.get("episode_summary") or "").strip() or None
         if memorable is False:
             if skipped_reasons is not None and reason:
                 skipped_reasons.append(reason)
-            return [], diary_worthy, episode_summary
+            return [], notable, episode_summary
         if not isinstance(routed_types, list):
             logger.warning("Router returned no types list, skipping episode")
             if skipped_reasons is not None:
                 skipped_reasons.append("router returned no types list")
-            return [], diary_worthy, episode_summary
+            return [], notable, episode_summary
         allowed_types = {
             routed_type
             for routed_type in routed_types
             if isinstance(routed_type, str) and routed_type in set(memory_types)
         }
-        return [mtype for mtype in memory_types if mtype in allowed_types], diary_worthy, episode_summary
+        return [mtype for mtype in memory_types if mtype in allowed_types], notable, episode_summary
 
     async def _generate_entries_from_text(
         self,
@@ -2755,7 +2755,7 @@ Decide which clusters/candidates should map into existing categories, and which 
     @staticmethod
     def _extract_message_indices(text: str | None) -> list[int]:
         # Empty return = "no `[N] ` prefix lines found". Callers
-        # (_prepare_diary_episode, _memorize_memory_type) treat [] as "no
+        # (_prepare_episode, _memorize_memory_type) treat [] as "no
         # episode metadata available" and fall back to the full range.
         if not isinstance(text, str) or not text.strip():
             return []
@@ -3125,7 +3125,7 @@ Decide which clusters/candidates should map into existing categories, and which 
                 return happened_at
         return None
 
-    def _prepare_diary_episode(
+    def _prepare_episode(
         self,
         *,
         modality: str,

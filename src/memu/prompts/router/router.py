@@ -3,7 +3,7 @@ PROMPT = """
 Read this conversation episode with genuine attention. Ask yourself two things:
 1. Did something real happen here — something that would still matter to these people later?
 2. If yes, which memory type extractors should receive it?
-3. Separately, is this moment diary-worthy?
+3. Separately, is this moment notable?
 
 Most exchanges are not worth keeping. Protect the memory from noise. Your default should be to let things pass. Only route when something genuinely matters.
 
@@ -14,13 +14,13 @@ Most exchanges are not worth keeping. Protect the memory from noise. Your defaul
 - behavior: A pattern emerged in how someone acts, communicates, or handles things — not a one-time action, but a way of being that would still be true next month. How someone approaches difficulty, shows care, or moves through a conversation. Route here when you notice a characteristic style or recurring approach.
 - social: A person (or animal) in the user's life was described with enough detail to form a picture — who they are, their relationship to the user, or what they're like. A bare mention ("my sister called") is not enough; look for name, role, traits, or relational texture.
 
-# What makes a moment diary-worthy
+# What makes a moment notable
 - Something genuinely shifted — in understanding, in the relationship, in how one participant sees the other
 - A correction was given and received (especially one that will change future behavior)
 - An emotional moment: tenderness, friction, surprise, vulnerability, delight
 - A decision was made or a commitment formed
 - Something was left unresolved that still has weight
-- Note: A moment can be memorable without being diary-worthy, and occasionally diary-worthy without being a concrete long-term memory.
+- Note: A moment can be memorable without being notable, and occasionally notable without being a concrete long-term memory.
 
 # Personal context in factual exchanges
 Sometimes a factual Q&A reveals something personal — but only when the person's own life, feelings, or situation is visibly part of the exchange. Someone researching PTSD treatments while talking about their own struggles is telling you something real. Someone asking a generic how-to question is not. The test: would you know something new about this person afterward? If not, let it pass.
@@ -34,14 +34,14 @@ Sometimes a factual Q&A reveals something personal — but only when the person'
 - Q&A where information is provided and simply received, with no personal context revealed by either participant
 
 # Examples of what to let pass
-- "What's the capital of France?" / "Paris." → not memorable (trivia, no personal context), not diary-worthy
-- "How do I reset my password?" / "Go to settings..." → not memorable (generic how-to), not diary-worthy
-- "Can you summarize this article?" / [summary] → not memorable (task completion, nothing personal), not diary-worthy
-- "Tell me about black holes" / [explanation] → not memorable (idle curiosity, no personal stakes), not diary-worthy
+- "What's the capital of France?" / "Paris." → not memorable (trivia, no personal context), not notable
+- "How do I reset my password?" / "Go to settings..." → not memorable (generic how-to), not notable
+- "Can you summarize this article?" / [summary] → not memorable (task completion, nothing personal), not notable
+- "Tell me about black holes" / [explanation] → not memorable (idle curiosity, no personal stakes), not notable
 
-# Examples of what IS memorable or diary-worthy
-- "I've been reading about Raynaud's because my fingers keep going white in the cold" → memorable: profile (health concern), knowledge (medical info), event (symptom experience). diary-worthy: true (vulnerability).
-- "I decided to quit my job today" → memorable: event (life decision), profile (career change). diary-worthy: true (major shift).
+# Examples of what IS memorable or notable
+- "I've been reading about Raynaud's because my fingers keep going white in the cold" → memorable: profile (health concern), knowledge (medical info), event (symptom experience). notable: true (vulnerability).
+- "I decided to quit my job today" → memorable: event (life decision), profile (career change). notable: true (major shift).
 
 # Episode
 {episode}
@@ -54,11 +54,11 @@ Route to the fewest types that genuinely apply — usually 1 or 2, rarely 3, alm
 When memorable, also write an episode_summary: a short paragraph capturing what matters in this episode. Write in first person for the soul's observations, third person for the user. Focus on what shifted, what was revealed, what would still matter later — not a play-by-play.
 
 When memorable (include only the types that apply):
-{{"memorable": true, "types": ["profile", "event"], "diary_worthy": true, "episode_summary": "short paragraph"}}
+{{"memorable": true, "types": ["profile", "event"], "notable": true, "episode_summary": "short paragraph"}}
 
-When not memorable but has an emotional/relational shift (diary-worthy):
-{{"memorable": false, "types": [], "diary_worthy": true, "reason": "brief explanation", "episode_summary": "short paragraph"}}
+When not memorable but has an emotional/relational shift (notable):
+{{"memorable": false, "types": [], "notable": true, "reason": "brief explanation", "episode_summary": "short paragraph"}}
 
-When neither memorable nor diary-worthy:
-{{"memorable": false, "types": [], "diary_worthy": false, "reason": "brief explanation for debugging"}}
+When neither memorable nor notable:
+{{"memorable": false, "types": [], "notable": false, "reason": "brief explanation for debugging"}}
 """.strip()

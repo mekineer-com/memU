@@ -149,7 +149,7 @@ confidence (float 0.0-1.0):
 - 0.5 or below - inferred or uncertain
 
 reflection_salience (float 0.0-1.0):
-Would this moment belong in a diary? How much would it stay with someone?
+How much would this moment stay with someone?
 - 0.9+ - a turning point; something that changed a relationship, a decision, or a sense of self
 - 0.7-0.9 - emotionally meaningful; worth sitting with later
 - 0.4-0.7 - real but unremarkable; good to have recorded

@@ -166,7 +166,7 @@ CREATE TABLE IF NOT EXISTS memu_conversation_state (
     prior_context TEXT,
     active_intentions JSON,
     memory_cache JSON DEFAULT '[]',
-    pending_diary_episode_ids JSON DEFAULT '[]',
+    pending_episode_ids JSON DEFAULT '[]',
     self_model_id VARCHAR,
     last_retrieval_ids JSON,
     last_memorize_at DATETIME,
@@ -191,8 +191,8 @@ CREATE TABLE IF NOT EXISTS memu_conversation_state (
                 self._add_column_if_missing(
                     conn,
                     "memu_conversation_state",
-                    "pending_diary_episode_ids",
-                    "pending_diary_episode_ids JSON DEFAULT '[]'",
+                    "pending_episode_ids",
+                    "pending_episode_ids JSON DEFAULT '[]'",
                 )
                 self._add_column_if_missing(conn, "memu_conversation_state", "self_model_id", "self_model_id VARCHAR")
                 self._add_column_if_missing(
@@ -211,7 +211,7 @@ CREATE TABLE IF NOT EXISTS memu_conversation_state (
         except Exception:
             return
 
-    def _ensure_diary_tables(self) -> None:
+    def _ensure_self_model_tables(self) -> None:
         try:
             with self._sessions.engine.begin() as conn:
                 conn.exec_driver_sql(
@@ -466,7 +466,7 @@ WHERE {self._missing_scope_expr(field)}
         # Also create tables from our custom metadata
         self._sqla_models.Base.metadata.create_all(self._sessions.engine)
         self._ensure_conversation_state_table()
-        self._ensure_diary_tables()
+        self._ensure_self_model_tables()
         self._ensure_triple_indexes()
         self._ensure_fts_table()
         self._backfill_graph_scope()
