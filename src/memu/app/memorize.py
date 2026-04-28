@@ -530,20 +530,6 @@ class MemorizeMixin:
                     continue
 
                 store.memory_item_repo.update_item(item_id=redundant.id, merged_into=survivor.id)
-                if self.memorize_config.enable_item_reinforcement:
-                    rolled_count = self._item_reinforcement_count(survivor) + self._item_reinforcement_count(redundant)
-                    reinforced_at = pendulum.now("UTC").isoformat()
-                    store.memory_item_repo.update_item(
-                        item_id=survivor.id,
-                        extra={
-                            "reinforcement_count": rolled_count,
-                            "last_reinforced_at": reinforced_at,
-                        },
-                    )
-                    survivor_extra = dict(getattr(survivor, "extra", {}) or {})
-                    survivor_extra["reinforcement_count"] = rolled_count
-                    survivor_extra["last_reinforced_at"] = reinforced_at
-                    survivor.extra = survivor_extra
                 merged_map[redundant.id] = survivor.id
                 active_pool.pop(redundant.id, None)
                 if redundant.id == new_item_id:
@@ -1999,7 +1985,6 @@ Decide which clusters/candidates should map into existing categories, and which 
                 category_centroids=category_centroids,
             )
 
-        reinforce = self.memorize_config.enable_item_reinforcement
         structured_entries = await self._maybe_create_dynamic_categories(
             structured_entries=structured_entries,
             item_embeddings=item_embeddings,
@@ -2026,7 +2011,6 @@ Decide which clusters/candidates should map into existing categories, and which 
                 "summary": resolved_summary,
                 "embedding": emb,
                 "user_data": dict(user or {}),
-                "reinforce": reinforce,
                 "source_role": entry.source_role,
                 "speaker_id": entry.speaker_id,
                 "speaker_label": entry.speaker_label,
@@ -2074,14 +2058,9 @@ Decide which clusters/candidates should map into existing categories, and which 
                     source_memory_id=item.id,
                 ), user_data=dict(user or {}), session=session)
             mapped_cat_ids = self._map_category_names_to_ids(entry.categories, ctx)
-            reinforcement_count = self._item_reinforcement_count(item)
-            update_summary = self._category_update_summary_text(resolved_summary, reinforcement_count)
-            if update_summary:
+            if resolved_summary.strip():
                 for cid in mapped_cat_ids:
-                    category_memory_updates.setdefault(cid, []).append((item.id, update_summary))
-                    if reinforce and reinforcement_count > 1:
-                        # Existing reinforced item: no new relation row, but still update category context.
-                        continue
+                    category_memory_updates.setdefault(cid, []).append((item.id, resolved_summary))
                     rel_kwargs = {"item_id": item.id, "category_id": cid, "user_data": dict(user or {})}
                     if session is not None:
                         rel = cast(Any, store.category_item_repo).link_item_category(**rel_kwargs, session=session)
@@ -2207,27 +2186,6 @@ Decide which clusters/candidates should map into existing categories, and which 
                 mapped.append(cid)
                 seen.add(cid)
         return mapped
-
-    @staticmethod
-    def _item_reinforcement_count(item: MemoryItem) -> int:
-        extra = getattr(item, "extra", None)
-        if not isinstance(extra, dict):
-            return 1
-        raw = extra.get("reinforcement_count")
-        try:
-            count = int(raw)
-        except (TypeError, ValueError):
-            return 1
-        return count if count > 1 else 1
-
-    @staticmethod
-    def _category_update_summary_text(summary: str, reinforcement_count: int) -> str:
-        text = (summary or "").strip()
-        if not text:
-            return ""
-        if reinforcement_count <= 1:
-            return text
-        return f"[reinforced {reinforcement_count}x] {text}"
 
     async def _preprocess_resource_url(
         self, *, local_path: str, text: str | None, modality: str, llm_client: Any | None = None

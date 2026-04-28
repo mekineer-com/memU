@@ -10,7 +10,7 @@ from typing import Any
 import pendulum
 from sqlmodel import delete, select
 
-from memu.database.models import MemoryItem, MemoryType, compute_content_hash
+from memu.database.models import MemoryItem, MemoryType
 from memu.database.repositories.memory_item import MemoryItemRepo
 from memu.database.sqlite.repositories.base import SQLiteRepoBase
 from memu.database.sqlite.schema import SQLiteSQLAModels
@@ -267,7 +267,6 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
         summary: str,
         embedding: list[float],
         user_data: dict[str, Any],
-        reinforce: bool = False,
         tool_record: dict[str, Any] | None = None,
         source_role: str | None = None,
         speaker_id: str | None = None,
@@ -281,40 +280,6 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
         unresolved: str | None = None,
         session: Any | None = None,
     ) -> MemoryItem:
-        """Create a new memory item.
-
-        Args:
-            resource_id: Associated resource ID.
-            memory_type: Type of memory.
-            summary: Memory summary text.
-            embedding: Embedding vector.
-            user_data: User scope data.
-            reinforce: If True, reinforce existing item instead of creating duplicate.
-            tool_record: Tool-related fields (when_to_use, metadata, tool_calls) to store in extra.
-
-        Returns:
-            Created MemoryItem object.
-        """
-        if reinforce and memory_type != "tool":
-            return self.create_item_reinforce(
-                resource_id=resource_id,
-                memory_type=memory_type,
-                summary=summary,
-                embedding=embedding,
-                user_data=user_data,
-                source_role=source_role,
-                speaker_id=speaker_id,
-                speaker_label=speaker_label,
-                confidence=confidence,
-                source_message_ids=source_message_ids,
-                happened_at=happened_at,
-                reflection_salience=reflection_salience,
-                conversation_id=conversation_id,
-                episode_id=episode_id,
-                unresolved=unresolved,
-                session=session,
-            )
-
         if session is None:
             with self._sessions.session() as session:
                 item = self.create_item(
@@ -323,7 +288,6 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
                     summary=summary,
                     embedding=embedding,
                     user_data=user_data,
-                    reinforce=reinforce,
                     tool_record=tool_record,
                     source_role=source_role,
                     speaker_id=speaker_id,
@@ -381,156 +345,6 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
         self._fts_upsert(session, row.id, summary, memory_type)
 
         return self._to_memory_item(row, embedding=embedding, scope=user_data)
-
-    def create_item_reinforce(
-        self,
-        *,
-        resource_id: str | None = None,
-        memory_type: MemoryType,
-        summary: str,
-        embedding: list[float],
-        user_data: dict[str, Any],
-        source_role: str | None = None,
-        speaker_id: str | None = None,
-        speaker_label: str | None = None,
-        confidence: float | None = None,
-        source_message_ids: list[int] | None = None,
-        happened_at: datetime | None = None,
-        reflection_salience: float | None = None,
-        conversation_id: str | None = None,
-        episode_id: str | None = None,
-        unresolved: str | None = None,
-        session: Any | None = None,
-    ) -> MemoryItem:
-        """Create or reinforce a memory item with deduplication.
-
-        If an item with the same content hash exists in the same scope,
-        reinforce it instead of creating a duplicate.
-
-        Args:
-            resource_id: Associated resource ID.
-            memory_type: Type of memory.
-            summary: Memory summary text.
-            embedding: Embedding vector.
-            user_data: User scope data.
-
-        Returns:
-            Created or reinforced MemoryItem object.
-        """
-        from sqlalchemy import func
-
-        content_hash = compute_content_hash(summary, memory_type)
-        conv_id = self._resolve_conversation_id(conversation_id, user_data)
-
-        if session is None:
-            with self._sessions.session() as session:
-                item = self.create_item_reinforce(
-                    resource_id=resource_id,
-                    memory_type=memory_type,
-                    summary=summary,
-                    embedding=embedding,
-                    user_data=user_data,
-                    source_role=source_role,
-                    speaker_id=speaker_id,
-                    speaker_label=speaker_label,
-                    confidence=confidence,
-                    source_message_ids=source_message_ids,
-                    happened_at=happened_at,
-                    reflection_salience=reflection_salience,
-                    conversation_id=conversation_id,
-                    episode_id=episode_id,
-                    unresolved=unresolved,
-                    session=session,
-                )
-                session.commit()
-                return item
-
-        # Check for existing item with same hash in same scope (deduplication)
-        # Use json_extract(extra, '$.content_hash') for query
-        content_hash_col = func.json_extract(self._memory_item_model.extra, "$.content_hash")
-        filters = [content_hash_col == content_hash]
-        filters.extend(self._build_filters(self._memory_item_model, user_data))
-        active_filter = self._active_item_filter(self._memory_item_model)
-        if active_filter is not None:
-            filters.append(active_filter)
-
-        existing = session.exec(select(self._memory_item_model).where(*filters)).first()
-
-        if existing:
-            # Reinforce existing memory instead of creating duplicate
-            current_extra = existing.extra or {}
-            current_count = current_extra.get("reinforcement_count", 1)
-            existing.extra = {
-                **current_extra,
-                "reinforcement_count": current_count + 1,
-                "last_reinforced_at": self._now().isoformat(),
-            }
-            if source_role is not None:
-                existing.source_role = source_role
-            if speaker_id is not None:
-                existing.speaker_id = speaker_id
-            if speaker_label is not None:
-                existing.speaker_label = speaker_label
-            if confidence is not None:
-                existing.confidence = confidence
-            if source_message_ids is not None:
-                existing.source_message_ids = source_message_ids
-            if happened_at is not None and existing.happened_at is None:
-                existing.happened_at = happened_at
-            if reflection_salience is not None:
-                existing.reflection_salience = reflection_salience
-            if conv_id is not None:
-                existing.conversation_id = conv_id
-            if episode_id is not None:
-                existing.episode_id = episode_id
-            if unresolved is not None:
-                existing.unresolved = unresolved
-            existing.updated_at = self._now()
-            session.add(existing)
-            session.flush()
-            session.refresh(existing)
-            self._fts_upsert(session, existing.id, existing.summary, existing.memory_type)
-            return self._to_memory_item(existing)
-
-        # Create new item with salience tracking in extra
-        now = self._now()
-        create_user_data = dict(user_data or {})
-        create_user_data.pop("conversation_id", None)
-        item_extra = create_user_data.pop("extra", {}) if "extra" in create_user_data else {}
-        item_extra.update({
-            "content_hash": content_hash,
-            "reinforcement_count": 1,
-            "last_reinforced_at": now.isoformat(),
-        })
-
-        row = self._memory_item_model(
-            resource_id=resource_id,
-            memory_type=memory_type,
-            summary=summary,
-            embedding=None,
-            source_role=source_role,
-            speaker_id=speaker_id,
-            speaker_label=speaker_label,
-            confidence=confidence,
-            source_message_ids=source_message_ids,
-            happened_at=happened_at,
-            reflection_salience=reflection_salience,
-            conversation_id=conv_id,
-            episode_id=episode_id,
-            unresolved=unresolved,
-            extra=item_extra,
-            created_at=now,
-            updated_at=now,
-            **create_user_data,
-        )
-        self._set_row_embedding(row, embedding)
-
-        session.add(row)
-        session.flush()
-        session.refresh(row)
-        self._fts_upsert(session, row.id, summary, memory_type)
-
-        return self._to_memory_item(row, embedding=embedding)
 
     def update_item(
         self,
@@ -738,15 +552,9 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
             if not candidate_ids:
                 return []
 
-            from sqlalchemy import func
-
             with self._sessions.session() as session:
-                reinforcement_col = func.json_extract(self._memory_item_model.extra, "$.reinforcement_count")
-                last_reinforced_col = func.json_extract(self._memory_item_model.extra, "$.last_reinforced_at")
                 stmt = select(
                     self._memory_item_model.id,
-                    reinforcement_col,
-                    last_reinforced_col,
                     self._memory_item_model.reflection_salience,
                 ).where(self._memory_item_model.id.in_(candidate_ids))
                 active_filter = self._active_item_filter(self._memory_item_model)
@@ -754,20 +562,14 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
                     stmt = stmt.where(active_filter)
                 rows = session.exec(stmt).all()
 
-            metadata: dict[str, tuple[int, pendulum.DateTime | None, float]] = {}
-            for item_id, reinforcement_raw, last_reinforced_raw, reflection_salience_raw in rows:
-                reinforcement_count = int(reinforcement_raw) if reinforcement_raw is not None else 1
-                reflection_salience = float(reflection_salience_raw) if reflection_salience_raw is not None else 0.5
-                metadata[item_id] = (
-                    reinforcement_count,
-                    self._parse_datetime(last_reinforced_raw),
-                    reflection_salience,
-                )
+            salience_map: dict[str, float] = {
+                item_id: float(sal) if sal is not None else 0.5
+                for item_id, sal in rows
+            }
 
             candidates: list[tuple[str, float, int, datetime | None, float]] = []
             for item_id, score in hits[:vector_k]:
-                reinforcement_count, last_reinforced_at, reflection_salience = metadata.get(item_id, (1, None, 0.5))
-                candidates.append((item_id, score, reinforcement_count, last_reinforced_at, reflection_salience))
+                candidates.append((item_id, score, 1, None, salience_map.get(item_id, 0.5)))
 
             return rerank_by_salience(candidates, recency_decay_days=recency_decay_days)[:top_k]
 

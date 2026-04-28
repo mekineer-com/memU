@@ -276,10 +276,6 @@ class MemorizeConfig(BaseModel):
         default=False,
         description="Enable inline [ref:ITEM_ID] citations in category summaries linking to source memory items.",
     )
-    enable_item_reinforcement: bool = Field(
-        default=False,
-        description="Enable reinforcement tracking for memory items.",
-    )
     semantic_dedupe_enabled: bool = Field(
         default=True,
         description="Enable conservative post-persist semantic dedupe in memorize workflow.",
