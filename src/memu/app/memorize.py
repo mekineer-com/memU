@@ -58,6 +58,7 @@ class StructuredMemoryEntry(NamedTuple):
     confidence: float | None
     source_message_ids: list[int]
     reflection_salience: float | None
+    emotional_intensity: float | None = None
     replaces_previous_fact: str | None = None
     entities: list[dict[str, str]] | None = None
     speaker_id: str | None = None
@@ -1618,6 +1619,7 @@ Decide which clusters/candidates should map into existing categories, and which 
                 )
 
                 reflection_salience = self._normalize_reflection_salience(entry.get("reflection_salience"))
+                emotional_intensity = self._normalize_reflection_salience(entry.get("emotional_intensity"))
                 replaces_previous_fact = self._normalize_replaces_previous_fact(entry.get("replaces_previous_fact"))
                 entities = entry.get("entities")
 
@@ -1638,6 +1640,7 @@ Decide which clusters/candidates should map into existing categories, and which 
                         confidence,
                         source_message_ids,
                         reflection_salience,
+                        emotional_intensity,
                         replaces_previous_fact,
                         entities,
                         parsed_speaker_id,
@@ -1906,6 +1909,7 @@ Decide which clusters/candidates should map into existing categories, and which 
                 "source_message_ids": entry.source_message_ids,
                 "happened_at": self._resolve_entry_happened_at(entry.source_message_ids, message_happened_at_map),
                 "reflection_salience": entry.reflection_salience,
+                "emotional_intensity": entry.emotional_intensity,
                 "conversation_id": conversation_id,
                 "episode_id": episode_id,
             }
@@ -3154,6 +3158,15 @@ Decide which clusters/candidates should map into existing categories, and which 
                 reflection_salience = None
             if reflection_salience is not None and 0.0 <= reflection_salience <= 1.0:
                 memory_dict["reflection_salience"] = reflection_salience
+
+        ei_elem = memory_elem.find("emotional_intensity")
+        if ei_elem is not None and ei_elem.text:
+            try:
+                emotional_intensity = float(ei_elem.text.strip())
+            except (TypeError, ValueError):
+                emotional_intensity = None
+            if emotional_intensity is not None and 0.0 <= emotional_intensity <= 1.0:
+                memory_dict["emotional_intensity"] = emotional_intensity
 
         replaces_previous_fact_elem = memory_elem.find("replaces_previous_fact")
         if replaces_previous_fact_elem is not None and replaces_previous_fact_elem.text:

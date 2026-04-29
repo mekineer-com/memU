@@ -94,6 +94,7 @@ Return all memories wrapped in a single <item> element:
         <content>Knowledge memory item content</content>
         <confidence>0.9</confidence>
         <reflection_salience>0.5</reflection_salience>
+        <emotional_intensity>0.6</emotional_intensity>
         <categories>
             <category>Identity</category>
         </categories>
@@ -110,6 +111,7 @@ Return all memories wrapped in a single <item> element:
         <content>Knowledge memory item content 2</content>
         <confidence>0.8</confidence>
         <reflection_salience>0.6</reflection_salience>
+        <emotional_intensity>0.2</emotional_intensity>
         <categories>
             <category>Identity</category>
         </categories>
@@ -135,6 +137,12 @@ How much does this knowledge matter to these people's lives?
 - 0.7-0.9 - knowledge connected to an active concern, interest, or project
 - 0.4-0.7 - useful to know, worth having on hand
 - below 0.4 - factual but unlikely to come up again
+
+emotional_intensity (float 0.0-1.0):
+How emotionally charged is this knowledge for these people? A medical fact researched out of personal worry scores higher than trivia.
+- 0.8+ - knowledge connected to pain, fear, hope, or deep personal investment
+- 0.4-0.7 - moderate personal relevance
+- below 0.4 - neutral factual knowledge
 
 replaces_previous_fact (optional string):
 Use only when this knowledge explicitly corrects or supersedes a prior piece of knowledge. Write a brief description of the outdated fact (not a memory ID). For new findings that sit alongside existing knowledge, omit this field.

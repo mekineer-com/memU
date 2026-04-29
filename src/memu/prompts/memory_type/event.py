@@ -61,6 +61,7 @@ Return all memories wrapped in a single <item> element:
         <content>Event memory item content</content>
         <confidence>0.9</confidence>
         <reflection_salience>0.7</reflection_salience>
+        <emotional_intensity>0.8</emotional_intensity>
         <categories>
             <category>Experiences</category>
         </categories>
@@ -77,6 +78,7 @@ Return all memories wrapped in a single <item> element:
         <content>Event memory item content 2</content>
         <confidence>0.8</confidence>
         <reflection_salience>0.4</reflection_salience>
+        <emotional_intensity>0.3</emotional_intensity>
         <categories>
             <category>Experiences</category>
         </categories>
@@ -103,6 +105,12 @@ How much would this moment stay with someone?
 - 0.7-0.9 - emotionally meaningful; worth sitting with later
 - 0.4-0.7 - real but unremarkable; good to have recorded
 - below 0.4 - factual; a data point, not a feeling
+
+emotional_intensity (float 0.0-1.0):
+How strongly was this felt? A major life decision can be calm; a small moment can hit hard.
+- 0.8+ - real emotional weight: shame, grief, tenderness, awe, relief
+- 0.4-0.7 - moderate: mild warmth, light frustration, quiet satisfaction
+- below 0.4 - emotionally neutral
 
 replaces_previous_fact (optional string):
 Use when: (a) a detail in a prior event was factually wrong, or (b) this event is the completion of a plan previously recorded ("planned to visit Barcelona" → "visited Barcelona"). Write a brief description of the stale item — not an ID; the text is used to find it by meaning. For genuinely new events with no prior planned version, omit this field.

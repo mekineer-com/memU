@@ -9,7 +9,7 @@ from typing import Any, Literal
 import pendulum
 from pydantic import BaseModel, ConfigDict, Field
 
-MemoryType = Literal["profile", "event", "knowledge", "behavior", "social", "affect", "skill", "tool", "narrative_self", "subconscious", "reflection"]
+MemoryType = Literal["profile", "event", "knowledge", "behavior", "social", "skill", "tool", "narrative_self", "subconscious", "reflection"]
 
 EntityType = Literal["person", "topic", "place", "project"]
 
@@ -101,6 +101,7 @@ class MemoryItem(BaseRecord):
     confidence: float | None = None
     source_message_ids: list[int] | None = None
     reflection_salience: float | None = None
+    emotional_intensity: float | None = None
     # Conversation anchor.
     conversation_id: str | None = None
     episode_id: str | None = None

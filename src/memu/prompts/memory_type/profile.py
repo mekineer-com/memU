@@ -62,6 +62,7 @@ Return all memories wrapped in a single <item> element:
         <content>Memory item content</content>
         <confidence>0.9</confidence>
         <reflection_salience>0.6</reflection_salience>
+        <emotional_intensity>0.3</emotional_intensity>
         <categories>
             <category>Identity</category>
         </categories>
@@ -78,6 +79,7 @@ Return all memories wrapped in a single <item> element:
         <content>Memory item content 2</content>
         <confidence>0.8</confidence>
         <reflection_salience>0.3</reflection_salience>
+        <emotional_intensity>0.7</emotional_intensity>
         <categories>
             <category>Preferences</category>
         </categories>
@@ -104,6 +106,12 @@ How much does this memory illuminate who someone truly is?
 - 0.4-0.7 - useful to know, but not the heart of the person
 - below 0.4 - factual; good to have, not worth dwelling on
 Most items in any conversation are background — it's healthy for at least half to land below 0.6. Save the high scores for what genuinely shifts the picture.
+
+emotional_intensity (float 0.0-1.0):
+How strongly was this felt? Not importance — intensity. A calm fact can be highly important but emotionally flat. A fleeting moment can be low-importance but emotionally vivid.
+- 0.8+ - something that carried real emotional weight: shame, grief, tenderness, awe, relief
+- 0.4-0.7 - present but moderate: mild warmth, light frustration, quiet satisfaction
+- below 0.4 - emotionally neutral: factual, observational, no charge
 
 replaces_previous_fact (optional string):
 Use only for factual corrections — when the old fact was simply wrong, not when facts evolved over time. Write a brief description of the outdated fact (not a memory ID). For progressions (facts that were true but have since changed), omit this field and bake the history into the content field instead.

@@ -43,6 +43,7 @@ Return all memories wrapped in a single <item> element:
         <content>Brief portrait of the person and their relationship to the user</content>
         <confidence>0.9</confidence>
         <reflection_salience>0.7</reflection_salience>
+        <emotional_intensity>0.6</emotional_intensity>
         <categories>
             <category>Relationships</category>
         </categories>
@@ -74,6 +75,12 @@ How important is this person to understanding the user's world?
 - 0.7-0.9 — an important recurring presence
 - 0.4-0.7 — a named but peripheral figure
 - below 0.4 — context only
+
+emotional_intensity (float 0.0-1.0):
+How emotionally charged is this person's presence in the user's world?
+- 0.8+ - someone who carries deep emotional weight: love, grief, conflict, devotion
+- 0.4-0.7 - meaningful but not emotionally central
+- below 0.4 - neutral acquaintance or contextual mention
 
 entities (optional):
 Tag the specific people, places, topics, or projects this memory references.

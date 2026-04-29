@@ -59,6 +59,7 @@ Return all memories wrapped in a single <item> element:
         <content>Behavior memory item content</content>
         <confidence>0.9</confidence>
         <reflection_salience>0.6</reflection_salience>
+        <emotional_intensity>0.2</emotional_intensity>
         <categories>
             <category>Identity</category>
         </categories>
@@ -75,6 +76,7 @@ Return all memories wrapped in a single <item> element:
         <content>Behavior memory item content 2</content>
         <confidence>0.8</confidence>
         <reflection_salience>0.7</reflection_salience>
+        <emotional_intensity>0.5</emotional_intensity>
         <categories>
             <category>Identity</category>
         </categories>
@@ -100,6 +102,12 @@ How much does knowing this pattern help someone be better with this person?
 - 0.7-0.9 - a meaningful pattern that affects how to approach this person
 - 0.4-0.7 - useful to know, but not critical for the relationship
 - below 0.4 - a minor habit or stylistic preference
+
+emotional_intensity (float 0.0-1.0):
+How emotionally charged is this pattern? A coping behavior born from pain scores higher than a neutral communication habit.
+- 0.8+ - emotionally driven: the pattern exists because something hurts, soothes, or matters deeply
+- 0.4-0.7 - moderate charge
+- below 0.4 - neutral habit
 
 replaces_previous_fact (optional string):
 Use only when a prior behavioral observation was genuinely wrong — not when a pattern has shifted over time. Write a brief description of the outdated observation (not a memory ID). For behavioral evolutions, omit this field and capture the shift in the content field instead.
