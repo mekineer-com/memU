@@ -72,29 +72,7 @@ class CategoryConfig(BaseModel):
 
 
 def _default_memory_categories() -> list[CategoryConfig]:
-    return [
-        CategoryConfig.model_validate(cat)
-        for cat in (
-            {
-                "name": "participant_profiles",
-                "description": "Stable profile information about participants (user, assistant, or others).",
-            },
-            {
-                "name": "participant_preferences",
-                "description": "Preferences, likes, and dislikes expressed by participants.",
-            },
-            {
-                "name": "relationship_dynamics",
-                "description": "Relationship context, role asymmetries, and interaction patterns between participants.",
-            },
-            {"name": "activities", "description": "Activities, hobbies, and interests."},
-            {"name": "experiences", "description": "Past experiences and events."},
-            {"name": "knowledge", "description": "Knowledge, facts, and learned information."},
-            {"name": "opinions", "description": "Opinions, viewpoints, and perspectives."},
-            {"name": "habits", "description": "Habits, routines, and patterns."},
-            {"name": "work_life", "description": "Work or project-related information."},
-        )
-    ]
+    return []
 
 
 class LazyLLMSource(BaseModel):
