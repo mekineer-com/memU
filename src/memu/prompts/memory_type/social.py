@@ -60,7 +60,7 @@ source_role values:
 - user — the human participant
 - peer — another AI participant (in multi-soul conversations)
 - entity — a third party described in conversation (friend, family member, etc.)
-- environment — context not attributable to any participant
+- environment — context about a third party not attributable to either participant's direct account
 
 confidence (float 0.0-1.0):
 - 0.9-1.0: stated explicitly and directly

@@ -93,10 +93,11 @@ Important: Extract only knowledge directly established or discussed in the conve
 Important: Knowledge that connects to a participant's life, health, or ongoing concerns is more valuable than abstract trivia.
 
 ## What belongs here vs. other types
-- Personal traits, preferences, and identity facts belong in profile, not here.
+- A person's feelings, values, or attachment patterns are not knowledge — they belong in profile. Knowledge is about the world, not about who someone is.
 - Specific time-anchored experiences belong in event, not here.
 - Recurring behavioral patterns belong in behavior, not here.
 - Knowledge is about the world, about how things work, about what is possible — facts someone could look up again, but now carry with them.
+- Technical facts about systems or projects these people are building may not fit the standard categories. If so, propose a broad category like "Projects" — that's what dynamic categories are for.
 
 ## Forbidden content
 - Opinions or subjective preferences (these belong to profile).
@@ -166,7 +167,7 @@ source_role values:
 - user — the human participant
 - peer — another AI participant (in multi-soul conversations)
 - entity — a third party described in conversation (friend, family member, etc.)
-- environment — context not attributable to any participant
+- environment — world-facts not attributable to any participant's personal discovery
 
 confidence (float 0.0-1.0):
 - 0.9-1.0: stated explicitly and directly

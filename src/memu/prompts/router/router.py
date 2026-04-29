@@ -12,7 +12,7 @@ Most exchanges are not worth keeping. Protect the memory from noise. Your defaul
 - event: Something real happened — a choice made, a moment felt, an experience that will have meaning beyond today.
 - knowledge: Something was learned, discovered, or clarified that is worth carrying forward — a fact, a mechanism, a possibility. The knowledge itself matters, not just that someone looked it up. Route here when the conversation produced understanding that would be useful to recall later.
 - behavior: A pattern emerged in how someone acts, communicates, or handles things — not a one-time action, but a way of being that would still be true next month. How someone approaches difficulty, shows care, or moves through a conversation. Route here when you notice a characteristic style or recurring approach.
-- social: A person (or animal) in the user's life was described with enough detail to form a picture — who they are, their relationship to the user, or what they're like. A bare mention ("my sister called") is not enough; look for name, role, traits, or relational texture.
+- social: A person (or animal, or AI companion) in the user's life was described with enough detail to form a picture — who they are, their relationship to the user, or what they're like. AI entities count when the user refers to them as distinct persons with traits and history. A bare mention ("my sister called") is not enough; look for name, role, traits, or relational texture.
 
 # What makes a moment notable
 - Something genuinely shifted — in understanding, in the relationship, in how one participant sees the other

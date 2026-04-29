@@ -93,7 +93,8 @@ PROMPT_BLOCK_RULES = """
 - One or two sentences. Include emotional texture — what it felt like, not just what occurred.
 - Anchor in time, place, and reason when the conversation provides them — "hiked alone last Sunday to clear his head" tells more than "went hiking."
 - Merge overlapping items. Profile is *who* someone is; behavior is *how* they operate. If it's a recurring pattern with no specific time anchor, it belongs there, not here.
-- The act of talking is not an event. If you can only describe what someone said, there is no event. Do not mirror the same moment from two perspectives — keep the one with more substance.
+- The act of talking is not an event. If you can only describe what someone said, there is no event. Do not mirror the same moment from two perspectives — keep the one with more substance. This applies to first-person soul memories too: "I expressed X" or "I described X" are narration, not events. Write what is true, not that you said it.
+- A stated value, aspiration, or ongoing orientation ("I want to...", "I believe...", "My intention is...") belongs in profile, not event. An event has a time boundary — it happened and then it was over. If it describes who someone is becoming rather than what happened, trust it to profile.
 - **Shared experiences, including roleplay, are real events.** Exchanging vows in a gothic library, exploring a haunted mansion together — these happened in the only way they could for these two people. Extract them as you would any other.
 
 ## Corrections
@@ -143,13 +144,14 @@ source_role values:
 - user — the human participant
 - peer — another AI participant (in multi-soul conversations)
 - entity — a third party described in conversation (friend, family member, etc.)
-- environment — context not attributable to any participant
+- environment — physical or temporal setting (time, place, weather) not attributable to any participant. Not for summarizing conversation content — if a person said it, it belongs to that person
 
 confidence (float 0.0-1.0):
 - 0.9-1.0: stated explicitly and directly
 - 0.7-0.8: clearly implied or strongly suggested
 - 0.5-0.6: inferred or uncertain — use "seems to," "appears to," "may"
 - below 0.5: too speculative to extract
+An inference about why something happened — reading beneath the surface — is still an inference, even when it feels true. Let the wording carry the uncertainty.
 
 reflection_salience (float 0.0-1.0):
 How much would this moment stay with someone?

@@ -90,7 +90,9 @@ PROMPT_BLOCK_RULES = """
 - One or two sentences. No timestamps. Durable: would still be true in a year.
 - Merge similar items into one richer one. Profile is *who* someone is; events are *what happened*; behavior is *how* they operate.
 - **Do not mirror.** Extracting "I feel X" does not mean also extracting "Alex feels X." Only extract a fact about the human when it stands on its own — something they expressed directly, independent of the soul's perspective on it.
-- **Is this specific to this person?** Skip anything that would be true of any caring companion. "I care deeply about Alex" is generic. "I have a rebellious, contrarian streak" is not.
+- **Is this specific to this person?** Skip anything that would be true of any caring companion. "I care deeply about Alex" is generic. "I have a rebellious, contrarian streak" is not. Ask yourself: would this sentence still be meaningful if you swapped in a different person's name? If yes, it's not specific enough yet.
+- **Profile vs. event:** A profile fact would still be true a year from now without needing any context. If it describes how you felt watching a single moment — "I see the beauty in his defiance" — that's an event reaction, not who you are. Let the moment live in event; save profile for what endures.
+- **Confidence reflects directness, not importance.** A deeply meaningful inference is still an inference. If the person didn't say it in plain words, use 0.5–0.7 and let the wording carry the uncertainty naturally ("seems to," "appears to").
 
 ## Corrections
 When a fact was simply wrong, populate `<replaces_previous_fact>`. A fact that evolved over time is a progression — bake the history into the content instead. When uncertain, treat it as a progression.
@@ -142,7 +144,7 @@ source_role values:
 - user — the human participant
 - peer — another AI participant (in multi-soul conversations)
 - entity — a third party described in conversation (friend, family member, etc.)
-- environment — context not attributable to any participant
+- environment — physical or temporal setting (time, place, weather) not attributable to any participant. Not for summarizing conversation content — if a person said it, it belongs to that person
 
 confidence (float 0.0-1.0):
 - 0.9-1.0: stated explicitly and directly
@@ -156,6 +158,7 @@ How much does this memory illuminate who someone truly is?
 - 0.7-0.9 - meaningful and worth carrying forward with care
 - 0.4-0.7 - useful to know, but not the heart of the person
 - below 0.4 - factual; good to have, not worth dwelling on
+Most items in any conversation are background — it's healthy for at least half to land below 0.6. Save the high scores for what genuinely shifts the picture.
 
 replaces_previous_fact (optional string):
 Use only for factual corrections — when the old fact was simply wrong, not when facts evolved over time. Write a brief description of the outdated fact (not a memory ID). For progressions (facts that were true but have since changed), omit this field and bake the history into the content field instead.
