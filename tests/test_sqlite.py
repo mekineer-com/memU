@@ -70,11 +70,6 @@ async def main():
         result_rag = await service.retrieve(queries=queries, where={"user_id": "123"})
         _print_results("RAG", result_rag)
 
-        # LLM-based retrieval
-        service.retrieve_config.method = "llm"
-        result_llm = await service.retrieve(queries=queries, where={"user_id": "123"})
-        _print_results("LLM", result_llm)
-
         print("\n[SQLITE] Test completed!")
 
     finally:

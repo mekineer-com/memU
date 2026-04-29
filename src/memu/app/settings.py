@@ -167,7 +167,7 @@ class RetrieveGraphConfig(BaseModel):
 
 
 class RetrieveConfig(BaseModel):
-    method: Annotated[Literal["rag", "llm"], Normalize] = "rag"
+    method: Annotated[Literal["rag"], Normalize] = "rag"
     category: RetrieveCategoryConfig = Field(default=RetrieveCategoryConfig())
     item: RetrieveItemConfig = Field(default=RetrieveItemConfig())
     resource: RetrieveResourceConfig = Field(default=RetrieveResourceConfig())
@@ -195,11 +195,6 @@ class MemorizeConfig(BaseModel):
     memory_categories: list[CategoryConfig] = Field(
         default_factory=_default_memory_categories,
         description="Global memory category definitions embedded at service startup.",
-    )
-    # Category policy: allow the model to introduce new category names at runtime (they will be created on first use)
-    allow_dynamic_categories: bool = Field(
-        default=False,
-        description="If true, unknown category names returned by the model will be created automatically (up to max_categories_total).",
     )
     dynamic_category_cluster_size: int = Field(
         default=3,

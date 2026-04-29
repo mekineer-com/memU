@@ -333,8 +333,6 @@ class MemoryService(MemorizeMixin, RetrieveMixin):
         rag_workflow = self._build_rag_retrieve_workflow()
         retrieve_initial_keys = self._list_retrieve_initial_keys()
         self._pipelines.register("retrieve_rag", rag_workflow, initial_state_keys=retrieve_initial_keys)
-        llm_workflow = self._build_llm_retrieve_workflow()
-        self._pipelines.register("retrieve_llm", llm_workflow, initial_state_keys=retrieve_initial_keys)
 
     async def _run_workflow(self, workflow_name: str, initial_state: WorkflowState) -> WorkflowState:
         """Execute a workflow through the configured runner backend."""

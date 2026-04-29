@@ -1736,9 +1736,6 @@ Decide which clusters/candidates should map into existing categories, and which 
         user: Mapping[str, Any] | None = None,
         session: Any | None = None,
     ) -> list[StructuredMemoryEntry]:
-        if not getattr(self.memorize_config, "allow_dynamic_categories", False):
-            return structured_entries
-
         await self._ensure_categories_ready(ctx, store, user)
 
         max_total = int(getattr(self.memorize_config, "max_categories_total", 0) or 0)
@@ -2299,17 +2296,15 @@ Decide which clusters/candidates should map into existing categories, and which 
                 lines.append(f"- {name}: {desc}" if desc else f"- {name}")
             base = "\n".join(lines)
 
-        if getattr(self.memorize_config, "allow_dynamic_categories", False):
-            max_total = int(getattr(self.memorize_config, "max_categories_total", 0) or 0)
-            policy = str(getattr(self.memorize_config, "dynamic_category_policy", "") or "").strip()
-            note = "\n\n" + (policy + "\n\n" if policy else "")
-            note += (
-                "If none of the existing categories fit, you may propose a NEW category name. "
-                "Keep it broad (a life domain), not a specific event. "
-                f"Max total categories: {max_total or 'unlimited'}."
-            )
-            return base + note
-        return base
+        max_total = int(getattr(self.memorize_config, "max_categories_total", 0) or 0)
+        policy = str(getattr(self.memorize_config, "dynamic_category_policy", "") or "").strip()
+        note = "\n\n" + (policy + "\n\n" if policy else "")
+        note += (
+            "If none of the existing categories fit, you may propose a NEW category name. "
+            "Keep it broad (a life domain), not a specific event. "
+            f"Max total categories: {max_total or 'unlimited'}."
+        )
+        return base + note
 
     def _format_soul_context_for_prompt(
         self,
@@ -2353,8 +2348,7 @@ Decide which clusters/candidates should map into existing categories, and which 
         if not template:
             return resource_text
 
-        if getattr(self.memorize_config, "allow_dynamic_categories", False):
-            template = re.sub(r"(?im)^.*do not create new memory categories.*\n?", "", template)
+        template = re.sub(r"(?im)^.*do not create new memory categories.*\n?", "", template)
         safe_resource = self._escape_prompt_value(resource_text)
         safe_categories = self._escape_prompt_value(categories_str)
         safe_soul_context = self._escape_prompt_value(soul_context_str)

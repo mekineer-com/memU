@@ -58,21 +58,6 @@ async def main():
         for res in result_rag.get("resources", [])[:3]:
             print(f"    - [{res.get('modality')}] {res.get('url', '')[:80]}...")
 
-    # LLM-based retrieval
-    print("\n[POSTGRES] RETRIEVED - LLM")
-    service.retrieve_config.method = "llm"
-    result_llm = await service.retrieve(queries=queries, where={"user_id": "123"})
-    print("  Categories:")
-    for cat in result_llm.get("categories", [])[:3]:
-        print(f"    - {cat.get('name')}: {(cat.get('summary') or cat.get('description', ''))[:80]}...")
-    print("  Items:")
-    for item in result_llm.get("items", [])[:3]:
-        print(f"    - [{item.get('memory_type')}] {item.get('summary', '')[:100]}...")
-    if result_llm.get("resources"):
-        print("  Resources:")
-        for res in result_llm.get("resources", [])[:3]:
-            print(f"    - [{res.get('modality')}] {res.get('url', '')[:80]}...")
-
     print("\n[POSTGRES] Test completed!")
 
 

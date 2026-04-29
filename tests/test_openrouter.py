@@ -4,7 +4,6 @@ Test OpenRouter integration with MemU's full workflow.
 Tests:
 1. Conversation memorization using OpenRouter
 2. RAG-based retrieval using OpenRouter embeddings
-3. LLM-based retrieval using OpenRouter
 
 Usage:
     export OPENROUTER_API_KEY=your_api_key
@@ -125,18 +124,17 @@ async def test_openrouter_full_workflow():
 
     await _test_memorize(service, file_path, output_data)
     await _test_retrieve(service, queries, "rag", 2, output_data)
-    await _test_retrieve(service, queries, "llm", 3, output_data)
 
-    # Test 4: List memory items
-    print("\n[OPENROUTER] Test 4: List memory items...")
+    # Test 3: List memory items
+    print("\n[OPENROUTER] Test 3: List memory items...")
     items_result = await service.list_memory_items(where={"user_id": "openrouter_test_user"})
     items_list = items_result.get("items", [])
     print(f"  Listed {len(items_list)} memory items")
     output_data["list_items"] = items_result
     assert len(items_list) > 0, "Expected at least 1 item in list"
 
-    # Test 5: List memory categories
-    print("\n[OPENROUTER] Test 5: List memory categories...")
+    # Test 4: List memory categories
+    print("\n[OPENROUTER] Test 4: List memory categories...")
     cats_result = await service.list_memory_categories(where={"user_id": "openrouter_test_user"})
     cats_list = cats_result.get("categories", [])
     print(f"  Listed {len(cats_list)} categories")
