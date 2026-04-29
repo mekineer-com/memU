@@ -98,31 +98,15 @@ class MemoryService(MemorizeMixin, RetrieveMixin):
         self._register_pipelines()
 
     def _init_llm_client(self, config: LLMConfig | None = None) -> Any:
-        """Initialize LLM client based on configuration."""
         cfg = config or self.llm_config
-        backend = cfg.client_backend
-        if backend == "sdk":
-            from memu.llm.openai_sdk import OpenAISDKClient
-
-            return OpenAISDKClient(
-                base_url=cfg.base_url,
-                api_key=cfg.api_key,
-                chat_model=cfg.chat_model,
-                embed_model=cfg.embed_model,
-                embed_batch_size=cfg.embed_batch_size,
-            )
-        elif backend == "httpx":
-            return HTTPLLMClient(
-                base_url=cfg.base_url,
-                api_key=cfg.api_key,
-                chat_model=cfg.chat_model,
-                provider=cfg.provider,
-                endpoint_overrides=cfg.endpoint_overrides,
-                embed_model=cfg.embed_model,
-            )
-        else:
-            msg = f"Unknown llm_client_backend '{cfg.client_backend}'"
-            raise ValueError(msg)
+        return HTTPLLMClient(
+            base_url=cfg.base_url,
+            api_key=cfg.api_key,
+            chat_model=cfg.chat_model,
+            provider=cfg.provider,
+            endpoint_overrides=cfg.endpoint_overrides,
+            embed_model=cfg.embed_model,
+        )
 
     def _get_llm_base_client(self, profile: str | None = None) -> Any:
         """
