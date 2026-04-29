@@ -22,7 +22,7 @@ PREDICATES = Literal[
 class BaseRecord(BaseModel):
     """Backend-agnostic record interface."""
 
-    id: str = Field(default_factory=lambda: secrets.token_hex(4))
+    id: str = Field(default_factory=lambda: secrets.token_hex(8))
     created_at: datetime = Field(default_factory=lambda: pendulum.now("UTC"))
     updated_at: datetime = Field(default_factory=lambda: pendulum.now("UTC"))
 

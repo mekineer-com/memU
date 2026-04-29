@@ -238,14 +238,6 @@ class MemorizeConfig(BaseModel):
         default=3,
         description="Minimum number of homeless items that must cluster together (by embedding similarity) before that cluster becomes a new dynamic category.",
     )
-    category_centroid_threshold: float = Field(
-        default=0.65,
-        description="Minimum cosine similarity to any existing category centroid before keeping an existing-category assignment.",
-    )
-    homeless_trigger_count: int = Field(
-        default=10,
-        description="How many homeless items must accumulate before memu attempts clustering them into a new dynamic category.",
-    )
     max_categories_total: int = Field(
         default=12,
         description="Maximum total number of categories allowed (configured + dynamically created).",

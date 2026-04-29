@@ -27,7 +27,7 @@ class TZDateTime(DateTime):
 
 class BaseModelMixin(SQLModel):
     id: str = Field(
-        default_factory=lambda: secrets.token_hex(4),
+        default_factory=lambda: secrets.token_hex(8),
         primary_key=True,
         index=True,
         sa_type=String,
