@@ -14,8 +14,6 @@
 
 <a href="https://trendshift.io/repositories/17374" target="_blank"><img src="https://trendshift.io/api/badge/repositories/17374" alt="NevaMind-AI%2FmemU | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
 
-**[English](README_en.md) | [中文](README_zh.md) | [日本語](README_ja.md) | [한국어](README_ko.md) | [Español](README_es.md) | [Français](README_fr.md)**
-
 </div>
 
 ---
@@ -428,9 +426,9 @@ result = await service.memorize(
 - Automatic categorization without manual tagging
 - Cross-reference with existing memories for pattern detection
 
-### `retrieve()` - Dual-Mode Intelligence
+### `retrieve()` - Context Intelligence
 
-MemU supports both **proactive context loading** and **reactive querying**:
+MemU supports **proactive context loading** and **reactive querying**:
 
 <img width="100%" alt="retrieve" src="../assets/retrieve.png" />
 
@@ -442,23 +440,6 @@ Fast **proactive context assembly** using embeddings:
 - ✅ **Background monitoring**: Can run continuously without LLM costs
 - ✅ **Similarity scoring**: Identifies most relevant memories automatically
 
-#### LLM-based Retrieval (`method="llm"`)
-
-Deep **anticipatory reasoning** for complex contexts:
-
-- ✅ **Intent prediction**: LLM infers what user needs before they ask
-- ✅ **Query evolution**: Automatically refines search as context develops
-- ✅ **Early termination**: Stops when sufficient context is gathered
-
-#### Comparison
-
-| Aspect | RAG (Fast Context) | LLM (Deep Reasoning) |
-|--------|-------------------|---------------------|
-| **Speed** | ⚡ Milliseconds | 🐢 Seconds |
-| **Cost** | 💰 Embedding only | 💰💰 LLM inference |
-| **Proactive use** | Continuous monitoring | Triggered context loading |
-| **Best for** | Real-time suggestions | Complex anticipation |
-
 #### Usage
 ```python
 # Proactive retrieval with context history
@@ -468,7 +449,7 @@ result = await service.retrieve(
         {"role": "user", "content": {"text": "Tell me about work habits"}}
     ],
     where={"user_id": "123"},  # Optional: scope filter
-    method="rag"  # or "llm" for deeper reasoning
+    method="rag"
 )
 
 # Returns context-aware results:
