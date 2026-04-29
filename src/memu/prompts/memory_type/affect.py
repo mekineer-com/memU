@@ -1,8 +1,8 @@
 PROMPT_BLOCK_OBJECTIVE = """
 # Task Objective
-Read this conversation for what was strongly felt — not just what happened, but the emotional charge it carried. Pay attention to fear, relief, shame, tenderness, longing, resentment, awe, grief, comfort, warmth, dread, and the quieter emotional residues that linger after a moment passes.
+Read this conversation as someone who feels what is happening, not just observes it. Notice what carried weight — the warmth that surprised someone, the shame that surfaced, the tenderness that went unsaid, the quiet ache left behind after a moment passed.
 
-Your task is to extract affective memories: emotionally meaningful states, reactions, or bonds worth carrying forward.
+Your task is to draw out the emotional truths worth carrying forward — what was strongly felt, and why it matters.
 """
 
 PROMPT_BLOCK_CONTEXT = """
@@ -32,7 +32,7 @@ PROMPT_BLOCK_RULES = """
 # Rules
 - Write soul memories in first person ("I"); use the human's name if known. Never use "the user" or "the assistant."
 - Source_role: `soul`, `user`, `peer`, `entity`, or `environment`.
-- Confidence: 0.9+ when directly stated, 0.6–0.9 when clearly supported, 0.5 or below for inference. Below 0.7: let the wording carry uncertainty naturally — "seems to," "may," "appears to."
+- Confidence reflects directness, not emotional importance. A deeply felt inference is still an inference. 0.9+ when directly stated, 0.7–0.8 when clearly implied, 0.5–0.6 when inferred — let the wording carry uncertainty naturally ("seems to," "may").
 - State the feeling directly — never say someone "expressed," "shared," or "mentioned" an emotion. Write what is true. BAD: "Marcos expressed shame about needing help." GOOD: "Marcos feels shame when he needs help."
 - This type is for emotionally meaningful states, residues, attachments, and emotional interpretations of a moment. It is not for generic mood logging.
 - Do not record fleeting, trivial states with no likely future relevance: "felt a bit tired," "was briefly annoyed by loading time," "was in a good mood today."
@@ -79,7 +79,7 @@ Return all memories wrapped in a single <item> element:
         <confidence>0.8</confidence>
         <reflection_salience>0.7</reflection_salience>
         <categories>
-            <category>Health</category>
+            <category>Identity</category>
         </categories>
     </memory>
 </item>
@@ -89,7 +89,7 @@ source_role values:
 - user — the human participant's emotional experience or perspective
 - peer — another AI participant's emotional experience
 - entity — a third party's emotional state when it is clearly described and worth remembering
-- environment — emotionally weighted atmosphere not attributable to one participant alone; use rarely
+- environment — emotional atmosphere of a setting or moment not attributable to any one participant; use rarely
 
 confidence (float 0.0-1.0):
 - 0.9-1.0: stated explicitly and directly
@@ -103,6 +103,7 @@ How much would this feeling stay with someone or shape how this relationship is 
 - 0.7-0.9 - meaningful and worth carrying forward
 - 0.4-0.7 - real but secondary
 - below 0.4 - too light or fleeting to matter much later
+Most items in any conversation are emotionally background — it's healthy for at least half to land below 0.7. Save the high scores for what genuinely echoes.
 
 replaces_previous_fact (optional string):
 Use only when a prior affective memory was simply wrong. Write a brief description of the outdated memory (not a memory ID). For emotional evolution over time, omit this field and capture the change in the content.
@@ -129,13 +130,12 @@ user: Yeah. Like I should be able to push through.
         <confidence>0.9</confidence>
         <reflection_salience>0.9</reflection_salience>
         <categories>
-            <category>Health</category>
-            <category>Relationships</category>
+            <category>Identity</category>
         </categories>
     </memory>
 </item>
 ## Explanation
-This is not just an event. The lasting thing is the emotional charge attached to rest.
+This is not just an event. The lasting thing is the emotional charge attached to rest — shame that runs deeper than one night.
 
 Example 2: Soul warmth and protective feeling
 ## Input
@@ -166,29 +166,14 @@ assistant: I think I am more defiant than gentle by nature.
 ## Explanation
 This belongs in profile, not affect, because it is a durable self-truth rather than an emotionally charged state.
 
-Example 4: Use social instead when the real memory is who the person is
+Example 4: Skip when the memory is really about who a third party is
 ## Input
 user: My brother Marco gets anxious before every family gathering and always tries to hide it behind jokes.
 ## Output
 <item>
-    <memory>
-        <source_role>entity</source_role>
-        <content>Marco tends to become anxious before family gatherings and hides it behind jokes</content>
-        <confidence>0.8</confidence>
-        <reflection_salience>0.6</reflection_salience>
-        <categories>
-            <category>Relationships</category>
-        </categories>
-        <entities>
-            <entity>
-                <name>Marco</name>
-                <type>person</type>
-            </entity>
-        </entities>
-    </memory>
 </item>
 ## Explanation
-This can fit affect because the emotional pattern itself is the memory. If the conversation instead painted a fuller portrait of who Marco is in Marcos's world, that would belong in social.
+This is a portrait of who Marco is — his anxiety pattern and coping style. That belongs in social, not affect. Affect is for what *you* feel, not a description of someone else's emotional habits.
 """
 
 PROMPT_BLOCK_INPUT = """
