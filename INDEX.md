@@ -33,7 +33,7 @@
 
 | Directory | Files | Purpose |
 |-----------|-------|---------|
-| `memory_type/` | `profile.py`, `event.py`, `behavior.py`, `knowledge.py`, `social.py` | Per-type extraction prompts (PROMPT + CUSTOM_PROMPT). These five are active (DEFAULT_MEMORY_TYPES). `skill.py`, `tool.py`, `diary.py` exist but are not active extraction types. |
+| `memory_type/` | `profile.py`, `event.py`, `behavior.py`, `knowledge.py`, `social.py`, `affect.py` | Per-type extraction prompts (PROMPT + CUSTOM_PROMPT). These six are active (DEFAULT_MEMORY_TYPES). `skill.py` and `tool.py` exist but are not active extraction types. |
 | `memory_type/__init__.py` | — | PROMPTS dict, DEFAULT_MEMORY_TYPES list |
 | `preprocess/` | `conversation.py`, `document.py`, `image.py`, `audio.py`, `video.py` | Input normalization per modality |
 | `router/router.py` | — | Classify input → memory type(s) and `diary_worthy` flag in one pass |

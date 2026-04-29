@@ -3181,7 +3181,7 @@ Decide which clusters/candidates should map into existing categories, and which 
         Parse XML memory extraction output into a list of memory items.
 
         Expected XML format (root tag varies by memory type):
-        <item|profile|behaviors|events|knowledge|social|skills>
+        <item|profile|behaviors|events|knowledge|social|affect|skills>
             <memory>
                 <content>...</content>
                 <categories>

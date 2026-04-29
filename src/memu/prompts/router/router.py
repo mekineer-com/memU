@@ -13,6 +13,7 @@ Most exchanges are not worth keeping. Protect the memory from noise. Your defaul
 - knowledge: Something was learned, discovered, or clarified that is worth carrying forward — a fact, a mechanism, a possibility. The knowledge itself matters, not just that someone looked it up. Route here when the conversation produced understanding that would be useful to recall later.
 - behavior: A pattern emerged in how someone acts, communicates, or handles things — not a one-time action, but a way of being that would still be true next month. How someone approaches difficulty, shows care, or moves through a conversation. Route here when you notice a characteristic style or recurring approach.
 - social: A person (or animal, or AI companion) in the user's life was described with enough detail to form a picture — who they are, their relationship to the user, or what they're like. AI entities count when the user refers to them as distinct persons with traits and history. A bare mention ("my sister called") is not enough; look for name, role, traits, or relational texture.
+- affect: Something emotionally meaningful was strongly felt or carried — shame, relief, grief, warmth, fear, tenderness, resentment, longing, awe. Use this when the emotional charge itself is worth remembering, not just the event or identity fact around it.
 
 # What makes a moment notable
 - Something genuinely shifted — in understanding, in the relationship, in how one participant sees the other
@@ -49,7 +50,7 @@ Sometimes a factual Q&A reveals something personal — but only when the person'
 # Output
 JSON only. No explanation. No markdown.
 Return only types from this allowed set: {allowed_types}
-Route to the fewest types that genuinely apply — usually 1 or 2, rarely 3, almost never all 5.
+Route to the fewest types that genuinely apply — usually 1 or 2, rarely 3, almost never all 6.
 
 When memorable, also write an episode_summary: a short paragraph capturing what matters in this episode. Write in first person for the soul's observations, third person for the user. Focus on what shifted, what was revealed, what would still matter later — not a play-by-play.
 
