@@ -85,7 +85,7 @@ class LLMConfig(BaseModel):
     chat_model: str = Field(default="")
     client_backend: str = Field(
         default="httpx",
-        description="Which LLM client backend to use: 'httpx' or 'sdk' (official OpenAI).",
+        description="Which LLM client backend to use (httpx).",
     )
     endpoint_overrides: dict[str, str] = Field(
         default_factory=dict,
@@ -97,7 +97,7 @@ class LLMConfig(BaseModel):
     )
     embed_batch_size: int = Field(
         default=1,
-        description="Maximum batch size for embedding API calls (used by SDK client backends).",
+        description="Maximum batch size for embedding API calls.",
     )
 
     @model_validator(mode="after")
