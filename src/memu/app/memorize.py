@@ -847,104 +847,8 @@ class MemorizeMixin:
         ordered = sorted(candidate_scores.items(), key=lambda row: (-row[1], row[0]))
         return [candidate_id for candidate_id, _score in ordered[:64]]
 
-    def _build_category_centroids(
-        self,
-        *,
-        store: Database,
-        user: Mapping[str, Any] | None = None,
-    ) -> dict[str, list[float]]:
-        where = dict(user or {}) if isinstance(user, Mapping) else {}
-        relations = store.category_item_repo.list_relations(where)
-        if not relations:
-            return {}
-
-        items_by_id = store.memory_item_repo.list_items(where)
-        if not items_by_id:
-            return {}
-
-        sums: dict[str, list[float]] = {}
-        counts: dict[str, int] = {}
-        for rel in relations:
-            item = items_by_id.get(rel.item_id)
-            if item is None or self._is_merged_item(item):
-                continue
-            embedding = self._item_embedding(item)
-            if embedding is None:
-                continue
-            total = sums.get(rel.category_id)
-            if total is None:
-                sums[rel.category_id] = list(embedding)
-                counts[rel.category_id] = 1
-                continue
-            if len(total) != len(embedding):
-                continue
-            for idx, value in enumerate(embedding):
-                total[idx] += value
-            counts[rel.category_id] = counts.get(rel.category_id, 0) + 1
-
-        centroids: dict[str, list[float]] = {}
-        for category_id, total in sums.items():
-            count = counts.get(category_id, 0)
-            if count <= 0:
-                continue
-            centroids[category_id] = [value / count for value in total]
-        return centroids
-
-    def _apply_category_centroid_gate(
-        self,
-        *,
-        structured_entries: list[StructuredMemoryEntry],
-        item_embeddings: Sequence[Any],
-        ctx: Context,
-        category_centroids: Mapping[str, Sequence[float]],
-    ) -> tuple[list[StructuredMemoryEntry], set[int]]:
-        if not structured_entries or not category_centroids:
-            return structured_entries, set()
-
-        threshold = max(0.0, min(1.0, float(getattr(self.memorize_config, "category_centroid_threshold", 0.65) or 0.65)))
-
-        updated: list[StructuredMemoryEntry] = []
-        gated_indexes: set[int] = set()
-
-        for idx, (entry, raw_embedding) in enumerate(zip(structured_entries, item_embeddings, strict=True)):
-            cat_names = entry.categories
-            embedding = self._normalize_embedding_vector(raw_embedding)
-            if embedding is None:
-                updated.append(entry)
-                continue
-
-            existing_names: list[str] = []
-            unknown_names: list[str] = []
-            for name in cat_names or []:
-                key = name.strip().lower()
-                if key and key in ctx.category_name_to_id:
-                    existing_names.append(name)
-                else:
-                    unknown_names.append(name)
-            if not existing_names:
-                updated.append(entry)
-                continue
-
-            max_similarity: float | None = None
-            for centroid in category_centroids.values():
-                if len(centroid) != len(embedding):
-                    continue
-                similarity = self._cosine_similarity(embedding, centroid)
-                if max_similarity is None or similarity > max_similarity:
-                    max_similarity = similarity
-
-            if max_similarity is None or max_similarity >= threshold:
-                updated.append(entry)
-                continue
-
-            gated_indexes.add(idx)
-            updated.append(entry._replace(categories=unknown_names))
-
-        return updated, gated_indexes
-
     def _dynamic_category_cluster_threshold(self) -> float:
-        base = float(getattr(self.memorize_config, "category_centroid_threshold", 0.65) or 0.65)
-        return max(0.7, min(0.9, base + 0.1))
+        return 0.75
 
     def _dynamic_category_cluster_min_size(self) -> int:
         cluster_size = int(getattr(self.memorize_config, "dynamic_category_cluster_size", 3) or 3)
@@ -1259,7 +1163,6 @@ Decide which clusters/candidates should map into existing categories, and which 
         local_path: str | None,
         ctx: Any,
         store: Any,
-        category_centroids: dict[str, Any],
         embed_client: Any,
         user_scope: dict[str, Any],
         conversation_id: str | None,
@@ -1331,7 +1234,6 @@ Decide which clusters/candidates should map into existing categories, and which 
             structured_entries=entries,
             ctx=ctx,
             store=store,
-            category_centroids=category_centroids,
             embed_client=embed_client,
             user=user_scope,
             conversation_id=conversation_id,
@@ -1357,7 +1259,6 @@ Decide which clusters/candidates should map into existing categories, and which 
         category_updates: dict[str, list[tuple[str, str]]] = {}
         pending_episode_ids: list[str] = []
         user_scope = state.get("user", {})
-        category_centroids = self._build_category_centroids(store=store, user=user_scope)
         homeless_item_count = 0
 
         common = dict(
@@ -1365,7 +1266,6 @@ Decide which clusters/candidates should map into existing categories, and which 
             local_path=local_path,
             ctx=ctx,
             store=store,
-            category_centroids=category_centroids,
             embed_client=embed_client,
             user_scope=user_scope,
             conversation_id=state.get("conversation_id"),
@@ -1960,7 +1860,6 @@ Decide which clusters/candidates should map into existing categories, and which 
         structured_entries: list[StructuredMemoryEntry],
         ctx: Context,
         store: Database,
-        category_centroids: Mapping[str, Sequence[float]] | None = None,
         embed_client: Any | None = None,
         user: Mapping[str, Any] | None = None,
         conversation_id: str | None = None,
@@ -1974,16 +1873,7 @@ Decide which clusters/candidates should map into existing categories, and which 
         items: list[MemoryItem] = []
         rels: list[CategoryItem] = []
         category_memory_updates: dict[str, list[tuple[str, str]]] = {}
-        centroid_gated_indexes: set[int] = set()
         superseded_targets: set[str] = set()
-
-        if category_centroids:
-            structured_entries, centroid_gated_indexes = self._apply_category_centroid_gate(
-                structured_entries=structured_entries,
-                item_embeddings=item_embeddings,
-                ctx=ctx,
-                category_centroids=category_centroids,
-            )
 
         structured_entries = await self._maybe_create_dynamic_categories(
             structured_entries=structured_entries,
@@ -1994,9 +1884,7 @@ Decide which clusters/candidates should map into existing categories, and which 
             user=user,
             session=session,
         )
-        homeless_count = sum(
-            1 for idx, entry in enumerate(structured_entries) if idx in centroid_gated_indexes and not entry[2]
-        )
+        homeless_count = sum(1 for entry in structured_entries if not entry.categories)
         supersede_targets = await self._find_supersede_targets(
             structured_entries=structured_entries,
             store=store,
