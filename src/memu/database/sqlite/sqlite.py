@@ -318,6 +318,18 @@ WHERE (m.merged_into IS NULL OR TRIM(m.merged_into) = '')
         except Exception:
             logger.warning("Triple index creation failed", exc_info=True)
 
+    def _ensure_memory_item_columns(self) -> None:
+        try:
+            with self._sessions.engine.begin() as conn:
+                self._add_column_if_missing(
+                    conn,
+                    "memu_memory_items",
+                    "emotional_intensity",
+                    "emotional_intensity REAL",
+                )
+        except Exception:
+            logger.warning("Memory-item column ensure failed", exc_info=True)
+
     @staticmethod
     def _missing_scope_expr(column: str) -> str:
         return f"({column} IS NULL OR TRIM({column}) = '')"
@@ -467,6 +479,7 @@ WHERE {self._missing_scope_expr(field)}
         self._sqla_models.Base.metadata.create_all(self._sessions.engine)
         self._ensure_conversation_state_table()
         self._ensure_self_model_tables()
+        self._ensure_memory_item_columns()
         self._ensure_triple_indexes()
         self._ensure_fts_table()
         self._backfill_graph_scope()

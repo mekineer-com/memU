@@ -63,6 +63,7 @@ class MemoryItemModel(BaseModelMixin, MemoryItem):
     confidence: float | None = Field(default=None, sa_column=Column(Float, nullable=True))
     source_message_ids: list[int] | None = Field(default=None, sa_column=Column(JSONB, nullable=True))
     reflection_salience: float | None = Field(default=None, sa_column=Column(Float, nullable=True))
+    emotional_intensity: float | None = Field(default=None, sa_column=Column(Float, nullable=True))
     conversation_id: str | None = Field(default=None, sa_column=Column(String, nullable=True))
     episode_id: str | None = Field(default=None, sa_column=Column(String, nullable=True))
     unresolved: str | None = Field(default=None, sa_column=Column(Text, nullable=True))

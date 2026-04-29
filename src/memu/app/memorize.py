@@ -3193,8 +3193,8 @@ Decide which clusters/candidates should map into existing categories, and which 
         """
         Parse XML memory extraction output into a list of memory items.
 
-        Expected XML format (root tag varies by memory type):
-        <item|profile|behaviors|events|knowledge|social|affect|skills>
+        Expected XML format:
+        <item>
             <memory>
                 <content>...</content>
                 <categories>
@@ -3203,9 +3203,11 @@ Decide which clusters/candidates should map into existing categories, and which 
                 <source_role>user|soul|peer|entity|environment</source_role>  <!-- optional -->
                 <speaker_ref>speaker_id_from_roster</speaker_ref> <!-- optional; only when roster is provided -->
                 <confidence>0.0-1.0</confidence>                 <!-- optional -->
+                <reflection_salience>0.0-1.0</reflection_salience> <!-- optional -->
+                <emotional_intensity>0.0-1.0</emotional_intensity> <!-- optional -->
                 <replaces_previous_fact>older fact text</replaces_previous_fact> <!-- optional -->
             </memory>
-        </...>
+        </item>
         """
         if not raw or not raw.strip():
             return []

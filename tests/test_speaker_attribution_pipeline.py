@@ -76,6 +76,7 @@ def test_attribution_pipeline_fills_user_and_soul_speakers_with_fallback_indices
             confidence=0.8,
             source_message_ids=[],
             reflection_salience=None,
+            emotional_intensity=0.7,
         ),
         StructuredMemoryEntry(
             memory_type="event",
@@ -85,6 +86,7 @@ def test_attribution_pipeline_fills_user_and_soul_speakers_with_fallback_indices
             confidence=0.8,
             source_message_ids=[],
             reflection_salience=None,
+            emotional_intensity=0.2,
         ),
     ]
 
@@ -125,8 +127,10 @@ def test_attribution_pipeline_fills_user_and_soul_speakers_with_fallback_indices
     assert loaded_user.speaker_label == "MarcosDisplay"
     assert loaded_user.source_message_ids == [0, 1, 2]
     assert loaded_user.source_role == "user"
+    assert loaded_user.emotional_intensity == 0.7
 
     assert loaded_soul.speaker_id == "soul:siri"
     assert loaded_soul.speaker_label == "Siri"
     assert loaded_soul.source_message_ids == [0, 1, 2]
     assert loaded_soul.source_role == "soul"
+    assert loaded_soul.emotional_intensity == 0.2

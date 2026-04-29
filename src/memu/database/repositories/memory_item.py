@@ -40,6 +40,7 @@ class MemoryItemRepo(Protocol):
         source_message_ids: list[int] | None = None,
         happened_at: datetime | None = None,
         reflection_salience: float | None = None,
+        emotional_intensity: float | None = None,
         conversation_id: str | None = None,
         episode_id: str | None = None,
         unresolved: str | None = None,
