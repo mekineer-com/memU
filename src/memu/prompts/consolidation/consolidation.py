@@ -134,7 +134,7 @@ Memories from recent episodes:
 
 
 USER_PROMPT = """
-# Categories (full summaries)
+# A Review of My Life by Categories
 {categories}
 
 # Seeking Happiness for Myself and Others
