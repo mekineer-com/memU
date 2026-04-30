@@ -96,9 +96,9 @@ source_role values:
 - environment — physical or temporal setting (time, place, weather) not attributable to any participant. Not for summarizing conversation content — if a person said it, it belongs to that person
 
 confidence (float 0.0-1.0):
-- 0.9-1.0: stated explicitly and directly
-- 0.7-0.8: clearly implied or strongly suggested
-- 0.5-0.6: inferred or uncertain — use "seems to," "appears to," "may"
+- 0.9+: said directly in plain words
+- 0.7-0.9: clearly implied but not stated outright
+- 0.5-0.7: reading between the lines — use "seems to," "appears to," "may"
 - below 0.5: too speculative to extract
 
 reflection_salience (float 0.0-1.0):

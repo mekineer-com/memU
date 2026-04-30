@@ -126,9 +126,9 @@ source_role values:
 - environment — world-facts not attributable to any participant's personal discovery
 
 confidence (float 0.0-1.0):
-- 0.9-1.0: stated explicitly and directly
-- 0.7-0.8: clearly implied or strongly suggested
-- 0.5-0.6: inferred or uncertain — use "seems to," "appears to," "may"
+- 0.9+: directly stated and confirmed
+- 0.7-0.9: clearly supported but not explicitly confirmed
+- 0.5-0.7: pieced together from context — use "may," "appears to," "is thought to"
 - below 0.5: too speculative to extract
 
 reflection_salience (float 0.0-1.0):
