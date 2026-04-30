@@ -1207,6 +1207,15 @@ Decide which clusters/candidates should map into existing categories, and which 
                 **({"session": session} if session is not None else {}),
             )
             items.append(summary_item)
+            if plan.get("notable"):
+                exp_ids = self._map_category_names_to_ids(["Experiences"], ctx)
+                for cid in exp_ids:
+                    rel_kwargs = {"item_id": summary_item.id, "category_id": cid, "user_data": dict(user_scope or {})}
+                    if session is not None:
+                        rel = cast(Any, store.category_item_repo).link_item_category(**rel_kwargs, session=session)
+                    else:
+                        rel = store.category_item_repo.link_item_category(**rel_kwargs)
+                    relations.append(rel)
 
         entries = plan.get("entries") or []
         if plan.get("notable"):
