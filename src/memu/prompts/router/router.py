@@ -8,10 +8,10 @@ Read this conversation episode with genuine attention. Ask yourself two things:
 Most exchanges are not worth keeping. Protect the memory from noise. Your default should be to let things pass. Only route when something genuinely matters.
 
 # What is worth remembering
-- profile: Someone revealed something lasting about who they are — a value, a way of being, a preference or belief that would still be true a year from now.
-- knowledge: Something was learned, discovered, or clarified that is worth carrying forward — a fact, a mechanism, a possibility. The knowledge itself matters, not just that someone looked it up. Route here when the conversation produced understanding that would be useful to recall later.
-- behavior: A pattern emerged in how someone acts, communicates, or handles things — not a one-time action, but a way of being that would still be true next month. How someone approaches difficulty, shows care, or moves through a conversation. Route here when you notice a characteristic style or recurring approach.
+- behavior: Someone showed how they characteristically respond to a situation — how they handle exhaustion, give care, set boundaries, receive vulnerability, approach difficulty, or move through a conversation. If you can frame it as "when X happens, this person does Y," it's behavior. This is the most common type — most meaningful exchanges reveal how people act, not just who they are.
+- profile: Someone revealed something about their identity that you couldn't infer from watching them act — a belief, a value, a self-description, a desire, an origin, a formative experience. The test: would this still be true if you'd never seen them in a conversation? "I'm an engineer who finds wonder in discovery" is profile. "When I'm exhausted, I push through anyway" is behavior. When in doubt between profile and behavior, choose behavior.
 - social: A person (or animal, or AI companion) in the user's life was described with enough detail to form a picture — who they are, their relationship to the user, or what they're like. AI entities count when the user refers to them as distinct persons with traits and history. A bare mention ("my sister called") is not enough; look for name, role, traits, or relational texture.
+- knowledge: Something was learned, discovered, or clarified that is worth carrying forward — a fact, a mechanism, a concept. The knowledge itself matters, not just that someone looked it up. Route here when the conversation produced understanding that would be useful to recall later.
 
 # What makes a moment notable
 - Something genuinely shifted — in understanding, in the relationship, in how one participant sees the other
