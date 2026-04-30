@@ -325,8 +325,7 @@ service = MemUService(
         "default": {
             "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
             "api_key": "your_api_key",
-            "chat_model": "qwen3-max",
-            "client_backend": "sdk"  # "sdk" or "http"
+            "chat_model": "qwen3-max"
         },
         # Separate profile for embeddings
         "embedding": {
@@ -353,7 +352,6 @@ service = MemoryService(
     llm_profiles={
         "default": {
             "provider": "openrouter",
-            "client_backend": "httpx",
             "base_url": "https://openrouter.ai",
             "api_key": "your_openrouter_api_key",
             "chat_model": "anthropic/claude-3.5-sonnet",  # Any OpenRouter model

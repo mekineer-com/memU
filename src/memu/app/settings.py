@@ -83,10 +83,6 @@ class LLMConfig(BaseModel):
     base_url: str = Field(default="https://api.openai.com/v1")
     api_key: str = Field(default="OPENAI_API_KEY")
     chat_model: str = Field(default="")
-    client_backend: str = Field(
-        default="httpx",
-        description="Which LLM client backend to use (httpx).",
-    )
     endpoint_overrides: dict[str, str] = Field(
         default_factory=dict,
         description="Optional overrides for HTTP endpoints (keys: 'chat'/'summary').",
@@ -185,7 +181,7 @@ class MemorizeConfig(BaseModel):
     preprocess_llm_profile: str = Field(default="default", description="LLM profile for preprocess.")
     memory_types: list[str] = Field(
         default_factory=_default_memory_types,
-        description="Ordered list of memory types (profile/event/knowledge/behavior by default).",
+        description="Ordered list of memory types (profile/knowledge/behavior/social by default).",
     )
     memory_type_prompts: dict[str, str | Annotated[CustomPrompt, CompleteMemoryTypePrompt]] = Field(
         default_factory=_default_memory_type_prompts,
