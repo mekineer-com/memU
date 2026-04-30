@@ -381,6 +381,7 @@ class MemorizeMixin:
                 all_categories_summary=state.get("all_categories_summary"),
                 soul_card=state.get("soul_card"),
                 speaker_roster=speaker_roster,
+                message_count=len(message_indices),
                 llm_client=llm_client,
                 skipped_reasons=skipped_reasons,
             )
@@ -1448,6 +1449,7 @@ Decide which clusters/candidates should map into existing categories, and which 
         all_categories_summary: str | None = None,
         soul_card: str | None = None,
         speaker_roster: Sequence[SpeakerRosterEntry] | None = None,
+        message_count: int = 0,
         llm_client: Any | None = None,
         skipped_reasons: list[str] | None = None,
     ) -> list[StructuredMemoryEntry]:
@@ -1462,6 +1464,7 @@ Decide which clusters/candidates should map into existing categories, and which 
             all_categories_summary=all_categories_summary,
             soul_card=soul_card,
             speaker_roster=speaker_roster,
+            message_count=message_count,
             default_source_message_ids=self._extract_message_indices(text)
             if modality == "conversation"
             else None,
@@ -1536,6 +1539,7 @@ Decide which clusters/candidates should map into existing categories, and which 
         all_categories_summary: str | None = None,
         soul_card: str | None = None,
         speaker_roster: Sequence[SpeakerRosterEntry] | None = None,
+        message_count: int = 0,
         default_source_message_ids: list[int] | None = None,
         llm_client: Any | None = None,
     ) -> list[StructuredMemoryEntry]:
@@ -1547,6 +1551,7 @@ Decide which clusters/candidates should map into existing categories, and which 
             all_categories_summary=all_categories_summary,
             soul_card=soul_card,
         )
+        target_items = self._compute_target_items(len(memory_types), message_count)
         typed_prompts = [
             (mtype, self._build_memory_type_prompt(
                 memory_type=mtype,
@@ -1554,6 +1559,7 @@ Decide which clusters/candidates should map into existing categories, and which 
                 categories_str=categories_prompt_str,
                 soul_context_str=soul_context_str,
                 speaker_roster=speaker_roster,
+                target_items=target_items,
             ))
             for mtype in memory_types
         ]
@@ -2301,6 +2307,16 @@ Decide which clusters/candidates should map into existing categories, and which 
             return "No prior knowledge about these participants exists yet."
         return "\n\n".join(sections)
 
+    @staticmethod
+    def _compute_target_items(type_count: int, message_count: int) -> str:
+        if message_count >= 21:
+            targets = {1: "3-6", 2: "3-4", 3: "2-3", 4: "2-3"}
+        elif message_count >= 15:
+            targets = {1: "3-5", 2: "2-4", 3: "1-3", 4: "1-3"}
+        else:
+            targets = {1: "2-4", 2: "1-3", 3: "1-2", 4: "1-2"}
+        return targets.get(min(type_count, 4), "2-4")
+
     def _build_memory_type_prompt(
         self,
         *,
@@ -2309,6 +2325,7 @@ Decide which clusters/candidates should map into existing categories, and which 
         categories_str: str,
         soul_context_str: str,
         speaker_roster: Sequence[SpeakerRosterEntry] | None = None,
+        target_items: str = "2-4",
     ) -> str:
         configured_prompt = self.memorize_config.memory_type_prompts.get(memory_type)
         if configured_prompt is None:
@@ -2332,6 +2349,7 @@ Decide which clusters/candidates should map into existing categories, and which 
             categories_str=safe_categories,
             soul_context=safe_soul_context,
             speaker_roster_block=speaker_roster_block,
+            target_items=target_items,
         )
         if not speaker_roster_block:
             while "\n\n\n" in rendered:

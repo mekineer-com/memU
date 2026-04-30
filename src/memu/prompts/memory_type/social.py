@@ -24,7 +24,7 @@ PROMPT_BLOCK_RULES = """
 - Consolidate everything said about the same person into one memory.
 A memory item is a single clear thought — the kind that surfaces in a quiet moment, not a paragraph you'd have to read twice. One sentence, two if necessary.
 
-**Target: 3–5 items per episode.** If you have more than 5, you haven't merged enough. A shorter list of richer items is always better. Err toward fewer.
+**Target: {target_items} items.** A shorter list of richer items is always better. Err toward fewer.
 """
 
 PROMPT_BLOCK_CATEGORY = """
