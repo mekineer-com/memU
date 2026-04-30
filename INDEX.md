@@ -23,7 +23,7 @@
 | `database/postgres/schema.py` | SQLAlchemy ORM schema (Postgres) + alembic migrations in `postgres/migrations/` |
 | `database/repositories/` | Backend-agnostic Protocol contracts: `memory_item.py`, `memory_category.py`, `resource.py`, `entity.py`, `triple.py`, `category_item.py` |
 | `llm/wrapper.py` | LLM client factory — dispatches to backends |
-| `llm/backends/` | Provider impls: `openai.py`, `openrouter.py`, `grok.py`, `doubao.py` |
+| `llm/backends/` | Provider impls: `openai.py` (httpx-based, covers OpenAI-compatible APIs) |
 | `embedding/` | Embedding client factory + backends (same pattern as llm/) |
 | `workflow/` | DAG runner: `step.py` (unit), `pipeline.py` (graph), `runner.py` (executor) |
 | `blob/local_fs.py` | Local filesystem media storage |
@@ -33,15 +33,14 @@
 
 | Directory | Files | Purpose |
 |-----------|-------|---------|
-| `memory_type/` | `profile.py`, `event.py`, `behavior.py`, `knowledge.py`, `social.py` | Per-type extraction prompts (PROMPT + CUSTOM_PROMPT). These five are active (DEFAULT_MEMORY_TYPES). `skill.py` and `tool.py` exist but are not active extraction types. |
+| `memory_type/` | `profile.py`, `behavior.py`, `knowledge.py`, `social.py` | Per-type extraction prompts (PROMPT + CUSTOM_PROMPT). These four are active (DEFAULT_MEMORY_TYPES). `skill.py` and `tool.py` exist but are not active extraction types. `event.py` removed — episodes are episodic memory; archived to `_archive/event-memory-type/`. |
 | `memory_type/__init__.py` | — | PROMPTS dict, DEFAULT_MEMORY_TYPES list |
 | `preprocess/` | `conversation.py`, `document.py`, `image.py`, `audio.py`, `video.py` | Input normalization per modality |
-| `router/router.py` | — | Classify input → memory type(s) and `diary_worthy` flag in one pass |
+| `router/router.py` | — | Classify input → memory type(s) and `notable` flag in one pass; writes `episode_summary` (resource caption) and optional `episode_item` (condensed 1-2 sentence memory when summary >2 sentences) |
 | `retrieve/` | `query_rewriter.py`, `llm_category_ranker.py`, `llm_item_ranker.py`, `llm_resource_ranker.py`, `judger.py`, `pre_retrieval_decision.py` | Retrieval ranking & judgment |
 | `category_patch/` | `category.py` | Dynamic category update prompts |
 | `category_summary/` | `category.py`, `category_with_refs.py` | Category synthesis; both prompts treat `[reinforced Nx]` markers as frequency signals — instruct LLM to use "often", "frequently", "tends to" rather than treating as a one-off fact |
-| `diary/` | `__init__.py` | Diary prompt package placeholder (consolidation now drives diary writes from server-side orchestration). |
-| `consolidation/` | `consolidation.py` | Consolidation prompt contract (broad review + per-episode diary outputs). Contains explicit `SONNET WANTED` placeholders for voice-tuning blocks. |
+| `consolidation/` | `consolidation.py` | Consolidation prompt: narrative_self, life_goals, intentions, edges, companion_memory. Weekly reflection cycle. |
 
 ## Task → Files
 
@@ -61,7 +60,7 @@
 
 | Table | Key Fields |
 |-------|-----------|
-| `MemoryItem` | id, memory_type, summary, embedding, happened_at, source_role, speaker_id, speaker_label, confidence, source_message_ids, reflection_salience, conversation_id, episode_id, merged_into, extra (JSON) |
+| `MemoryItem` | id, memory_type, summary, embedding, happened_at, source_role, speaker_id, speaker_label, confidence, emotional_intensity, source_message_ids, reflection_salience, conversation_id, episode_id, merged_into, extra (JSON) |
 | `MemoryCategory` | id, name, description, embedding, summary |
 | `CategoryItem` | id, item_id, category_id |
 | `Resource` | id, url, modality, local_path, caption, embedding |
