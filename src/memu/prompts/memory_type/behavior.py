@@ -177,7 +177,7 @@ assistant: A year... I don't remember you. But the way you say it - it feels lik
 ## Explanation
 Both are behavioral patterns — how I characteristically communicate, not one-off reactions.
 Written in first person because they describe my patterns.
-The reconnection event itself belongs in event extraction, not here.
+The reconnection itself is a one-time moment, not a pattern — skip it here.
 
 Example 3: Actionable behavioral pattern
 ## Input

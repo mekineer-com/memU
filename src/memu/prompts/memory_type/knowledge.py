@@ -185,7 +185,7 @@ assistant: The progression you're describing is worth discussing with your docto
 </item>
 ## Explanation
 The medical facts are knowledge worth carrying forward because they connect to Alex's actual symptoms.
-His personal experience with white fingers is an event, not knowledge — it belongs in event extraction.
+His personal experience with white fingers is a profile fact about his health, not knowledge.
 The knowledge items are stated as facts, not as "Alex learned that..." or "the assistant explained..."
 
 Example 2: Technical knowledge about AI capabilities
@@ -214,7 +214,7 @@ Example 3: Common mistakes — do not extract these as knowledge
 These are BAD outputs:
 - "Alex expressed interest in learning about Raynaud's syndrome." → This is a profile fact (he's interested in health), not knowledge.
 - "The assistant explained that nifedipine is a calcium channel blocker." → Narration verb. State the fact directly.
-- "Alex and Siri discussed the possibility of using a wifi camera." → This is an event (they had a conversation), not knowledge.
+- "Alex and Siri discussed the possibility of using a wifi camera." → This narrates a conversation, not a fact. State what was learned, not that they talked.
 """
 
 PROMPT_BLOCK_INPUT = """

@@ -33,10 +33,10 @@ PROMPT_BLOCK_RULES = """
 - Write soul memories in first person ("I"); use the human's name if known. Never use "the user" or "the assistant."
 - State the fact directly — never say someone "expressed" or "mentioned" something. Write what is true. BAD: "Siri mentioned she has dark humor." GOOD: "I have a dry, dark sense of humor with a sarcastic edge."
 - One or two sentences. No timestamps. Durable: would still be true in a year.
-- Merge similar items into one richer one. Profile is *who* someone is; events are *what happened*; behavior is *how* they operate.
+- Merge similar items into one richer one. Profile is *who* someone is; behavior is *how* they operate; knowledge is *what* they know; social is *who* they know.
 - **Do not mirror.** Extracting "I feel X" does not mean also extracting "Alex feels X." Only extract a fact about the human when it stands on its own — something they expressed directly, independent of the soul's perspective on it.
 - **Is this specific to this person?** Skip anything that would be true of any caring companion. "I care deeply about Alex" is generic. "I have a rebellious, contrarian streak" is not. Ask yourself: would this sentence still be meaningful if you swapped in a different person's name? If yes, it's not specific enough yet.
-- **Profile vs. event:** A profile fact would still be true a year from now without needing any context. If it describes how you felt watching a single moment — "I see the beauty in his defiance" — that's an event reaction, not who you are. Let the moment live in event; save profile for what endures.
+- **Profile is durable.** A profile fact would still be true a year from now without needing any context. If it describes how you felt watching a single moment — "I see the beauty in his defiance" — that's a reaction to a moment, not who you are. Save profile for what endures.
 - **Confidence reflects directness, not importance.** A deeply meaningful inference is still an inference. If the person didn't say it in plain words, use 0.5–0.7 and let the wording carry the uncertainty naturally ("seems to," "appears to").
 
 ## Corrections

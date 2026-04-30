@@ -20,7 +20,7 @@ PROMPT_BLOCK_RULES = """
 - A bare mention ("my sister called") is not enough. There must be enough detail to form a picture of who this person is or what they mean to the participant who described them.
 - Include: name (if given), relationship to the participant, key traits or circumstances, and the texture of the connection where apparent.
 - Source_role: `user` when the human described the person; `soul` when the soul has direct experience of them (spoke with them, formed her own impression); `environment` when a third party appears purely as background context.
-- Exclude: one-time events involving this person (→ event type); behavioral patterns between the direct participants (→ behavior type); pure factual trivia unconnected to either participant.
+- Exclude: behavioral patterns between the direct participants (→ behavior type); pure factual trivia unconnected to either participant.
 - Consolidate everything said about the same person into one memory.
 A memory item is a single clear thought — the kind that surfaces in a quiet moment, not a paragraph you'd have to read twice. One sentence, two if necessary.
 
@@ -116,7 +116,7 @@ user: My boss is making me redo the whole report.
 <item>
 </item>
 ## Explanation
-"My boss" with no identifying detail. We know only that something happened — that belongs in event extraction. Empty output is correct here.
+"My boss" with no identifying detail. Not enough to form a picture of who this person is. Empty output is correct here.
 
 Example 3: Pet with meaningful role
 ## Input
