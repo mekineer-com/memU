@@ -298,7 +298,7 @@ class TestMemoryItemNewFields:
         """Test metadata field stored in extra for type-specific data."""
         item = MemoryItem(
             resource_id=None,
-            memory_type="event",
+            memory_type="knowledge",
             summary="User attended conference",
             extra={
                 "metadata": {

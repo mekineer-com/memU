@@ -29,7 +29,7 @@ def test_unambiguous_episode_skips_roster(service: MemoryService) -> None:
     assert roster is None
 
     prompt = service._build_memory_type_prompt(
-        memory_type="event",
+        memory_type="behavior",
         resource_text="[0] [Marcos] hi\n[1] [Siri] hello",
         categories_str="relationships",
         soul_context_str="## Relationships\nKnown context.",
@@ -51,7 +51,7 @@ def test_ambiguous_episode_attaches_roster_and_accepts_valid_speaker_ref(service
     assert len(roster) == 3
 
     prompt = service._build_memory_type_prompt(
-        memory_type="event",
+        memory_type="behavior",
         resource_text="[10] [Alice] We should review this tomorrow.\n[11] [Bob] Agreed.",
         categories_str="relationships",
         soul_context_str="## Relationships\nKnown context.",
@@ -76,7 +76,7 @@ def test_ambiguous_episode_attaches_roster_and_accepts_valid_speaker_ref(service
 </item>
 """.strip()
     entries = service._parse_structured_entries(
-        ["event"],
+        ["behavior"],
         [response],
         default_source_message_ids=[10, 11],
         speaker_roster=roster,
@@ -111,7 +111,7 @@ def test_parser_rejects_hallucinated_speaker_ref_and_leaves_speaker_null(service
 </item>
 """.strip()
     entries = service._parse_structured_entries(
-        ["event"],
+        ["behavior"],
         [response],
         default_source_message_ids=[20, 21],
         speaker_roster=roster,
@@ -144,7 +144,7 @@ def test_declared_entity_mention_triggers_roster_without_role_ambiguity(service:
 def test_attribute_memory_keeps_valid_parsed_speaker_ref_even_with_single_message_speaker(service: MemoryService) -> None:
     speaker_map = {40: ("user:marcos", "Marcos")}
     entry = service._parse_structured_entries(
-        ["event"],
+        ["behavior"],
         [
             """
 <item>

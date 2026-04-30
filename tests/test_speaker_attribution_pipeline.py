@@ -69,7 +69,7 @@ def test_attribution_pipeline_fills_user_and_soul_speakers_with_fallback_indices
     # field was removed from prompts in 02d8bde — prompts no longer request it).
     entries = [
         StructuredMemoryEntry(
-            memory_type="event",
+            memory_type="behavior",
             content="Marcos greeted Siri warmly",
             categories=[],
             source_role="user",
@@ -79,7 +79,7 @@ def test_attribution_pipeline_fills_user_and_soul_speakers_with_fallback_indices
             emotional_intensity=0.7,
         ),
         StructuredMemoryEntry(
-            memory_type="event",
+            memory_type="behavior",
             content="I greeted Marcos back",
             categories=[],
             source_role="soul",

@@ -25,7 +25,7 @@ def service() -> MemoryService:
 
 def _entry(*, source_role: str | None, source_message_ids: list[int]) -> StructuredMemoryEntry:
     return StructuredMemoryEntry(
-        memory_type="event",
+        memory_type="behavior",
         content="test memory",
         categories=["communication"],
         source_role=source_role,
@@ -39,7 +39,7 @@ def _item(*, item_id: str, summary: str, source_role: str | None, speaker_id: st
     return MemoryItem(
         id=item_id,
         resource_id=None,
-        memory_type="event",
+        memory_type="behavior",
         summary=summary,
         embedding=[0.2, 0.4, 0.6],
         source_role=source_role,

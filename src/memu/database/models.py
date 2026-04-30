@@ -9,7 +9,7 @@ from typing import Any, Literal
 import pendulum
 from pydantic import BaseModel, ConfigDict, Field
 
-MemoryType = Literal["profile", "event", "knowledge", "behavior", "social", "skill", "tool", "narrative_self", "subconscious", "reflection"]
+MemoryType = Literal["profile", "knowledge", "behavior", "social", "episode", "skill", "tool", "narrative_self", "subconscious", "reflection"]
 
 EntityType = Literal["person", "topic", "place", "project"]
 

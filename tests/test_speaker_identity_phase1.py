@@ -16,7 +16,7 @@ def test_create_item_round_trips_speaker_fields() -> None:
     )
     store = service._get_database()
     item = store.memory_item_repo.create_item(
-        memory_type="event",
+        memory_type="behavior",
         summary="phase1 speaker fields roundtrip",
         embedding=[0.2, 0.4, 0.6],
         user_data={"user_id": "speaker_phase1"},

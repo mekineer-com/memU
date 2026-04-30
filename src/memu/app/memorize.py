@@ -337,8 +337,9 @@ class MemorizeMixin:
             notable = False
 
             episode_summary: str | None = None
+            episode_item: str | None = None
             if state["modality"] == "conversation" and isinstance(text, str):
-                applicable_types, notable, episode_summary = await self._route_episode(
+                applicable_types, notable, episode_summary, episode_item = await self._route_episode(
                     text, state["memory_types"], llm_client, skipped_reasons=skipped_reasons
                 )
                 if not applicable_types and not notable:
@@ -402,6 +403,7 @@ class MemorizeMixin:
                 "text": text,
                 "caption": episode_summary or caption,
                 "episode_summary": episode_summary,
+                "episode_item": episode_item,
                 "message_indices": message_indices,
                 "message_happened_at_map": plan_message_happened_at_map,
                 "entries": structured_entries,
@@ -759,20 +761,6 @@ class MemorizeMixin:
                 continue
             out.add(token)
         return out
-
-    @staticmethod
-    def _looks_like_speech_act_event(summary: Any) -> bool:
-        text = str(summary or "").strip()
-        if not text:
-            return False
-        return bool(
-            re.match(
-                r"^(?:i|we|you|they|he|she|[A-Z][A-Za-z0-9_'-]*(?:\s+[A-Z][A-Za-z0-9_'-]*)*)\s+"
-                r"(?:shared|mentioned|stated|said|noted|clarified|explained|described|summarized|emphasized|expressed|voiced|wrote|told|admitted|revealed)\b",
-                text,
-                flags=re.IGNORECASE,
-            )
-        )
 
     @staticmethod
     def _dedupe_source_role(item: Any) -> str | None:
@@ -1205,12 +1193,13 @@ Decide which clusters/candidates should map into existing categories, and which 
         )
 
         episode_summary_text = str(plan.get("episode_summary") or "").strip()
-        if episode_summary_text and res.embedding is not None:
+        episode_item_text = str(plan.get("episode_item") or "").strip() or episode_summary_text
+        if episode_item_text and res.embedding is not None:
             summary_item = store.memory_item_repo.create_item(
                 resource_id=res.id,
-                memory_type="event",
+                memory_type="episode",
                 source_role="environment",
-                summary=episode_summary_text,
+                summary=episode_item_text,
                 embedding=res.embedding,
                 user_data=dict(user_scope or {}),
                 conversation_id=conversation_id,
@@ -1474,9 +1463,9 @@ Decide which clusters/candidates should map into existing categories, and which 
         memory_types: list[MemoryType],
         llm_client: Any | None = None,
         skipped_reasons: list[str] | None = None,
-    ) -> tuple[list[MemoryType], bool, str | None]:
+    ) -> tuple[list[MemoryType], bool, str | None, str | None]:
         if not memory_types:
-            return [], False, None
+            return [], False, None, None
         client = llm_client or self._get_llm_client()
         prompt = ROUTER_PROMPT.format(
             episode=episode_text,
@@ -1507,21 +1496,22 @@ Decide which clusters/candidates should map into existing categories, and which 
         notable = bool(payload.get("notable"))
         reason = payload.get("reason", "")
         episode_summary = str(payload.get("episode_summary") or "").strip() or None
+        episode_item = str(payload.get("episode_item") or "").strip() or None
         if memorable is False:
             if skipped_reasons is not None and reason:
                 skipped_reasons.append(reason)
-            return [], notable, episode_summary
+            return [], notable, episode_summary, episode_item
         if not isinstance(routed_types, list):
             logger.warning("Router returned no types list, skipping episode")
             if skipped_reasons is not None:
                 skipped_reasons.append("router returned no types list")
-            return [], notable, episode_summary
+            return [], notable, episode_summary, episode_item
         allowed_types = {
             routed_type
             for routed_type in routed_types
             if isinstance(routed_type, str) and routed_type in set(memory_types)
         }
-        return [mtype for mtype in memory_types if mtype in allowed_types], notable, episode_summary
+        return [mtype for mtype in memory_types if mtype in allowed_types], notable, episode_summary, episode_item
 
     async def _generate_entries_from_text(
         self,
@@ -1656,14 +1646,6 @@ Decide which clusters/candidates should map into existing categories, and which 
         if len(entries) < 2:
             return entries
 
-        profile_tokens: list[tuple[str | None, set[str]]] = []
-        for entry in entries:
-            if entry.memory_type != "profile":
-                continue
-            tokens = self._dedupe_summary_tokens(entry.content)
-            if tokens:
-                profile_tokens.append((entry.source_role, tokens))
-
         seen_exact: set[tuple[str, str | None, str]] = set()
         kept: list[StructuredMemoryEntry] = []
         for entry in entries:
@@ -1672,27 +1654,6 @@ Decide which clusters/candidates should map into existing categories, and which 
             if exact_key in seen_exact:
                 continue
             seen_exact.add(exact_key)
-
-            if (
-                entry.memory_type == "event"
-                and profile_tokens
-                and self._looks_like_speech_act_event(normalized_summary)
-            ):
-                event_tokens = self._dedupe_summary_tokens(normalized_summary)
-                if event_tokens:
-                    drop_event = False
-                    for profile_role, profile_summary_tokens in profile_tokens:
-                        if entry.source_role and profile_role and entry.source_role != profile_role:
-                            continue
-                        overlap = len(event_tokens & profile_summary_tokens)
-                        if overlap <= 0:
-                            continue
-                        union = len(event_tokens | profile_summary_tokens)
-                        if union and (overlap / union) >= 0.45:
-                            drop_event = True
-                            break
-                    if drop_event:
-                        continue
 
             kept.append(entry._replace(content=normalized_summary))
 

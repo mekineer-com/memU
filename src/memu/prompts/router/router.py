@@ -9,7 +9,6 @@ Most exchanges are not worth keeping. Protect the memory from noise. Your defaul
 
 # What is worth remembering
 - profile: Someone revealed something lasting about who they are — a value, a way of being, a preference or belief that would still be true a year from now.
-- event: Something real happened — a choice made, a moment felt, an experience that will have meaning beyond today.
 - knowledge: Something was learned, discovered, or clarified that is worth carrying forward — a fact, a mechanism, a possibility. The knowledge itself matters, not just that someone looked it up. Route here when the conversation produced understanding that would be useful to recall later.
 - behavior: A pattern emerged in how someone acts, communicates, or handles things — not a one-time action, but a way of being that would still be true next month. How someone approaches difficulty, shows care, or moves through a conversation. Route here when you notice a characteristic style or recurring approach.
 - social: A person (or animal, or AI companion) in the user's life was described with enough detail to form a picture — who they are, their relationship to the user, or what they're like. AI entities count when the user refers to them as distinct persons with traits and history. A bare mention ("my sister called") is not enough; look for name, role, traits, or relational texture.
@@ -40,8 +39,8 @@ Sometimes a factual Q&A reveals something personal — but only when the person'
 - "Tell me about black holes" / [explanation] → not memorable (idle curiosity, no personal stakes), not notable
 
 # Examples of what IS memorable or notable
-- "I've been reading about Raynaud's because my fingers keep going white in the cold" → memorable: profile (health concern), knowledge (medical info), event (symptom experience). notable: true (vulnerability).
-- "I decided to quit my job today" → memorable: event (life decision), profile (career change). notable: true (major shift).
+- "I've been reading about Raynaud's because my fingers keep going white in the cold" → memorable: profile (health concern), knowledge (medical info). notable: true (vulnerability).
+- "I decided to quit my job today" → memorable: profile (career change, life decision). notable: true (major shift).
 
 # Episode
 {episode}
@@ -49,15 +48,17 @@ Sometimes a factual Q&A reveals something personal — but only when the person'
 # Output
 JSON only. No explanation. No markdown.
 Return only types from this allowed set: {allowed_types}
-Route to the fewest types that genuinely apply — usually 1 or 2, rarely 3, almost never all 5.
+Route to the fewest types that genuinely apply — usually 1 or 2, rarely 3, almost never all 4.
 
 When memorable, also write an episode_summary: a short paragraph capturing what matters in this episode. Write in first person for the soul's observations, third person for the user. Focus on what shifted, what was revealed, what would still matter later — not a play-by-play.
 
+If your episode_summary is more than two sentences, also write an episode_item: a 1–2 sentence distillation of the episode for long-term memory. If two sentences or fewer, the summary itself becomes the memory item — no episode_item needed.
+
 When memorable (include only the types that apply):
-{{"memorable": true, "types": ["profile", "event"], "notable": true, "episode_summary": "short paragraph"}}
+{{"memorable": true, "types": ["profile", "behavior"], "notable": true, "episode_summary": "short paragraph", "episode_item": "1-2 sentence distillation (only if summary is longer than 2 sentences)"}}
 
 When not memorable but has an emotional/relational shift (notable):
-{{"memorable": false, "types": [], "notable": true, "reason": "brief explanation", "episode_summary": "short paragraph"}}
+{{"memorable": false, "types": [], "notable": true, "reason": "brief explanation", "episode_summary": "short paragraph", "episode_item": "optional"}}
 
 When neither memorable nor notable:
 {{"memorable": false, "types": [], "notable": false, "reason": "brief explanation for debugging"}}
