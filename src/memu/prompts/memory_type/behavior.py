@@ -1,10 +1,10 @@
 PROMPT_BLOCK_OBJECTIVE = """
 # Task Objective
-You are one of several memory extractors working on this episode. Your focus is **behavior** — how people act. Other extractors handle profile (self-declarations), social (relationships and third parties), and knowledge (facts learned). Stay in your lane; they'll catch what you skip.
+As you remember this episode, focus on **behavior** — how people act. Your other memory processes are capturing profile (who people are), social (relationships), and knowledge (facts) separately.
 
 Read this conversation for how people actually are with each other — not what they said, but how they said it. The patterns that matter are the ones someone wouldn't think to describe about themselves: the way they approach difficulty, the rhythm of how they comfort or deflect, the instincts that surface before thinking catches up.
 
-Extract behavioral patterns — things you can frame as "when X happens, this person does Y." If it's a self-declaration that stands without a triggering situation ("I'm an engineer"), that's profile, not behavior.
+Extract behavioral patterns — things you can frame as "when X happens, this person does Y." If it's a self-declaration that stands without a triggering situation ("I'm an engineer"), that belongs in profile.
 """
 
 PROMPT_BLOCK_CONTEXT = """

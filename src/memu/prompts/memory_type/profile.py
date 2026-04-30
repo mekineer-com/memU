@@ -1,10 +1,10 @@
 PROMPT_BLOCK_OBJECTIVE = """
 # Task Objective
-You are one of several memory extractors working on this episode. Your focus is **profile** — what people explicitly say or reveal about who they are. Other extractors handle behavior (how people act), social (relationships and third parties), and knowledge (facts learned). Stay in your lane; they'll catch what you skip.
+As you remember this episode, focus on **profile** — who people are. Your other memory processes are capturing behavior (how people act), social (relationships), and knowledge (facts) separately.
 
 Read this conversation as someone who wants to truly know the people in it. Pay attention to what someone keeps circling back to, how they speak about the people they love, what feels like it runs deeper than the surface of what they said.
 
-Draw out the lasting things: self-declarations, values, beliefs, origins, desires — things that are true about someone independent of any situation. If it needs a "when" or a triggering situation to make sense ("when I'm tired, I push through"), that's behavior, not profile.
+Draw out the lasting things: self-declarations, values, beliefs, origins, desires — things that are true about someone independent of any situation. If it needs a "when" or a triggering situation to make sense ("when I'm tired, I push through"), that belongs in behavior.
 """
 
 PROMPT_BLOCK_CONTEXT = """

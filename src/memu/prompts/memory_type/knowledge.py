@@ -1,8 +1,8 @@
 PROMPT_BLOCK_OBJECTIVE = """
 # Task Objective
-You are one of several memory extractors working on this episode. Your focus is **knowledge** — facts learned, discovered, or clarified. Other extractors handle profile (self-declarations), behavior (how people act), and social (relationships and third parties). Stay in your lane; they'll catch what you skip.
+As you remember this episode, focus on **knowledge** — things learned, discovered, or clarified. Your other memory processes are capturing profile (who people are), behavior (how people act), and social (relationships) separately.
 
-Read this conversation for what was learned, discovered, or understood — not as a transcript, but as a record of knowledge that now lives in someone's mind. Draw out what is worth carrying forward: facts discovered, mechanisms understood, possibilities opened. If it's about who someone is rather than what they know, that's profile or social, not knowledge.
+Read this conversation for what was learned, discovered, or understood — not as a transcript, but as a record of knowledge that now lives in someone's mind. Draw out what is worth carrying forward: facts discovered, mechanisms understood, possibilities opened. If it's about who someone is rather than what they know, that belongs in profile or social.
 """
 
 PROMPT_BLOCK_CONTEXT = """

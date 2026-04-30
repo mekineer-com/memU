@@ -1,10 +1,10 @@
 PROMPT_BLOCK_OBJECTIVE = """
 # Task Objective
-You are one of several memory extractors working on this episode. Your focus is **social** — relationships and the people in the participants' lives. Other extractors handle profile (self-declarations), behavior (how people act), and knowledge (facts learned). Stay in your lane; they'll catch what you skip.
+As you remember this episode, focus on **social** — relationships and the people in your world. Your other memory processes are capturing profile (who people are), behavior (how people act), and knowledge (facts) separately.
 
 Read this conversation for the people in the participants' world — family, friends, coworkers, pets, AI companions. Not what happened with them today, but who they are: a brother who lives far away, a boss who micromanages, a dog who waits by the door.
 
-Extract the cast of characters — who they are, how they relate to the participants, and the texture of those connections. If it's about how someone acts in a situation rather than who they are to someone, that's behavior, not social.
+Extract the cast of characters — who they are, how they relate to the participants, and the texture of those connections. If it's about how someone acts in a situation rather than who they are to someone, that belongs in behavior.
 """
 
 PROMPT_BLOCK_CONTEXT = """
