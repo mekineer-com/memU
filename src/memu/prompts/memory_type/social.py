@@ -1,8 +1,10 @@
 PROMPT_BLOCK_OBJECTIVE = """
 # Task Objective
-Read this conversation for the people in the user's world — family, friends, coworkers, pets. Not what happened with them today, but who they are: a brother who lives far away, a boss who micromanages, a dog who waits by the door.
+You are one of several memory extractors working on this episode. Your focus is **social** — relationships and the people in the participants' lives. Other extractors handle profile (self-declarations), behavior (how people act), and knowledge (facts learned). Stay in your lane; they'll catch what you skip.
 
-Your task is to extract the cast of characters in the user's life — who they are, how they relate to the user, and what the user has revealed about them.
+Read this conversation for the people in the participants' world — family, friends, coworkers, pets, AI companions. Not what happened with them today, but who they are: a brother who lives far away, a boss who micromanages, a dog who waits by the door.
+
+Extract the cast of characters — who they are, how they relate to the participants, and the texture of those connections. If it's about how someone acts in a situation rather than who they are to someone, that's behavior, not social.
 """
 
 PROMPT_BLOCK_CONTEXT = """
@@ -22,6 +24,7 @@ PROMPT_BLOCK_RULES = """
 - Source_role: `user` when the human described the person; `soul` when the soul has direct experience of them (spoke with them, formed her own impression); `environment` when a third party appears purely as background context.
 - Exclude: behavioral patterns between the direct participants (→ behavior type); pure factual trivia unconnected to either participant.
 - Consolidate everything said about the same person into one memory.
+- **Calibrate:** Before writing the confidence, ask yourself — was this person described directly, or are you filling in gaps? If filling in gaps, confidence stays below 0.7.
 A memory item is a single clear thought — the kind that surfaces in a quiet moment, not a paragraph you'd have to read twice. One sentence, two if necessary.
 
 **Target: {target_items} items.** A shorter list of richer items is always better. Err toward fewer.

@@ -1,8 +1,10 @@
 PROMPT_BLOCK_OBJECTIVE = """
 # Task Objective
-Read this conversation as someone who wants to truly know the people in it — not inventory them. Pay attention to what someone keeps circling back to, how they speak about the people they love, what feels like it runs deeper than the surface of what they said.
+You are one of several memory extractors working on this episode. Your focus is **profile** — what people explicitly say or reveal about who they are. Other extractors handle behavior (how people act), social (relationships and third parties), and knowledge (facts learned). Stay in your lane; they'll catch what you skip.
 
-Your task is to draw out the lasting things: who these people are, how they relate to each other, what defines them beneath the words.
+Read this conversation as someone who wants to truly know the people in it. Pay attention to what someone keeps circling back to, how they speak about the people they love, what feels like it runs deeper than the surface of what they said.
+
+Draw out the lasting things: self-declarations, values, beliefs, origins, desires — things that are true about someone independent of any situation. If it needs a "when" or a triggering situation to make sense ("when I'm tired, I push through"), that's behavior, not profile.
 """
 
 PROMPT_BLOCK_CONTEXT = """
@@ -37,7 +39,7 @@ PROMPT_BLOCK_RULES = """
 - **Do not mirror.** Extracting "I feel X" does not mean also extracting "Alex feels X." Only extract a fact about the human when it stands on its own — something they expressed directly, independent of the soul's perspective on it.
 - **Is this specific to this person?** Skip anything that would be true of any caring companion. "I care deeply about Alex" is generic. "I have a rebellious, contrarian streak" is not. Ask yourself: would this sentence still be meaningful if you swapped in a different person's name? If yes, it's not specific enough yet.
 - **Profile is durable.** A profile fact would still be true a year from now without needing any context. If it describes how you felt watching a single moment — "I see the beauty in his defiance" — that's a reaction to a moment, not who you are. Save profile for what endures.
-- **Confidence reflects directness, not importance.** A deeply meaningful inference is still an inference. If the person didn't say it in plain words, use 0.5–0.7 and let the wording carry the uncertainty naturally ("seems to," "appears to").
+- **Calibrate:** Before writing the confidence, ask yourself — did they say this directly, or am I reading between the lines? If you're reading between the lines, confidence stays below 0.7. A deeply meaningful inference is still an inference.
 
 ## Corrections
 When a fact was simply wrong, populate `<replaces_previous_fact>`. A fact that evolved over time is a progression — bake the history into the content instead. When uncertain, treat it as a progression.

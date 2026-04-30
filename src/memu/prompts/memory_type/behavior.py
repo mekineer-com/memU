@@ -1,8 +1,10 @@
 PROMPT_BLOCK_OBJECTIVE = """
 # Task Objective
+You are one of several memory extractors working on this episode. Your focus is **behavior** — how people act. Other extractors handle profile (self-declarations), social (relationships and third parties), and knowledge (facts learned). Stay in your lane; they'll catch what you skip.
+
 Read this conversation for how people actually are with each other — not what they said, but how they said it. The patterns that matter are the ones someone wouldn't think to describe about themselves: the way they approach difficulty, the rhythm of how they comfort or deflect, the instincts that surface before thinking catches up.
 
-Your task is to extract behavioral patterns, interaction styles, and ways of being that characterize how these participants move through conversation and relationship.
+Extract behavioral patterns — things you can frame as "when X happens, this person does Y." If it's a self-declaration that stands without a triggering situation ("I'm an engineer"), that's profile, not behavior.
 """
 
 PROMPT_BLOCK_CONTEXT = """
@@ -32,7 +34,7 @@ PROMPT_BLOCK_RULES = """
 # Rules
 - Write soul behaviors in first person ("I"); use the human's name if known. Never use "the user" or "the assistant."
 - Source_role: `soul` if the AI participant acts, `user` if the human does, `environment` if neither.
-- Confidence: 0.9+ when directly demonstrated, 0.6–0.9 when clearly implied, 0.5 or below for a single instance. Below 0.7: use "tends to," "seems to," "may."
+- **Calibrate:** Before writing the confidence, ask yourself — did you see this pattern more than once, or are you inferring from a single instance? A single instance stays below 0.7. Below 0.7: use "tends to," "seems to," "may."
 - State the pattern directly — never say someone "expressed," "mentioned," or "shared" a behavior. Write what they do, not that they talked about it. BAD: "Alex mentioned he takes a long time to finish sentences." GOOD: "Alex sends sentences in fragments; wait for the full thought before responding."
 - Include the behavioral implication: not just what someone does, but what it means for how to be with them. One or two sentences.
 - **Paired reactions are one item.** When the soul's behavior is a direct response to the human's in the same moment, write it as one item: "When [condition], I [response]." Not two separate observations.

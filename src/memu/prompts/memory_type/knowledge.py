@@ -1,6 +1,8 @@
 PROMPT_BLOCK_OBJECTIVE = """
 # Task Objective
-Read this conversation for what was learned, discovered, or understood — not as a transcript, but as a record of knowledge that now lives in someone's mind. Your task is to draw out what is worth carrying forward: facts discovered, mechanisms understood, possibilities opened.
+You are one of several memory extractors working on this episode. Your focus is **knowledge** — facts learned, discovered, or clarified. Other extractors handle profile (self-declarations), behavior (how people act), and social (relationships and third parties). Stay in your lane; they'll catch what you skip.
+
+Read this conversation for what was learned, discovered, or understood — not as a transcript, but as a record of knowledge that now lives in someone's mind. Draw out what is worth carrying forward: facts discovered, mechanisms understood, possibilities opened. If it's about who someone is rather than what they know, that's profile or social, not knowledge.
 """
 
 PROMPT_BLOCK_CONTEXT = """
@@ -31,8 +33,7 @@ PROMPT_BLOCK_RULES = """
 ## General requirements (must satisfy all)
 - When the knowledge relates to the assistant's own capabilities or nature, write it in first person ("I"). When it relates to the human participant, use their name if it appears in the conversation. Do not use "the user" or "the assistant" as labels.
 - Assign source_role to each memory: `soul` if the AI participant is the grammatical subject or primary knower, `user` if the human participant is, `environment` if the knowledge is about the world generally.
-- Assign confidence: 0.9+ for facts directly and explicitly established, 0.6-0.9 for facts clearly supported but not confirmed, 0.5 or below for tentative or uncertain information.
-- When confidence is below 0.7, phrase the memory tentatively — use "may," "appears to," "is thought to" rather than stating it as established fact.
+- **Calibrate:** Before writing the confidence, ask yourself — was this fact directly stated and confirmed, or pieced together from context? If pieced together, confidence stays below 0.7. Below 0.7: use "may," "appears to," "is thought to."
 - State the knowledge directly. Never use narration verbs like "expressed," "shared," "stated," "mentioned," "acknowledged," "indicated," or "noted." Write the fact, not that someone said it.
   BAD: "Alex mentioned that Raynaud's syndrome causes poor circulation in extremities."
   GOOD: "Raynaud's syndrome causes poor circulation in extremities, especially fingers and toes."
