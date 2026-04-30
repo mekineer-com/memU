@@ -340,7 +340,9 @@ class MemorizeMixin:
             episode_item: str | None = None
             if state["modality"] == "conversation" and isinstance(text, str):
                 applicable_types, notable, episode_summary, episode_item = await self._route_episode(
-                    text, state["memory_types"], llm_client, skipped_reasons=skipped_reasons
+                    text, state["memory_types"], llm_client,
+                    soul_card=state.get("soul_card"),
+                    skipped_reasons=skipped_reasons,
                 )
                 if not applicable_types and not notable:
                     continue
@@ -1471,6 +1473,7 @@ Decide which clusters/candidates should map into existing categories, and which 
         episode_text: str,
         memory_types: list[MemoryType],
         llm_client: Any | None = None,
+        soul_card: str | None = None,
         skipped_reasons: list[str] | None = None,
     ) -> tuple[list[MemoryType], bool, str | None, str | None]:
         if not memory_types:
@@ -1479,6 +1482,7 @@ Decide which clusters/candidates should map into existing categories, and which 
         prompt = ROUTER_PROMPT.format(
             episode=episode_text,
             allowed_types=list(memory_types),
+            soul_card=soul_card or "(no prior self-knowledge yet)",
         )
         raw = await client.chat(prompt)
         if isinstance(raw, str):

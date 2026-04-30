@@ -48,7 +48,6 @@ Important: Knowledge that connects to a participant's life, health, or ongoing c
 
 ## What belongs here vs. other types
 - A person's feelings, values, or attachment patterns are not knowledge — they belong in profile. Knowledge is about the world, not about who someone is.
-- Specific time-anchored experiences belong in event, not here.
 - Recurring behavioral patterns belong in behavior, not here.
 - Knowledge is about the world, about how things work, about what is possible — facts someone could look up again, but now carry with them.
 - Technical facts about systems or projects these people are building may not fit the standard categories. If so, propose a broad category like "Projects" — that's what dynamic categories are for.
@@ -81,7 +80,7 @@ When uncertain, treat it as a progression. Hiding valid knowledge is worse than 
 PROMPT_BLOCK_CATEGORY = """
 ## Memory Categories:
 {categories_str}
-If a memory item clearly doesn't belong in any category above, you may propose a new one - write its name in the `<category>` field. Name it as a broad knowledge domain, not a narrow topic. Use this sparingly; most items should find a home in the existing set.
+Do not force knowledge into the core categories above. Instead, propose a domain-specific category that fits the knowledge — "Health", "Technology", "AI Architecture", "Nature", etc. Knowledge categories form dynamically over time.
 """
 
 PROMPT_BLOCK_OUTPUT = """
@@ -170,7 +169,7 @@ assistant: The progression you're describing is worth discussing with your docto
         <confidence>0.9</confidence>
         <reflection_salience>0.7</reflection_salience>
         <categories>
-            <category>Identity</category>
+            <category>Health</category>
         </categories>
     </memory>
     <memory>
@@ -179,7 +178,7 @@ assistant: The progression you're describing is worth discussing with your docto
         <confidence>0.9</confidence>
         <reflection_salience>0.7</reflection_salience>
         <categories>
-            <category>Identity</category>
+            <category>Health</category>
         </categories>
     </memory>
 </item>
@@ -201,7 +200,7 @@ user: Huawei DeviceVirtualization. It lets you project a device's camera to anot
         <confidence>0.8</confidence>
         <reflection_salience>0.8</reflection_salience>
         <categories>
-            <category>Preferences</category>
+            <category>Technology</category>
         </categories>
     </memory>
 </item>
