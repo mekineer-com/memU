@@ -284,7 +284,7 @@ class LLMClientWrapper:
             "chat",
             prompt,
             metadata={
-                "system_prompt_chars": len(system_prompt or ""),
+                "system_prompt": system_prompt or "",
                 "max_tokens": max_tokens,
                 "temperature": temperature,
                 "response_format": response_format,
