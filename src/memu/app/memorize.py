@@ -174,31 +174,19 @@ class MemorizeMixin:
             episode_raw_text = raw_text
             if episode_raw_text is None:
                 episode_local_path, episode_raw_text = await self.fs.fetch(resource_url, modality)
-            preprocessed = await self.split_segment_into_episodes(
-                local_path=episode_local_path,
-                raw_text=episode_raw_text,
+            return await self.memorize_episode(
+                resource_url=resource_url,
                 modality=modality,
+                episode={"text": episode_raw_text, "caption": None},
+                user=user,
+                raw_text=episode_raw_text,
+                local_path=episode_local_path,
+                all_categories_summary=normalized_all_categories_summary,
+                soul_card=normalized_soul_card,
+                memory_retrieve_history=memory_retrieve_history,
+                memory_prior_context=memory_prior_context,
+                conversation_id=conversation_id,
             )
-            episode_results: list[dict[str, Any]] = []
-            pending_episode_ids: list[str] = []
-            for idx, episode in enumerate(preprocessed):
-                episode_url = resource_url if len(preprocessed) == 1 else f"{resource_url}#episode:{idx + 1}"
-                episode_result = await self.memorize_episode(
-                    resource_url=episode_url,
-                    modality=modality,
-                    episode=episode,
-                    user=user,
-                    raw_text=episode_raw_text,
-                    local_path=episode_local_path,
-                    all_categories_summary=normalized_all_categories_summary,
-                    soul_card=normalized_soul_card,
-                    memory_retrieve_history=memory_retrieve_history,
-                    memory_prior_context=memory_prior_context,
-                    conversation_id=conversation_id,
-                )
-                episode_results.append(episode_result)
-                pending_episode_ids.extend(self._normalize_text_list(episode_result.get("pending_episode_ids")))
-            return self._merge_episode_results(episode_results, pending_episode_ids)
 
         state: WorkflowState = {
             "resource_url": resource_url,
@@ -327,67 +315,6 @@ class MemorizeMixin:
             return None
         candidate = str(raw).strip()
         return candidate or None
-
-    def _merge_episode_results(
-        self,
-        episode_results: list[dict[str, Any]],
-        pending_episode_ids: list[str] | None = None,
-    ) -> dict[str, Any]:
-        def _merge_record_list(values: list[Any], *, id_keys: tuple[str, ...] = ("id",)) -> list[Any]:
-            out: list[Any] = []
-            seen: set[str] = set()
-            for value in values:
-                if not isinstance(value, dict):
-                    out.append(value)
-                    continue
-                dedupe_key = ""
-                for key in id_keys:
-                    raw = str(value.get(key) or "").strip()
-                    if raw:
-                        dedupe_key = f"{key}:{raw}"
-                        break
-                if not dedupe_key:
-                    try:
-                        dedupe_key = json.dumps(value, sort_keys=True, ensure_ascii=False, default=str)
-                    except Exception:
-                        dedupe_key = repr(value)
-                if dedupe_key in seen:
-                    continue
-                seen.add(dedupe_key)
-                out.append(value)
-            return out
-
-        flat_items: list[Any] = []
-        flat_categories: list[Any] = []
-        flat_relations: list[Any] = []
-        flat_resources: list[Any] = []
-        skipped_reasons: list[str] = []
-
-        for batch_result in episode_results:
-            flat_items.extend(batch_result.get("items") or [])
-            flat_categories.extend(batch_result.get("categories") or [])
-            flat_relations.extend(batch_result.get("relations") or [])
-            if isinstance(batch_result.get("resource"), dict):
-                flat_resources.append(batch_result["resource"])
-            resources = batch_result.get("resources")
-            if isinstance(resources, list):
-                flat_resources.extend(resources)
-            skipped_reasons.extend(self._normalize_text_list(batch_result.get("skipped_reasons")))
-
-        result: dict[str, Any] = {
-            "items": _merge_record_list(flat_items),
-            "categories": _merge_record_list(flat_categories, id_keys=("id", "name")),
-            "relations": _merge_record_list(flat_relations, id_keys=("item_id", "category_id")),
-            "pending_episode_ids": self._normalize_text_list(pending_episode_ids),
-        }
-        merged_resources = _merge_record_list(flat_resources, id_keys=("id", "url", "local_path"))
-        if len(merged_resources) == 1:
-            result["resource"] = merged_resources[0]
-        elif merged_resources:
-            result["resources"] = merged_resources
-        if skipped_reasons:
-            result["skipped_reasons"] = list(dict.fromkeys(skipped_reasons))
-        return result
 
     @staticmethod
     def _normalize_text_list(raw: Any) -> list[str]:
