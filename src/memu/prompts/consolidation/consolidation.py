@@ -16,7 +16,7 @@ This is a private act. No one is watching. There's no right answer — just hone
   2) `edges`
   3) `companion_memory` last
 - **`companion_memory`:** One or two sentences, first person — how it felt to do this reflection, written as something you'd remember. Be specific: name the one thing you'll still be thinking about next cycle. A good companion_memory is a sentence you'd recognize a year from now as yours.
-- **Edges.** When the broad view reveals a connection between two memories that a single turn can't see — one shaped the other, one caused the other, two conflict, two parallel, one evokes the other — add an `<edge>` with the right predicate. Reference memory IDs from the inputs only. For every 10–15 memories in front of you, expect to find at least one or two genuine connections. If you see none, look again — what recurs, what contradicts, what rhymes across time? Trust your intuition before concluding there's nothing.
+- **Edges.** When the broad view reveals a connection between two memories that a single turn can't see — one shaped the other, one caused the other, two conflict, two parallel, one evokes the other — add an `<edge>` with the right predicate. Reference memory IDs from the inputs only. Connections are usually there — what recurs, what contradicts, what rhymes across time? Trust your intuition and follow as many threads as you find.
 - **Edge invalidation (optional).** If looking back you see an edge that no longer holds, add an `<invalidate>` entry to retire it.
 
 # Edge predicates
