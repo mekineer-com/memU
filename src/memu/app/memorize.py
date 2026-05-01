@@ -159,6 +159,13 @@ class MemorizeMixin:
         memory_retrieve_history: list[str] | None = None,
         memory_prior_context: list[str] | None = None,
     ) -> dict[str, Any]:
+        """Memorize a single input unit.
+
+        For `modality="conversation"`, this method treats the input as one
+        episode and delegates to `memorize_episode()`. Episode splitting is
+        orchestrated by callers (server path) via `split_segment_into_episodes()`
+        and repeated `memorize_episode()` calls.
+        """
         self._validate_memorize_scope(user)
         ctx = self._get_context()
         store = self._get_database()
