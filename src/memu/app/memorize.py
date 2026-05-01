@@ -217,11 +217,11 @@ class MemorizeMixin:
                 capabilities={"io"},
             ),
             WorkflowStep(
-                step_id="preprocess_multimodal",
+                step_id="split_episodes",
                 role="preprocess",
-                handler=self._memorize_preprocess_multimodal,
+                handler=self._memorize_split_episodes,
                 requires={"local_path", "modality", "raw_text"},
-                produces={"preprocessed_resources"},
+                produces={"episodes"},
                 capabilities={"llm"},
                 config={"chat_llm_profile": self.memorize_config.preprocess_llm_profile},
             ),
@@ -230,13 +230,13 @@ class MemorizeMixin:
                 role="extract",
                 handler=self._memorize_extract_items,
                 requires={
-                    "preprocessed_resources",
+                    "episodes",
                     "memory_types",
                     "categories_prompt_str",
                     "modality",
                     "resource_url",
                 },
-                produces={"resource_plans"},
+                produces={"episode_plans"},
                 capabilities={"llm"},
                 config={"chat_llm_profile": self.memorize_config.memory_extract_llm_profile},
             ),
@@ -244,7 +244,7 @@ class MemorizeMixin:
                 step_id="categorize_items",
                 role="categorize",
                 handler=self._memorize_categorize_items,
-                requires={"resource_plans", "ctx", "store", "local_path", "modality", "user"},
+                requires={"episode_plans", "ctx", "store", "local_path", "modality", "user"},
                 produces={"resources", "items", "relations", "category_updates", "homeless_item_count"},
                 capabilities={"db", "vector"},
                 config={"embed_llm_profile": "embedding"},
@@ -298,9 +298,9 @@ class MemorizeMixin:
         state.update({"local_path": local_path, "raw_text": raw_text})
         return state
 
-    async def _memorize_preprocess_multimodal(self, state: WorkflowState, step_context: Any) -> WorkflowState:
+    async def _memorize_split_episodes(self, state: WorkflowState, step_context: Any) -> WorkflowState:
         llm_client = self._get_step_llm_client(step_context)
-        preprocessed = await self._preprocess_resource_url(
+        preprocessed = await self._split_into_episodes(
             local_path=state["local_path"],
             text=state.get("raw_text"),
             modality=state["modality"],
@@ -308,14 +308,14 @@ class MemorizeMixin:
         )
         if not preprocessed:
             preprocessed = [{"text": state.get("raw_text"), "caption": None}]
-        state["preprocessed_resources"] = preprocessed
+        state["episodes"] = preprocessed
         return state
 
     async def _memorize_extract_items(self, state: WorkflowState, step_context: Any) -> WorkflowState:
         llm_client = self._get_step_llm_client(step_context)
-        preprocessed_resources = state.get("preprocessed_resources", [])
-        resource_plans: list[dict[str, Any]] = []
-        total_episodes = len(preprocessed_resources) or 1
+        episodes = state.get("episodes", [])
+        episode_plans: list[dict[str, Any]] = []
+        total_episodes = len(episodes) or 1
         skipped_reasons: list[str] = []
         message_happened_at_map = self._extract_message_happened_at_map(state.get("raw_text"))
         conversation_messages = self._extract_conversation_messages(state.get("raw_text"))
@@ -325,7 +325,7 @@ class MemorizeMixin:
             user=state.get("user"),
         )
 
-        for idx, prep in enumerate(preprocessed_resources):
+        for idx, prep in enumerate(episodes):
             res_url = self._episode_resource_url(state["resource_url"], idx, total_episodes)
             text = prep.get("text")
             caption = prep.get("caption")
@@ -416,9 +416,9 @@ class MemorizeMixin:
                 "memory_prior_context": state.get("memory_prior_context"),
                 "episode_messages": episode_messages,
             }
-            resource_plans.append(plan)
+            episode_plans.append(plan)
 
-        state["resource_plans"] = resource_plans
+        state["episode_plans"] = episode_plans
         if skipped_reasons:
             state["skipped_reasons"] = skipped_reasons
         return state
@@ -1281,7 +1281,7 @@ Decide which clusters/candidates should map into existing categories, and which 
         if session_cm is not None:
             with session_cm as session:
                 try:
-                    for plan in state.get("resource_plans", []):
+                    for plan in state.get("episode_plans", []):
                         plan_resources, delta = await self._process_plan(plan, session=session, **common)
                         resources.extend(plan_resources)
                         homeless_item_count += delta
@@ -1290,7 +1290,7 @@ Decide which clusters/candidates should map into existing categories, and which 
                     session.rollback()
                     raise
         else:
-            for plan in state.get("resource_plans", []):
+            for plan in state.get("episode_plans", []):
                 plan_resources, delta = await self._process_plan(plan, **common)
                 resources.extend(plan_resources)
                 homeless_item_count += delta
@@ -2056,7 +2056,7 @@ Decide which clusters/candidates should map into existing categories, and which 
                 seen.add(cid)
         return mapped
 
-    async def _preprocess_resource_url(
+    async def _split_into_episodes(
         self, *, local_path: str, text: str | None, modality: str, llm_client: Any | None = None
     ) -> list[dict[str, Any]]:
         configured_prompt = self.memorize_config.multimodal_preprocess_prompts.get(modality)
@@ -2130,7 +2130,7 @@ Decide which clusters/candidates should map into existing categories, and which 
         llm_client: Any | None = None,
     ) -> list[dict[str, str | None]]:
         if modality == "conversation" and text is not None:
-            return await self._preprocess_conversation(text, template, llm_client=llm_client)
+            return await self._split_conversation_into_episodes(text, template, llm_client=llm_client)
         if modality == "video":
             return await self._preprocess_video(local_path, template, llm_client=llm_client)
         if modality == "image":
@@ -2141,7 +2141,7 @@ Decide which clusters/candidates should map into existing categories, and which 
             return await self._preprocess_audio(text, template, llm_client=llm_client)
         return [{"text": text, "caption": None}]
 
-    async def _preprocess_conversation(
+    async def _split_conversation_into_episodes(
         self, text: str, template: str, llm_client: Any | None = None
     ) -> list[dict[str, Any]]:
         preprocessed_text = format_conversation_for_preprocess(text)
