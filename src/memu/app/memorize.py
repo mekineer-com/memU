@@ -145,6 +145,7 @@ class MemorizeMixin:
         if confidence < 0.35:
             return f"I have a faint suspicion that {lowered}"
         return f"I have an inkling that {lowered}"
+
     async def memorize(
         self,
         *,
@@ -158,43 +159,62 @@ class MemorizeMixin:
         memory_retrieve_history: list[str] | None = None,
         memory_prior_context: list[str] | None = None,
     ) -> dict[str, Any]:
-        # Fail loud at the engine boundary: a non-empty scope without soul_id
-        # silently mixes memories across souls, which is the worst class of
-        # isolation bug. The server always sends soul_id; tests must too.
-        if isinstance(user, dict) and user and not str(user.get("soul_id") or "").strip():
-            msg = "MemoryService.memorize: user scope is non-empty but 'soul_id' is missing/blank"
-            raise ValueError(msg)
+        self._validate_memorize_scope(user)
         ctx = self._get_context()
         store = self._get_database()
         user_scope = self.user_model(**user).model_dump() if user is not None else None
         await self._ensure_categories_ready(ctx, store, user_scope)
 
-        conversation_id: str | None = None
-        if isinstance(user, dict):
-            raw = user.get("conversation_id")
-            if raw is not None:
-                candidate = str(raw).strip()
-                if candidate:
-                    conversation_id = candidate
+        conversation_id = self._resolve_conversation_id(user)
+        normalized_all_categories_summary = (all_categories_summary or "").strip() or None
+        normalized_soul_card = (soul_card or "").strip() or None
 
-        memory_types = self._resolve_memory_types()
+        if modality == "conversation":
+            episode_local_path = local_path or resource_url
+            episode_raw_text = raw_text
+            if episode_raw_text is None:
+                episode_local_path, episode_raw_text = await self.fs.fetch(resource_url, modality)
+            preprocessed = await self.split_segment_into_episodes(
+                local_path=episode_local_path,
+                raw_text=episode_raw_text,
+                modality=modality,
+            )
+            episode_results: list[dict[str, Any]] = []
+            pending_episode_ids: list[str] = []
+            for idx, episode in enumerate(preprocessed):
+                episode_url = resource_url if len(preprocessed) == 1 else f"{resource_url}#episode:{idx + 1}"
+                episode_result = await self.memorize_episode(
+                    resource_url=episode_url,
+                    modality=modality,
+                    episode=episode,
+                    user=user,
+                    raw_text=episode_raw_text,
+                    local_path=episode_local_path,
+                    all_categories_summary=normalized_all_categories_summary,
+                    soul_card=normalized_soul_card,
+                    memory_retrieve_history=memory_retrieve_history,
+                    memory_prior_context=memory_prior_context,
+                    conversation_id=conversation_id,
+                )
+                episode_results.append(episode_result)
+                pending_episode_ids.extend(self._normalize_text_list(episode_result.get("pending_episode_ids")))
+            return self._merge_episode_results(episode_results, pending_episode_ids)
 
         state: WorkflowState = {
             "resource_url": resource_url,
             "modality": modality,
-            "memory_types": memory_types,
+            "memory_types": self._resolve_memory_types(),
             "categories_prompt_str": self._category_prompt_str,
             "ctx": ctx,
             "store": store,
             "category_ids": list(ctx.category_ids),
             "user": user_scope,
             "conversation_id": conversation_id,
-            "all_categories_summary": (all_categories_summary or "").strip() or None,
+            "all_categories_summary": normalized_all_categories_summary,
             "memory_retrieve_history": memory_retrieve_history,
             "memory_prior_context": memory_prior_context,
-            "soul_card": (soul_card or "").strip() or None,
+            "soul_card": normalized_soul_card,
         }
-
         if raw_text is not None:
             state["raw_text"] = raw_text
             state["local_path"] = local_path or resource_url
@@ -205,6 +225,181 @@ class MemorizeMixin:
             msg = "Memorize workflow failed to produce a response"
             raise RuntimeError(msg)
         return response
+
+    async def split_segment_into_episodes(
+        self,
+        *,
+        local_path: str,
+        raw_text: str | None,
+        modality: str,
+    ) -> list[dict[str, Any]]:
+        llm_client = self._get_llm_client(self.memorize_config.preprocess_llm_profile)
+        preprocessed = await self._split_into_episodes(
+            local_path=local_path,
+            text=raw_text,
+            modality=modality,
+            llm_client=llm_client,
+        )
+        if not preprocessed:
+            preprocessed = [{"text": raw_text, "caption": None}]
+        return preprocessed
+
+    async def memorize_episode(
+        self,
+        *,
+        resource_url: str,
+        modality: str,
+        episode: Mapping[str, Any],
+        user: dict[str, Any] | None = None,
+        raw_text: str | None = None,
+        local_path: str | None = None,
+        all_categories_summary: str | None = None,
+        soul_card: str | None = None,
+        memory_retrieve_history: list[str] | None = None,
+        memory_prior_context: list[str] | None = None,
+        conversation_id: str | None = None,
+    ) -> dict[str, Any]:
+        self._validate_memorize_scope(user)
+        ctx = self._get_context()
+        store = self._get_database()
+        user_scope = self.user_model(**user).model_dump() if user is not None else None
+        await self._ensure_categories_ready(ctx, store, user_scope)
+
+        state: WorkflowState = {
+            "resource_url": resource_url,
+            "modality": modality,
+            "memory_types": self._resolve_memory_types(),
+            "categories_prompt_str": self._category_prompt_str,
+            "ctx": ctx,
+            "store": store,
+            "category_ids": list(ctx.category_ids),
+            "user": user_scope,
+            "conversation_id": conversation_id or self._resolve_conversation_id(user),
+            "all_categories_summary": (all_categories_summary or "").strip() or None,
+            "memory_retrieve_history": memory_retrieve_history,
+            "memory_prior_context": memory_prior_context,
+            "soul_card": (soul_card or "").strip() or None,
+            "raw_text": raw_text,
+            "local_path": local_path or resource_url,
+            "episodes": [dict(episode)],
+        }
+        extract_context = {
+            "workflow_name": "memorize_episode",
+            "step_id": "extract_items",
+            "step_config": {"chat_llm_profile": self.memorize_config.memory_extract_llm_profile},
+        }
+        categorize_context = {
+            "workflow_name": "memorize_episode",
+            "step_id": "categorize_items",
+            "step_config": {"embed_llm_profile": "embedding"},
+        }
+        persist_context = {
+            "workflow_name": "memorize_episode",
+            "step_id": "persist_index",
+            "step_config": {"chat_llm_profile": self.memorize_config.category_update_llm_profile},
+        }
+        state = await self._memorize_extract_items(state, extract_context)
+        state = await self._memorize_categorize_items(state, categorize_context)
+        state = await self._memorize_dedupe_merge(state, {"workflow_name": "memorize_episode", "step_id": "dedupe_merge"})
+        state = await self._memorize_persist_and_index(state, persist_context)
+        state = self._memorize_build_response(state, {"workflow_name": "memorize_episode", "step_id": "build_response"})
+        response = cast(dict[str, Any] | None, state.get("response"))
+        if response is None:
+            msg = "Memorize episode failed to produce a response"
+            raise RuntimeError(msg)
+        return response
+
+    @staticmethod
+    def _validate_memorize_scope(user: dict[str, Any] | None) -> None:
+        # Fail loud at the engine boundary: a non-empty scope without soul_id
+        # silently mixes memories across souls, which is the worst class of
+        # isolation bug. The server always sends soul_id; tests must too.
+        if isinstance(user, dict) and user and not str(user.get("soul_id") or "").strip():
+            msg = "MemoryService.memorize: user scope is non-empty but 'soul_id' is missing/blank"
+            raise ValueError(msg)
+
+    @staticmethod
+    def _resolve_conversation_id(user: dict[str, Any] | None) -> str | None:
+        if not isinstance(user, dict):
+            return None
+        raw = user.get("conversation_id")
+        if raw is None:
+            return None
+        candidate = str(raw).strip()
+        return candidate or None
+
+    def _merge_episode_results(
+        self,
+        episode_results: list[dict[str, Any]],
+        pending_episode_ids: list[str] | None = None,
+    ) -> dict[str, Any]:
+        def _merge_record_list(values: list[Any], *, id_keys: tuple[str, ...] = ("id",)) -> list[Any]:
+            out: list[Any] = []
+            seen: set[str] = set()
+            for value in values:
+                if not isinstance(value, dict):
+                    out.append(value)
+                    continue
+                dedupe_key = ""
+                for key in id_keys:
+                    raw = str(value.get(key) or "").strip()
+                    if raw:
+                        dedupe_key = f"{key}:{raw}"
+                        break
+                if not dedupe_key:
+                    try:
+                        dedupe_key = json.dumps(value, sort_keys=True, ensure_ascii=False, default=str)
+                    except Exception:
+                        dedupe_key = repr(value)
+                if dedupe_key in seen:
+                    continue
+                seen.add(dedupe_key)
+                out.append(value)
+            return out
+
+        flat_items: list[Any] = []
+        flat_categories: list[Any] = []
+        flat_relations: list[Any] = []
+        flat_resources: list[Any] = []
+        skipped_reasons: list[str] = []
+
+        for batch_result in episode_results:
+            flat_items.extend(batch_result.get("items") or [])
+            flat_categories.extend(batch_result.get("categories") or [])
+            flat_relations.extend(batch_result.get("relations") or [])
+            if isinstance(batch_result.get("resource"), dict):
+                flat_resources.append(batch_result["resource"])
+            resources = batch_result.get("resources")
+            if isinstance(resources, list):
+                flat_resources.extend(resources)
+            skipped_reasons.extend(self._normalize_text_list(batch_result.get("skipped_reasons")))
+
+        result: dict[str, Any] = {
+            "items": _merge_record_list(flat_items),
+            "categories": _merge_record_list(flat_categories, id_keys=("id", "name")),
+            "relations": _merge_record_list(flat_relations, id_keys=("item_id", "category_id")),
+            "pending_episode_ids": self._normalize_text_list(pending_episode_ids),
+        }
+        merged_resources = _merge_record_list(flat_resources, id_keys=("id", "url", "local_path"))
+        if len(merged_resources) == 1:
+            result["resource"] = merged_resources[0]
+        elif merged_resources:
+            result["resources"] = merged_resources
+        if skipped_reasons:
+            result["skipped_reasons"] = list(dict.fromkeys(skipped_reasons))
+        return result
+
+    @staticmethod
+    def _normalize_text_list(raw: Any) -> list[str]:
+        if not isinstance(raw, list):
+            return []
+        out: list[str] = []
+        for value in raw:
+            text = str(value or "").strip()
+            if not text:
+                continue
+            out.append(text)
+        return out
 
     def _build_memorize_workflow(self) -> list[WorkflowStep]:
         steps = [
@@ -315,7 +510,6 @@ class MemorizeMixin:
         llm_client = self._get_step_llm_client(step_context)
         episodes = state.get("episodes", [])
         episode_plans: list[dict[str, Any]] = []
-        total_episodes = len(episodes) or 1
         skipped_reasons: list[str] = []
         message_happened_at_map = self._extract_message_happened_at_map(state.get("raw_text"))
         conversation_messages = self._extract_conversation_messages(state.get("raw_text"))
@@ -324,99 +518,106 @@ class MemorizeMixin:
             store=state["store"],
             user=state.get("user"),
         )
+        if not episodes:
+            state["episode_plans"] = []
+            return state
+        if len(episodes) > 1:
+            msg = f"extract_items expects one episode per call, got {len(episodes)}"
+            raise ValueError(msg)
+        prep = episodes[0] if episodes else {}
+        text = prep.get("text")
+        caption = prep.get("caption")
+        _, message_indices = self._prepare_episode(
+            modality=state["modality"],
+            text=text if isinstance(text, str) else None,
+            message_indices=prep.get("message_indices"),
+        )
+        notable = False
 
-        for idx, prep in enumerate(episodes):
-            res_url = self._episode_resource_url(state["resource_url"], idx, total_episodes)
-            text = prep.get("text")
-            caption = prep.get("caption")
-            _, message_indices = self._prepare_episode(
-                modality=state["modality"],
-                text=text if isinstance(text, str) else None,
-                message_indices=prep.get("message_indices"),
-            )
-            notable = False
-
-            episode_summary: str | None = None
-            episode_item: str | None = None
-            if state["modality"] == "conversation" and isinstance(text, str):
-                applicable_types, notable, episode_summary, episode_item = await self._route_episode(
-                    text, state["memory_types"], llm_client,
-                    soul_card=state.get("soul_card"),
-                    skipped_reasons=skipped_reasons,
-                )
-                if not applicable_types and not notable:
-                    continue
-            else:
-                applicable_types = state["memory_types"]
-
-            episode_messages: list[dict[str, Any]] = []
-            for message_idx in message_indices:
-                msg = messages_by_index.get(message_idx)
-                if msg is None:
-                    continue
-                episode_msg = dict(msg)
-                episode_msg["_message_index"] = message_idx
-                episode_messages.append(episode_msg)
-            speaker_map = self._build_speaker_map(episode_messages, state.get("user"))
-            speaker_roster = self._build_speaker_roster_for_episode(
-                speaker_map=speaker_map,
-                declared_entities=declared_entity_roster,
-                episode_text=text,
-            )
-
-            extraction_text = text
-            if episode_summary:
-                extraction_text = (
-                    f"Episode Summary:\n{episode_summary}\n\n"
-                    f"{_EPISODE_SUMMARY_EXTRACTION_GUIDANCE}\n\n"
-                    f"---\n{text}"
-                )
-
-            structured_entries = await self._generate_structured_entries(
-                modality=state["modality"],
-                store=state["store"],
-                memory_types=applicable_types,
-                text=extraction_text,
-                categories_prompt_str=state["categories_prompt_str"],
-                all_categories_summary=state.get("all_categories_summary"),
+        episode_summary: str | None = None
+        episode_item: str | None = None
+        if state["modality"] == "conversation" and isinstance(text, str):
+            applicable_types, notable, episode_summary, episode_item = await self._route_episode(
+                text, state["memory_types"], llm_client,
                 soul_card=state.get("soul_card"),
-                speaker_roster=speaker_roster,
-                message_count=len(message_indices),
-                llm_client=llm_client,
                 skipped_reasons=skipped_reasons,
             )
-            structured_entries = self._decorate_entries_with_plan_context(
-                structured_entries,
-                message_indices=message_indices,
-            )
-            structured_entries = [self._attribute_memory(entry, speaker_map) for entry in structured_entries]
-            plan_message_happened_at_map = {
-                message_idx: message_happened_at_map[message_idx]
-                for message_idx in message_indices
-                if message_idx in message_happened_at_map
-            }
+            if not applicable_types and not notable:
+                state["episode_plans"] = []
+                if skipped_reasons:
+                    state["skipped_reasons"] = skipped_reasons
+                return state
+        else:
+            applicable_types = state["memory_types"]
 
-            conv_id = state.get("conversation_id")
-            if conv_id and message_indices:
-                episode_id = f"{conv_id}:{message_indices[0]}-{message_indices[-1]}"
-            else:
-                episode_id = None
-            plan: dict[str, Any] = {
-                "resource_url": res_url,
-                "text": text,
-                "caption": episode_summary or caption,
-                "episode_summary": episode_summary,
-                "episode_item": episode_item,
-                "message_indices": message_indices,
-                "message_happened_at_map": plan_message_happened_at_map,
-                "entries": structured_entries,
-                "episode_id": episode_id,
-                "notable": notable,
-                "memory_retrieve_history": state.get("memory_retrieve_history"),
-                "memory_prior_context": state.get("memory_prior_context"),
-                "episode_messages": episode_messages,
-            }
-            episode_plans.append(plan)
+        episode_messages: list[dict[str, Any]] = []
+        for message_idx in message_indices:
+            msg = messages_by_index.get(message_idx)
+            if msg is None:
+                continue
+            episode_msg = dict(msg)
+            episode_msg["_message_index"] = message_idx
+            episode_messages.append(episode_msg)
+        speaker_map = self._build_speaker_map(episode_messages, state.get("user"))
+        speaker_roster = self._build_speaker_roster_for_episode(
+            speaker_map=speaker_map,
+            declared_entities=declared_entity_roster,
+            episode_text=text,
+        )
+
+        extraction_text = text
+        if episode_summary:
+            extraction_text = (
+                f"Episode Summary:\n{episode_summary}\n\n"
+                f"{_EPISODE_SUMMARY_EXTRACTION_GUIDANCE}\n\n"
+                f"---\n{text}"
+            )
+
+        structured_entries = await self._generate_structured_entries(
+            modality=state["modality"],
+            store=state["store"],
+            memory_types=applicable_types,
+            text=extraction_text,
+            categories_prompt_str=state["categories_prompt_str"],
+            all_categories_summary=state.get("all_categories_summary"),
+            soul_card=state.get("soul_card"),
+            speaker_roster=speaker_roster,
+            message_count=len(message_indices),
+            llm_client=llm_client,
+            skipped_reasons=skipped_reasons,
+        )
+        structured_entries = self._decorate_entries_with_plan_context(
+            structured_entries,
+            message_indices=message_indices,
+        )
+        structured_entries = [self._attribute_memory(entry, speaker_map) for entry in structured_entries]
+        plan_message_happened_at_map = {
+            message_idx: message_happened_at_map[message_idx]
+            for message_idx in message_indices
+            if message_idx in message_happened_at_map
+        }
+
+        conv_id = state.get("conversation_id")
+        if conv_id and message_indices:
+            episode_id = f"{conv_id}:{message_indices[0]}-{message_indices[-1]}"
+        else:
+            episode_id = None
+        plan: dict[str, Any] = {
+            "resource_url": state["resource_url"],
+            "text": text,
+            "caption": episode_summary or caption,
+            "episode_summary": episode_summary,
+            "episode_item": episode_item,
+            "message_indices": message_indices,
+            "message_happened_at_map": plan_message_happened_at_map,
+            "entries": structured_entries,
+            "episode_id": episode_id,
+            "notable": notable,
+            "memory_retrieve_history": state.get("memory_retrieve_history"),
+            "memory_prior_context": state.get("memory_prior_context"),
+            "episode_messages": episode_messages,
+        }
+        episode_plans.append(plan)
 
         state["episode_plans"] = episode_plans
         if skipped_reasons:
@@ -1359,12 +1560,6 @@ Decide which clusters/candidates should map into existing categories, and which 
         state["response"] = response
         return state
 
-    def _episode_resource_url(self, base_url: str, idx: int, total_episodes: int) -> str:
-        if total_episodes <= 1:
-            return base_url
-        path = pathlib.Path(base_url)
-        return f"{path.stem}_#episode_{idx}{path.suffix}"
-
     async def _create_resource_with_caption(
         self,
         *,
@@ -1501,12 +1696,12 @@ Decide which clusters/candidates should map into existing categories, and which 
                 logger.warning("Router returned unparseable response, skipping episode: %.120s", raw)
                 if skipped_reasons is not None:
                     skipped_reasons.append("router returned unparseable JSON")
-                return [], False, None
+                return [], False, None, None
         if not isinstance(payload, dict):
             logger.warning("Router returned non-dict payload, skipping episode: %s", type(payload).__name__)
             if skipped_reasons is not None:
                 skipped_reasons.append("router returned non-dict payload")
-            return [], False, None
+            return [], False, None, None
         memorable = payload.get("memorable")
         routed_types = payload.get("types")
         notable = bool(payload.get("notable"))
