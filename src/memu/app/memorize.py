@@ -1359,6 +1359,7 @@ Decide which clusters/candidates should map into existing categories, and which 
                     else:
                         rel = store.category_item_repo.link_item_category(**rel_kwargs)
                     relations.append(rel)
+                    category_updates.setdefault(cid, []).append((summary_item.id, episode_item_text))
 
         entries = plan.get("entries") or []
         if plan.get("notable"):
