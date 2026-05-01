@@ -29,7 +29,8 @@ class SQLiteBaseModelMixin(SQLModel):
     """Base mixin for SQLite models with common fields."""
 
     id: str = Field(
-        default_factory=lambda: secrets.token_hex(8),
+        # Keep IDs short and human-scannable; contract is 8 hex chars.
+        default_factory=lambda: secrets.token_hex(4),
         primary_key=True,
         index=True,
         sa_type=String,
