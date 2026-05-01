@@ -3246,7 +3246,7 @@ Decide which clusters/candidates should map into existing categories, and which 
         # Empty return = "LLM output couldn't be coerced into the expected
         # shape" (empty string, JSON parse failure, wrong top-level type,
         # or missing `memories_items`). Caller treats [] as "nothing
-        # extracted this batch" — not as an error. This preserves robustness
+        # extracted this episode" — not as an error. This preserves robustness
         # on flaky LLM output; the tradeoff is that a model consistently
         # emitting the wrong shape would extract zero memories silently.
         if not raw:
@@ -3292,7 +3292,7 @@ Decide which clusters/candidates should map into existing categories, and which 
         # (content AND categories)". Caller (_parse_memory_type_response_xml)
         # filters out None results silently — partial memories don't reach
         # extraction. If an LLM consistently emits malformed elements, the
-        # batch extracts nothing, which matches _parse_memory_type_response's
+        # episode extracts nothing, which matches _parse_memory_type_response's
         # robustness contract above.
         memory_dict: dict[str, Any] = {}
 
