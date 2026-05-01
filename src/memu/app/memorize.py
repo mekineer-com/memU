@@ -1208,9 +1208,9 @@ Decide which clusters/candidates should map into existing categories, and which 
                 return False
             return bool(re.fullmatch(r"[A-Za-z ]+", raw))
 
-        planner_profile = getattr(self.memorize_config, "category_update_llm_profile", "default")
-        planner = self._get_llm_client(planner_profile)
         try:
+            planner_profile = getattr(self.memorize_config, "category_update_llm_profile", "default")
+            planner = self._get_llm_client(planner_profile)
             resp = await planner.chat(user_prompt, system_prompt=system_prompt, temperature=0.2)
         except Exception:
             logger.warning("dynamic-category planner LLM call failed", exc_info=True)
