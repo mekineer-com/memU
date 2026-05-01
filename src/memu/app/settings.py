@@ -192,6 +192,10 @@ class MemorizeConfig(BaseModel):
         default_factory=_default_memory_categories,
         description="Global memory category definitions embedded at service startup.",
     )
+    episodes_per_segment: int = Field(
+        default=3,
+        description="Maximum number of episodes the LLM preprocessor can create from one conversation segment.",
+    )
     dynamic_category_cluster_size: int = Field(
         default=3,
         description="Minimum number of homeless items that must cluster together (by embedding similarity) before that cluster becomes a new dynamic category.",

@@ -2274,7 +2274,11 @@ Decide which clusters/candidates should map into existing categories, and which 
         self, text: str, template: str, llm_client: Any | None = None
     ) -> list[dict[str, Any]]:
         preprocessed_text = format_conversation_for_preprocess(text)
-        prompt = template.format(conversation=self._escape_prompt_value(preprocessed_text))
+        eps_per_seg = getattr(self.memorize_config, "episodes_per_segment", 3) or 3
+        prompt = template.format(
+            conversation=self._escape_prompt_value(preprocessed_text),
+            episodes_per_segment=eps_per_seg,
+        )
         client = llm_client or self._get_llm_client()
         processed = await client.chat(prompt)
         _conv, episodes = self._parse_conversation_preprocess_with_episodes(processed, preprocessed_text)

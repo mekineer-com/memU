@@ -19,7 +19,7 @@ Analyze a conversation with message indices and divide it into meaningful episod
   - Maintain a **coherent theme**
   - Have a **clear boundary** from adjacent episodes
 - Short episodes are fine — a meaningful 5-message exchange is better than forcing it into a larger episode where it doesn't belong.
-- Maximum 4 episodes per conversation segment. If there are more natural breaks than that, merge the least distinct ones.
+- Maximum {episodes_per_segment} episodes per conversation segment. If there are more natural breaks than that, merge the least distinct ones.
 - Use only the provided `[INDEX]` numbers.
 - Do not overlap episodes.
 - Do not include explanations, comments, or extra text in the final output.
