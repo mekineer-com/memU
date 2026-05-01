@@ -1208,77 +1208,82 @@ Decide which clusters/candidates should map into existing categories, and which 
                 return False
             return bool(re.fullmatch(r"[A-Za-z ]+", raw))
 
+        planner_profile = getattr(self.memorize_config, "category_update_llm_profile", "default")
+        planner = self._get_llm_client(planner_profile)
         try:
-            planner_profile = getattr(self.memorize_config, "category_update_llm_profile", "default")
-            planner = self._get_llm_client(planner_profile)
             resp = await planner.chat(user_prompt, system_prompt=system_prompt, temperature=0.2)
-            match = re.search(r"\{[\s\S]*\}", resp or "")
-            if match is None:
-                return cluster_mapping, label_mapping, new_defs
-            plan = json.loads(match.group(0))
-
-            if isinstance(plan, dict):
-                for entry in plan.get("create", []) or []:
-                    if not isinstance(entry, dict):
-                        continue
-                    raw_name = str(entry.get("name", "") or "").strip()
-                    if not _valid_new_name(raw_name):
-                        continue
-                    desc = str(entry.get("description", "") or "").strip() or default_desc
-                    important = bool(entry.get("important", False))
-                    cluster_id = str(entry.get("cluster", "") or "").strip()
-                    norm_name = self._normalize_category_name(raw_name)
-                    if not norm_name:
-                        continue
-
-                    if cluster_id and cluster_id in cluster_by_id:
-                        cluster = cluster_by_id[cluster_id]
-                        if len(cluster.entry_indexes) < self._dynamic_category_cluster_min_size() and not important:
-                            continue
-                        if norm_name not in ctx.category_name_to_id:
-                            new_defs.setdefault(norm_name, desc)
-                        cluster_mapping[cluster_id] = norm_name
-                        continue
-
-                    src = entry.get("from", []) or []
-                    if not isinstance(src, list):
-                        src = [src]
-                    src_norm = [
-                        sn
-                        for s in src
-                        if isinstance(s, str)
-                        for sn in [self._normalize_category_name(s)]
-                        if sn and sn in ungrouped_unknown_counts
-                    ]
-                    if not src_norm:
-                        continue
-                    total = sum(ungrouped_unknown_counts.get(s, 0) for s in src_norm)
-                    if total < min_mentions and not important:
-                        continue
-                    if norm_name not in ctx.category_name_to_id:
-                        new_defs.setdefault(norm_name, desc)
-                    for source_name in src_norm:
-                        label_mapping[source_name] = norm_name
-
-                for entry in plan.get("map", []) or []:
-                    if not isinstance(entry, dict):
-                        continue
-                    cluster_id = str(entry.get("cluster", "") or "").strip()
-                    if cluster_id and cluster_id in cluster_by_id:
-                        tgt = self._normalize_category_name(str(entry.get("to", "") or ""))
-                        if tgt and (tgt in ctx.category_name_to_id or tgt in new_defs):
-                            cluster_mapping[cluster_id] = tgt
-                        continue
-                    src = self._normalize_category_name(str(entry.get("from", "") or ""))
-                    tgt = self._normalize_category_name(str(entry.get("to", "") or ""))
-                    if not src or src not in ungrouped_unknown_counts:
-                        continue
-                    if tgt and (tgt in ctx.category_name_to_id or tgt in new_defs):
-                        label_mapping[src] = tgt
-            else:
-                return cluster_mapping, label_mapping, new_defs
         except Exception:
-            logger.warning("dynamic-category planner failed; skipping category creation", exc_info=True)
+            logger.warning("dynamic-category planner LLM call failed", exc_info=True)
+            return cluster_mapping, label_mapping, new_defs
+        match = re.search(r"\{[\s\S]*\}", resp or "")
+        if match is None:
+            return cluster_mapping, label_mapping, new_defs
+        try:
+            plan = json.loads(match.group(0))
+        except json.JSONDecodeError:
+            logger.warning("dynamic-category planner returned unparseable JSON: %.200s", resp)
+            return cluster_mapping, label_mapping, new_defs
+
+        if not isinstance(plan, dict):
+            return cluster_mapping, label_mapping, new_defs
+
+        for entry in plan.get("create", []) or []:
+            if not isinstance(entry, dict):
+                continue
+            raw_name = str(entry.get("name", "") or "").strip()
+            if not _valid_new_name(raw_name):
+                continue
+            desc = str(entry.get("description", "") or "").strip() or default_desc
+            important = bool(entry.get("important", False))
+            cluster_id = str(entry.get("cluster", "") or "").strip()
+            norm_name = self._normalize_category_name(raw_name)
+            if not norm_name:
+                continue
+
+            if cluster_id and cluster_id in cluster_by_id:
+                cluster = cluster_by_id[cluster_id]
+                if len(cluster.entry_indexes) < self._dynamic_category_cluster_min_size() and not important:
+                    continue
+                if norm_name not in ctx.category_name_to_id:
+                    new_defs.setdefault(norm_name, desc)
+                cluster_mapping[cluster_id] = norm_name
+                continue
+
+            src = entry.get("from", []) or []
+            if not isinstance(src, list):
+                src = [src]
+            src_norm = [
+                sn
+                for s in src
+                if isinstance(s, str)
+                for sn in [self._normalize_category_name(s)]
+                if sn and sn in ungrouped_unknown_counts
+            ]
+            if not src_norm:
+                continue
+            total = sum(ungrouped_unknown_counts.get(s, 0) for s in src_norm)
+            if total < min_mentions and not important:
+                continue
+            if norm_name not in ctx.category_name_to_id:
+                new_defs.setdefault(norm_name, desc)
+            for source_name in src_norm:
+                label_mapping[source_name] = norm_name
+
+        for entry in plan.get("map", []) or []:
+            if not isinstance(entry, dict):
+                continue
+            cluster_id = str(entry.get("cluster", "") or "").strip()
+            if cluster_id and cluster_id in cluster_by_id:
+                tgt = self._normalize_category_name(str(entry.get("to", "") or ""))
+                if tgt and (tgt in ctx.category_name_to_id or tgt in new_defs):
+                    cluster_mapping[cluster_id] = tgt
+                continue
+            src = self._normalize_category_name(str(entry.get("from", "") or ""))
+            tgt = self._normalize_category_name(str(entry.get("to", "") or ""))
+            if not src or src not in ungrouped_unknown_counts:
+                continue
+            if tgt and (tgt in ctx.category_name_to_id or tgt in new_defs):
+                label_mapping[src] = tgt
 
         return cluster_mapping, label_mapping, new_defs
 
@@ -1543,7 +1548,7 @@ Decide which clusters/candidates should map into existing categories, and which 
     def _sqlite_write_session(store: Database) -> Any | None:
         try:
             from memu.database.sqlite.sqlite import SQLiteStore
-        except Exception:
+        except ImportError:
             return None
         if isinstance(store, SQLiteStore):
             return store._sessions.session()
@@ -2237,7 +2242,7 @@ Decide which clusters/candidates should map into existing categories, and which 
             path_obj = pathlib.Path(local_path)
             try:
                 text_content = path_obj.read_text(encoding="utf-8")
-            except Exception:
+            except OSError:
                 logger.exception("Failed to read text file %s", local_path)
                 return None
             else:
@@ -2365,11 +2370,11 @@ Decide which clusters/candidates should map into existing categories, and which 
 
                 try:
                     pathlib.Path(frame_path).unlink(missing_ok=True)
-                except Exception as e:
-                    logger.warning(f"Failed to clean up frame {frame_path}: {e}")
+                except OSError as e:
+                    logger.warning("Failed to clean up frame %s: %s", frame_path, e)
 
-        except Exception as e:
-            logger.error(f"Video preprocessing failed: {e}", exc_info=True)
+        except (OSError, RuntimeError) as e:
+            logger.error("Video preprocessing failed: %s", e, exc_info=True)
             return [{"text": None, "caption": None}]
 
     async def _preprocess_image(
@@ -2749,7 +2754,7 @@ Decide which clusters/candidates should map into existing categories, and which 
             return []
         try:
             parsed = json.loads(raw_text)
-        except Exception:
+        except (json.JSONDecodeError, ValueError):
             return []
         messages: list[dict[str, Any]] | None = None
         if isinstance(parsed, list):
@@ -2776,13 +2781,13 @@ Decide which clusters/candidates should map into existing categories, and which 
                     ts.microsecond,
                     tz="UTC",
                 )
-            except Exception:
+            except (ValueError, OverflowError, OSError):
                 return None
         if not isinstance(raw, str) or not raw.strip():
             return None
         try:
             parsed = pendulum.parse(raw, strict=False)
-        except Exception:
+        except (ValueError, OverflowError):
             return None
         if not isinstance(parsed, pendulum.DateTime):
             return None
@@ -3137,8 +3142,8 @@ Decide which clusters/candidates should map into existing categories, and which 
             return episodes
         try:
             blob = self._extract_json_blob(raw)
-        except Exception:
-            logging.exception("Failed to extract episodes from conversation preprocess response")
+        except (ValueError, IndexError):
+            logger.warning("Failed to extract episodes from conversation preprocess response: %.200s", raw)
             return None
         return self._episodes_from_json_payload(blob)
 
@@ -3199,7 +3204,8 @@ Decide which clusters/candidates should map into existing categories, and which 
             try:
                 blob = self._extract_json_blob(raw)
                 payload = json.loads(blob)
-            except Exception:
+            except (json.JSONDecodeError, ValueError, TypeError):
+                logger.warning("memory-type response: unparseable after fallback extraction: %.200s", raw)
                 return []
         if not isinstance(payload, dict):
             return []
