@@ -229,15 +229,15 @@ class MemorizeMixin:
         modality: str,
     ) -> list[dict[str, Any]]:
         llm_client = self._get_llm_client(self.memorize_config.preprocess_llm_profile)
-        preprocessed = await self._split_into_episodes(
+        segment_episodes = await self._split_into_episodes(
             local_path=local_path,
             text=raw_text,
             modality=modality,
             llm_client=llm_client,
         )
-        if not preprocessed:
-            preprocessed = [{"text": raw_text, "caption": None}]
-        return preprocessed
+        if not segment_episodes:
+            segment_episodes = [{"text": raw_text, "caption": None}]
+        return segment_episodes
 
     async def memorize_episode(
         self,
@@ -2277,29 +2277,31 @@ Decide which clusters/candidates should map into existing categories, and which 
         return [{"text": text, "caption": None}]
 
     async def _split_conversation_into_episodes(
-        self, text: str, template: str, llm_client: Any | None = None
+        self, conversation_raw_text: str, template: str, llm_client: Any | None = None
     ) -> list[dict[str, Any]]:
-        preprocessed_text = format_conversation_for_preprocess(text)
+        indexed_conversation_text = format_conversation_for_preprocess(conversation_raw_text)
         eps_per_seg = getattr(self.memorize_config, "episodes_per_segment", 3) or 3
         prompt = template.format(
-            conversation=self._escape_prompt_value(preprocessed_text),
+            conversation=self._escape_prompt_value(indexed_conversation_text),
             episodes_per_segment=eps_per_seg,
         )
         client = llm_client or self._get_llm_client()
-        processed = await client.chat(prompt)
-        _conv, episodes = self._parse_conversation_preprocess_with_episodes(processed, preprocessed_text)
+        preprocessor_response = await client.chat(prompt)
+        _, episodes = self._parse_conversation_preprocess_with_episodes(
+            preprocessor_response,
+            indexed_conversation_text,
+        )
 
         # Important: always use the original JSON-derived, indexed conversation text for downstream
         # episode detection and memory extraction. The LLM may rewrite the conversation and drop fields
         # like created_at, which would cause them to be lost.
-        conversation_text = preprocessed_text
-        all_indices = self._extract_message_indices(conversation_text)
+        all_message_indices = self._extract_message_indices(indexed_conversation_text)
         if not episodes:
-            return [{"text": conversation_text, "caption": None, "message_indices": all_indices}]
+            return [{"text": indexed_conversation_text, "caption": None, "message_indices": all_message_indices}]
 
-        lines = conversation_text.split("\n")
-        max_idx = len(lines) - 1
-        resources: list[dict[str, Any]] = []
+        indexed_lines = indexed_conversation_text.split("\n")
+        max_idx = len(indexed_lines) - 1
+        episode_resources: list[dict[str, Any]] = []
         pending_captions: list[tuple[int, str]] = []
 
         for episode in episodes:
@@ -2307,18 +2309,18 @@ Decide which clusters/candidates should map into existing categories, and which 
             end = int(episode.get("end", max_idx))
             start = max(0, min(start, max_idx))
             end = max(0, min(end, max_idx))
-            episode_text = "\n".join(lines[start : end + 1])
+            episode_text = "\n".join(indexed_lines[start : end + 1])
 
             if episode_text.strip():
                 caption_raw = episode.get("caption")
                 caption = str(caption_raw).strip() if isinstance(caption_raw, str) else ""
-                resources.append({
+                episode_resources.append({
                     "text": episode_text,
                     "caption": caption or None,
                     "message_indices": list(range(start, end + 1)),
                 })
                 if not caption:
-                    pending_captions.append((len(resources) - 1, episode_text))
+                    pending_captions.append((len(episode_resources) - 1, episode_text))
 
         if pending_captions:
             max_parallel = min(4, len(pending_captions))
@@ -2333,9 +2335,11 @@ Decide which clusters/candidates should map into existing categories, and which 
                 *(summarize_one(resource_idx, episode_text) for resource_idx, episode_text in pending_captions)
             )
             for resource_idx, generated_caption in caption_results:
-                resources[resource_idx]["caption"] = generated_caption
+                episode_resources[resource_idx]["caption"] = generated_caption
         return (
-            resources if resources else [{"text": conversation_text, "caption": None, "message_indices": all_indices}]
+            episode_resources
+            if episode_resources
+            else [{"text": indexed_conversation_text, "caption": None, "message_indices": all_message_indices}]
         )
 
     async def _summarize_episode(self, episode_text: str, llm_client: Any | None = None) -> str | None:
