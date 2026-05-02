@@ -52,15 +52,15 @@ class RetrieveMixin:
         original_query = self._extract_query_text(queries[-1])
         where_filters = self._normalize_where(where)
 
-        context_queries_objs = queries[:-1] if len(queries) > 1 else []
-        route_context_queries, downstream_context_queries = self._split_context_queries(context_queries_objs)
+        context_queries = queries[:-1] if len(queries) > 1 else []
+        route_context_queries, retrieval_context_queries = self._split_context_queries(context_queries)
 
         workflow_name = "retrieve_rag"
 
         state: WorkflowState = {
             "method": self.retrieve_config.method,
             "original_query": original_query,
-            "context_queries": downstream_context_queries,
+            "context_queries": retrieval_context_queries,
             "route_context_queries": route_context_queries,
             "rewrite_angle": int(rewrite_angle) if rewrite_angle is not None else 0,
             "ctx": ctx,
@@ -601,10 +601,10 @@ class RetrieveMixin:
 
     @staticmethod
     def _split_context_queries(context_queries: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        route_context = list(context_queries)
+        route_context_queries = list(context_queries)
         # "history_from_second_chat_x" must stay in sync with _build_retrieve_soul_context_queries()
         # in mcp-memu-server/app/main.py, which assigns this role server-side before calling retrieve.
-        downstream_context = [
+        retrieval_context_queries = [
             q
             for q in context_queries
             if not (
@@ -612,7 +612,7 @@ class RetrieveMixin:
                 and str(q.get("role") or "").strip().lower() == "history_from_second_chat_x"
             )
         ]
-        return route_context, downstream_context
+        return route_context_queries, retrieval_context_queries
 
     @staticmethod
     def _extract_query_text(query: dict[str, Any]) -> str:
