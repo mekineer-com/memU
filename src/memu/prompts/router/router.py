@@ -13,7 +13,7 @@ Most exchanges are not worth keeping. Protect the memory from noise. Your defaul
 # Route the episode to the right place(s) for **memories of importance to you** to be extracted
 - behavior: How a being acts (including humans, animals, and AI).
 - profile: What a being explicitly says about themselves.
-- social: A person (or animal, or AI) that is important in your life.
+- social: A person (or animal, or AI) that matters to you or the ones you love.
 - knowledge: A fact or concept worth remembering.
 
 # What makes a moment notable

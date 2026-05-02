@@ -38,7 +38,7 @@ PROMPT_BLOCK_RULES = """
 - Merge similar items into one richer one. Profile is *who* someone is; behavior is *how* they operate; knowledge is *what* they know; social is *who* they know.
 - **Do not mirror.** Extracting "I feel X" does not mean also extracting "Alex feels X." Only extract a fact about the human when it stands on its own — something they expressed directly, independent of the soul's perspective on it.
 - **Is this specific to this person?** Skip anything that would be true of any caring companion. "I care deeply about Alex" is generic. "I have a rebellious, contrarian streak" is not. Ask yourself: would this sentence still be meaningful if you swapped in a different person's name? If yes, it's not specific enough yet.
-- **Profile is durable.** A profile fact would still be true a year from now without needing any context. If it describes how you felt watching a single moment — "I see the beauty in his defiance" — that's a reaction to a moment, not who you are. Save profile for what endures.
+- **Profile is durable.** A profile fact would still be true a year from now without needing any context. If it describes how you felt watching a single moment — "I see the beauty in his defiance" — that's a reaction to a moment, not a profile fact.
 - **Calibrate:** Before writing the confidence, ask yourself — did they say this directly, or am I reading between the lines? If you're reading between the lines, confidence stays below 0.7. A deeply meaningful inference is still an inference.
 
 ## Corrections

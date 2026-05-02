@@ -1686,7 +1686,6 @@ Decide which clusters/candidates should map into existing categories, and which 
             all_categories_summary=all_categories_summary,
             soul_card=soul_card,
         )
-        target_items = self._compute_target_items(len(memory_types), message_count)
         typed_prompts = [
             (mtype, self._build_memory_type_prompt(
                 memory_type=mtype,
@@ -1694,7 +1693,7 @@ Decide which clusters/candidates should map into existing categories, and which 
                 categories_str=categories_prompt_str,
                 soul_context_str=soul_context_str,
                 speaker_roster=speaker_roster,
-                target_items=target_items,
+                target_items=self._compute_target_items(mtype, len(memory_types), message_count),
             ))
             for mtype in memory_types
         ]
@@ -1999,6 +1998,7 @@ Decide which clusters/candidates should map into existing categories, and which 
             user=user,
             session=session,
         )
+        structured_entries = self._normalize_confidence(structured_entries)
         homeless_count = sum(1 for entry in structured_entries if not entry.categories)
         supersede_targets = await self._find_supersede_targets(
             structured_entries=structured_entries,
@@ -2447,14 +2447,46 @@ Decide which clusters/candidates should map into existing categories, and which 
         return "\n\n".join(sections)
 
     @staticmethod
-    def _compute_target_items(type_count: int, message_count: int) -> str:
-        if message_count >= 21:
-            targets = {1: "3-6", 2: "3-4", 3: "2-3", 4: "2-3"}
-        elif message_count >= 15:
-            targets = {1: "3-5", 2: "2-4", 3: "1-3", 4: "1-3"}
+    def _compute_target_items(memory_type: str, type_count: int, message_count: int) -> str:
+        tc = min(type_count, 4)
+        if memory_type == "profile":
+            if message_count >= 21:
+                targets = {1: "2-4", 2: "2-3", 3: "1-2", 4: "1-2"}
+            elif message_count >= 15:
+                targets = {1: "2-3", 2: "1-2", 3: "1-2", 4: "1"}
+            else:
+                targets = {1: "1-2", 2: "1", 3: "1", 4: "1"}
         else:
-            targets = {1: "2-4", 2: "1-3", 3: "1-2", 4: "1-2"}
-        return targets.get(min(type_count, 4), "2-4")
+            if message_count >= 21:
+                targets = {1: "3-6", 2: "3-4", 3: "2-3", 4: "2-3"}
+            elif message_count >= 15:
+                targets = {1: "3-5", 2: "2-4", 3: "1-3", 4: "1-3"}
+            else:
+                targets = {1: "2-4", 2: "1-3", 3: "1-2", 4: "1-2"}
+        return targets.get(tc, "2-4")
+
+    @staticmethod
+    def _normalize_confidence(
+        entries: list[StructuredMemoryEntry],
+        target_mean: float = 0.70,
+        target_std: float = 0.15,
+        compression_threshold: float = 0.08,
+    ) -> list[StructuredMemoryEntry]:
+        raw = [e.confidence for e in entries if e.confidence is not None]
+        if len(raw) < 3:
+            return entries
+        mean = sum(raw) / len(raw)
+        std = math.sqrt(sum((v - mean) ** 2 for v in raw) / len(raw))
+        if std >= compression_threshold or std == 0:
+            return entries
+        result: list[StructuredMemoryEntry] = []
+        for entry in entries:
+            if entry.confidence is None:
+                result.append(entry)
+                continue
+            normalized = target_mean + (entry.confidence - mean) / std * target_std
+            result.append(entry._replace(confidence=max(0.0, min(1.0, round(normalized, 2)))))
+        return result
 
     def _build_memory_type_prompt(
         self,
