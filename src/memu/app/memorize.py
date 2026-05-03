@@ -2298,6 +2298,20 @@ Decide which clusters/candidates should map into existing categories, and which 
         all_message_indices = self._extract_message_indices(indexed_conversation_text)
         if not episodes:
             return [{"text": indexed_conversation_text, "caption": None, "message_indices": all_message_indices}]
+        if eps_per_seg > 0 and len(episodes) > eps_per_seg:
+            logger.warning(
+                "conversation preprocess returned %d episodes, above cap=%d; merging overflow into last episode",
+                len(episodes),
+                eps_per_seg,
+            )
+            capped_episodes = [dict(episode) for episode in episodes[:eps_per_seg]]
+            tail_episodes = episodes[eps_per_seg - 1 :]
+            tail_max_end = max(
+                int(episode.get("end", capped_episodes[-1].get("end", 0)))
+                for episode in tail_episodes
+            )
+            capped_episodes[-1]["end"] = max(int(capped_episodes[-1].get("end", 0)), tail_max_end)
+            episodes = capped_episodes
 
         indexed_lines = indexed_conversation_text.split("\n")
         max_idx = len(indexed_lines) - 1
