@@ -8,13 +8,10 @@ from collections.abc import Mapping
 from typing import Any
 
 import pendulum
-from sqlalchemy import func, or_
-
 from memu.database.sqlite.session import SQLiteSessionManager
 from memu.database.state import DatabaseState
 
 logger = logging.getLogger(__name__)
-_CASE_INSENSITIVE_SCOPE_FIELDS = {"user_id", "soul_id"}
 
 
 class SQLiteRepoBase:
@@ -28,22 +25,10 @@ class SQLiteRepoBase:
         sessions: SQLiteSessionManager,
         scope_fields: list[str],
     ) -> None:
-        """Initialize base repository.
-
-        Args:
-            state: Shared database state for caching.
-            sqla_models: SQLAlchemy model definitions.
-            sessions: Session manager for database connections.
-            scope_fields: List of user scope field names.
-        """
         self._state = state
         self._sqla_models = sqla_models
         self._sessions = sessions
         self._scope_fields = scope_fields
-
-    def _scope_kwargs_from(self, obj: Any) -> dict[str, Any]:
-        """Extract scope fields from an object."""
-        return {field: getattr(obj, field, None) for field in self._scope_fields}
 
     def _normalize_embedding(self, embedding: Any) -> list[float] | None:
         """Normalize embedding from various formats to list[float]."""
@@ -103,31 +88,11 @@ class SQLiteRepoBase:
                 raise ValueError(msg)
             if op == "in":
                 if isinstance(expected, str):
-                    if field in _CASE_INSENSITIVE_SCOPE_FIELDS:
-                        filters.append(func.lower(column) == expected.lower())
-                    else:
-                        filters.append(column == expected)
-                else:
-                    if field in _CASE_INSENSITIVE_SCOPE_FIELDS:
-                        expected_values = list(expected)
-                        lowered = [v.lower() for v in expected_values if isinstance(v, str)]
-                        non_str = [v for v in expected_values if not isinstance(v, str)]
-                        clauses: list[Any] = []
-                        if lowered:
-                            clauses.append(func.lower(column).in_(lowered))
-                        if non_str:
-                            clauses.append(column.in_(non_str))
-                        if len(clauses) == 1:
-                            filters.append(clauses[0])
-                        elif len(clauses) > 1:
-                            filters.append(or_(*clauses))
-                    else:
-                        filters.append(column.in_(expected))
-            else:
-                if field in _CASE_INSENSITIVE_SCOPE_FIELDS and isinstance(expected, str):
-                    filters.append(func.lower(column) == expected.lower())
-                else:
                     filters.append(column == expected)
+                else:
+                    filters.append(column.in_(expected))
+            else:
+                filters.append(column == expected)
         return filters
 
     @staticmethod
@@ -142,41 +107,16 @@ class SQLiteRepoBase:
             actual = getattr(obj, str(field), None)
             if op == "in":
                 if isinstance(expected, str):
-                    if (
-                        field in _CASE_INSENSITIVE_SCOPE_FIELDS
-                        and isinstance(actual, str)
-                        and isinstance(expected, str)
-                    ):
-                        if actual.lower() != expected.lower():
-                            return False
-                    elif actual != expected:
+                    if actual != expected:
                         return False
                 else:
                     try:
-                        if (
-                            field in _CASE_INSENSITIVE_SCOPE_FIELDS
-                            and isinstance(actual, str)
-                            and any(isinstance(v, str) for v in expected)
-                        ):
-                            expected_values = list(expected)
-                            lowered = {v.lower() for v in expected_values if isinstance(v, str)}
-                            others = {v for v in expected_values if not isinstance(v, str)}
-                            if actual.lower() not in lowered and actual not in others:
-                                return False
-                        elif actual not in expected:
+                        if actual not in expected:
                             return False
                     except TypeError:
                         return False
-            else:
-                if (
-                    field in _CASE_INSENSITIVE_SCOPE_FIELDS
-                    and isinstance(actual, str)
-                    and isinstance(expected, str)
-                ):
-                    if actual.lower() != expected.lower():
-                        return False
-                elif actual != expected:
-                    return False
+            elif actual != expected:
+                return False
         return True
 
 

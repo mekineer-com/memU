@@ -100,8 +100,7 @@ class SQLiteCategoryItemModel(SQLiteBaseModelMixin, CategoryItem):
     item_id: str = Field(sa_column=Column(String, nullable=False))
     category_id: str = Field(sa_column=Column(String, nullable=False))
 
-    # NOTE: SQLite reserves the "sqlite_" prefix for internal schema objects.
-    __table_args__ = (Index("idx_memu_category_items_unique", "item_id", "category_id", unique=True),)
+    __table_args__ = (Index("idx_category_items_unique", "item_id", "category_id", unique=True),)
 
 
 class SQLiteEntityModel(SQLiteBaseModelMixin, Entity):
@@ -128,11 +127,11 @@ class SQLiteTripleModel(SQLiteBaseModelMixin, Triple):
     properties: dict[str, Any] = Field(default={}, sa_column=Column(JSON, nullable=True))
 
     __table_args__ = (
-        Index("idx_memu_triples_subject", "subject_id"),
-        Index("idx_memu_triples_object", "object_id"),
-        Index("idx_memu_triples_predicate", "predicate"),
-        Index("idx_memu_triples_predicate_subject", "predicate", "subject_id"),
-        Index("idx_memu_triples_valid", "valid_from", "valid_to"),
+        Index("idx_triples_subject", "subject_id"),
+        Index("idx_triples_object", "object_id"),
+        Index("idx_triples_predicate", "predicate"),
+        Index("idx_triples_predicate_subject", "predicate", "subject_id"),
+        Index("idx_triples_valid", "valid_from", "valid_to"),
     )
 
 

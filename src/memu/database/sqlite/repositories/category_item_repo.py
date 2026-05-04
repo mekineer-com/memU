@@ -72,7 +72,6 @@ class SQLiteCategoryItemRepo(SQLiteRepoBase, CategoryItemRepo):
                 category_id=row.category_id,
                 created_at=row.created_at,
                 updated_at=row.updated_at,
-                **self._scope_kwargs_from(row),
             )
             result.append(rel)
             # Update cache
@@ -128,7 +127,6 @@ class SQLiteCategoryItemRepo(SQLiteRepoBase, CategoryItemRepo):
                 category_id=existing.category_id,
                 created_at=existing.created_at,
                 updated_at=existing.updated_at,
-                **self._scope_kwargs_from(existing),
             )
             return rel
 

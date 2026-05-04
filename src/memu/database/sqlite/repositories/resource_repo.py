@@ -79,7 +79,6 @@ class SQLiteResourceRepo(SQLiteRepoBase, ResourceRepo):
                 embedding=self._normalize_embedding(self._get_row_embedding(row)),
                 created_at=row.created_at,
                 updated_at=row.updated_at,
-                **self._scope_kwargs_from(row),
             )
             result[row.id] = res
             self.resources[row.id] = res
@@ -114,8 +113,7 @@ class SQLiteResourceRepo(SQLiteRepoBase, ResourceRepo):
                     embedding=self._normalize_embedding(self._get_row_embedding(row)),
                     created_at=row.created_at,
                     updated_at=row.updated_at,
-                    **self._scope_kwargs_from(row),
-                )
+                    )
                 deleted[row.id] = res
 
             if not deleted:

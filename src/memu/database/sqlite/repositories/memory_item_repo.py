@@ -94,10 +94,7 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
         row: Any,
         *,
         embedding: list[float] | None = None,
-        scope: Mapping[str, Any] | None = None,
     ) -> MemoryItem:
-        item_scope = dict(scope) if scope is not None else self._scope_kwargs_from(row)
-        item_scope.pop("conversation_id", None)
         return MemoryItem(
             id=row.id,
             resource_id=row.resource_id,
@@ -119,7 +116,6 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
             extra=getattr(row, "extra", {}) or {},
             created_at=row.created_at,
             updated_at=row.updated_at,
-            **item_scope,
         )
 
     def get_item(self, item_id: str, *, include_superseded: bool = False) -> MemoryItem | None:
@@ -249,7 +245,7 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
             # Delete from FTS index
             conn = session.connection()
             for item_id in deleted:
-                conn.exec_driver_sql("DELETE FROM memu_memory_items_fts WHERE item_id = ?", (item_id,))
+                conn.exec_driver_sql("DELETE FROM memory_items_fts WHERE item_id = ?", (item_id,))
 
             # Delete from database
             del_stmt = delete(self._memory_item_model)
@@ -348,7 +344,7 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
         session.refresh(row)
         self._fts_upsert(session, row.id, summary, memory_type)
 
-        return self._to_memory_item(row, embedding=embedding, scope=user_data)
+        return self._to_memory_item(row, embedding=embedding)
 
     def update_item(
         self,
@@ -457,16 +453,16 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
     def _fts_upsert(self, session: Any, item_id: str, summary: str, memory_type: str) -> None:
         """Insert or replace an item in the FTS5 index."""
         conn = session.connection()
-        conn.exec_driver_sql("DELETE FROM memu_memory_items_fts WHERE item_id = ?", (item_id,))
+        conn.exec_driver_sql("DELETE FROM memory_items_fts WHERE item_id = ?", (item_id,))
         conn.exec_driver_sql(
-            "INSERT INTO memu_memory_items_fts(summary, memory_type, item_id) VALUES (?, ?, ?)",
+            "INSERT INTO memory_items_fts(summary, memory_type, item_id) VALUES (?, ?, ?)",
             (summary, memory_type, item_id),
         )
 
     def _fts_delete(self, session: Any, item_id: str) -> None:
         """Remove an item from the FTS5 index."""
         conn = session.connection()
-        conn.exec_driver_sql("DELETE FROM memu_memory_items_fts WHERE item_id = ?", (item_id,))
+        conn.exec_driver_sql("DELETE FROM memory_items_fts WHERE item_id = ?", (item_id,))
 
     @staticmethod
     def _sanitize_fts_query(query: str) -> str:
@@ -500,8 +496,8 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
         with self._sessions.session() as session:
             conn = session.connection()
             rows = conn.exec_driver_sql(
-                "SELECT item_id, rank FROM memu_memory_items_fts "
-                "WHERE memu_memory_items_fts MATCH ? "
+                "SELECT item_id, rank FROM memory_items_fts "
+                "WHERE memory_items_fts MATCH ? "
                 "ORDER BY rank LIMIT ?",
                 (safe_query, top_k * 3 if pool_ids else top_k),
             ).fetchall()

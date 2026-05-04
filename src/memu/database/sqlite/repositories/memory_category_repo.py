@@ -75,7 +75,6 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
                 summary=row.summary,
                 created_at=row.created_at,
                 updated_at=row.updated_at,
-                **self._scope_kwargs_from(row),
             )
             result[row.id] = cat
             self.categories[row.id] = cat
@@ -109,8 +108,7 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
                     summary=row.summary,
                     created_at=row.created_at,
                     updated_at=row.updated_at,
-                    **self._scope_kwargs_from(row),
-                )
+                    )
                 deleted[row.id] = cat
 
             if not deleted:
@@ -179,7 +177,6 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
                     summary=existing.summary,
                     created_at=existing.created_at,
                     updated_at=existing.updated_at,
-                    **self._scope_kwargs_from(existing),
                 )
                 self.categories[existing.id] = cat
                 return cat
@@ -213,7 +210,6 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
                     summary=existing.summary,
                     created_at=existing.created_at,
                     updated_at=existing.updated_at,
-                    **self._scope_kwargs_from(existing),
                 )
                 self.categories[existing.id] = cat
                 return cat
@@ -285,7 +281,6 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
             summary=row.summary,
             created_at=row.created_at,
             updated_at=row.updated_at,
-            **self._scope_kwargs_from(row),
         )
         self.categories[row.id] = cat
         return cat
