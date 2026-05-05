@@ -4,6 +4,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from memu.database.models import MemoryItem, MemoryType
+from memu.database.vector import salience_score
 from memu.database.postgres.repositories.base import PostgresRepoBase
 from memu.database.postgres.session import SessionManager
 from memu.database.state import DatabaseState
@@ -361,8 +362,8 @@ class PostgresMemoryItemRepo(PostgresRepoBase):
             similarity = self._cosine(query_vec, item.embedding)
 
             if ranking == "salience":
-                salience = item.reflection_salience if item.reflection_salience is not None else 0.5
-                score = similarity + salience
+                sal = item.reflection_salience if item.reflection_salience is not None else 0.5
+                score = similarity + salience_score(getattr(item, "created_at", None), sal, recency_decay_days)
             else:
                 score = similarity
 
