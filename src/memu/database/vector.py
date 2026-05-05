@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from collections.abc import Iterable
 from datetime import datetime
 from typing import cast
@@ -13,9 +14,25 @@ def _cosine(a: np.ndarray, b: np.ndarray) -> float:
 
 
 def salience_score(
+    reinforcement_count: int,
+    last_reinforced_at: datetime | None,
     reflection_salience: float = 0.5,
+    recency_decay_days: float = 30.0,
 ) -> float:
-    return reflection_salience
+    # reinforcement_factor: log(count + 1) + reflection_salience
+    # Logarithmic scaling prevents runaway dominance by frequently repeated facts.
+    reinforcement_factor = math.log(reinforcement_count + 1) + reflection_salience
+
+    # recency_factor: exponential decay with half-life modulated by reflection_salience
+    if last_reinforced_at is None:
+        recency_factor = 0.5
+    else:
+        now = datetime.now(last_reinforced_at.tzinfo) if last_reinforced_at.tzinfo else datetime.utcnow()
+        days_ago = (now - last_reinforced_at).total_seconds() / 86400
+        effective_half_life = recency_decay_days * (0.5 + reflection_salience)
+        recency_factor = math.exp(-0.693 * days_ago / effective_half_life)
+
+    return reinforcement_factor * recency_factor
 
 
 def cosine_topk(
@@ -67,8 +84,13 @@ def rerank_by_salience(
 ) -> list[tuple[str, float]]:
     scored: list[tuple[str, float]] = []
 
-    for _id, similarity, _rc, _lra, reflection_salience in candidates:
-        score = similarity + salience_score(reflection_salience)
+    for _id, similarity, reinforcement_count, last_reinforced_at, reflection_salience in candidates:
+        score = similarity + salience_score(
+            reinforcement_count,
+            last_reinforced_at,
+            reflection_salience,
+            recency_decay_days,
+        )
         scored.append((_id, score))
 
     scored.sort(key=lambda x: x[1], reverse=True)

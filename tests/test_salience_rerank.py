@@ -1,9 +1,26 @@
+from datetime import datetime, timezone
+
 from memu.database.vector import rerank_by_salience, salience_score
 
 
-def test_salience_score_returns_reflection_salience():
-    assert salience_score(0.8) == 0.8
-    assert salience_score(0.0) == 0.0
+def test_salience_score_combines_reinforcement_and_recency():
+    score = salience_score(3, None, 0.5)
+    # log(3+1) + 0.5 = 1.886, * 0.5 (unknown recency) = 0.943
+    assert 0.9 < score < 1.0
+
+    # Higher reinforcement → higher score
+    assert salience_score(10, None, 0.5) > salience_score(1, None, 0.5)
+
+    # Higher reflection_salience → higher score
+    assert salience_score(1, None, 0.9) > salience_score(1, None, 0.1)
+
+
+def test_salience_score_recency_decay():
+    now = datetime.now(timezone.utc)
+    recent = salience_score(1, now, 0.5)
+    # None last_reinforced_at gets 0.5 recency factor
+    unknown = salience_score(1, None, 0.5)
+    assert recent > unknown
 
 
 def test_rerank_by_salience_boosts_high_salience():
