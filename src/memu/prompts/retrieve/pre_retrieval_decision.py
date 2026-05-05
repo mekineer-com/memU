@@ -81,15 +81,8 @@ _REWRITE_ANGLES: dict[int, str] = {
 
 def system_prompt_for_angle(angle: int | None, channel_mode: str | None = None) -> str:
     rewrite = _REWRITE_ANGLES.get(int(angle or 0) % len(_REWRITE_ANGLES), _ANGLE_0_REWRITE)
-    respond = ""
-    output_respond = ""
-    if channel_mode == "group":
-        respond = _RESPOND_GROUP
-        output_respond = _RESPOND_SHAPE
-    elif channel_mode == "direct":
-        respond = _RESPOND_DIRECT
-        output_respond = _RESPOND_SHAPE
-    return _COMMON_HEAD + rewrite + respond + _MH_REWRITE_GUIDANCE + _OUTPUT_SHAPE_BASE + output_respond
+    respond = _RESPOND_GROUP if channel_mode == "group" else _RESPOND_DIRECT
+    return _COMMON_HEAD + rewrite + respond + _MH_REWRITE_GUIDANCE + _OUTPUT_SHAPE_BASE + _RESPOND_SHAPE
 
 
 SYSTEM_PROMPT = system_prompt_for_angle(0)
