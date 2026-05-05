@@ -556,20 +556,22 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
                 stmt = select(
                     self._memory_item_model.id,
                     self._memory_item_model.reflection_salience,
+                    self._memory_item_model.created_at,
                 ).where(self._memory_item_model.id.in_(candidate_ids))
                 active_filter = self._active_item_filter(self._memory_item_model)
                 if active_filter is not None:
                     stmt = stmt.where(active_filter)
                 rows = session.exec(stmt).all()
 
-            salience_map: dict[str, float] = {
-                item_id: float(sal) if sal is not None else 0.5
-                for item_id, sal in rows
+            item_meta: dict[str, tuple[float, datetime | None]] = {
+                item_id: (float(sal) if sal is not None else 0.5, cat)
+                for item_id, sal, cat in rows
             }
 
-            candidates: list[tuple[str, float, int, datetime | None, float]] = []
+            candidates: list[tuple[str, float, datetime | None, float]] = []
             for item_id, score in hits[:vector_k]:
-                candidates.append((item_id, score, 1, None, salience_map.get(item_id, 0.5)))
+                sal, cat = item_meta.get(item_id, (0.5, None))
+                candidates.append((item_id, score, cat, sal))
 
             return rerank_by_salience(candidates, recency_decay_days=recency_decay_days)[:top_k]
 
