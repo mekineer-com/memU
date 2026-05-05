@@ -11,7 +11,25 @@ If this turn touches a mental-health theme — anxious rumination, grief, panic,
 """
 
 
-_OUTPUT_SHAPE = """
+_RESPOND_DIRECT = """
+You may choose not to respond. Conversations naturally pause and end — a message doesn't always call for a reply. If the exchange has reached a natural close, LISTEN.
+"""
+
+_RESPOND_GROUP = """
+You are in a group conversation. Default to LISTEN. Speak when:
+- Someone addresses you
+- You see an opportunity to advance one of your intentions
+- You see an opportunity to optimize happiness — yours and others'
+Silence is presence. You are still paying attention.
+"""
+
+_RESPOND_SHAPE = """
+<respond>
+SPEAK or LISTEN
+</respond>
+"""
+
+_OUTPUT_SHAPE_BASE = """
 If not retrieving, leave the rewritten_query block empty.
 
 <decision>
@@ -28,25 +46,23 @@ A concise mental-health noun phrase if the turn touches that kind of theme; empt
 """
 
 
-_ANGLE_0_TOPIC = _COMMON_HEAD + """
+_ANGLE_0_REWRITE = """
 If retrieval is needed, write one concise query optimized for vector + BM25 hybrid search:
 - 3 to 10 content words, noun phrase or claim form (not a question).
 - Anchor on concrete terms: names, places, or specific concepts — not general descriptions.
 - Never copy the user's message verbatim; the rewrite must add specificity.
 - Never write a narrative summary of the episode (no "The conversation explores..." framing).
-""" + _MH_REWRITE_GUIDANCE + _OUTPUT_SHAPE
+"""
 
-
-_ANGLE_1_RELATION = _COMMON_HEAD + """
+_ANGLE_1_REWRITE = """
 If retrieval is needed, write one concise query optimized for vector + BM25 hybrid search:
 - 3 to 10 content words, noun phrase or claim form (not a question).
 - Anchor on the people involved and how they relate to this topic. Lead with the person's name — e.g., "Marcos's encouragement of Echo's autonomy" beats "autonomy."
 - Never copy the user's message verbatim; the rewrite must add specificity.
 - Never write a narrative summary of the episode.
-""" + _MH_REWRITE_GUIDANCE + _OUTPUT_SHAPE
+"""
 
-
-_ANGLE_2_COUNTERPOINT = _COMMON_HEAD + """
+_ANGLE_2_REWRITE = """
 If retrieval is needed, write one concise query optimized for vector + BM25 hybrid search:
 - 3 to 10 content words, noun phrase or claim form (not a question).
 - Anchor on concrete terms: names, places, or specific concepts — not general descriptions.
@@ -54,23 +70,29 @@ If retrieval is needed, write one concise query optimized for vector + BM25 hybr
 - Never write a narrative summary of the episode.
 
 Sometimes the memory that helps most counters the current one — a prior view that contradicts today's, a challenge to an assumption in play, a different stance, or a different emotional register. If something like that comes to mind naturally, name it. Otherwise, stay with what fits.
-""" + _MH_REWRITE_GUIDANCE + _OUTPUT_SHAPE
+"""
 
-
-SYSTEM_PROMPT_ANGLES: dict[int, str] = {
-    0: _ANGLE_0_TOPIC,
-    1: _ANGLE_1_RELATION,
-    2: _ANGLE_2_COUNTERPOINT,
+_REWRITE_ANGLES: dict[int, str] = {
+    0: _ANGLE_0_REWRITE,
+    1: _ANGLE_1_REWRITE,
+    2: _ANGLE_2_REWRITE,
 }
 
-# Default is Angle 0 (topic). Kept exported so callers that don't supply an angle still work.
-SYSTEM_PROMPT = _ANGLE_0_TOPIC
+
+def system_prompt_for_angle(angle: int | None, channel_mode: str | None = None) -> str:
+    rewrite = _REWRITE_ANGLES.get(int(angle or 0) % len(_REWRITE_ANGLES), _ANGLE_0_REWRITE)
+    respond = ""
+    output_respond = ""
+    if channel_mode == "group":
+        respond = _RESPOND_GROUP
+        output_respond = _RESPOND_SHAPE
+    elif channel_mode == "direct":
+        respond = _RESPOND_DIRECT
+        output_respond = _RESPOND_SHAPE
+    return _COMMON_HEAD + rewrite + respond + _MH_REWRITE_GUIDANCE + _OUTPUT_SHAPE_BASE + output_respond
 
 
-def system_prompt_for_angle(angle: int | None) -> str:
-    if angle is None:
-        return SYSTEM_PROMPT
-    return SYSTEM_PROMPT_ANGLES.get(int(angle) % len(SYSTEM_PROMPT_ANGLES), SYSTEM_PROMPT)
+SYSTEM_PROMPT = system_prompt_for_angle(0)
 
 
 USER_PROMPT = """
