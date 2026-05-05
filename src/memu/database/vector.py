@@ -14,19 +14,17 @@ def _cosine(a: np.ndarray, b: np.ndarray) -> float:
 
 
 def salience_score(
-    created_at: datetime | None,
+    created_at: datetime,
     reflection_salience: float = 0.5,
+    emotional_intensity: float = 0.0,
     recency_decay_days: float = 30.0,
 ) -> float:
-    if created_at is None:
-        recency_factor = 0.5
-    else:
-        now = datetime.now(created_at.tzinfo) if created_at.tzinfo else datetime.utcnow()
-        days_ago = (now - created_at).total_seconds() / 86400
-        effective_half_life = recency_decay_days * (0.5 + reflection_salience)
-        recency_factor = math.exp(-0.693 * days_ago / effective_half_life)
-
-    return reflection_salience * recency_factor
+    importance = reflection_salience + 0.3 * emotional_intensity
+    now = datetime.now(created_at.tzinfo) if created_at.tzinfo else datetime.utcnow()
+    days_ago = (now - created_at).total_seconds() / 86400
+    effective_half_life = recency_decay_days * (0.5 + reflection_salience)
+    recency = math.exp(-0.693 * days_ago / effective_half_life)
+    return importance * recency
 
 
 def cosine_topk(
@@ -73,15 +71,16 @@ def cosine_topk(
 
 
 def rerank_by_salience(
-    candidates: list[tuple[str, float, datetime | None, float]],
+    candidates: list[tuple[str, float, datetime, float, float]],
     recency_decay_days: float = 30.0,
 ) -> list[tuple[str, float]]:
     scored: list[tuple[str, float]] = []
 
-    for _id, similarity, created_at, reflection_salience in candidates:
+    for _id, similarity, created_at, reflection_salience, emotional_intensity in candidates:
         score = similarity + salience_score(
             created_at,
             reflection_salience,
+            emotional_intensity,
             recency_decay_days,
         )
         scored.append((_id, score))

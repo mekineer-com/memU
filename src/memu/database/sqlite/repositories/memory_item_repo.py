@@ -556,6 +556,7 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
                 stmt = select(
                     self._memory_item_model.id,
                     self._memory_item_model.reflection_salience,
+                    self._memory_item_model.emotional_intensity,
                     self._memory_item_model.created_at,
                 ).where(self._memory_item_model.id.in_(candidate_ids))
                 active_filter = self._active_item_filter(self._memory_item_model)
@@ -563,15 +564,19 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
                     stmt = stmt.where(active_filter)
                 rows = session.exec(stmt).all()
 
-            item_meta: dict[str, tuple[float, datetime | None]] = {
-                item_id: (float(sal) if sal is not None else 0.5, cat)
-                for item_id, sal, cat in rows
+            item_meta: dict[str, tuple[float, float, datetime]] = {
+                item_id: (
+                    float(sal) if sal is not None else 0.5,
+                    float(emo) if emo is not None else 0.0,
+                    cat,
+                )
+                for item_id, sal, emo, cat in rows
             }
 
-            candidates: list[tuple[str, float, datetime | None, float]] = []
+            candidates: list[tuple[str, float, datetime, float, float]] = []
             for item_id, score in hits[:vector_k]:
-                sal, cat = item_meta.get(item_id, (0.5, None))
-                candidates.append((item_id, score, cat, sal))
+                sal, emo, cat = item_meta.get(item_id, (0.5, 0.0, datetime.min))
+                candidates.append((item_id, score, cat, sal, emo))
 
             return rerank_by_salience(candidates, recency_decay_days=recency_decay_days)[:top_k]
 
