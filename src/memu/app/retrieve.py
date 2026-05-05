@@ -661,12 +661,10 @@ class RetrieveMixin:
 
     @staticmethod
     def _extract_respond_decision(raw: str, channel_mode: str | None) -> bool:
-        if not channel_mode:
-            return True
         match = re.search(r"<respond>(.*?)</respond>", raw, re.IGNORECASE | re.DOTALL)
         if match:
             return "SPEAK" in match.group(1).strip().upper()
-        return channel_mode != "group"
+        return (channel_mode or "direct") != "group"
 
     def _extract_mental_health_query(self, raw: str) -> str | None:
         match = re.search(r"<mental_health_query>(.*?)</mental_health_query>", raw, re.IGNORECASE | re.DOTALL)
