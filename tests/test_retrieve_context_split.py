@@ -1,25 +1,15 @@
 from memu.app.retrieve import RetrieveMixin
 
 
-def test_split_context_queries_route_keeps_both_history_windows_downstream_keeps_onex():
+def test_split_context_queries_returns_identical_copies():
     queries = [
         {"role": "all_categories_summary", "content": {"text": "cats"}},
-        {"role": "history_from_second_chat_x", "content": {"text": "history-2x"}},
-        {"role": "history_from_chat_x", "content": {"text": "history-1x"}},
+        {"role": "history", "content": {"text": "conversation history"}},
         {"role": "memory_cache", "content": {"text": "cache"}},
     ]
     route_ctx, downstream_ctx = RetrieveMixin._split_context_queries(queries)
-    assert [q.get("role") for q in route_ctx] == [
-        "all_categories_summary",
-        "history_from_second_chat_x",
-        "history_from_chat_x",
-        "memory_cache",
-    ]
-    assert [q.get("role") for q in downstream_ctx] == [
-        "all_categories_summary",
-        "history_from_chat_x",
-        "memory_cache",
-    ]
+    assert route_ctx == queries
+    assert downstream_ctx == queries
 
 
 def test_split_context_queries_no_history_unchanged():
