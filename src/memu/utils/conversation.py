@@ -65,7 +65,9 @@ def _format_messages(messages: list[dict[str, Any]]) -> str:
         text = _extract_text_content(content)
         created_at = _extract_created_at(msg)
         created_part = f"{created_at} " if created_at else ""
-        out.append(f"[{idx}] {created_part}[{role}]: {text}")
+        source = msg.get("source_label")
+        source_part = f"[{source}] " if source else ""
+        out.append(f"[{idx}] {created_part}{source_part}[{role}]: {text}")
     return "\n".join(out)
 
 

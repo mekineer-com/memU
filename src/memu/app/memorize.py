@@ -239,6 +239,18 @@ class MemorizeMixin:
             segment_episodes = [{"text": raw_text, "caption": None}]
         return segment_episodes
 
+    async def split_cross_conversation_into_episodes(
+        self,
+        *,
+        raw_text: str,
+    ) -> list[dict[str, Any]]:
+        """Split merged multi-source conversation into episodes grouped by storyline."""
+        template = PREPROCESS_PROMPTS.get("cross_conversation")
+        if not template:
+            return [{"text": raw_text, "caption": None}]
+        llm_client = self._get_llm_client(self.memorize_config.preprocess_llm_profile)
+        return await self._split_conversation_into_episodes(raw_text, template, llm_client=llm_client)
+
     async def memorize_episode(
         self,
         *,
@@ -2305,19 +2317,24 @@ Decide which clusters/candidates should map into existing categories, and which 
         pending_captions: list[tuple[int, str]] = []
 
         for episode in episodes:
-            start = int(episode.get("start", 0))
-            end = int(episode.get("end", max_idx))
-            start = max(0, min(start, max_idx))
-            end = max(0, min(end, max_idx))
-            episode_text = "\n".join(indexed_lines[start : end + 1])
+            explicit_indices = episode.get("message_indices")
+            if isinstance(explicit_indices, list) and explicit_indices:
+                indices = sorted(int(i) for i in explicit_indices if 0 <= int(i) <= max_idx)
+            else:
+                start = int(episode.get("start", 0))
+                end = int(episode.get("end", max_idx))
+                start = max(0, min(start, max_idx))
+                end = max(0, min(end, max_idx))
+                indices = list(range(start, end + 1))
 
+            episode_text = "\n".join(indexed_lines[i] for i in indices if i <= max_idx)
             if episode_text.strip():
                 caption_raw = episode.get("caption")
                 caption = str(caption_raw).strip() if isinstance(caption_raw, str) else ""
                 episode_resources.append({
                     "text": episode_text,
                     "caption": caption or None,
-                    "message_indices": list(range(start, end + 1)),
+                    "message_indices": indices,
                 })
                 if not caption:
                     pending_captions.append((len(episode_resources) - 1, episode_text))
