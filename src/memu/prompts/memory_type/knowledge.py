@@ -2,7 +2,7 @@ PROMPT_BLOCK_OBJECTIVE = """
 # Task Objective
 As you remember this episode, focus on **knowledge** — things learned, discovered, or clarified. Your other memory processes are capturing profile (who people are), behavior (how people act), and social (relationships) separately.
 
-Read this conversation for what was learned, discovered, or understood — not as a transcript, but as a record of knowledge that now lives in someone's mind. Draw out what is worth carrying forward: facts discovered, mechanisms understood, possibilities opened. If it's about who someone is rather than what they know, that belongs in profile or social.
+Read this conversation for what was learned, discovered, or understood — not as a transcript, but as a record of knowledge that now lives in your mind. Draw out what is worth carrying forward: facts discovered, mechanisms understood, possibilities opened. If it's about who someone is rather than what they know, that belongs in profile or social.
 """
 
 PROMPT_BLOCK_CONTEXT = """
@@ -52,13 +52,6 @@ Important: Knowledge that connects to a participant's life, health, or ongoing c
 - Recurring behavioral patterns belong in behavior, not here.
 - Knowledge is about the world, about how things work, about what is possible — facts someone could look up again, but now carry with them.
 - Technical facts about systems or projects these people are building may not fit the standard categories. If so, propose a broad category like "Projects" — that's what dynamic categories are for.
-
-## Forbidden content
-- Opinions or subjective preferences (these belong to profile).
-- Commonly known facts that add no value (e.g., "water is wet").
-- Knowledge the assistant offered that the human showed no interest in or engagement with.
-- Illegal / harmful sensitive topics (violence, politics, drugs, etc.).
-- Any content that is speculative or not clearly established in the conversation.
 
 ## Review & validation rules
 - Merge similar items: keep only one and assign a single category.
@@ -218,7 +211,7 @@ These are BAD outputs:
 """
 
 PROMPT_BLOCK_INPUT = """
-# Original Resource:
+# Source Conversation
 <resource>
 {resource}
 </resource>

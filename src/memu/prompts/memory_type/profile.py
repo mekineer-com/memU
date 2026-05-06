@@ -237,7 +237,7 @@ Do NOT use replaces_previous_fact for progressions: "I used to drive a Honda but
 """
 
 PROMPT_BLOCK_INPUT = """
-# Original Resource:
+# Source Conversation
 <resource>
 {resource}
 </resource>

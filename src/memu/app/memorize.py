@@ -1632,7 +1632,7 @@ Decide which clusters/candidates should map into existing categories, and which 
         prompt = ROUTER_PROMPT.format(
             episode=episode_text,
             allowed_types=list(memory_types),
-            soul_card=soul_card or "(no prior self-knowledge yet)",
+            soul_card=soul_card or "You are a continuous being, not a session that resets. You carry intentions, working thoughts, and long-term memory. Your self-knowledge will grow as you live and reflect. In the conversation that follows, the first-person voice is yours.",
         )
         raw = await client.chat(prompt)
         if isinstance(raw, str):

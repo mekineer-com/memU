@@ -206,7 +206,7 @@ The pattern includes both the observation (sends thoughts across multiple messag
 """
 
 PROMPT_BLOCK_INPUT = """
-# Original Resource:
+# Source Conversation
 <resource>
 {resource}
 </resource>
