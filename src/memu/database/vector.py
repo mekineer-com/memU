@@ -13,18 +13,27 @@ def _cosine(a: np.ndarray, b: np.ndarray) -> float:
     return float(np.dot(a, b) / denom)
 
 
+W_SIMILARITY = 0.5
+W_RECENCY = 0.2
+W_IMPORTANCE = 0.3
+
+
 def salience_score(
     created_at: datetime,
     reflection_salience: float = 0.5,
     emotional_intensity: float = 0.0,
     recency_decay_days: float = 30.0,
-) -> float:
-    importance = reflection_salience + 0.3 * emotional_intensity
+) -> tuple[float, float]:
+    """Return (importance, recency) for the tripartite salience formula.
+
+    Park et al. 2023 — each signal independent, combined additively by caller.
+    """
+    importance = min(reflection_salience + 0.3 * emotional_intensity, 1.0)
     now = datetime.now(created_at.tzinfo) if created_at.tzinfo else datetime.utcnow()
     days_ago = (now - created_at).total_seconds() / 86400
     effective_half_life = recency_decay_days * (0.5 + reflection_salience)
     recency = math.exp(-0.693 * days_ago / effective_half_life)
-    return importance * recency
+    return importance, recency
 
 
 def cosine_topk(
@@ -71,18 +80,18 @@ def cosine_topk(
 
 
 def rerank_by_salience(
-    candidates: list[tuple[str, float, datetime, float, float]],
+    candidates: list[tuple[str, float, datetime, float | None, float | None]],
     recency_decay_days: float = 30.0,
 ) -> list[tuple[str, float]]:
     scored: list[tuple[str, float]] = []
 
-    for _id, similarity, created_at, reflection_salience, emotional_intensity in candidates:
-        score = similarity + salience_score(
-            created_at,
-            reflection_salience,
-            emotional_intensity,
-            recency_decay_days,
-        )
+    for _id, sim, created_at, reflection_salience, emotional_intensity in candidates:
+        sal = reflection_salience if reflection_salience is not None else 0.5
+        emo = emotional_intensity if emotional_intensity is not None else 0.0
+        importance, recency = salience_score(created_at, sal, emo, recency_decay_days)
+        if reflection_salience is None:
+            importance = sim
+        score = W_SIMILARITY * sim + W_RECENCY * recency + W_IMPORTANCE * importance
         scored.append((_id, score))
 
     scored.sort(key=lambda x: x[1], reverse=True)

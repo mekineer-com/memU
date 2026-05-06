@@ -564,18 +564,18 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
                     stmt = stmt.where(active_filter)
                 rows = session.exec(stmt).all()
 
-            item_meta: dict[str, tuple[float, float, datetime]] = {
+            item_meta: dict[str, tuple[float | None, float | None, datetime]] = {
                 item_id: (
-                    float(sal) if sal is not None else 0.5,
-                    float(emo) if emo is not None else 0.0,
+                    float(sal) if sal is not None else None,
+                    float(emo) if emo is not None else None,
                     cat,
                 )
                 for item_id, sal, emo, cat in rows
             }
 
-            candidates: list[tuple[str, float, datetime, float, float]] = []
+            candidates: list[tuple[str, float, datetime, float | None, float | None]] = []
             for item_id, score in hits[:vector_k]:
-                sal, emo, cat = item_meta.get(item_id, (0.5, 0.0, datetime.min))
+                sal, emo, cat = item_meta.get(item_id, (None, None, datetime.min))
                 candidates.append((item_id, score, cat, sal, emo))
 
             return rerank_by_salience(candidates, recency_decay_days=recency_decay_days)[:top_k]
