@@ -286,14 +286,14 @@ class LLMProfilesConfig(RootModel[dict[Key, LLMConfig]]):
 
 
 class MetadataStoreConfig(BaseModel):
-    provider: Annotated[Literal["postgres", "sqlite"], Normalize] = "sqlite"
+    provider: Annotated[Literal["sqlite"], Normalize] = "sqlite"
     ddl_mode: Annotated[Literal["create", "validate"], Normalize] = "create"
-    dsn: str | None = Field(default=None, description="Database connection string (required for postgres/sqlite).")
+    dsn: str | None = Field(default=None, description="Database connection string for sqlite.")
 
 
 class VectorIndexConfig(BaseModel):
-    provider: Annotated[Literal["bruteforce", "pgvector", "none"], Normalize] = "bruteforce"
-    dsn: str | None = Field(default=None, description="Postgres connection string when provider=pgvector.")
+    provider: Annotated[Literal["bruteforce", "none"], Normalize] = "bruteforce"
+    dsn: str | None = Field(default=None, description="Reserved for future non-sqlite vector backends.")
 
 
 class DatabaseConfig(BaseModel):
@@ -302,9 +302,4 @@ class DatabaseConfig(BaseModel):
 
     def model_post_init(self, __context: Any) -> None:
         if self.vector_index is None:
-            if self.metadata_store.provider == "postgres":
-                self.vector_index = VectorIndexConfig(provider="pgvector", dsn=self.metadata_store.dsn)
-            else:
-                self.vector_index = VectorIndexConfig(provider="bruteforce")
-        elif self.vector_index.provider == "pgvector" and self.vector_index.dsn is None:
-            self.vector_index = self.vector_index.model_copy(update={"dsn": self.metadata_store.dsn})
+            self.vector_index = VectorIndexConfig(provider="bruteforce")

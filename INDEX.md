@@ -12,7 +12,7 @@
 | `app/retrieve.py` | Retrieve workflow: rewrite query → embed → rank → judge; `_split_context_queries()` keeps both history windows for route (`history_from_second_chat_x` = previous-window slice, `history_from_chat_x` = current-window slice), while downstream sufficiency steps keep only `history_from_chat_x`; `identity_context` is preserved across all steps and rendered as plain text at top of soul context; optional `as_of` filters graph edges by `valid_from`/`valid_to`; serialized retrieved memory items explicitly carry `speaker_id` + `speaker_label` when present |
 | `app/settings.py` | Pydantic config models (MemorizeConfig, RetrieveConfig, LLMProfile, etc.) |
 | `database/models.py` | Backend-agnostic data models (MemoryItem, MemoryCategory, Resource, Entity, Triple); `EntityType` literal; `PREDICATES` literal (`caused_by`, `evokes`, `evolved_into`, `conflicts_with`, `parallels`, `shaped_by`, `mentions`) |
-| `database/factory.py` | `build_database()` — picks sqlite or postgres store from config |
+| `database/factory.py` | `build_database()` — sqlite backend selector (Postgres backend removed) |
 | `database/interfaces.py` | `Database` Protocol — the repo surface engine code programs against |
 | `database/state.py` | `DatabaseState` dataclass — in-memory cache of loaded categories/resources used by workflow ctx |
 | `database/vector.py` | Cosine + RRF helpers: `cosine_topk`, `reciprocal_rank_fusion`, `salience_score`, `rerank_by_salience` |
@@ -20,7 +20,7 @@
 | `database/sqlite/schema.py` | Per-scope SQLAlchemy model factory (`get_sqlite_sqlalchemy_models`); deep-copies columns per derivation |
 | `database/sqlite/models.py` | Per-table model classes + `build_sqlite_table_model` — wires scope fields into each table |
 | `database/sqlite/session.py` | Session factory + async engine wrapper |
-| `database/postgres/schema.py` | SQLAlchemy ORM schema (Postgres) + alembic migrations in `postgres/migrations/` |
+| `database/postgres/` | Removed. If Postgres returns, rebuild as a thin adapter over shared repo logic. |
 | `database/repositories/` | Backend-agnostic Protocol contracts: `memory_item.py`, `memory_category.py`, `resource.py`, `entity.py`, `triple.py`, `category_item.py` |
 | `llm/wrapper.py` | LLM client factory — dispatches to backends |
 | `llm/backends/` | Provider impls: `openai.py` (httpx-based, covers OpenAI-compatible APIs) |
@@ -53,7 +53,7 @@
 | Modify retrieval | `app/retrieve.py`, `prompts/retrieve/` | Ranker prompts or retrieve.py logic |
 | Add LLM provider | `llm/backends/base.py`, any existing backend | New `llm/backends/{provider}.py`, register in `llm/wrapper.py` |
 | Add embedding provider | `embedding/backends/base.py` | New `embedding/backends/{provider}.py`, register in `embedding/http_client.py` |
-| Change DB schema | `database/models.py`, `database/sqlite/schema.py` | Both files + postgres schema if needed |
+| Change DB schema | `database/models.py`, `database/sqlite/schema.py` | Both files (sqlite only in current codebase) |
 | Run the test suite | `tests/README.md` | — |
 
 ## Database Tables

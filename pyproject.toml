@@ -71,7 +71,6 @@ test = [
 ]
 
 [project.optional-dependencies]
-postgres = ["pgvector>=0.3.4", "sqlalchemy[postgresql-psycopgbinary]>=2.0.36"]
 langgraph = ["langgraph>=0.0.10", "langchain-core>=0.1.0"]
 claude = ["claude-agent-sdk>=0.1.24"]
 
@@ -107,10 +106,6 @@ disable_error_code = ["attr-defined", "call-arg"]
 
 [[tool.mypy.overrides]]
 module = ["lazyllm.*"]
-ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
-module = ["pgvector.*"]
 ignore_missing_imports = true
 
 [tool.ruff]

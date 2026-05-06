@@ -121,7 +121,7 @@ Return all memories wrapped in a single <item> element:
 source_role values:
 - soul — the AI participant's own experience or perspective
 - user — the human participant
-- peer — another AI participant (in multi-soul conversations)
+- peer — a significant conversation participant
 - entity — a third party described in conversation (friend, family member, etc.)
 - environment — world-facts not attributable to any participant's personal discovery
 
