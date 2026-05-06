@@ -3217,12 +3217,16 @@ Decide which clusters/candidates should map into existing categories, and which 
             return None
         episodes: list[dict[str, int | str]] = []
         for ep in episodes_data:
-            if isinstance(ep, dict) and "start" in ep and "end" in ep:
+            if not isinstance(ep, dict):
+                continue
+            if "message_indices" in ep and isinstance(ep["message_indices"], list):
+                episode: dict[str, Any] = {"message_indices": ep["message_indices"]}
+                if "caption" in ep and isinstance(ep["caption"], str):
+                    episode["caption"] = ep["caption"]
+                episodes.append(episode)
+            elif "start" in ep and "end" in ep:
                 try:
-                    episode: dict[str, int | str] = {
-                        "start": int(ep["start"]),
-                        "end": int(ep["end"]),
-                    }
+                    episode = {"start": int(ep["start"]), "end": int(ep["end"])}
                     if "caption" in ep and isinstance(ep["caption"], str):
                         episode["caption"] = ep["caption"]
                     episodes.append(episode)
