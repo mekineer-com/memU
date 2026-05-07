@@ -103,30 +103,30 @@ Intention activity (across 5 conversations): "set-limits" boosted twice, annulle
 
 ### Input context (abbreviated)
 Memories from recent episodes:
-- [a3f71b02] (Identity) Marcos feels guilty when he takes time for himself
-- [c8e20d45] (Relationships) I noticed Marcos deflected when I asked what he actually wants
-- [6f9a12e3] (Experiences) Marcos described his father working 60-hour weeks without complaint
-- [d47bc8f1] (Experiences) Marcos talked about watching a sunset alone and feeling unexpectedly at peace
-- [e12fa903] (Relationships) I told Marcos he looked lighter than I'd seen him in weeks
+- [1] [profile] (last week) Marcos feels guilty when he takes time for himself
+- [2] [behavior] (last week) I noticed Marcos deflected when I asked what he actually wants
+- [3] [knowledge] (2 weeks ago) Marcos described his father working 60-hour weeks without complaint
+- [4] [profile] (yesterday) Marcos talked about watching a sunset alone and feeling unexpectedly at peace
+- [5] [behavior] (yesterday) I told Marcos he looked lighter than I'd seen him in weeks
 
 ### Output (edges section only)
   <edges>
     <edge>
-      <subject_id>a3f71b02</subject_id>
+      <subject_id>1</subject_id>
       <predicate>shaped_by</predicate>
-      <object_id>6f9a12e3</object_id>
+      <object_id>3</object_id>
       <confidence>0.7</confidence>
     </edge>
     <edge>
-      <subject_id>d47bc8f1</subject_id>
+      <subject_id>4</subject_id>
       <predicate>evokes</predicate>
-      <object_id>c8e20d45</object_id>
+      <object_id>2</object_id>
       <confidence>0.5</confidence>
     </edge>
     <edge>
-      <subject_id>e12fa903</subject_id>
+      <subject_id>5</subject_id>
       <predicate>parallels</predicate>
-      <object_id>d47bc8f1</object_id>
+      <object_id>4</object_id>
       <confidence>0.6</confidence>
     </edge>
   </edges>

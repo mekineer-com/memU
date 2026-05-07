@@ -336,7 +336,7 @@ class RetrieveMixin:
                 if t.subject_id not in seen:
                     seen.add(t.subject_id)
                     memory_ids.append(t.subject_id)
-                    provenance[t.subject_id] = f"via {entity.name}"
+                    provenance[t.subject_id] = f"found via entity '{entity.name}'"
         return memory_ids, provenance
 
     async def _rag_recall_items(self, state: WorkflowState, step_context: Any) -> WorkflowState:

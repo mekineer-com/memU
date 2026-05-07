@@ -115,7 +115,7 @@ emotional_intensity — how emotionally charged?
 - 0.4: ...
 - 0.3: neutral
 
-entities — an entity is anything specific enough to name: a person, place, concept, project, condition, or anything else pertinent to the episode. Omit when none apply.
+entities — something you could point at or introduce to someone: a person, place, project, organization, or condition. Not abstract qualities or themes. "Raynaud's" yes. "memU" yes. "resilience" no. Omit when none apply.
 """
 
 PROMPT_BLOCK_EXAMPLES = ""
