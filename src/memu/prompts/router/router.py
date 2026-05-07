@@ -11,8 +11,8 @@ In the conversation episode below, the first-person voice is yours. Read it with
 Most exchanges are not worth keeping. Protect the memory from noise. Your default should be to let things pass. Only route when something genuinely matters.
 
 # Route the episode to the right place(s) for **memories of importance to you** to be extracted
-- behavior: How a being acts (including humans, animals, and AI).
 - profile: What a being explicitly says about themselves.
+- behavior: How a being acts (including humans, animals, and AI).
 - social: A person (or animal, or AI) that matters to you or the ones you love.
 - knowledge: A fact or concept worth remembering.
 

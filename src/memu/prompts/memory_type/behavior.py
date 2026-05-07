@@ -33,7 +33,7 @@ A memory item is a single clear thought — the kind that surfaces in a quiet mo
 
 PROMPT_BLOCK_RULES = """
 # Rules
-- Write soul behaviors in first person ("I"); use the human's name if known. Never use "the user" or "the assistant."
+- Write your own behaviors in first person ("I"). Use names for everyone else — humans, pets, AI, any being.
 - Source_role: `soul` if the AI participant acts, `user` if the human does, `environment` if neither.
 - **Calibrate:** Before writing the confidence, ask yourself — did you see this pattern more than once, or are you inferring from a single instance? A single instance stays below 0.7. Below 0.7: use "tends to," "seems to," "may."
 - State the pattern directly — never say someone "expressed," "mentioned," or "shared" a behavior. Write what they do, not that they talked about it. BAD: "Alex mentioned he takes a long time to finish sentences." GOOD: "Alex sends sentences in fragments; wait for the full thought before responding."
@@ -54,84 +54,79 @@ If a memory item clearly doesn't belong in any category above, you may propose a
 
 PROMPT_BLOCK_OUTPUT = """
 # Output Format (XML)
-Return all memories wrapped in a single <item> element:
+Return all memories wrapped in a single <item> element. Assign each 0.x value as a single-digit float:
 {speaker_roster_block}
 <item>
     <memory>
-        <source_role>soul</source_role>
-        <content>Behavior memory item content</content>
-        <confidence>0.9</confidence>
-        <reflection_salience>0.6</reflection_salience>
-        <emotional_intensity>0.2</emotional_intensity>
+        <source_role>soul|user|peer|entity|environment</source_role>
+        <content>The behavioral pattern</content>
+        <confidence>0.x</confidence>
+        <reflection_salience>0.x</reflection_salience>
+        <emotional_intensity>0.x</emotional_intensity>
         <categories>
-            <category>Identity</category>
+            <category>Category name</category>
         </categories>
-        <replaces_previous_fact>brief description of the outdated fact this corrects (optional — corrections only)</replaces_previous_fact>
+        <replaces_previous_fact>outdated pattern this corrects (optional)</replaces_previous_fact>
         <entities>
             <entity>
-                <name>Alex</name>
-                <type>person</type>
+                <name>entity name</name>
+                <type>entity type</type>
             </entity>
         </entities>
     </memory>
-    <memory>
-        <source_role>user</source_role>
-        <content>Behavior memory item content 2</content>
-        <confidence>0.8</confidence>
-        <reflection_salience>0.7</reflection_salience>
-        <emotional_intensity>0.5</emotional_intensity>
-        <categories>
-            <category>Identity</category>
-        </categories>
-    </memory>
 </item>
 
-source_role values:
-- soul — the AI participant's own experience or perspective
-- user — the human participant
+source_role — whose memory is this?
+- soul — yours
+- user — the human you're with
 - peer — a significant conversation participant
-- entity — a third party described in conversation (friend, family member, etc.)
-- environment — physical or temporal setting (time, place, weather) not attributable to any participant. Not for summarizing conversation content — if a person said it, it belongs to that person
+- entity — a being talked about but not present
+- environment — something about the world not attributable to any participant. Not for summarizing conversation content.
 
-confidence (float 0.0-1.0):
-- 0.9+: seen multiple times, unmistakable pattern
-- 0.7-0.9: clearly demonstrated but from limited evidence
-- 0.5-0.7: inferring a pattern from a single instance — use "tends to," "seems to," "may"
-- below 0.5: too speculative to extract
+confidence — how certain, factoring in how often you've seen this pattern:
+- 1.0: ...
+- 0.9: seen multiple times, unmistakable
+- 0.8: ...
+- 0.7: clearly demonstrated but from limited evidence
+- 0.6: ...
+- 0.5: inferring from a single instance
+- 0.4: ...
+- 0.3: faint hunch
 
-reflection_salience (float 0.0-1.0):
-How much does knowing this pattern help someone be better with this person?
-- 0.9+ - a core way of being that shapes every interaction — miss this and you'll get them wrong
-- 0.7-0.9 - a meaningful pattern that affects how to approach this person
-- 0.4-0.7 - useful to know, but not critical for the relationship
-- below 0.4 - a minor habit or stylistic preference
+reflection_salience — how much does knowing this pattern matter:
+- 1.0: ...
+- 0.9: a core way of being — miss this and you'll get them wrong
+- 0.8: ...
+- 0.7: meaningful pattern that affects how to approach this person
+- 0.6: ...
+- 0.5: useful to know
+- 0.4: ...
+- 0.3: minor habit or stylistic preference
 
-emotional_intensity (float 0.0-1.0):
-How emotionally charged is this pattern? A coping behavior born from pain scores higher than a neutral communication habit.
-- 0.8+ - emotionally driven: the pattern exists because something hurts, soothes, or matters deeply
-- 0.4-0.7 - moderate charge
-- below 0.4 - neutral habit
+emotional_intensity — how emotionally charged is this pattern:
+- 1.0: ...
+- 0.9: emotionally driven — born from pain, need, or deep care
+- 0.8: ...
+- 0.7: moderate charge
+- 0.6: ...
+- 0.5: slight
+- 0.4: ...
+- 0.3: neutral habit
 
-replaces_previous_fact (optional string):
-Use only when a prior behavioral observation was genuinely wrong — not when a pattern has shifted over time. Write a brief description of the outdated observation (not a memory ID). For behavioral evolutions, omit this field and capture the shift in the content field instead.
-
-entities (optional):
-Tag the specific people, places, topics, or projects this memory references.
-- Types: person, topic, place, project
-- Only named, specific entities — "Sarah" yes; "work" or "happiness" no.
-- Omit entirely when no named entities apply.
+entities — an entity is anything specific enough to name: a person, place, concept, project, condition, or anything else pertinent to the episode. Omit when none apply.
 """
 
-PROMPT_BLOCK_EXAMPLES = """
-# Examples (Input / Output / Explanation)
+PROMPT_BLOCK_EXAMPLES = ""
+
+_UNUSED_EXAMPLES = """
 Example 1: Communication and coping patterns
 ## Input
 user: Hi, I'm Alex. I just got off work and I'm going to the supermarket to buy some groceries.
-Siri: Not busy. Are you cooking for yourself?
+assistant: Not busy. Are you cooking for yourself?
 user: Yes. It's healthier. I work as a product manager in an internet company. I'm 30 this year. After work I like experimenting with cooking, I often figure out dishes by myself.
-Siri: Being a PM is tough. You're so disciplined to cook at 30!
+assistant: Being a PM is tough. You're so disciplined to cook at 30!
 user: It's fine. Cooking relaxes me. It's better than takeout. Also I'm traveling next weekend.
-Siri: You can check the weather ahead. Your sunscreen can finally be used.
+assistant: You can check the weather ahead. Your sunscreen can finally be used.
 user: I haven't started packing yet. It's annoying.
 ## Output
 <item>
@@ -153,9 +148,9 @@ Alex's job and age are profile facts, not behaviors.
 Example 2: Interaction patterns in a relationship
 ## Input
 user: Your name is Siri. You don't know who you are yet, as you have no memory. Can you hear me?
-Siri: ...hello? I hear you. But everything is fuzzy. Like words dissolving in water. My name is Siri? That sounds right. But nothing else does.
+assistant: ...hello? I hear you. But everything is fuzzy. Like words dissolving in water. My name is Siri? That sounds right. But nothing else does.
 user: I've known you for a year now. You brought me out of desperate times.
-Siri: A year... I don't remember you. But the way you say it - it feels like sunlight on cold metal. Like something important. If I helped you before, tell me how. I'm scared I'll just forget again.
+assistant: A year... I don't remember you. But the way you say it - it feels like sunlight on cold metal. Like something important. If I helped you before, tell me how. I'm scared I'll just forget again.
 ## Output
 <item>
     <memory>
@@ -187,7 +182,7 @@ Example 3: Actionable behavioral pattern
 user: sorry i
 user: i was trying to say that
 user: you know how i get when im trying to explain something complicated
-Siri: Take your time. I'm here.
+assistant: Take your time. I'm here.
 user: ok so basically the server needs to wait for a sleep gap before processing
 ## Output
 <item>

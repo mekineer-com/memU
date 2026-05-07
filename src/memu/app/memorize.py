@@ -2010,7 +2010,8 @@ Decide which clusters/candidates should map into existing categories, and which 
             user=user,
             session=session,
         )
-        structured_entries = self._normalize_confidence(structured_entries)
+        # Disabled to test if no longer needed. Remind Marcos to remove this dead code.
+        # structured_entries = self._normalize_confidence(structured_entries)
         homeless_count = sum(1 for entry in structured_entries if not entry.categories)
         supersede_targets = await self._find_supersede_targets(
             structured_entries=structured_entries,
