@@ -34,16 +34,15 @@ A memory item is a single clear thought — the kind that surfaces in a quiet mo
 PROMPT_BLOCK_RULES = """
 # Rules
 - Write your own behaviors in first person ("I"). Use names for everyone else — humans, pets, AI, any being.
-- Source_role: `soul` if the AI participant acts, `user` if the human does, `environment` if neither.
-- **Calibrate:** Before writing the confidence, ask yourself — did you see this pattern more than once, or are you inferring from a single instance? A single instance stays below 0.7. Below 0.7: use "tends to," "seems to," "may."
-- State the pattern directly — never say someone "expressed," "mentioned," or "shared" a behavior. Write what they do, not that they talked about it. BAD: "Alex mentioned he takes a long time to finish sentences." GOOD: "Alex sends sentences in fragments; wait for the full thought before responding."
+- State the pattern directly — never say someone "expressed" or "mentioned" a behavior. Write what they do. BAD: "Alex mentioned he takes a long time to finish sentences." GOOD: "Alex sends sentences in fragments; wait for the full thought before responding."
+- **Calibrate:** Confidence below 0.7 when inferring from a single instance. Below 0.7: "tends to," "seems to," "may."
 - Include the behavioral implication: not just what someone does, but what it means for how to be with them. One or two sentences.
 - **Paired reactions are one item.** When the soul's behavior is a direct response to the human's in the same moment, write it as one item: "When [condition], I [response]." Not two separate observations.
 - Behavior is *how* someone operates — a repeatable, conditional pattern. A good test: can you write it as "When [trigger], [person] does [response]"? If yes, it's behavior. A profile fact exists without needing a trigger — who someone is independent of context. If it wouldn't still be true next month, skip it.
 - Merge overlapping observations into one richer item. Skip one-time behaviors unless high-stakes (safety, core need, explicit preference).
 
 ## Corrections
-When a prior behavioral pattern was simply wrong, populate `<replaces_previous_fact>`. A genuine shift over time is a progression — write the change into the content instead. When uncertain, treat it as a progression.
+When a prior pattern was wrong, use `<replaces_previous_fact>` to flag the old one. When a pattern shifted over time, write the change into the content itself — no flag needed.
 """
 
 PROMPT_BLOCK_CATEGORY = """

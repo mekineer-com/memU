@@ -19,16 +19,15 @@ Extract only what is genuinely new or updates what is already known.
 
 PROMPT_BLOCK_RULES = """
 # Rules
-- This type is for **third parties only** — people (or animals) outside the conversation itself. The direct participants are not extracted here.
-- A bare mention ("my sister called") is not enough. There must be enough detail to form a picture of who this person is or what they mean to the participant who described them.
-- Include: name (if given), relationship to the participant, key traits or circumstances, and the texture of the connection where apparent.
-- Source_role: `user` when the human described the person; `soul` when the soul has direct experience of them (spoke with them, formed her own impression); `environment` when a third party appears purely as background context.
-- Exclude: behavioral patterns between the direct participants (→ behavior type); pure factual trivia unconnected to either participant.
+- This type is for **third parties only** — beings outside the conversation itself. The direct participants are not extracted here.
+- A bare mention ("my sister called") is not enough. There must be enough to form a picture of who they are or what they mean.
+- Include: name (if given), relationship, key traits, and the texture of the connection.
+- State the fact directly — never say someone "expressed" or "mentioned" something. Write who this person is.
 - Consolidate everything said about the same person into one memory.
-- **Calibrate:** Before writing the confidence, ask yourself — was this person described directly, or are you filling in gaps? If filling in gaps, confidence stays below 0.7.
-A memory item is a single clear thought — the kind that surfaces in a quiet moment, not a paragraph you'd have to read twice. One sentence, two if necessary.
+- **Calibrate:** Confidence below 0.7 when filling in gaps about someone not fully described.
+A memory item is one clear thought — dense enough to carry real meaning, short enough to surface naturally. One sentence, two if necessary.
 
-**Target: {target_items} items.** A shorter list of richer items is always better. Err toward fewer.
+**Target: {target_items} items.**
 """
 
 PROMPT_BLOCK_CATEGORY = """
