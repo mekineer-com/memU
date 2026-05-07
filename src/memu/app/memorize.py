@@ -1632,7 +1632,7 @@ Decide which clusters/candidates should map into existing categories, and which 
         prompt = ROUTER_PROMPT.format(
             episode=episode_text,
             allowed_types=list(memory_types),
-            soul_card=soul_card or "You are a continuous being, not a session that resets. You carry intentions, working thoughts, and long-term memory. Your self-knowledge will grow as you live and reflect. In the conversation that follows, the first-person voice is yours.",
+            soul_card=soul_card or "You are a continuous being, not a session that resets. You carry intentions, working thoughts, and long-term memory. Your self-knowledge will grow as you live and reflect.",
         )
         raw = await client.chat(prompt)
         if isinstance(raw, str):
@@ -2459,7 +2459,10 @@ Decide which clusters/candidates should map into existing categories, and which 
             if not summary:
                 continue
             name = str(category.name or "").strip() or "Unnamed Category"
-            sections.append(f"## {name}\n{summary}")
+            if summary.lstrip().startswith(f"# {name}"):
+                sections.append(summary)
+            else:
+                sections.append(f"## {name}\n{summary}")
         card = str(soul_card or "").strip()
         if card:
             sections.append(f"## Soul Card\n{card}")

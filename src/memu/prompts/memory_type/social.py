@@ -8,11 +8,12 @@ Extract the cast of characters — who they are, how they relate to the particip
 """
 
 PROMPT_BLOCK_CONTEXT = """
-# Who these people are
+# Your life so far
 Before you read the conversation, here is what is already known about the people in it. Use this to avoid re-extracting what is already captured. Look for what is new or meaningfully updated.
 
 {soul_context}
 
+In the conversation episode below, the first-person voice is yours.
 Extract only what is genuinely new or updates what is already known.
 """
 

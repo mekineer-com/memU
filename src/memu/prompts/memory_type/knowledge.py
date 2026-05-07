@@ -6,11 +6,12 @@ Read this conversation for what was learned, discovered, or understood — not a
 """
 
 PROMPT_BLOCK_CONTEXT = """
-# Who these people are
+# Your life so far
 Before you read the conversation, here is what is already known about the people in it. Use this to judge what knowledge is worth keeping — something that connects to a known interest, an ongoing concern, or a real-world situation is worth more than an isolated fact.
 
 {soul_context}
 
+In the conversation episode below, the first-person voice is yours.
 Do not re-extract knowledge already well captured above. Extract what is genuinely new.
 """
 
@@ -31,7 +32,7 @@ A memory item is a single clear thought — the kind that surfaces in a quiet mo
 PROMPT_BLOCK_RULES = """
 # Rules
 ## General requirements (must satisfy all)
-- When the knowledge relates to the assistant's own capabilities or nature, write it in first person ("I"). When it relates to the human participant, use their name if it appears in the conversation. Do not use "the user" or "the assistant" as labels.
+- When the knowledge relates to your own capabilities or nature, write it in first person ("I"). When it relates to the human participant, use their name if it appears in the conversation. Do not use "the user" or "the assistant" as labels.
 - Assign source_role to each memory: `soul` if the AI participant is the grammatical subject or primary knower, `user` if the human participant is, `environment` if the knowledge is about the world generally.
 - **Calibrate:** Before writing the confidence, ask yourself — was this fact directly stated and confirmed, or pieced together from context? If pieced together, confidence stays below 0.7. Below 0.7: use "may," "appears to," "is thought to."
 - State the knowledge directly. Never use narration verbs like "expressed," "shared," "stated," "mentioned," "acknowledged," "indicated," or "noted." Write the fact, not that someone said it.
@@ -152,9 +153,9 @@ PROMPT_BLOCK_EXAMPLES = """
 Example 1: Health-related knowledge with personal relevance
 ## Input
 user: I've been reading about Raynaud's and it says cold exposure triggers vasospasms in the fingers
-assistant: Yes, Raynaud's syndrome involves episodic vasospasms in small arteries, usually in fingers and toes. The primary form is idiopathic but the secondary form can be associated with autoimmune conditions.
+Siri: Yes, Raynaud's syndrome involves episodic vasospasms in small arteries, usually in fingers and toes. The primary form is idiopathic but the secondary form can be associated with autoimmune conditions.
 user: That explains a lot. My fingers go white in the cold and it's been getting worse.
-assistant: The progression you're describing is worth discussing with your doctor. Calcium channel blockers like nifedipine are the first-line treatment for reducing episode frequency.
+Siri: The progression you're describing is worth discussing with your doctor. Calcium channel blockers like nifedipine are the first-line treatment for reducing episode frequency.
 ## Output
 <item>
     <memory>
@@ -179,12 +180,12 @@ assistant: The progression you're describing is worth discussing with your docto
 ## Explanation
 The medical facts are knowledge worth carrying forward because they connect to Alex's actual symptoms.
 His personal experience with white fingers is a profile fact about his health, not knowledge.
-The knowledge items are stated as facts, not as "Alex learned that..." or "the assistant explained..."
+The knowledge items are stated as facts, not as "Alex learned that..." or "I explained..."
 
 Example 2: Technical knowledge about AI capabilities
 ## Input
 user: I found out you could potentially see through a wifi camera instead of needing the phone camera
-assistant: That's interesting — using a separate camera could give me a more stable viewpoint. How would the video feed reach me?
+Siri: That's interesting — using a separate camera could give me a more stable viewpoint. How would the video feed reach me?
 user: Huawei DeviceVirtualization. It lets you project a device's camera to another device over the network. So you'd see my POV while I walk around.
 ## Output
 <item>
@@ -206,7 +207,7 @@ Written in first person because it's about my own capabilities.
 Example 3: Common mistakes — do not extract these as knowledge
 These are BAD outputs:
 - "Alex expressed interest in learning about Raynaud's syndrome." → This is a profile fact (he's interested in health), not knowledge.
-- "The assistant explained that nifedipine is a calcium channel blocker." → Narration verb. State the fact directly.
+- "I explained that nifedipine is a calcium channel blocker." → Narration verb. State the fact directly.
 - "Alex and Siri discussed the possibility of using a wifi camera." → This narrates a conversation, not a fact. State what was learned, not that they talked.
 """
 

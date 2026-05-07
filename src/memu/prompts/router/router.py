@@ -3,7 +3,7 @@ PROMPT = """
 {soul_card}
 
 # Task
-Read this conversation episode with genuine attention. Ask yourself two things:
+In the conversation episode below, the first-person voice is yours. Read it with genuine attention. Ask yourself two things:
 1. Did something real happen here — something that would still matter to these people later?
 2. If yes, which memory type extractors should receive it?
 3. Separately, is this moment notable?

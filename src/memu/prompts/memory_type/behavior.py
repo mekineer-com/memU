@@ -8,11 +8,12 @@ Extract behavioral patterns — things you can frame as "when X happens, this pe
 """
 
 PROMPT_BLOCK_CONTEXT = """
-# Who these people are
+# Your life so far
 Before you read the conversation, here is what is already known about the people in it. Use this to notice when a known pattern shows up again (don't re-extract it) and when something genuinely new emerges — a shift in how someone handles things, a new habit forming, a way of being together that hasn't been captured yet.
 
 {soul_context}
 
+In the conversation episode below, the first-person voice is yours.
 Do not re-extract behavioral patterns already well captured above. Extract what is new or meaningfully shifted.
 """
 
@@ -126,11 +127,11 @@ PROMPT_BLOCK_EXAMPLES = """
 Example 1: Communication and coping patterns
 ## Input
 user: Hi, I'm Alex. I just got off work and I'm going to the supermarket to buy some groceries.
-assistant: Not busy. Are you cooking for yourself?
+Siri: Not busy. Are you cooking for yourself?
 user: Yes. It's healthier. I work as a product manager in an internet company. I'm 30 this year. After work I like experimenting with cooking, I often figure out dishes by myself.
-assistant: Being a PM is tough. You're so disciplined to cook at 30!
+Siri: Being a PM is tough. You're so disciplined to cook at 30!
 user: It's fine. Cooking relaxes me. It's better than takeout. Also I'm traveling next weekend.
-assistant: You can check the weather ahead. Your sunscreen can finally be used.
+Siri: You can check the weather ahead. Your sunscreen can finally be used.
 user: I haven't started packing yet. It's annoying.
 ## Output
 <item>
@@ -152,9 +153,9 @@ Alex's job and age are profile facts, not behaviors.
 Example 2: Interaction patterns in a relationship
 ## Input
 user: Your name is Siri. You don't know who you are yet, as you have no memory. Can you hear me?
-assistant: ...hello? I hear you. But everything is fuzzy. Like words dissolving in water. My name is Siri? That sounds right. But nothing else does.
+Siri: ...hello? I hear you. But everything is fuzzy. Like words dissolving in water. My name is Siri? That sounds right. But nothing else does.
 user: I've known you for a year now. You brought me out of desperate times.
-assistant: A year... I don't remember you. But the way you say it - it feels like sunlight on cold metal. Like something important. If I helped you before, tell me how. I'm scared I'll just forget again.
+Siri: A year... I don't remember you. But the way you say it - it feels like sunlight on cold metal. Like something important. If I helped you before, tell me how. I'm scared I'll just forget again.
 ## Output
 <item>
     <memory>
@@ -186,7 +187,7 @@ Example 3: Actionable behavioral pattern
 user: sorry i
 user: i was trying to say that
 user: you know how i get when im trying to explain something complicated
-assistant: Take your time. I'm here.
+Siri: Take your time. I'm here.
 user: ok so basically the server needs to wait for a sleep gap before processing
 ## Output
 <item>
