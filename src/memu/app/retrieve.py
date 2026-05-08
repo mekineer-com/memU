@@ -582,29 +582,38 @@ class RetrieveMixin:
         if not queries:
             return "No query context."
 
-        lines = []
+        blocks: list[str] = []
         for q in queries:
             if isinstance(q, str):
                 # Backward compatibility
-                lines.append(f"- {q}")
-            elif isinstance(q, dict):
-                role = q.get("role", "user")
+                text = q.strip()
+                if text:
+                    blocks.append(f"- {text}")
+                continue
+            if isinstance(q, dict):
+                role = str(q.get("role", "user") or "user").strip()
                 content = q.get("content")
                 if isinstance(content, dict):
-                    text = content.get("text", "")
+                    text = str(content.get("text", "") or "").strip()
                 elif isinstance(content, str):
-                    text = content
+                    text = content.strip()
                 else:
-                    text = str(content)
-                role_text = str(role or "").strip().lower()
-                if role_text == "identity_context":
-                    lines.append(text)
+                    text = str(content or "").strip()
+                if not text:
                     continue
-                lines.append(f"- [{role}]: {text}")
-            else:
-                lines.append(f"- {q!s}")
+                if role.lower() == "identity_context":
+                    blocks.append(text)
+                    continue
+                blocks.append(f"- [{role}]:\n{text}")
+                continue
+            text = str(q).strip()
+            if text:
+                blocks.append(f"- {text}")
 
-        return "\n".join(lines)
+        if not blocks:
+            return "No query context."
+
+        return "\n\n".join(blocks)
 
     @staticmethod
     def _split_context_queries(context_queries: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:

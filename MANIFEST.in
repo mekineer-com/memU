@@ -4,7 +4,6 @@ include LICENSE-APACHE.txt
 include NOTICE
 recursive-include memu *.py
 prune example
-include setup_postgres_env.sh
 exclude .env
 exclude .env.example
 exclude setup.py.backup

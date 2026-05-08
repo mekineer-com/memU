@@ -3065,7 +3065,6 @@ Decide which clusters/candidates should map into existing categories, and which 
         user_label_default = user_name or "user"
         soul_label_default = soul_name or "soul"
         user_id_default = self._normalize_speaker_slug("user", user_name or "user")
-        soul_id_default = self._normalize_speaker_slug("soul", soul_name or "soul")
 
         speaker_map: dict[int, tuple[str, str]] = {}
         for idx, message in enumerate(episode_messages):

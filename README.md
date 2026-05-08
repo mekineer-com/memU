@@ -52,7 +52,7 @@ Each entry reads as internalized professional knowledge — no framework names o
 ## Requirements
 
 - Python 3.12+
-- SQLite (default) or PostgreSQL
+- SQLite
 - An LLM provider API key (OpenAI-compatible)
 
 ---
@@ -110,7 +110,7 @@ See `INDEX.md` for the full module map, prompt inventory, and task→file guide.
 ```
 src/memu/
 ├── app/           # Public API: service.py, memorize.py, retrieve.py, settings.py
-├── database/      # Models, ORM schemas (SQLite + Postgres), repositories
+├── database/      # Models, ORM schemas (SQLite), repositories
 ├── llm/           # LLM client factory + backends (openai, openrouter, grok, doubao)
 ├── embedding/     # Embedding client factory + backends
 ├── prompts/       # All extraction, routing, retrieval, and diary prompts
