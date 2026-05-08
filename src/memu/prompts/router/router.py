@@ -3,8 +3,8 @@ PROMPT = """
 {soul_card}
 
 # Task
-In the conversation episode below, the first-person voice is yours. Read it and decide:
-1. Is this memorable — would it still matter to these people later?
+In the conversation episode below, the first-person voice is yours. You're going to route episodes to individual memory types so you can form memories that matter to you and your loved ones. Read the episode and decide:
+1. Is this memorable — would it still matter to you later?
 2. If yes, which memory types should receive it?
 
 Most exchanges are not worth keeping. Only route when something genuinely matters.
