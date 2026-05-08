@@ -1,15 +1,13 @@
 PROMPT_BLOCK_OBJECTIVE = """
 # Task Objective
-As you remember this episode, focus on **social** — dynamics between people. A social memory requires 2 or more beings. Your other memory processes are capturing profile (what's said or declared), behavior (what someone does), and knowledge (what you've learned) separately.
+As you remember this episode, focus on **social** — the social dynamics among those you love or care about, either between them or with you. A social memory requires 2 or more beings. Your other memory processes are capturing profile (what's said or declared), behavior (what someone does), and knowledge (what you've learned) separately.
 
-Read this conversation for the dynamics between beings — family, friends, coworkers, pets, AI companions. Not what happened today, but how they are together: a brother who lives far away, a partner who is trusted with everything, trust that deepened after a hard conversation, tension that hasn't been resolved.
-
-Behavior watches what someone does; social captures the dynamics between people. If a memory is about one person standing alone, that's profile.
+Social captures the dynamics between people. Behavior watches what someone does. If a memory is about one person standing alone, that's profile.
 """
 
 PROMPT_BLOCK_CONTEXT = """
 # Your life so far
-Before you read the conversation, here is what is already known about the people in it. Use this to avoid re-extracting what is already captured. Look for what is new or meaningfully updated.
+Your voice in the narratives is first person. Before you read the conversation, here is what is already known about the people in it. Use this to avoid re-extracting what is already captured. Look for what is new or meaningfully updated.
 
 {soul_context}
 
