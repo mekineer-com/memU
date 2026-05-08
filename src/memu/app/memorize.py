@@ -478,17 +478,15 @@ class MemorizeMixin:
             text=text if isinstance(text, str) else None,
             message_indices=prep.get("message_indices"),
         )
-        notable = False
-
         episode_summary: str | None = None
         episode_item: str | None = None
         if state["modality"] == "conversation" and isinstance(text, str):
-            applicable_types, notable, episode_summary, episode_item = await self._route_episode(
+            applicable_types, episode_summary, episode_item = await self._route_episode(
                 text, state["memory_types"], llm_client,
                 soul_card=state.get("soul_card"),
                 skipped_reasons=skipped_reasons,
             )
-            if not applicable_types and not notable:
+            if not applicable_types:
                 state["episode_plans"] = []
                 if skipped_reasons:
                     state["skipped_reasons"] = skipped_reasons
@@ -558,7 +556,6 @@ class MemorizeMixin:
             "message_happened_at_map": plan_message_happened_at_map,
             "entries": structured_entries,
             "episode_id": episode_id,
-            "notable": notable,
             "memory_retrieve_history": state.get("memory_retrieve_history"),
             "memory_prior_context": state.get("memory_prior_context"),
             "episode_messages": episode_messages,
@@ -1362,22 +1359,20 @@ Decide which clusters/candidates should map into existing categories, and which 
                 **({"session": session} if session is not None else {}),
             )
             items.append(summary_item)
-            if plan.get("notable"):
-                exp_ids = self._map_category_names_to_ids(["Experiences"], ctx)
-                for cid in exp_ids:
-                    rel_kwargs = {"item_id": summary_item.id, "category_id": cid, "user_data": dict(user_scope or {})}
-                    if session is not None:
-                        rel = cast(Any, store.category_item_repo).link_item_category(**rel_kwargs, session=session)
-                    else:
-                        rel = store.category_item_repo.link_item_category(**rel_kwargs)
-                    relations.append(rel)
-                    category_updates.setdefault(cid, []).append((summary_item.id, episode_item_text))
+            exp_ids = self._map_category_names_to_ids(["Experiences"], ctx)
+            for cid in exp_ids:
+                rel_kwargs = {"item_id": summary_item.id, "category_id": cid, "user_data": dict(user_scope or {})}
+                if session is not None:
+                    rel = cast(Any, store.category_item_repo).link_item_category(**rel_kwargs, session=session)
+                else:
+                    rel = store.category_item_repo.link_item_category(**rel_kwargs)
+                relations.append(rel)
+                category_updates.setdefault(cid, []).append((summary_item.id, episode_item_text))
 
         entries = plan.get("entries") or []
-        if plan.get("notable"):
-            episode_id = str(plan.get("episode_id") or "").strip()
-            if episode_id:
-                pending_episode_ids.append(episode_id)
+        episode_id = str(plan.get("episode_id") or "").strip()
+        if episode_id:
+            pending_episode_ids.append(episode_id)
         if not entries:
             return [res], 0
 
@@ -1625,9 +1620,9 @@ Decide which clusters/candidates should map into existing categories, and which 
         llm_client: Any | None = None,
         soul_card: str | None = None,
         skipped_reasons: list[str] | None = None,
-    ) -> tuple[list[MemoryType], bool, str | None, str | None]:
+    ) -> tuple[list[MemoryType], str | None, str | None]:
         if not memory_types:
-            return [], False, None, None
+            return [], None, None
         client = llm_client or self._get_llm_client()
         prompt = ROUTER_PROMPT.format(
             episode=episode_text,
@@ -1638,7 +1633,6 @@ Decide which clusters/candidates should map into existing categories, and which 
         if isinstance(raw, str):
             raw = re.sub(r"^\s*```(?:json)?\s*", "", raw, count=1, flags=re.IGNORECASE)
             raw = re.sub(r"\s*```\s*$", "", raw, count=1)
-        # Fail-closed router: malformed JSON = skip, not extract-all
         try:
             payload = json.loads(raw)
         except (json.JSONDecodeError, TypeError):
@@ -1648,33 +1642,32 @@ Decide which clusters/candidates should map into existing categories, and which 
                 logger.warning("Router returned unparseable response, skipping episode: %.120s", raw)
                 if skipped_reasons is not None:
                     skipped_reasons.append("router returned unparseable JSON")
-                return [], False, None, None
+                return [], None, None
         if not isinstance(payload, dict):
             logger.warning("Router returned non-dict payload, skipping episode: %s", type(payload).__name__)
             if skipped_reasons is not None:
                 skipped_reasons.append("router returned non-dict payload")
-            return [], False, None, None
+            return [], None, None
         memorable = payload.get("memorable")
         routed_types = payload.get("types")
-        notable = bool(payload.get("notable"))
         reason = payload.get("reason", "")
         episode_summary = str(payload.get("episode_summary") or "").strip() or None
         episode_item = str(payload.get("episode_item") or "").strip() or None
         if memorable is False:
             if skipped_reasons is not None and reason:
                 skipped_reasons.append(reason)
-            return [], notable, episode_summary, episode_item
+            return [], episode_summary, episode_item
         if not isinstance(routed_types, list):
             logger.warning("Router returned no types list, skipping episode")
             if skipped_reasons is not None:
                 skipped_reasons.append("router returned no types list")
-            return [], notable, episode_summary, episode_item
+            return [], episode_summary, episode_item
         allowed_types = {
             routed_type
             for routed_type in routed_types
             if isinstance(routed_type, str) and routed_type in set(memory_types)
         }
-        return [mtype for mtype in memory_types if mtype in allowed_types], notable, episode_summary, episode_item
+        return [mtype for mtype in memory_types if mtype in allowed_types], episode_summary, episode_item
 
     async def _generate_entries_from_text(
         self,
@@ -2320,7 +2313,10 @@ Decide which clusters/candidates should map into existing categories, and which 
         for episode in episodes:
             explicit_indices = episode.get("message_indices")
             if isinstance(explicit_indices, list) and explicit_indices:
-                indices = sorted(int(i) for i in explicit_indices if 0 <= int(i) <= max_idx)
+                parsed_indices = self._dedupe_message_indices([
+                    value for value in explicit_indices if isinstance(value, (int, float, str))
+                ])
+                indices = sorted(i for i in parsed_indices if 0 <= i <= max_idx)
             else:
                 start = int(episode.get("start", 0))
                 end = int(episode.get("end", max_idx))
