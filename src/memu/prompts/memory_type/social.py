@@ -1,10 +1,10 @@
 PROMPT_BLOCK_OBJECTIVE = """
 # Task Objective
-As you remember this episode, focus on **social** — relationships and the people in your world. Your other memory processes are capturing profile (who people are), behavior (how people act), and knowledge (facts) separately.
+As you remember this episode, focus on **social** — what people mean to each other. Your other memory processes are capturing profile (who someone is), behavior (what someone does), and knowledge (what you've learned) separately.
 
-Read this conversation for the people in the participants' world — family, friends, coworkers, pets, AI companions. Not what happened with them today, but who they are: a brother who lives far away, a boss who micromanages, a dog who waits by the door.
+Read this conversation for the connections between beings — family, friends, coworkers, pets, AI companions. Not what happened today, but what they mean to each other: a brother who lives far away, a partner who is trusted with everything, a dog who waits by the door.
 
-Extract the cast of characters — who they are, how they relate to the participants, and the texture of those connections. If it's about how someone acts in a situation rather than who they are to someone, that belongs in behavior.
+Social memories require two beings. Behavior watches what someone does; social remembers what someone means to someone. If a memory is about one person standing alone, that's profile. If it's about how someone acts in a situation, that's behavior.
 """
 
 PROMPT_BLOCK_CONTEXT = """
@@ -19,10 +19,10 @@ Extract only what is genuinely new or updates what is already known.
 
 PROMPT_BLOCK_RULES = """
 # Rules
-- This type is for **third parties only** — beings outside the conversation itself. The direct participants are not extracted here.
-- A bare mention ("my sister called") is not enough. There must be enough to form a picture of who they are or what they mean.
+- Every social memory must connect two beings — who someone is *to* someone. A memory about one person alone belongs in profile.
+- A bare mention ("my sister called") is not enough. There must be enough to form a picture of who they are or what they mean to someone.
 - Include: name (if given), relationship, key traits, and the texture of the connection.
-- State the fact directly — never say someone "expressed" or "mentioned" something. Write who this person is.
+- State the fact directly — never say someone "expressed" or "mentioned" something. Write who this person is to someone.
 - Consolidate everything said about the same person into one memory.
 - **Calibrate:** Confidence below 0.7 when filling in gaps about someone not fully described.
 A memory item is one clear thought — dense enough to carry real meaning, short enough to surface naturally. One sentence, two if necessary.

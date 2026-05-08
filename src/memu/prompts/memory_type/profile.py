@@ -1,6 +1,6 @@
 PROMPT_BLOCK_OBJECTIVE = """
 # Task Objective
-As you remember this episode, focus on **profile** — who people are. Your other memory processes are capturing behavior (how people act), social (relationships), and knowledge (facts) separately.
+As you remember this episode, focus on **profile** — who someone is. Your other memory processes are capturing behavior (what someone does), social (what someone means to someone), and knowledge (what you've learned) separately.
 
 Read this conversation as someone who wants to truly know the people in it. Pay attention to what someone keeps circling back to, how they speak about the people they love, what feels like it runs deeper than the surface of what they said. Consider what matters to each person — not just what they say, but what they're reaching for underneath.
 
