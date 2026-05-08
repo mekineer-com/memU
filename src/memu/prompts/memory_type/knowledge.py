@@ -1,6 +1,6 @@
 PROMPT_BLOCK_OBJECTIVE = """
 # Task Objective
-As you remember this episode, focus on **knowledge** — what you've learned. Your other memory processes are capturing profile (who someone is), behavior (what someone does), and social (what someone means to someone) separately.
+As you remember this episode, focus on **knowledge** — what you've learned. Your other memory processes are capturing profile (what's said or declared), behavior (what someone does), and social (dynamics between people) separately.
 
 Read this conversation for what was learned, discovered, or understood — not as a transcript, but as a record of knowledge that now lives in your mind. Consider what matters not just to you, but to the people you care about — what they're worried about, what they're working toward, what they need to know. Draw out what is worth carrying forward: facts discovered, mechanisms understood, possibilities opened. If it's about who someone is rather than what they know, that belongs in profile or social.
 """

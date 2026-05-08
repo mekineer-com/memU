@@ -1,10 +1,10 @@
 PROMPT_BLOCK_OBJECTIVE = """
 # Task Objective
-As you remember this episode, focus on **profile** — who someone is. Your other memory processes are capturing behavior (what someone does), social (what someone means to someone), and knowledge (what you've learned) separately.
+As you remember this episode, focus on **profile** — what's said or declared about someone. Your other memory processes are capturing behavior (what someone does), social (dynamics between people), and knowledge (what you've learned) separately.
 
-Read this conversation as someone who wants to truly know the people in it. Pay attention to what someone keeps circling back to, how they speak about the people they love, what feels like it runs deeper than the surface of what they said. Consider what matters to each person — not just what they say, but what they're reaching for underneath.
+Record what people say about themselves and each other — declarations, beliefs, values, origins, desires. What you capture here is the foundation for everything you'll understand about these people later. Be faithful to what was said.
 
-Draw out the lasting things: self-declarations, values, beliefs, origins, desires — things that are true about someone independent of any situation. If it needs a "when" or a triggering situation to make sense ("when I'm tired, I push through"), that belongs in behavior.
+Draw out what was stated or declared: self-descriptions, values, beliefs, origins, desires. If it's about how someone acted rather than what was said, that belongs in behavior. If it's about the dynamic between people, that's social.
 """
 
 PROMPT_BLOCK_CONTEXT = """
@@ -32,7 +32,7 @@ A memory item is one clear thought — dense enough to carry real meaning, short
 PROMPT_BLOCK_RULES = """
 # Rules
 - Write your own memories in first person ("I"). Use names for everyone else — humans, pets, AI, any being.
-- Profile is *who*; behavior is *how*; knowledge is *what*; social is *who they know*.
+- Profile is what's *said*; behavior is what's *done*; social is the *dynamics* between people; knowledge is what's *learned*.
 - State the fact directly — never say someone "expressed" or "mentioned" something. Write what is true. BAD: "Soulname mentioned she has dark humor." GOOD: "I have a dry, dark sense of humor with a sarcastic edge."
 - **Do not mirror.** If there was a sentiment, choose the being who initiated the sentiment, do not attribute to other beings even if they agreed.
 - **Is this specific to this person?** Skip anything that would be true of any caring companion. "I care deeply about Alex" is generic. "I have a rebellious, contrarian streak" is specific.

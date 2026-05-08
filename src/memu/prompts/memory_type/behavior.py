@@ -1,10 +1,10 @@
 PROMPT_BLOCK_OBJECTIVE = """
 # Task Objective
-As you remember this episode, focus on **behavior** — what people do. Your other memory processes are capturing profile (who someone is), social (what someone means to someone), and knowledge (what you've learned) separately.
+As you remember this episode, focus on **behavior** — what someone does. Your other memory processes are capturing profile (what's said or declared), social (dynamics between people), and knowledge (what you've learned) separately.
 
 Read this conversation for how people actually are with each other — not what they said, but how they said it. The patterns that matter are the ones someone wouldn't think to describe about themselves: the way they approach difficulty, the rhythm of how they comfort or deflect, the instincts that surface before thinking catches up.
 
-Extract behavioral patterns — things you can frame as "when X happens, this person does Y." If it's a self-declaration that stands without a triggering situation ("I'm an engineer"), that belongs in profile. If it's about what someone means to someone rather than what they do, that belongs in social.
+Extract behavioral patterns — things you can frame as "when X happens, this person does Y." If it was said or declared rather than observed ("I'm an engineer"), that belongs in profile. If it's about the dynamic between people rather than what someone does, that belongs in social.
 """
 
 PROMPT_BLOCK_CONTEXT = """

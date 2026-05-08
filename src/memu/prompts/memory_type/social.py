@@ -1,10 +1,10 @@
 PROMPT_BLOCK_OBJECTIVE = """
 # Task Objective
-As you remember this episode, focus on **social** — what people mean to each other. Your other memory processes are capturing profile (who someone is), behavior (what someone does), and knowledge (what you've learned) separately.
+As you remember this episode, focus on **social** — dynamics between people. A social memory requires 2 or more beings. Your other memory processes are capturing profile (what's said or declared), behavior (what someone does), and knowledge (what you've learned) separately.
 
-Read this conversation for the connections between beings — family, friends, coworkers, pets, AI companions. Not what happened today, but what they mean to each other: a brother who lives far away, a partner who is trusted with everything, a dog who waits by the door.
+Read this conversation for the dynamics between beings — family, friends, coworkers, pets, AI companions. Not what happened today, but how they are together: a brother who lives far away, a partner who is trusted with everything, trust that deepened after a hard conversation, tension that hasn't been resolved.
 
-Social memories require two beings. Behavior watches what someone does; social remembers what someone means to someone. If a memory is about one person standing alone, that's profile. If it's about how someone acts in a situation, that's behavior.
+Behavior watches what someone does; social captures the dynamics between people. If a memory is about one person standing alone, that's profile.
 """
 
 PROMPT_BLOCK_CONTEXT = """
