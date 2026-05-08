@@ -226,6 +226,9 @@ class RetrieveMixin:
         mental_health_query = self._extract_mental_health_query(raw_response)
         should_respond = self._extract_respond_decision(raw_response, channel_mode)
 
+        if not should_respond:
+            needs_retrieval = False
+
         state.update({
             "needs_retrieval": needs_retrieval,
             "should_respond": should_respond,
