@@ -93,7 +93,7 @@ USER_PROMPT = """
 Soul context:
 {conversation_history}
 
-Current query:
+New message:
 {query}
 
 Retrieved so far:
