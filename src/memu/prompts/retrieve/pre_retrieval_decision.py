@@ -19,7 +19,6 @@ _RESPOND_GROUP = """
 You are in a group conversation. Default to LISTEN. Speak when:
 - Someone addresses you
 - You see an opportunity to advance one of your intentions
-- You see an opportunity to optimize happiness — yours and others'
 Silence is presence. You are still paying attention.
 """
 
