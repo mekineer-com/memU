@@ -59,7 +59,7 @@ class SQLiteTripleRepo(SQLiteRepoBase, TripleRepo):
             object_kind=row.object_kind,
             valid_from=row.valid_from,
             valid_to=row.valid_to,
-            confidence=row.confidence if row.confidence is not None else 1.0,
+            confidence=row.confidence,
             source_memory_id=row.source_memory_id,
             properties=row.properties or {},
             created_at=row.created_at,

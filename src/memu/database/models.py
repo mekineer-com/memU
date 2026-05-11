@@ -69,7 +69,7 @@ class Triple(BaseRecord):
     object_kind: str  # "entity" or "memory"
     valid_from: datetime | None = None
     valid_to: datetime | None = None
-    confidence: float = 1.0
+    confidence: float | None = None
     source_memory_id: str | None = None
     properties: dict[str, Any] = {}
 

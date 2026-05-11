@@ -122,7 +122,7 @@ class SQLiteTripleModel(SQLiteBaseModelMixin, Triple):
     object_kind: str = Field(sa_column=Column(String, nullable=False))
     valid_from: datetime | None = Field(default=None, sa_column=Column(DateTime, nullable=True))
     valid_to: datetime | None = Field(default=None, sa_column=Column(DateTime, nullable=True))
-    confidence: float = Field(default=1.0, sa_column=Column(Float, nullable=True))
+    confidence: float | None = Field(default=None, sa_column=Column(Float, nullable=True))
     source_memory_id: str | None = Field(default=None, sa_column=Column(String, nullable=True))
     properties: dict[str, Any] = Field(default={}, sa_column=Column(JSON, nullable=True))
 

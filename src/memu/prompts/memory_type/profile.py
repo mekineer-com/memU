@@ -116,7 +116,9 @@ emotional_intensity — how strongly was this felt? Not importance — intensity
 entities — something you could point at or introduce to someone: a person, place, project, organization, or condition. Not abstract qualities or themes. "Raynaud's" yes. "memU" yes. "resilience" no. Omit when none apply.
 """
 
-PROMPT_BLOCK_EXAMPLES = ""
+# PROMPT_BLOCK_EXAMPLES intentionally absent — empty examples would just add noise
+# to the payload. Re-add the assignment + uncomment the references in PROMPT and
+# CUSTOM_PROMPT below if you fill in real examples.
 
 
 PROMPT_BLOCK_INPUT = """
@@ -133,7 +135,7 @@ PROMPT = "\n\n".join([
     PROMPT_BLOCK_RULES.strip(),
     PROMPT_BLOCK_CATEGORY.strip(),
     PROMPT_BLOCK_OUTPUT.strip(),
-    PROMPT_BLOCK_EXAMPLES.strip(),
+    # PROMPT_BLOCK_EXAMPLES.strip(),
     PROMPT_BLOCK_INPUT.strip(),
 ])
 
@@ -144,6 +146,6 @@ CUSTOM_PROMPT = {
     "rules": PROMPT_BLOCK_RULES.strip(),
     "category": PROMPT_BLOCK_CATEGORY.strip(),
     "output": PROMPT_BLOCK_OUTPUT.strip(),
-    "examples": PROMPT_BLOCK_EXAMPLES.strip(),
+    # "examples": PROMPT_BLOCK_EXAMPLES.strip(),
     "input": PROMPT_BLOCK_INPUT.strip(),
 }

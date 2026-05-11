@@ -2003,8 +2003,7 @@ Decide which clusters/candidates should map into existing categories, and which 
             user=user,
             session=session,
         )
-        # Disabled to test if no longer needed. Remind Marcos to remove this dead code.
-        # structured_entries = self._normalize_confidence(structured_entries)
+        structured_entries = self._normalize_confidence(structured_entries)
         homeless_count = sum(1 for entry in structured_entries if not entry.categories)
         supersede_targets = await self._find_supersede_targets(
             structured_entries=structured_entries,
@@ -2505,8 +2504,11 @@ Decide which clusters/candidates should map into existing categories, and which 
             if entry.confidence is None:
                 result.append(entry)
                 continue
-            normalized = target_mean + (entry.confidence - mean) / std * target_std
-            result.append(entry._replace(confidence=max(0.0, min(1.0, round(normalized, 2)))))
+            normalized = round(target_mean + (entry.confidence - mean) / std * target_std, 2)
+            if 0.0 <= normalized <= 1.0:
+                result.append(entry._replace(confidence=normalized))
+            else:
+                result.append(entry._replace(confidence=None))
         return result
 
     def _build_memory_type_prompt(
