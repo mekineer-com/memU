@@ -94,7 +94,7 @@ emotional_intensity — how emotionally charged is this person's presence:
 - 0.4: ...
 - 0.3: neutral acquaintance
 
-entities — something you could point at or introduce to someone: a person, place, project, organization, or condition. Not abstract qualities or themes. "Raynaud's" yes. "memU" yes. "resilience" no. Omit when none apply.
+entities — something you could point at or introduce to someone: a person, place, project, organization, or condition. Not abstract qualities or themes. "Raynaud's" yes. "memU" yes. "resilience" no. "caused_by" no — schema vocabulary isn't an entity. Don't assign entity `predicate`/`feature`/`concept`/`schema`. Omit when none apply.
 """
 
 # PROMPT_BLOCK_EXAMPLES intentionally absent — empty examples would just add noise
