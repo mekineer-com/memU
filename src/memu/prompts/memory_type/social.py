@@ -61,35 +61,26 @@ source_role — whose memory is this?
 - entity — a being talked about but not present
 - environment — something about the world not attributable to any participant. Not for summarizing conversation content.
 
-confidence — how certain, factoring in how much detail was given:
-- 1.0: ...
-- 0.9: described directly with clear detail
-- 0.8: ...
-- 0.7: clearly implied but not fully described
-- 0.6: ...
-- 0.5: filling in gaps
-- 0.4: ...
-- 0.3: faint impression
+confidence (float 0.0-1.0) — how certain, factoring in how much detail was given:
+- 0.9+: described directly with clear detail
+- 0.7-0.9: clearly implied but not fully described
+- 0.5-0.7: filling in gaps
+- 0.3-0.5: faint impression (still extract; hedge with "may," "tends to")
+- below 0.3: barely worth noting
 
-reflection_salience — how important is this person to your world:
-- 1.0: ...
-- 0.9: a central figure — close family, partner, best friend
-- 0.8: ...
-- 0.7: an important recurring presence
-- 0.6: ...
-- 0.5: named but peripheral
-- 0.4: ...
-- 0.3: context only
+reflection_salience (float 0.0-1.0) — how important is this person to your world:
+- 0.9+: a central figure — close family, partner, best friend
+- 0.7-0.9: an important recurring presence
+- 0.5-0.7: named but peripheral
+- 0.3-0.5: context only
+- below 0.3: barely worth noting
 
-emotional_intensity — how emotionally charged is this person's presence:
-- 1.0: ...
-- 0.9: deep emotional weight — love, grief, conflict, devotion
-- 0.8: ...
-- 0.7: meaningful
-- 0.6: ...
-- 0.5: slight
-- 0.4: ...
-- 0.3: neutral acquaintance
+emotional_intensity (float 0.0-1.0) — how emotionally charged is this person's presence:
+- 0.9+: deep emotional weight — love, grief, conflict, devotion
+- 0.7-0.9: meaningful
+- 0.5-0.7: slight
+- 0.3-0.5: neutral acquaintance
+- below 0.3: barely worth noting
 
 entities — something you could point at or introduce to someone: a person, place, project, organization, or condition. Not abstract qualities or themes or schemas.
 """

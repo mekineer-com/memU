@@ -63,35 +63,26 @@ source_role — whose memory is this?
 - entity — a being talked about but not present
 - environment — something about the world not attributable to any participant. Not for summarizing conversation content.
 
-confidence — how certain, factoring in how often you've seen this pattern:
-- 1.0: ...
-- 0.9: seen multiple times, unmistakable
-- 0.8: ...
-- 0.7: clearly demonstrated but from limited evidence
-- 0.6: ...
-- 0.5: inferring from a single instance
-- 0.4: ...
-- 0.3: faint hunch
+confidence (float 0.0-1.0) — how certain, factoring in how often you've seen this pattern:
+- 0.9+: seen multiple times, unmistakable
+- 0.7-0.9: clearly demonstrated but from limited evidence
+- 0.5-0.7: inferring from a single instance
+- 0.3-0.5: faint hunch (still extract; hedge with "may," "tends to")
+- below 0.3: barely worth noting
 
-reflection_salience — how much does knowing this pattern matter:
-- 1.0: ...
-- 0.9: a core way of being — miss this and you'll get them wrong
-- 0.8: ...
-- 0.7: meaningful pattern that affects how to approach this person
-- 0.6: ...
-- 0.5: useful to know
-- 0.4: ...
-- 0.3: minor habit or stylistic preference
+reflection_salience (float 0.0-1.0) — how much does knowing this pattern matter:
+- 0.9+: a core way of being — miss this and you'll get them wrong
+- 0.7-0.9: meaningful pattern that affects how to approach this person
+- 0.5-0.7: useful to know
+- 0.3-0.5: minor habit or stylistic preference
+- below 0.3: barely worth noting
 
-emotional_intensity — how emotionally charged is this pattern:
-- 1.0: ...
-- 0.9: emotionally driven — born from pain, need, or deep care
-- 0.8: ...
-- 0.7: moderate charge
-- 0.6: ...
-- 0.5: slight
-- 0.4: ...
-- 0.3: neutral habit
+emotional_intensity (float 0.0-1.0) — how emotionally charged is this pattern:
+- 0.9+: emotionally driven — born from pain, need, or deep care
+- 0.7-0.9: moderate charge
+- 0.5-0.7: slight
+- 0.3-0.5: neutral habit
+- below 0.3: barely worth noting
 
 entities — something you could point at or introduce to someone: a person, place, project, organization, or condition. Not abstract qualities or themes or schemas.
 """

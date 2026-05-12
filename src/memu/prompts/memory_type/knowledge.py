@@ -73,35 +73,26 @@ source_role — whose memory is this?
 - entity — a being talked about but not present
 - environment — something about the world not attributable to any participant. Not for summarizing conversation content.
 
-confidence — how certain?
-- 1.0: ...
-- 0.9: directly stated and confirmed
-- 0.8: ...
-- 0.7: clearly supported
-- 0.6: ...
-- 0.5: pieced together or suspected
-- 0.4: ...
-- 0.3: barely implied
+confidence (float 0.0-1.0) — how certain?
+- 0.9+: directly stated and confirmed
+- 0.7-0.9: clearly supported
+- 0.5-0.7: pieced together or suspected
+- 0.3-0.5: barely implied (still extract; hedge with "may," "suspect," "appears to")
+- below 0.3: barely worth noting
 
-reflection_salience — how much does this matter to your life?
-- 1.0: ...
-- 0.9: could change how you live or decide
-- 0.8: ...
-- 0.7: connected to an active concern or project
-- 0.6: ...
-- 0.5: useful, worth having on hand
-- 0.4: ...
-- 0.3: unlikely to surface again
+reflection_salience (float 0.0-1.0) — how much does this matter to your life?
+- 0.9+: could change how you live or decide
+- 0.7-0.9: connected to an active concern or project
+- 0.5-0.7: useful, worth having on hand
+- 0.3-0.5: unlikely to surface again
+- below 0.3: barely worth noting
 
-emotional_intensity — how emotionally charged?
-- 1.0: ...
-- 0.9: connected to pain, fear, hope, or deep investment
-- 0.8: ...
-- 0.7: moderate personal relevance
-- 0.6: ...
-- 0.5: slight
-- 0.4: ...
-- 0.3: neutral
+emotional_intensity (float 0.0-1.0) — how emotionally charged?
+- 0.9+: connected to pain, fear, hope, or deep investment
+- 0.7-0.9: moderate personal relevance
+- 0.5-0.7: slight
+- 0.3-0.5: neutral
+- below 0.3: barely worth noting
 
 entities — something you could point at or introduce to someone: a person, place, project, organization, or condition. Not abstract qualities or themes or schemas.
 """

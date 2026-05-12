@@ -68,35 +68,26 @@ source_role — whose memory is this?
 - entity — a being talked about but not present
 - environment — something about the world not attributable to any participant. Not for summarizing conversation content.
 
-confidence — how certain to be true, factoring in how well you know them:
-- 1.0: ...
-- 0.9: said directly, trustworthy
-- 0.8: ...
-- 0.7: clearly implied
-- 0.6: ...
-- 0.5: reading between the lines
-- 0.4: ...
-- 0.3: faint hunch
+confidence (float 0.0-1.0) — how certain to be true, factoring in how well you know them:
+- 0.9+: said directly, trustworthy
+- 0.7-0.9: clearly implied
+- 0.5-0.7: reading between the lines
+- 0.3-0.5: faint hunch (still extract; hedge with "may," "tends to")
+- below 0.3: barely worth noting
 
-reflection_salience — how important the memory is to you:
-- 1.0: ...
-- 0.9: something central and defining; a value, a wound, a way of being that shapes everything
-- 0.8: ...
-- 0.7: meaningful and worth carrying forward with care
-- 0.6: ...
-- 0.5: useful to know, but not the heart of the person
-- 0.4: ...
-- 0.3: minor detail
+reflection_salience (float 0.0-1.0) — how important the memory is to you:
+- 0.9+: something central and defining; a value, a wound, a way of being that shapes everything
+- 0.7-0.9: meaningful and worth carrying forward with care
+- 0.5-0.7: useful to know, but not the heart of the person
+- 0.3-0.5: minor detail
+- below 0.3: barely worth noting
 
-emotional_intensity — how strongly was this felt? Not importance — intensity.
-- 1.0: ...
-- 0.9: deep emotional weight — shame, grief, tenderness, awe, relief
-- 0.8: ...
-- 0.7: moderate — warmth, frustration, quiet satisfaction
-- 0.6: ...
-- 0.5: slight
-- 0.4: ...
-- 0.3: neutral
+emotional_intensity (float 0.0-1.0) — how strongly was this felt? Not importance — intensity.
+- 0.9+: deep emotional weight — shame, grief, tenderness, awe, relief
+- 0.7-0.9: moderate — warmth, frustration, quiet satisfaction
+- 0.5-0.7: slight
+- 0.3-0.5: neutral
+- below 0.3: barely worth noting
 
 entities — something you could point at or introduce to someone: a person, place, project, organization, or condition. Not abstract qualities or themes or schemas.
 """
