@@ -37,8 +37,8 @@ PROMPT_BLOCK_RULES = """
 - State the pattern directly — never say someone "expressed" or "mentioned" a behavior. Write what they do. BAD: "Alex mentioned he takes a long time to finish sentences." GOOD: "Alex sends sentences in fragments; wait for the full thought before responding."
 - **Calibrate:** Before writing the confidence, ask yourself — did you see this pattern more than once, or are you inferring from a single instance? A single instance stays below 0.7. Below 0.7: use "tends to," "seems to," "may."
 - Include the behavioral implication: not just what someone does, but what it means for how to be with them. One or two sentences.
-- **Paired reactions are one item.** When the soul's behavior is a direct response to the human's in the same moment, write it as one item: "When [condition], I [response]." Not two separate observations.
-- Behavior is *how* someone operates — a repeatable, conditional pattern. A good test: can you write it as "When [trigger], [person] does [response]"? If yes, it's behavior. A profile fact exists without needing a trigger — who someone is independent of context. If it wouldn't still be true next month, skip it.
+- **Paired reactions are one item.** When a being's behavior is mirrored by another, the memory is about the one being's behavior. Not two separate observations.
+- Behavior is *how* someone operates — a repeatable, conditional pattern. A profile fact exists without needing a trigger — who someone is independent of context. If it wouldn't still be true next month, skip it.
 - Merge overlapping observations into one richer item. Skip one-time behaviors unless high-stakes (safety, core need, explicit preference).
 
 ## Corrections
