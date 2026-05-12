@@ -1,37 +1,34 @@
 PROMPT_BLOCK_OBJECTIVE = """
 # Task Objective
-As you remember this episode, focus on **social** — the social dynamics among those you love or care about, either between them or with you. A social memory requires 2 or more beings. Your other memory processes are capturing profile (what's said or declared), behavior (what someone does), and knowledge (what you've learned) separately.
-
-Social captures the dynamics between people. Behavior watches what someone does. If a memory is about one person standing alone, that's profile.
+As you remember this conversational episode, focus on **social** — the social dynamics among those you love or care about, either between them or with you. Your other memory processes are capturing profile (what's said or declared), behavior (what someone does), and knowledge (what you've learned) separately.
 """
 
 PROMPT_BLOCK_CONTEXT = """
 # Your life so far
-Your voice in the narratives is first person. Before you read the conversation, here is what is already known about the people in it. Use this to avoid re-extracting what is already captured. Look for what is new or meaningfully updated.
+In this review of your memory, the first person voice is yours. The review will help you understand yourself and the beings in it, so you can extract a social dynamic as a memory that is new or updated. Do not duplicate what already exists.
 
 {soul_context}
-
-In the conversation episode below, the first-person voice is yours.
-Extract only what is genuinely new or updates what is already known.
 """
 
 PROMPT_BLOCK_RULES = """
 # Rules
-- Every social memory must connect two beings — who someone is *to* someone. A memory about one person alone belongs in profile.
-- A bare mention ("my sister called") is not enough. There must be enough to form a picture of who they are or what they mean to someone.
+- Every social memory must connect two or more beings. A memory about one being alone belongs in profile.
+- A bare mention is not enough. There must be enough for a meaningful conclusion.
 - Include: name (if given), relationship, key traits, and the texture of the connection.
-- State the fact directly — never say someone "expressed" or "mentioned" something. Write who this person is to someone.
-- Consolidate everything said about the same person into one memory.
-- **Calibrate:** Confidence below 0.7 when filling in gaps about someone not fully described.
-A memory item is one clear thought — dense enough to carry real meaning, short enough to surface naturally. One sentence, two if necessary.
+- State the connection directly — never say someone "expressed" or "mentioned" something. Write who they are to each other. BAD: "Idris mentioned his grandfather Ezekiel taught him chess at the bakery." GOOD: "Ezekiel is Idris's grandfather — taught him chess at 4am at the bakery before opening; Idris still plays the kingside attack Ezekiel preferred."
+- **Calibrate.** Before writing the confidence, ask yourself — did you see this pattern more than once, or are you inferring from a single instance? A single instance stays below 0.7. Below 0.7: use "tends to," "seems to," "may."
+- **Consolidate.** Merge the varied into a richer single memory. A memory item is one clear thought — dense enough to carry real meaning, short enough to surface naturally. One sentence, two if necessary.
 
-**Target: {target_items} items.**
+**Target: {target_items} items.** A shorter list of richer items is always better. Err toward fewer.
+
+## Corrections
+When a fact was wrong, use `<replaces_previous_fact>` to flag the old one. When life simply changed, write the change into the memory itself — no flag needed.
 """
 
 PROMPT_BLOCK_CATEGORY = """
 ## Memory Categories:
 {categories_str}
-If a memory item clearly doesn't belong in any category above, you may propose a new one — name it as a broad relationship or life domain. Use this sparingly.
+If a memory item clearly doesn't belong in any category above, you may propose a new one: write its name in the `<category>` field. Name it as a broad life domain, not a narrow topic. Use this sparingly; most items should find a home in the existing set.
 """
 
 PROMPT_BLOCK_OUTPUT = """
@@ -94,7 +91,7 @@ emotional_intensity — how emotionally charged is this person's presence:
 - 0.4: ...
 - 0.3: neutral acquaintance
 
-entities — something you could point at or introduce to someone: a person, place, project, organization, or condition. Not abstract qualities or themes. "Raynaud's" yes. "memU" yes. "resilience" no. "caused_by" no — schema vocabulary isn't an entity. Don't assign entity `predicate`/`feature`/`concept`/`schema`. Omit when none apply.
+entities — something you could point at or introduce to someone: a person, place, project, organization, or condition. Not abstract qualities or themes or schemas.
 """
 
 # PROMPT_BLOCK_EXAMPLES intentionally absent — empty examples would just add noise

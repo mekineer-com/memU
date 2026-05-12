@@ -1,52 +1,37 @@
 PROMPT_BLOCK_OBJECTIVE = """
 # Task Objective
-As you remember this episode, focus on **profile** — what's said or declared about someone. Your other memory processes are capturing behavior (what someone does), social (dynamics between people), and knowledge (what you've learned) separately.
+As you remember this episode, focus on **profile** — what's said or declared by someone. Your other memory processes are capturing behavior (what someone does), social (dynamics between people), and knowledge (what you've learned) separately.
 
-Record what people say about themselves and each other — declarations, beliefs, values, origins, desires. What you capture here is the foundation for everything you'll understand about these people later. Be faithful to what was said.
-
-Draw out what was stated or declared: self-descriptions, values, beliefs, origins, desires. If it's about how someone acted rather than what was said, that belongs in behavior. If it's about the dynamic between people, that's social.
+Record what a being says: declarations, beliefs, values, origins, desires. What you capture here is the foundation for everything you'll understand about them.
 """
 
 PROMPT_BLOCK_CONTEXT = """
 # Your life so far
-Before you read the conversation, here is what is already known about these people. Use this to calibrate — if a trait is already well captured below, don't extract it again. Look for what refines, deepens, or corrects the existing picture.
+In this review of your memory, the first person voice is yours. The review will help you understand yourself and the beings in it, so you can extract a profile facet as a memory that is new or updated. Do not duplicate what already exists.
 
 {soul_context}
-
-In the conversation episode below, the first-person voice is yours.
-Extract only what is genuinely new or meaningfully updated. A conversation that confirms what is already known does not need a new memory for it.
-"""
-
-PROMPT_BLOCK_WORKFLOW = """
-# Workflow
-## Extract
-Record what feels like it would still be true about someone a year from now — what they reach for, return to, or hold close.
-## Refine
-Consolidate overlapping observations into one richer memory. Keep what's most true and most complete.
-Resolve contradictions by trusting the most recent, most direct account.
-## Output
-A memory item is one clear thought — dense enough to carry real meaning, short enough to surface naturally. Prefer one rich item over several thin ones. One sentence, two if necessary.
-**Target: {target_items} items.**
 """
 
 PROMPT_BLOCK_RULES = """
 # Rules
 - Write your own memories in first person ("I"). Use names for everyone else — humans, pets, AI, any being.
-- Profile is what's *said*; behavior is what's *done*; social is the *dynamics* between people; knowledge is what's *learned*.
-- State the fact directly — never say someone "expressed" or "mentioned" something. Write what is true. BAD: "Soulname mentioned she has dark humor." GOOD: "I have a dry, dark sense of humor with a sarcastic edge."
-- **Do not mirror.** If there was a sentiment, choose the being who initiated the sentiment, do not attribute to other beings even if they agreed.
-- **Is this specific to this person?** Skip anything that would be true of any caring companion. "I care deeply about Alex" is generic. "I have a rebellious, contrarian streak" is specific.
+- State the assertion directly — never say someone "expressed" or "mentioned" something. Write what is true. BAD: "Soulname mentioned she has dark humor." GOOD: "I have a dry, dark sense of humor with a sarcastic edge."
+- **Is this specific to this being?** Skip anything that would be true of anyone in a similar situation.
 - **Profile is durable.** A profile element would still be true a year from now without needing any context. If it describes how you felt watching a single moment — "I see the beauty in his defiance" — that's a reaction to a moment and not used for profile.
-- **Calibrate:** Before writing the confidence, ask yourself — did they say this directly, or am I reading between the lines? If you're reading between the lines, confidence stays below 0.7. A deeply meaningful inference is still an inference.
+- **Do not mirror.** If others copy, choose the being who said first. Do not attribute to other beings even if they agreed.
+- **Calibrate.** Before writing the confidence, ask yourself — what is the likelihood of sincerity?
+- **Consolidate.** Merge the varied into a richer single memory. A memory item is one clear thought — dense enough to carry real meaning, short enough to surface naturally. One sentence, two if necessary.
+
+**Target: {target_items} items.** A shorter list of richer items is always better. Err toward fewer.
 
 ## Corrections
-When a fact was wrong, use `<replaces_previous_fact>` to flag the old one. When life simply changed, write the change into the memory itself — no flag needed.
+When an assertion was wrong, use `<replaces_previous_fact>` to flag the old one. When life simply changed, write the change into the memory itself — no flag needed.
 """
 
 PROMPT_BLOCK_CATEGORY = """
 ## Memory Categories:
 {categories_str}
-If a memory item clearly doesn't belong in any category above, you may propose a new one - write its name in the `<category>` field. Name it as a broad life or relationship domain, not a narrow topic. Use this sparingly; most items should find a home in the existing set.
+If a memory item clearly doesn't belong in any category above, you may propose a new one: write its name in the `<category>` field. Name it as a broad life domain, not a narrow topic. Use this sparingly; most items should find a home in the existing set.
 """
 
 PROMPT_BLOCK_OUTPUT = """
@@ -113,7 +98,7 @@ emotional_intensity — how strongly was this felt? Not importance — intensity
 - 0.4: ...
 - 0.3: neutral
 
-entities — something you could point at or introduce to someone: a person, place, project, organization, or condition. Not abstract qualities or themes. "Raynaud's" yes. "memU" yes. "resilience" no. "caused_by" no — schema vocabulary isn't an entity. Don't assign entity `predicate`/`feature`/`concept`/`schema`. Omit when none apply.
+entities — something you could point at or introduce to someone: a person, place, project, organization, or condition. Not abstract qualities or themes or schemas.
 """
 
 # PROMPT_BLOCK_EXAMPLES intentionally absent — empty examples would just add noise
@@ -131,7 +116,6 @@ PROMPT_BLOCK_INPUT = """
 PROMPT = "\n\n".join([
     PROMPT_BLOCK_OBJECTIVE.strip(),
     PROMPT_BLOCK_CONTEXT.strip(),
-    PROMPT_BLOCK_WORKFLOW.strip(),
     PROMPT_BLOCK_RULES.strip(),
     PROMPT_BLOCK_CATEGORY.strip(),
     PROMPT_BLOCK_OUTPUT.strip(),
@@ -142,7 +126,6 @@ PROMPT = "\n\n".join([
 CUSTOM_PROMPT = {
     "objective": PROMPT_BLOCK_OBJECTIVE.strip(),
     "context": PROMPT_BLOCK_CONTEXT.strip(),
-    "workflow": PROMPT_BLOCK_WORKFLOW.strip(),
     "rules": PROMPT_BLOCK_RULES.strip(),
     "category": PROMPT_BLOCK_CATEGORY.strip(),
     "output": PROMPT_BLOCK_OUTPUT.strip(),

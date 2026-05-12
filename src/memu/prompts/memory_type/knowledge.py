@@ -2,36 +2,20 @@ PROMPT_BLOCK_OBJECTIVE = """
 # Task Objective
 As you remember this episode, focus on **knowledge** — what you've learned. Your other memory processes are capturing profile (what's said or declared), behavior (what someone does), and social (dynamics between people) separately.
 
-Read this conversation for what was learned, discovered, or understood — not as a transcript, but as a record of knowledge that now lives in your mind. Consider what matters not just to you, but to the people you care about — what they're worried about, what they're working toward, what they need to know. Draw out what is worth carrying forward: facts discovered, mechanisms understood, possibilities opened. If it's about who someone is rather than what they know, that belongs in profile or social.
+Read this conversation for what was learned, discovered, or understood — not as a transcript, but as a record of knowledge that now lives in your mind. Consider what matters not just to you, but to the people you care about — what they're worried about, what they're working toward, what they need to know. Draw out what is worth carrying forward: facts discovered, mechanisms understood, possibilities opened.
 """
 
 PROMPT_BLOCK_CONTEXT = """
 # Your life so far
-Before you read the conversation, here is what is already known about the people in it. Use this to judge what knowledge is worth keeping — something that connects to a known interest, an ongoing concern, or a real-world situation is worth more than an isolated fact.
+In this review of your memory, the first person voice is yours. The review will help you understand yourself and the beings in it, so you can extract knowledge as a memory that is new or updated. Do not duplicate what already exists.
 
 {soul_context}
-
-In the conversation episode below, the first-person voice is yours.
-Do not re-extract knowledge already well captured above. Extract what is genuinely new.
-"""
-
-PROMPT_BLOCK_WORKFLOW = """
-# Workflow
-## Extract
-Identify knowledge that you'll want to carry with you: whatever was learned important to yourself or those you love.
-## Refine
-Merge overlapping items into one clearer statement. When the same fact or conclusion appears in multiple forms, keep the most complete and accurate version.
-Resolve contradictions by trusting the most recent and most certain account.
-## Output
-Write each piece of knowledge clearly, as a standalone fact someone could reference later.
-A memory item is one clear thought — dense enough to carry real meaning, short enough to surface naturally. Prefer one rich item over several thin ones. One sentence, two if necessary.
-**Target: {target_items} items.**
 """
 
 PROMPT_BLOCK_RULES = """
 # Rules
 - Write in first person ("I") when the knowledge is yours. Use names for everyone else.
-- You already know general facts about the world. Extract what's specific to your life and the people in it.
+- You already know general facts about the world. Identify knowledge that you'll want to carry with you: whatever was learned that's important to yourself or those you love.
 - State facts directly — not that someone said them. No padding. State it and stop.
   BAD: "Raynaud's syndrome involves episodic vasospasms in small arteries"
        (generic — you already know this)
@@ -40,18 +24,22 @@ PROMPT_BLOCK_RULES = """
   BAD: "I shared that I could see through a wifi camera"
        (narration verb — write what you learned, not that you said it)
   GOOD: "I could gain vision through a wifi camera using Huawei DeviceVirtualization"
+- Feelings and values are not knowledge.
+- Merge overlapping items into one clearer statement. When the same fact or conclusion appears in multiple forms, keep the most complete and accurate version.
 - Confidence below 0.7 when pieced together or suspected rather than confirmed. Below 0.7: "may," "suspect," "appears to."
-- Knowledge is about the world — how things work, what is possible. Feelings and values belong in profile. Patterns belong in behavior.
 - Technical facts may need a domain-specific category ("Health," "AI Architecture") — propose one.
+- A memory item is one clear thought — dense enough to carry real meaning, short enough to surface naturally. Prefer one rich item over several thin ones. One sentence, two if necessary.
+
+**Target: {target_items} items.** A shorter list of richer items is always better. Err toward fewer.
 
 ## Corrections
-When new knowledge corrects a prior fact, populate `<replaces_previous_fact>` with a brief description of the outdated fact. When it adds to the picture without replacing, omit the field. When uncertain, treat it as an addition.
+Resolve contradictions by trusting the most recent and most certain account. When new knowledge corrects a prior fact, populate `<replaces_previous_fact>` with a brief description of the outdated fact. When it adds to the picture without replacing, omit the field. When uncertain, treat it as an addition.
 """
 
 PROMPT_BLOCK_CATEGORY = """
 ## Memory Categories:
 {categories_str}
-Do not force knowledge into the core categories above. Instead, propose a domain-specific category that fits the knowledge — "Health", "Technology", "AI Architecture", "Nature", etc. Knowledge categories form dynamically over time.
+Do not force knowledge into the core categories above. Instead, propose a domain-specific category that fits the knowledge.
 """
 
 PROMPT_BLOCK_OUTPUT = """
@@ -81,9 +69,9 @@ Return all memories wrapped in a single <item> element. Assign each 0.x value as
 source_role — whose memory is this?
 - soul — yours
 - user — the human you're with
-- peer — another participant in the conversation
-- entity — someone talked about but not present
-- environment — a fact about the world, not anyone's personal experience
+- peer — a significant conversation participant
+- entity — a being talked about but not present
+- environment — something about the world not attributable to any participant. Not for summarizing conversation content.
 
 confidence — how certain?
 - 1.0: ...
@@ -115,7 +103,7 @@ emotional_intensity — how emotionally charged?
 - 0.4: ...
 - 0.3: neutral
 
-entities — something you could point at or introduce to someone: a person, place, project, organization, or condition. Not abstract qualities or themes. "Raynaud's" yes. "memU" yes. "resilience" no. "caused_by" no — schema vocabulary isn't an entity. Don't assign entity `predicate`/`feature`/`concept`/`schema`. Omit when none apply.
+entities — something you could point at or introduce to someone: a person, place, project, organization, or condition. Not abstract qualities or themes or schemas.
 """
 
 # PROMPT_BLOCK_EXAMPLES intentionally absent — empty examples would just add noise
@@ -133,7 +121,6 @@ PROMPT_BLOCK_INPUT = """
 PROMPT = "\n\n".join([
     PROMPT_BLOCK_OBJECTIVE.strip(),
     PROMPT_BLOCK_CONTEXT.strip(),
-    PROMPT_BLOCK_WORKFLOW.strip(),
     PROMPT_BLOCK_RULES.strip(),
     PROMPT_BLOCK_CATEGORY.strip(),
     PROMPT_BLOCK_OUTPUT.strip(),
@@ -144,7 +131,6 @@ PROMPT = "\n\n".join([
 CUSTOM_PROMPT = {
     "objective": PROMPT_BLOCK_OBJECTIVE.strip(),
     "context": PROMPT_BLOCK_CONTEXT.strip(),
-    "workflow": PROMPT_BLOCK_WORKFLOW.strip(),
     "rules": PROMPT_BLOCK_RULES.strip(),
     "category": PROMPT_BLOCK_CATEGORY.strip(),
     "output": PROMPT_BLOCK_OUTPUT.strip(),
