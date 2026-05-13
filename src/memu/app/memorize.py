@@ -1704,7 +1704,7 @@ Decide which clusters/candidates should map into existing categories, and which 
                 categories_str=categories_prompt_str,
                 soul_context_str=soul_context_str,
                 speaker_roster=speaker_roster,
-                target_items=self._compute_target_items(mtype, len(memory_types), message_count),
+                target_items=self._compute_target_items(mtype, len(memory_types), message_count) if self.memorize_config.enable_target_items else "",
             ))
             for mtype in memory_types
         ]
@@ -2009,7 +2009,8 @@ Decide which clusters/candidates should map into existing categories, and which 
             user=user,
             session=session,
         )
-        structured_entries = self._normalize_confidence(structured_entries)
+        if self.memorize_config.enable_confidence_normalization:
+            structured_entries = self._normalize_confidence(structured_entries)
         homeless_count = sum(1 for entry in structured_entries if not entry.categories)
         supersede_targets = await self._find_supersede_targets(
             structured_entries=structured_entries,
@@ -2476,7 +2477,6 @@ Decide which clusters/candidates should map into existing categories, and which 
 
     @staticmethod
     def _compute_target_items(memory_type: str, type_count: int, message_count: int) -> str:
-        return ""
         tc = min(type_count, 4)
         if memory_type in ("profile", "behavior"):
             if message_count >= 21:
@@ -2501,7 +2501,6 @@ Decide which clusters/candidates should map into existing categories, and which 
         target_std: float = 0.15,
         compression_threshold: float = 0.08,
     ) -> list[StructuredMemoryEntry]:
-        return entries
         raw = [e.confidence for e in entries if e.confidence is not None]
         if len(raw) < 6:
             return entries

@@ -200,6 +200,14 @@ class MemorizeConfig(BaseModel):
         default=3,
         description="Maximum number of episodes the LLM preprocessor can create from one conversation segment.",
     )
+    enable_target_items: bool = Field(
+        default=False,
+        description="When true, inject per-type item count targets into extractor prompts.",
+    )
+    enable_confidence_normalization: bool = Field(
+        default=False,
+        description="When true, redistribute clustered confidence scores via z-score rescaling.",
+    )
     dynamic_category_cluster_size: int = Field(
         default=3,
         description="Minimum number of homeless items that must cluster together (by embedding similarity) before that cluster becomes a new dynamic category.",
