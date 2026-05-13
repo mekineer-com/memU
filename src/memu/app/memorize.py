@@ -2548,7 +2548,7 @@ Decide which clusters/candidates should map into existing categories, and which 
             target_items=target_items,
         )
         if not target_items:
-            rendered = re.sub(r"\n\*\*Target:[^\n]*\n", "\n", rendered)
+            rendered = re.sub(r"\*\*Target:[^*]*\*\*\s*", "", rendered)
         if not speaker_roster_block:
             while "\n\n\n" in rendered:
                 rendered = rendered.replace("\n\n\n", "\n\n")
