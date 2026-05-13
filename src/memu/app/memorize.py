@@ -228,7 +228,10 @@ class MemorizeMixin:
         raw_text: str | None,
         modality: str,
     ) -> list[dict[str, Any]]:
-        llm_client = self._get_llm_client(self.memorize_config.preprocess_llm_profile)
+        llm_client = self._get_llm_client(
+            self.memorize_config.preprocess_llm_profile,
+            step_context={"operation": "memorize", "step_id": "preprocess"},
+        )
         segment_episodes = await self._split_into_episodes(
             local_path=local_path,
             text=raw_text,
@@ -248,7 +251,10 @@ class MemorizeMixin:
         template = PREPROCESS_PROMPTS.get("cross_conversation")
         if not template:
             return [{"text": raw_text, "caption": None}]
-        llm_client = self._get_llm_client(self.memorize_config.preprocess_llm_profile)
+        llm_client = self._get_llm_client(
+            self.memorize_config.preprocess_llm_profile,
+            step_context={"operation": "memorize", "step_id": "preprocess"},
+        )
         return await self._split_conversation_into_episodes(raw_text, template, llm_client=llm_client)
 
     async def memorize_episode(
@@ -2361,7 +2367,9 @@ Decide which clusters/candidates should map into existing categories, and which 
             "Focus on the main topic or theme discussed."
         )
         try:
-            client = llm_client or self._get_llm_client()
+            client = llm_client or self._get_llm_client(
+                step_context={"operation": "memorize", "step_id": "episode_summary"},
+            )
             response = await client.chat(episode_text, system_prompt=system_prompt)
             return response.strip() if response else None
         except Exception:
