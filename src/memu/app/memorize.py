@@ -2493,7 +2493,7 @@ Decide which clusters/candidates should map into existing categories, and which 
         compression_threshold: float = 0.08,
     ) -> list[StructuredMemoryEntry]:
         raw = [e.confidence for e in entries if e.confidence is not None]
-        if len(raw) < 3:
+        if len(raw) < 6:
             return entries
         mean = sum(raw) / len(raw)
         std = math.sqrt(sum((v - mean) ** 2 for v in raw) / len(raw))
