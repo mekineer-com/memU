@@ -38,6 +38,9 @@ If a memory item clearly doesn't belong in any category above, you may propose a
 
 PROMPT_BLOCK_OUTPUT = """
 # Output Format (XML)
+Soul memories (source_role=soul): Write in FIRST PERSON ("I have...", "I feel...").
+User memories (source_role=user): Write in THIRD PERSON using their name ("Alex has...", "Tom feels...").
+
 Return all memories wrapped in a single <item> element. Assign each 0.x value as a single-digit float:
 {speaker_roster_block}
 <item>
