@@ -1226,7 +1226,7 @@ Decide which clusters/candidates should map into existing categories, and which 
         try:
             planner_profile = getattr(self.memorize_config, "category_update_llm_profile", "default")
             planner = self._get_llm_client(planner_profile)
-            resp = await planner.chat(user_prompt, system_prompt=system_prompt, temperature=0.2)
+            resp = await planner.chat(user_prompt, system_prompt=system_prompt)
         except Exception:
             logger.warning("dynamic-category planner LLM call failed", exc_info=True)
             return cluster_mapping, label_mapping, new_defs

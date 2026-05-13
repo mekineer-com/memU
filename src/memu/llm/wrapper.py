@@ -277,18 +277,22 @@ class LLMClientWrapper:
         *,
         max_tokens: int | None = None,
         system_prompt: str | None = None,
-        temperature: float = 0.2,
+        temperature: float | None = None,
         response_format: dict[str, Any] | None = None,
     ) -> Any:
+        metadata: dict[str, Any] = {
+            "system_prompt": system_prompt or "",
+        }
+        if max_tokens is not None:
+            metadata["max_tokens"] = max_tokens
+        if temperature is not None:
+            metadata["temperature"] = temperature
+        if response_format is not None:
+            metadata["response_format"] = response_format
         request_view = _build_text_request_view(
             "chat",
             prompt,
-            metadata={
-                "system_prompt": system_prompt or "",
-                "max_tokens": max_tokens,
-                "temperature": temperature,
-                "response_format": response_format,
-            },
+            metadata=metadata,
         )
 
         async def _call() -> Any:

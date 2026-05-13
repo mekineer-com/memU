@@ -62,6 +62,7 @@ class HTTPLLMClient:
         endpoint_overrides: dict[str, str] | None = None,
         timeout: int = 600,
         embed_model: str | None = None,
+        temperature: float | None = None,
     ):
         # Ensure base_url ends with "/" so httpx doesn't discard the path
         # component when joining with endpoint paths.
@@ -85,6 +86,7 @@ class HTTPLLMClient:
         self.embedding_endpoint = raw_embedding_ep.lstrip("/")
         self.timeout = timeout
         self.embed_model = embed_model or chat_model
+        self.temperature = temperature
         self.proxy = _load_proxy()
         self._min_call_gap: float = float(os.getenv("MEMU_LLM_CALL_GAP", "2.0"))
         self._max_retries: int = int(os.getenv("MEMU_LLM_RETRIES", "2"))
@@ -128,7 +130,7 @@ class HTTPLLMClient:
         *,
         max_tokens: int | None = None,
         system_prompt: str | None = None,
-        temperature: float = 0.2,
+        temperature: float | None = None,
         response_format: dict[str, Any] | None = None,
     ) -> tuple[str, dict[str, Any]]:
         """Generic chat completion."""
@@ -137,11 +139,13 @@ class HTTPLLMClient:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
 
+        temp = temperature if temperature is not None else self.temperature
         payload: dict[str, Any] = {
             "model": self.chat_model,
             "messages": messages,
-            "temperature": temperature,
         }
+        if temp is not None:
+            payload["temperature"] = temp
         if max_tokens is not None:
             payload["max_tokens"] = max_tokens
         if isinstance(response_format, dict) and response_format:

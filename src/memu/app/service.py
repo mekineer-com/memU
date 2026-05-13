@@ -106,6 +106,7 @@ class MemoryService(MemorizeMixin, RetrieveMixin):
             provider=cfg.provider,
             endpoint_overrides=cfg.endpoint_overrides,
             embed_model=cfg.embed_model,
+            temperature=cfg.temperature,
         )
 
     def _get_llm_base_client(self, profile: str | None = None) -> Any:
@@ -174,7 +175,7 @@ class MemoryService(MemorizeMixin, RetrieveMixin):
         profile: str | None = None,
         max_tokens: int | None = None,
         system_prompt: str | None = None,
-        temperature: float = 0.2,
+        temperature: float | None = None,
         response_format: dict[str, Any] | None = None,
         op: str | None = None,
         step: str | None = None,

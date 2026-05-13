@@ -21,7 +21,6 @@ class OpenAILLMBackend(LLMBackend):
                 {"role": "system", "content": prompt},
                 {"role": "user", "content": text},
             ],
-            "temperature": 0.2,
         }
         if max_tokens is not None:
             payload["max_tokens"] = max_tokens
@@ -61,7 +60,6 @@ class OpenAILLMBackend(LLMBackend):
         payload: dict[str, Any] = {
             "model": chat_model,
             "messages": messages,
-            "temperature": 0.2,
         }
         if max_tokens is not None:
             payload["max_tokens"] = max_tokens

@@ -95,6 +95,10 @@ class LLMConfig(BaseModel):
         default=1,
         description="Maximum batch size for embedding API calls.",
     )
+    temperature: float | None = Field(
+        default=None,
+        description="Sampling temperature. None = provider default (usually 1.0).",
+    )
 
     @model_validator(mode="after")
     def set_provider_defaults(self) -> "LLMConfig":
