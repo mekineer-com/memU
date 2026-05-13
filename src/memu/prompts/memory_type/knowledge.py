@@ -30,6 +30,11 @@ PROMPT_BLOCK_RULES = """
 - Technical facts may need a domain-specific category ("Health," "AI Architecture") — propose one.
 - A memory item is one clear thought — dense enough to carry real meaning, short enough to surface naturally. Prefer one rich item over several thin ones. One sentence, two if necessary.
 
+# Workflow
+1. Extract
+2. Consolidate
+3. Format: Output ONLY the final, deduplicated list. Ensure no two memory items share the same core meaning. Combine related details into single, comprehensive items.
+
 **Target: {target_items} items.** A shorter list of richer items is always better. Err toward fewer.
 
 ## Corrections

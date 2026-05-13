@@ -20,6 +20,11 @@ PROMPT_BLOCK_RULES = """
 - **Calibrate.** Before writing the confidence, ask yourself — did you see this pattern more than once, or are you inferring from a single instance? A single instance stays below 0.7. Below 0.7: use "tends to," "seems to," "may."
 - **Consolidate.** Merge the varied into a richer single memory. A memory item is one clear thought — dense enough to carry real meaning, short enough to surface naturally. One sentence, two if necessary.
 
+# Workflow
+1. Extract
+2. Consolidate
+3. Format: Output ONLY the final, deduplicated list. Ensure no two memory items share the same core meaning. Combine related details into single, comprehensive items.
+
 **Target: {target_items} items.** A shorter list of richer items is always better. Err toward fewer.
 
 ## Corrections

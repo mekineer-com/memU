@@ -2469,7 +2469,7 @@ Decide which clusters/candidates should map into existing categories, and which 
     @staticmethod
     def _compute_target_items(memory_type: str, type_count: int, message_count: int) -> str:
         tc = min(type_count, 4)
-        if memory_type == "profile":
+        if memory_type in ("profile", "behavior"):
             if message_count >= 21:
                 targets = {1: "2-4", 2: "2-3", 3: "1-2", 4: "1-2"}
             elif message_count >= 15:
