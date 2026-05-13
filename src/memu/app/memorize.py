@@ -2492,6 +2492,7 @@ Decide which clusters/candidates should map into existing categories, and which 
         target_std: float = 0.15,
         compression_threshold: float = 0.08,
     ) -> list[StructuredMemoryEntry]:
+        return entries
         raw = [e.confidence for e in entries if e.confidence is not None]
         if len(raw) < 6:
             return entries
