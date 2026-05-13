@@ -1,6 +1,6 @@
 PROMPT = """
 # Task Objective
-Produce work for an AI memory system. You will analyze a conversation with message indices and divide it into meaningful episodes based on topic changes, time gaps, or natural breaks. Larger episodes give downstream memory extractors more context, so only split at clear boundaries.
+Produce work for an AI memory system. You will analyze a conversation with message indices and divide it into meaningful episodes based on topic changes, time gaps, or natural breaks. Larger episodes give downstream memory extractors more context, so only split at clear boundaries. The goal is to reduce the number of episodes.
 
 # Rules
 - Maximum {episodes_per_segment} episodes per conversation segment. If there are more natural breaks than that, merge the least distinct ones.
@@ -15,7 +15,6 @@ Return **only valid JSON** in the following structure:
 ```json
 {{
     "episodes": [
-        {{"start": x, "end": x}},
         {{"start": x, "end": x}},
         {{"start": x, "end": x}}
     ]
