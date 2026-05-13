@@ -2468,6 +2468,7 @@ Decide which clusters/candidates should map into existing categories, and which 
 
     @staticmethod
     def _compute_target_items(memory_type: str, type_count: int, message_count: int) -> str:
+        return ""
         tc = min(type_count, 4)
         if memory_type in ("profile", "behavior"):
             if message_count >= 21:
@@ -2546,6 +2547,8 @@ Decide which clusters/candidates should map into existing categories, and which 
             speaker_roster_block=speaker_roster_block,
             target_items=target_items,
         )
+        if not target_items:
+            rendered = re.sub(r"\n\*\*Target:[^\n]*\n", "\n", rendered)
         if not speaker_roster_block:
             while "\n\n\n" in rendered:
                 rendered = rendered.replace("\n\n\n", "\n\n")
