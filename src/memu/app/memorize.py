@@ -364,6 +364,10 @@ class MemorizeMixin:
             step_context={"operation": "memorize", "step_id": "extract_items_batch"},
         )
         memory_types = self._resolve_memory_types()
+        declared_entity_roster = self._list_declared_relationship_roster(
+            store=store,
+            user=user_scope,
+        )
 
         prepared: list[dict[str, Any]] = []
         routing_notes: list[str] = []
@@ -462,6 +466,8 @@ class MemorizeMixin:
                 if type_counts[mtype] > 0
             }
 
+            conversation_text = self._build_batch_extraction_text(extractable)
+
             merged_speaker_map: dict[int, tuple[str, str]] = {}
             for ep in extractable:
                 sm = ep.get("speaker_map")
@@ -470,10 +476,8 @@ class MemorizeMixin:
             batch_speaker_roster = self._build_speaker_roster_for_episode(
                 speaker_map=merged_speaker_map,
                 declared_entities=declared_entity_roster,
-                episode_text=raw_text,
+                episode_text=conversation_text,
             )
-
-            conversation_text = self._build_batch_extraction_text(extractable)
             estimated_tokens = self._estimate_text_tokens(conversation_text)
             if estimated_tokens > 100000:
                 logger.warning(
