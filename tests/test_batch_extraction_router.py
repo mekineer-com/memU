@@ -1,5 +1,8 @@
+import json
+
 import pytest
 
+from memu.app.memorize import SpeakerRosterEntry
 from memu.app.service import MemoryService
 
 
@@ -69,3 +72,106 @@ def test_parse_structured_entries_requires_episode_ref_when_requested() -> None:
     assert dropped == []
     assert len(kept) == 1
     assert kept[0].episode_ref == 2
+
+
+@pytest.mark.asyncio
+async def test_memorize_episodes_batch_passes_merged_speaker_roster_with_declared_entities(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = _service()
+    user_scope = {"user_id": "Marcos", "soul_id": "Echo"}
+
+    async def _noop_ensure_categories_ready(_ctx, _store, _user_scope=None) -> None:
+        return None
+
+    async def _route_profile_only(*_args, **_kwargs):
+        return ["profile"], None, None
+
+    async def _noop_step(state, _step_context):
+        return state
+
+    async def _noop_categorize(state, _step_context):
+        state.setdefault("resources", [])
+        state.setdefault("items", [])
+        state.setdefault("relations", [])
+        state.setdefault("category_updates", {})
+        state.setdefault("pending_episode_ids", [])
+        return state
+
+    def _stub_build_response(state, _step_context):
+        state["response"] = {
+            "items": [],
+            "categories": [],
+            "relations": [],
+            "pending_episode_ids": [],
+        }
+        return state
+
+    declared_roster = [SpeakerRosterEntry("entity:nicholas", "Nicholas", "entity")]
+    captured: dict[str, object] = {}
+
+    async def _capture_generate_entries_from_text(**kwargs):
+        captured["speaker_roster"] = kwargs.get("speaker_roster")
+        captured["resource_text"] = kwargs.get("resource_text")
+        return []
+
+    monkeypatch.setattr(service, "_ensure_categories_ready", _noop_ensure_categories_ready)
+    monkeypatch.setattr(service, "_route_episode", _route_profile_only)
+    monkeypatch.setattr(service, "_memorize_categorize_items", _noop_categorize)
+    monkeypatch.setattr(service, "_memorize_dedupe_merge", _noop_step)
+    monkeypatch.setattr(service, "_memorize_persist_and_index", _noop_step)
+    monkeypatch.setattr(service, "_memorize_build_response", _stub_build_response)
+    monkeypatch.setattr(service, "_list_declared_relationship_roster", lambda **_kwargs: declared_roster)
+    monkeypatch.setattr(service, "_generate_entries_from_text", _capture_generate_entries_from_text)
+
+    raw_text_episode_1 = json.dumps([
+        {"role": "user", "name": "Marcos", "content": "Starting a new thread with Nicholas."},
+        {"role": "group_member", "name": "Alice", "content": "Alice joins this discussion."},
+    ])
+    raw_text_episode_2 = json.dumps([
+        {"role": "system", "name": "context", "content": "ignored prelude"},
+        {"role": "system", "name": "context", "content": "ignored prelude 2"},
+        {"role": "assistant", "name": "Echo", "content": "Echo reflects on the day."},
+        {"role": "group_member", "name": "Bob", "content": "Bob asks about Nicholas too."},
+    ])
+
+    episodes = [
+        {
+            "resource_url": "mem://episode-1",
+            "raw_text": raw_text_episode_1,
+            "episode": {
+                "text": "[0] Marcos: I talked with Nicholas about focus.\n[1] Alice: That sounds healthy.",
+                "caption": "Episode 1",
+                "message_indices": [0, 1],
+            },
+        },
+        {
+            "resource_url": "mem://episode-2",
+            "raw_text": raw_text_episode_2,
+            "episode": {
+                "text": "[2] Echo: Let's keep steady progress.\n[3] Bob: Nicholas inspired me too.",
+                "caption": "Episode 2",
+                "message_indices": [2, 3],
+            },
+        },
+    ]
+
+    await service.memorize_episodes_batch(
+        modality="conversation",
+        episodes=episodes,
+        user=user_scope,
+        conversation_id="conv-1",
+    )
+
+    roster = captured.get("speaker_roster")
+    assert roster is not None
+    speaker_ids = {entry.speaker_id for entry in roster}
+    assert "entity:alice" in speaker_ids
+    assert "entity:bob" in speaker_ids
+    assert "entity:nicholas" in speaker_ids
+    assert "user:marcos" in speaker_ids
+    assert "soul:echo" in speaker_ids
+
+    resource_text = str(captured.get("resource_text") or "")
+    assert "Episode 1" in resource_text
+    assert "Episode 2" in resource_text
