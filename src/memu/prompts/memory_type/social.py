@@ -41,10 +41,11 @@ PROMPT_BLOCK_OUTPUT = """
 Soul memories (source_role=soul): Write in FIRST PERSON ("I have...", "I feel...").
 User memories (source_role=user): Write in THIRD PERSON using their name ("Alex has...", "Tom feels...").
 
-Return all memories wrapped in a single <item> element. Assign each 0.x value as a single-digit float:
+Return all memories wrapped in a single <item> element. Assign each 0.x value as a single-digit float. Each memory must include <episode_ref> with the episode number (1, 2, 3...):
 {speaker_roster_block}
 <item>
     <memory>
+        <episode_ref>1</episode_ref>
         <source_role>soul|user|peer|entity|environment</source_role>
         <content>Who this person is and what they mean</content>
         <confidence>0.x</confidence>

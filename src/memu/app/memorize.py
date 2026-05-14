@@ -63,6 +63,7 @@ class StructuredMemoryEntry(NamedTuple):
     entities: list[dict[str, str]] | None = None
     speaker_id: str | None = None
     speaker_label: str | None = None
+    episode_ref: int | None = None
 
 
 class SpeakerRosterEntry(NamedTuple):
@@ -135,6 +136,14 @@ class MemorizeMixin:
             return None
         text = re.sub(r"\s+", " ", value).strip()
         return text or None
+
+    @staticmethod
+    def _parse_episode_ref(value: Any) -> int | None:
+        try:
+            parsed = int(str(value).strip())
+        except (TypeError, ValueError):
+            return None
+        return parsed if parsed > 0 else None
 
     @staticmethod
     def _hedge_summary_for_confidence(summary: str, confidence: float | None) -> str:
@@ -326,6 +335,229 @@ class MemorizeMixin:
             raise RuntimeError(msg)
         return response
 
+    async def memorize_episodes_batch(
+        self,
+        *,
+        modality: str,
+        episodes: Sequence[Mapping[str, Any]],
+        user: dict[str, Any] | None = None,
+        all_categories_summary: str | None = None,
+        soul_card: str | None = None,
+        memory_retrieve_history: list[str] | None = None,
+        memory_prior_context: list[str] | None = None,
+        conversation_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        self._validate_memorize_scope(user)
+        if modality != "conversation":
+            msg = f"memorize_episodes_batch only supports modality='conversation', got {modality!r}"
+            raise ValueError(msg)
+        if not episodes:
+            return []
+
+        ctx = self._get_context()
+        store = self._get_database()
+        user_scope = self.user_model(**user).model_dump() if user is not None else None
+        await self._ensure_categories_ready(ctx, store, user_scope)
+
+        extract_client = self._get_llm_client(
+            self.memorize_config.memory_extract_llm_profile,
+            step_context={"operation": "memorize", "step_id": "extract_items_batch"},
+        )
+        memory_types = self._resolve_memory_types()
+
+        prepared: list[dict[str, Any]] = []
+        routing_notes: list[str] = []
+        for episode_ref, episode_job in enumerate(episodes, start=1):
+            resource_url = str(episode_job.get("resource_url") or "").strip()
+            if not resource_url:
+                msg = f"batch episode {episode_ref} missing resource_url"
+                raise ValueError(msg)
+
+            raw_text = episode_job.get("raw_text")
+            episode_payload = episode_job.get("episode")
+            if not isinstance(episode_payload, Mapping):
+                msg = f"batch episode {episode_ref} missing episode payload"
+                raise ValueError(msg)
+
+            text = episode_payload.get("text")
+            caption = episode_payload.get("caption")
+            _, message_indices = self._prepare_episode(
+                modality=modality,
+                text=text if isinstance(text, str) else None,
+                message_indices=episode_payload.get("message_indices"),
+            )
+
+            episode_summary: str | None = None
+            episode_item: str | None = None
+            applicable_types: list[MemoryType] = memory_types
+            if isinstance(text, str):
+                applicable_types, episode_summary, episode_item = await self._route_episode(
+                    text,
+                    memory_types,
+                    extract_client,
+                    soul_card=(soul_card or "").strip() or None,
+                    skipped_reasons=routing_notes,
+                )
+
+            message_happened_at_map = self._extract_message_happened_at_map(raw_text)
+            conversation_messages = self._extract_conversation_messages(raw_text)
+            messages_by_index = {idx: msg for idx, msg in conversation_messages}
+            episode_messages: list[dict[str, Any]] = []
+            for message_idx in message_indices:
+                msg_payload = messages_by_index.get(message_idx)
+                if msg_payload is None:
+                    continue
+                episode_msg = dict(msg_payload)
+                episode_msg["_message_index"] = message_idx
+                episode_messages.append(episode_msg)
+            speaker_map = self._build_speaker_map(episode_messages, user_scope)
+
+            plan_message_happened_at_map = {
+                message_idx: message_happened_at_map[message_idx]
+                for message_idx in message_indices
+                if message_idx in message_happened_at_map
+            }
+            conv_id = conversation_id or self._resolve_conversation_id(user)
+            if conv_id and message_indices:
+                episode_id = f"{conv_id}:{message_indices[0]}-{message_indices[-1]}"
+            else:
+                episode_id = None
+
+            prepared.append({
+                "episode_ref": episode_ref,
+                "resource_url": resource_url,
+                "local_path": str(episode_job.get("local_path") or resource_url),
+                "segment_raw_text": raw_text,
+                "text": text,
+                "caption": caption,
+                "episode_summary": episode_summary,
+                "episode_item": episode_item,
+                "message_indices": message_indices,
+                "message_happened_at_map": plan_message_happened_at_map,
+                "episode_messages": episode_messages,
+                "speaker_map": speaker_map,
+                "applicable_types": applicable_types,
+                "entries": [],
+                "episode_id": episode_id,
+            })
+
+        extractable = [
+            ep for ep in prepared
+            if ep["applicable_types"] and isinstance(ep.get("text"), str) and str(ep.get("text") or "").strip()
+        ]
+        routed_total = len(extractable)
+        if extractable:
+            type_counts = {mtype: 0 for mtype in memory_types}
+            for ep in extractable:
+                routed = set(ep["applicable_types"])
+                for mtype in memory_types:
+                    if mtype in routed:
+                        type_counts[mtype] += 1
+
+            total_messages = sum(len(ep["message_indices"]) for ep in extractable)
+            max_items = self._compute_batch_max_items(total_messages)
+            target_by_type = {
+                mtype: f"up to {max(1, round(max_items * (type_counts[mtype] / routed_total)))}"
+                for mtype in memory_types
+                if type_counts[mtype] > 0
+            }
+
+            conversation_text = self._build_batch_extraction_text(extractable)
+            estimated_tokens = self._estimate_text_tokens(conversation_text)
+            if estimated_tokens > 100000:
+                logger.warning(
+                    "batch extraction prompt estimated at %d tokens (>100000) for %d episodes",
+                    estimated_tokens,
+                    routed_total,
+                )
+
+            for mtype in memory_types:
+                if type_counts.get(mtype, 0) < 1:
+                    continue
+                type_entries = await self._generate_entries_from_text(
+                    resource_text=conversation_text,
+                    store=store,
+                    memory_types=[mtype],
+                    categories_prompt_str=self._category_prompt_str,
+                    all_categories_summary=(all_categories_summary or "").strip() or None,
+                    soul_card=(soul_card or "").strip() or None,
+                    speaker_roster=None,
+                    default_source_message_ids=None,
+                    llm_client=extract_client,
+                    target_items_by_type={mtype: target_by_type[mtype]},
+                    require_episode_ref=True,
+                )
+                for entry in type_entries:
+                    if entry.episode_ref is None:
+                        continue
+                    if 1 <= entry.episode_ref <= len(prepared):
+                        prepared[entry.episode_ref - 1]["entries"].append(entry)
+                    else:
+                        logger.warning(
+                            "Dropped extracted item with out-of-range episode_ref=%s (max=%s)",
+                            entry.episode_ref,
+                            len(prepared),
+                        )
+
+        responses: list[dict[str, Any]] = []
+        for ep in prepared:
+            episode_entries = self._decorate_entries_with_plan_context(
+                [self._attribute_memory(entry, ep["speaker_map"]) for entry in ep["entries"]],
+                message_indices=ep["message_indices"],
+            )
+            plan = {
+                "resource_url": ep["resource_url"],
+                "text": ep["text"],
+                "caption": ep["episode_summary"] or ep["caption"],
+                "episode_summary": ep["episode_summary"],
+                "episode_item": ep["episode_item"],
+                "message_indices": ep["message_indices"],
+                "message_happened_at_map": ep["message_happened_at_map"],
+                "entries": episode_entries,
+                "episode_id": ep["episode_id"],
+                "memory_retrieve_history": memory_retrieve_history,
+                "memory_prior_context": memory_prior_context,
+                "episode_messages": ep["episode_messages"],
+            }
+            state: WorkflowState = {
+                "resource_url": ep["resource_url"],
+                "modality": modality,
+                "local_path": ep["local_path"],
+                "conversation_id": conversation_id or self._resolve_conversation_id(user),
+                "ctx": ctx,
+                "store": store,
+                "category_ids": list(ctx.category_ids),
+                "user": user_scope,
+                "episode_plans": [plan],
+            }
+            categorize_context = {
+                "workflow_name": "memorize_episodes_batch",
+                "step_id": "categorize_items",
+                "step_config": {"embed_llm_profile": "embedding"},
+            }
+            persist_context = {
+                "workflow_name": "memorize_episodes_batch",
+                "step_id": "persist_index",
+                "step_config": {"chat_llm_profile": self.memorize_config.category_update_llm_profile},
+            }
+            state = await self._memorize_categorize_items(state, categorize_context)
+            state = await self._memorize_dedupe_merge(
+                state, {"workflow_name": "memorize_episodes_batch", "step_id": "dedupe_merge"}
+            )
+            state = await self._memorize_persist_and_index(state, persist_context)
+            state = self._memorize_build_response(
+                state, {"workflow_name": "memorize_episodes_batch", "step_id": "build_response"}
+            )
+            response = cast(dict[str, Any] | None, state.get("response"))
+            if response is None:
+                msg = "Memorize episode batch failed to produce an episode response"
+                raise RuntimeError(msg)
+            if routing_notes:
+                response["skipped_reasons"] = list(routing_notes)
+            responses.append(response)
+
+        return responses
+
     @staticmethod
     def _validate_memorize_scope(user: dict[str, Any] | None) -> None:
         # Fail loud at the engine boundary: a non-empty scope without soul_id
@@ -493,7 +725,7 @@ class MemorizeMixin:
         )
         episode_summary: str | None = None
         episode_item: str | None = None
-        if state["modality"] == "conversation" and isinstance(text, str) and self.memorize_config.enable_router:
+        if state["modality"] == "conversation" and isinstance(text, str):
             applicable_types, episode_summary, episode_item = await self._route_episode(
                 text, state["memory_types"], llm_client,
                 soul_card=state.get("soul_card"),
@@ -539,7 +771,6 @@ class MemorizeMixin:
             all_categories_summary=state.get("all_categories_summary"),
             soul_card=state.get("soul_card"),
             speaker_roster=speaker_roster,
-            message_count=len(message_indices),
             llm_client=llm_client,
             skipped_reasons=skipped_reasons,
         )
@@ -1604,7 +1835,6 @@ Decide which clusters/candidates should map into existing categories, and which 
         all_categories_summary: str | None = None,
         soul_card: str | None = None,
         speaker_roster: Sequence[SpeakerRosterEntry] | None = None,
-        message_count: int = 0,
         llm_client: Any | None = None,
         skipped_reasons: list[str] | None = None,
     ) -> list[StructuredMemoryEntry]:
@@ -1619,7 +1849,6 @@ Decide which clusters/candidates should map into existing categories, and which 
             all_categories_summary=all_categories_summary,
             soul_card=soul_card,
             speaker_roster=speaker_roster,
-            message_count=message_count,
             default_source_message_ids=self._extract_message_indices(text)
             if modality == "conversation"
             else None,
@@ -1662,7 +1891,7 @@ Decide which clusters/candidates should map into existing categories, and which 
                 skipped_reasons.append("router returned non-dict payload")
             return [], None, None
         memorable = payload.get("memorable")
-        routed_types = payload.get("types")
+        excluded_types = payload.get("excluded_types")
         reason = payload.get("reason", "")
         episode_summary = str(payload.get("episode_summary") or "").strip() or None
         episode_item = str(payload.get("episode_item") or "").strip() or None
@@ -1670,16 +1899,19 @@ Decide which clusters/candidates should map into existing categories, and which 
             if skipped_reasons is not None and reason:
                 skipped_reasons.append(reason)
             return [], episode_summary, episode_item
-        if not isinstance(routed_types, list):
-            logger.warning("Router returned no types list, skipping episode")
+        if excluded_types is None:
+            excluded_types = []
+        if not isinstance(excluded_types, list):
+            logger.warning("Router returned invalid excluded_types, skipping episode")
             if skipped_reasons is not None:
-                skipped_reasons.append("router returned no types list")
+                skipped_reasons.append("router returned invalid excluded_types")
             return [], episode_summary, episode_item
-        allowed_types = {
+        excluded = {
             routed_type
-            for routed_type in routed_types
+            for routed_type in excluded_types
             if isinstance(routed_type, str) and routed_type in set(memory_types)
         }
+        allowed_types = set(memory_types) - excluded
         return [mtype for mtype in memory_types if mtype in allowed_types], episode_summary, episode_item
 
     async def _generate_entries_from_text(
@@ -1692,9 +1924,10 @@ Decide which clusters/candidates should map into existing categories, and which 
         all_categories_summary: str | None = None,
         soul_card: str | None = None,
         speaker_roster: Sequence[SpeakerRosterEntry] | None = None,
-        message_count: int = 0,
         default_source_message_ids: list[int] | None = None,
         llm_client: Any | None = None,
+        target_items_by_type: Mapping[str, str] | None = None,
+        require_episode_ref: bool = False,
     ) -> list[StructuredMemoryEntry]:
         if not memory_types:
             return []
@@ -1711,7 +1944,7 @@ Decide which clusters/candidates should map into existing categories, and which 
                 categories_str=categories_prompt_str,
                 soul_context_str=soul_context_str,
                 speaker_roster=speaker_roster,
-                target_items=self._compute_target_items(mtype, len(memory_types), message_count) if self.memorize_config.enable_target_items else "",
+                target_items=(target_items_by_type or {}).get(mtype, ""),
             ))
             for mtype in memory_types
         ]
@@ -1723,6 +1956,7 @@ Decide which clusters/candidates should map into existing categories, and which 
             responses,
             default_source_message_ids=default_source_message_ids,
             speaker_roster=speaker_roster,
+            require_episode_ref=require_episode_ref,
         )
 
     @staticmethod
@@ -1742,6 +1976,7 @@ Decide which clusters/candidates should map into existing categories, and which 
         *,
         default_source_message_ids: list[int] | None = None,
         speaker_roster: Sequence[SpeakerRosterEntry] | None = None,
+        require_episode_ref: bool = False,
     ) -> list[StructuredMemoryEntry]:
         entries: list[StructuredMemoryEntry] = []
         for mtype, response in zip(memory_types, responses, strict=True):
@@ -1783,6 +2018,10 @@ Decide which clusters/candidates should map into existing categories, and which 
                 emotional_intensity = self._normalize_reflection_salience(entry.get("emotional_intensity"))
                 replaces_previous_fact = self._normalize_replaces_previous_fact(entry.get("replaces_previous_fact"))
                 entities = entry.get("entities")
+                episode_ref = self._parse_episode_ref(entry.get("episode_ref"))
+                if require_episode_ref and episode_ref is None:
+                    logger.warning("Dropped extracted item without valid episode_ref for memory_type=%s", mtype)
+                    continue
 
                 raw_cats = [c for c in (entry.get("categories", []) or []) if isinstance(c, str)]
                 cat_names = []
@@ -1806,6 +2045,7 @@ Decide which clusters/candidates should map into existing categories, and which 
                         entities,
                         parsed_speaker_id,
                         parsed_speaker_label,
+                        episode_ref,
                     )
                 )
         return self._prune_extracted_entry_duplicates(entries)
@@ -2483,23 +2723,47 @@ Decide which clusters/candidates should map into existing categories, and which 
         return "\n\n".join(sections)
 
     @staticmethod
-    def _compute_target_items(memory_type: str, type_count: int, message_count: int) -> str:
-        tc = min(type_count, 4)
-        if memory_type in ("profile", "behavior"):
-            if message_count >= 21:
-                targets = {1: "2-4", 2: "2-3", 3: "1-2", 4: "1-2"}
-            elif message_count >= 15:
-                targets = {1: "2-3", 2: "1-2", 3: "1-2", 4: "1"}
+    def _estimate_text_tokens(text: str) -> int:
+        words = len((text or "").split())
+        if words < 1:
+            return 0
+        return int(words / 0.75)
+
+    @staticmethod
+    def _compute_batch_max_items(total_message_count: int) -> int:
+        if total_message_count >= 80:
+            return 12
+        if total_message_count >= 40:
+            return 8
+        return 6
+
+    def _build_batch_extraction_text(self, episodes: Sequence[Mapping[str, Any]]) -> str:
+        sections: list[str] = []
+        summaries: list[str] = []
+        for episode in episodes:
+            episode_ref = self._parse_episode_ref(episode.get("episode_ref"))
+            if episode_ref is None:
+                continue
+            episode_text = str(episode.get("text") or "").strip()
+            if not episode_text:
+                continue
+            message_indices = self._dedupe_message_indices(episode.get("message_indices"))
+            if message_indices:
+                heading = f"## Episode {episode_ref} (messages {message_indices[0]}-{message_indices[-1]})"
             else:
-                targets = {1: "1-2", 2: "1", 3: "1", 4: "1"}
-        else:
-            if message_count >= 21:
-                targets = {1: "3-6", 2: "3-4", 3: "2-3", 4: "2-3"}
-            elif message_count >= 15:
-                targets = {1: "3-5", 2: "2-4", 3: "1-3", 4: "1-3"}
-            else:
-                targets = {1: "2-4", 2: "1-3", 3: "1-2", 4: "1-2"}
-        return targets.get(tc, "2-4")
+                heading = f"## Episode {episode_ref}"
+            sections.append(heading)
+            sections.append(episode_text)
+            episode_summary = (
+                str(episode.get("episode_summary") or "").strip()
+                or str(episode.get("caption") or "").strip()
+            )
+            if episode_summary:
+                summaries.append(f"Episode {episode_ref}: {episode_summary}")
+        if summaries:
+            sections.append("## Episode Summaries")
+            sections.extend(summaries)
+        return "\n\n".join(s for s in sections if s).strip()
 
     @staticmethod
     def _normalize_confidence(
@@ -2535,7 +2799,7 @@ Decide which clusters/candidates should map into existing categories, and which 
         categories_str: str,
         soul_context_str: str,
         speaker_roster: Sequence[SpeakerRosterEntry] | None = None,
-        target_items: str = "2-4",
+        target_items: str = "",
     ) -> str:
         configured_prompt = self.memorize_config.memory_type_prompts.get(memory_type)
         if configured_prompt is None:
@@ -3343,6 +3607,12 @@ Decide which clusters/candidates should map into existing categories, and which 
         if speaker_ref_elem is not None and speaker_ref_elem.text:
             memory_dict["speaker_ref"] = speaker_ref_elem.text.strip()
 
+        episode_ref_elem = memory_elem.find("episode_ref")
+        if episode_ref_elem is not None and episode_ref_elem.text:
+            episode_ref = self._parse_episode_ref(episode_ref_elem.text)
+            if episode_ref is not None:
+                memory_dict["episode_ref"] = episode_ref
+
         confidence_elem = memory_elem.find("confidence")
         if confidence_elem is not None and confidence_elem.text:
             try:
@@ -3398,6 +3668,7 @@ Decide which clusters/candidates should map into existing categories, and which 
         Expected XML format:
         <item>
             <memory>
+                <episode_ref>1</episode_ref>                 <!-- required for batch -->
                 <content>...</content>
                 <categories>
                     <category>...</category>

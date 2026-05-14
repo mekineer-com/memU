@@ -208,14 +208,6 @@ class MemorizeConfig(BaseModel):
         default=False,
         description="When true, LLM splits conversation into episodes. When false, entire segment is one episode.",
     )
-    enable_router: bool = Field(
-        default=False,
-        description="When true, LLM decides which memory types to send each episode to. When false, all types receive every episode.",
-    )
-    enable_target_items: bool = Field(
-        default=False,
-        description="When true, inject per-type item count targets into extractor prompts.",
-    )
     enable_confidence_normalization: bool = Field(
         default=False,
         description="When true, redistribute clustered confidence scores via z-score rescaling.",
