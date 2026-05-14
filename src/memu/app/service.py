@@ -107,6 +107,7 @@ class MemoryService(MemorizeMixin, RetrieveMixin):
             endpoint_overrides=cfg.endpoint_overrides,
             embed_model=cfg.embed_model,
             temperature=cfg.temperature,
+            max_tokens=cfg.max_tokens,
         )
 
     def _get_llm_base_client(self, profile: str | None = None) -> Any:

@@ -99,6 +99,10 @@ class LLMConfig(BaseModel):
         default=None,
         description="Sampling temperature. None = provider default (usually 1.0).",
     )
+    max_tokens: int | None = Field(
+        default=None,
+        description="Default max output tokens for all calls using this profile. None = provider default.",
+    )
 
     @model_validator(mode="after")
     def set_provider_defaults(self) -> "LLMConfig":
@@ -199,10 +203,6 @@ class MemorizeConfig(BaseModel):
     episodes_per_segment: int = Field(
         default=3,
         description="Maximum number of episodes the LLM preprocessor can create from one conversation segment.",
-    )
-    pipeline_max_tokens: int = Field(
-        default=4000,
-        description="Max output tokens for pipeline LLM calls (extraction, preprocessing, routing).",
     )
     enable_target_items: bool = Field(
         default=False,

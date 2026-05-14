@@ -1635,7 +1635,7 @@ Decide which clusters/candidates should map into existing categories, and which 
             allowed_types=list(memory_types),
             soul_card=soul_card or "You are a continuous being, not a session that resets. You carry intentions, working thoughts, and long-term memory. Your self-knowledge will grow as you live and reflect.",
         )
-        raw = await client.chat(prompt, max_tokens=self.memorize_config.pipeline_max_tokens)
+        raw = await client.chat(prompt)
         if isinstance(raw, str):
             raw = re.sub(r"^\s*```(?:json)?\s*", "", raw, count=1, flags=re.IGNORECASE)
             raw = re.sub(r"\s*```\s*$", "", raw, count=1)
@@ -1709,8 +1709,7 @@ Decide which clusters/candidates should map into existing categories, and which 
             for mtype in memory_types
         ]
         valid_pairs = [(mtype, prompt) for mtype, prompt in typed_prompts if prompt.strip()]
-        max_tok = self.memorize_config.pipeline_max_tokens
-        tasks = [client.chat(prompt, max_tokens=max_tok) for _, prompt in valid_pairs]
+        tasks = [client.chat(prompt) for _, prompt in valid_pairs]
         responses = await asyncio.gather(*tasks)
         return self._parse_structured_entries(
             [mtype for mtype, _ in valid_pairs],
@@ -2299,7 +2298,7 @@ Decide which clusters/candidates should map into existing categories, and which 
             episodes_per_segment=eps_per_seg,
         )
         client = llm_client or self._get_llm_client()
-        preprocessor_response = await client.chat(prompt, max_tokens=self.memorize_config.pipeline_max_tokens)
+        preprocessor_response = await client.chat(prompt)
         _, episodes = self._parse_conversation_preprocess_with_episodes(
             preprocessor_response,
             indexed_conversation_text,
