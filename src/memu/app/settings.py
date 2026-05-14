@@ -200,6 +200,10 @@ class MemorizeConfig(BaseModel):
         default=3,
         description="Maximum number of episodes the LLM preprocessor can create from one conversation segment.",
     )
+    pipeline_max_tokens: int = Field(
+        default=4000,
+        description="Max output tokens for pipeline LLM calls (extraction, preprocessing, routing).",
+    )
     enable_target_items: bool = Field(
         default=False,
         description="When true, inject per-type item count targets into extractor prompts.",
