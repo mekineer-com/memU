@@ -205,7 +205,7 @@ class MemorizeConfig(BaseModel):
         description="Maximum number of episodes the LLM preprocessor can create from one conversation segment.",
     )
     enable_preprocessor: bool = Field(
-        default=False,
+        default=True,
         description="When true, LLM splits conversation into episodes. When false, entire segment is one episode.",
     )
     enable_confidence_normalization: bool = Field(

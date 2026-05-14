@@ -1,6 +1,6 @@
 PROMPT = """
 # Task Objective
-Produce work for an AI memory system. You will analyze a conversation with message indices and divide it into meaningful episodes based on topic changes, time gaps, or natural breaks. Larger episodes give downstream memory extractors more context, so only split at clear boundaries. The goal is to reduce the number of episodes.
+Produce work for an AI memory system. You will analyze a conversation with message indices and divide it into meaningful episodes based on topic changes or natural breaks, like chapters of a book. Split at clear boundaries.
 
 # Rules
 - Maximum {episodes_per_segment} episodes per conversation segment. If there are more natural breaks than that, merge the least distinct ones.
