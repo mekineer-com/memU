@@ -462,6 +462,17 @@ class MemorizeMixin:
                 if type_counts[mtype] > 0
             }
 
+            merged_speaker_map: dict[int, tuple[str, str]] = {}
+            for ep in extractable:
+                sm = ep.get("speaker_map")
+                if isinstance(sm, dict):
+                    merged_speaker_map.update(sm)
+            batch_speaker_roster = self._build_speaker_roster_for_episode(
+                speaker_map=merged_speaker_map,
+                declared_entities=declared_entity_roster,
+                episode_text=raw_text,
+            )
+
             conversation_text = self._build_batch_extraction_text(extractable)
             estimated_tokens = self._estimate_text_tokens(conversation_text)
             if estimated_tokens > 100000:
@@ -481,7 +492,7 @@ class MemorizeMixin:
                     categories_prompt_str=self._category_prompt_str,
                     all_categories_summary=(all_categories_summary or "").strip() or None,
                     soul_card=(soul_card or "").strip() or None,
-                    speaker_roster=None,
+                    speaker_roster=batch_speaker_roster,
                     default_source_message_ids=None,
                     llm_client=extract_client,
                     target_items_by_type={mtype: target_by_type[mtype]},
