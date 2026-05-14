@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import re
 from typing import Any, cast
 
 from memu.llm.backends.base import LLMBackend
+
+_THOUGHT_RE = re.compile(r"<thought>.*?</thought>\s*", re.DOTALL)
 
 
 class OpenAILLMBackend(LLMBackend):
@@ -27,7 +30,8 @@ class OpenAILLMBackend(LLMBackend):
         return payload
 
     def parse_summary_response(self, data: dict[str, Any]) -> str:
-        return cast(str, data["choices"][0]["message"]["content"])
+        text = cast(str, data["choices"][0]["message"]["content"])
+        return _THOUGHT_RE.sub("", text)
 
     def build_vision_payload(
         self,
