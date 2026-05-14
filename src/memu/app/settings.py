@@ -204,6 +204,14 @@ class MemorizeConfig(BaseModel):
         default=3,
         description="Maximum number of episodes the LLM preprocessor can create from one conversation segment.",
     )
+    enable_preprocessor: bool = Field(
+        default=False,
+        description="When true, LLM splits conversation into episodes. When false, entire segment is one episode.",
+    )
+    enable_router: bool = Field(
+        default=False,
+        description="When true, LLM decides which memory types to send each episode to. When false, all types receive every episode.",
+    )
     enable_target_items: bool = Field(
         default=False,
         description="When true, inject per-type item count targets into extractor prompts.",
