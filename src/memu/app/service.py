@@ -120,6 +120,8 @@ class MemoryService(MemorizeMixin, RetrieveMixin):
             return client
         cfg: LLMConfig | None = self.llm_profiles.profiles.get(name)
         if cfg is None:
+            cfg = self.llm_profiles.profiles.get("default")
+        if cfg is None:
             msg = f"Unknown llm profile '{name}'"
             raise KeyError(msg)
         client = self._init_llm_client(cfg)
