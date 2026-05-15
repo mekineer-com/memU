@@ -43,7 +43,6 @@ Resolve contradictions by trusting the most recent and most certain account. Whe
 
 PROMPT_BLOCK_CATEGORY = """
 ## Memory Categories:
-{categories_str}
 For each memory item, propose a domain-specific category that fits the knowledge.
 """
 
