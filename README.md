@@ -10,17 +10,16 @@ This is a private fork of the upstream NevaMind memU project, significantly dive
 
 `memu` is the core extraction and retrieval library. It is not a server — it is imported by `mcp-memu-server`, which provides the API layer.
 
-**Five active memory types:**
+**Four extraction types:**
 
 | Type | What it captures |
 |------|-----------------|
-| `profile` | Who someone is — identity, traits, personality, inner life |
-| `event` | What happened — episodic, time-anchored experiences |
+| `profile` | What someone said or declared — about themselves or someone else |
 | `knowledge` | What was learned — facts, mechanisms, things worth carrying |
-| `behavior` | How someone acts — patterns, interaction styles, ways of being |
-| `social` | Third parties in the user's life — family, friends, coworkers, pets |
+| `behavior` | How someone acted — patterns, interaction styles, ways of being |
+| `social` | Dynamics between 2+ beings — how they are together, what they mean to each other |
 
-Plus **diary** on a separate generation path — auto-triggered after memorize when diary-worthy episodes are queued. Diary-worthiness is output from the episode router (same JSON call as memory-type routing; no separate classifier).
+Pipeline-owned types (not extracted from conversation): `subconscious` (APImw background thoughts), `reflection` (consolidation), `episode` (summaries).
 
 **Three-layer storage:**
 
@@ -45,7 +44,7 @@ First domain: **mental health**, 15 anchor entries at `memu/procedural/mental_he
 
 Each entry reads as internalized professional knowledge — no framework names or citations appear in the rendered text; `framework` and `source` live in metadata for audit. Frameworks drawn from: CBT, DBT, CBT-I, self-compassion, attachment theory, developmental/transition models, relational/assertiveness, social-cognitive.
 
-**Status:** content curated (v1); storage table + retrieve wiring designed but not yet built. See `PROCEDURAL_MEMORY_PLAN.md` at the apps-codex workspace root for the full design.
+**Status:** live since 2026-04-22. Storage in `memu/sqlite/procedural.db` (cosine-vector lookup). Wired into `/retrieve` — the `route_intention` LLM emits a `mental_health_query` rewrite when relevant; extension's Mental Health Addon checkbox gates the lookup.
 
 ---
 
@@ -113,16 +112,17 @@ src/memu/
 ├── database/      # Models, ORM schemas (SQLite), repositories
 ├── llm/           # LLM client factory + backends (openai, openrouter, grok, doubao)
 ├── embedding/     # Embedding client factory + backends
-├── prompts/       # All extraction, routing, retrieval, and diary prompts
+├── prompts/       # All extraction, routing, retrieval, and consolidation prompts
 ├── workflow/      # DAG runner: step, pipeline, runner
 └── utils/         # Format converters
 ```
 
 **Key prompt locations:**
-- Extraction: `prompts/memory_type/{profile,event,knowledge,behavior,social}.py`
+- Extraction: `prompts/memory_type/{profile,knowledge,behavior,social}.py`
 - Router: `prompts/router/router.py`
+- Preprocessor: `prompts/preprocess/conversation.py`
 - Retrieval ranking: `prompts/retrieve/`
-- Diary: `prompts/diary/`
+- Consolidation: `prompts/consolidation/`
 
 ---
 
