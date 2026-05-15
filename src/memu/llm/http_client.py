@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import copy
+import contextvars
 import logging
 import os
 import time
@@ -93,6 +95,10 @@ class HTTPLLMClient:
         self._min_call_gap: float = float(os.getenv("MEMU_LLM_CALL_GAP", "2.0"))
         self._max_retries: int = int(os.getenv("MEMU_LLM_RETRIES", "2"))
         self._last_call_time: float = 0.0
+        self._last_payload_var: contextvars.ContextVar[dict[str, Any] | None] = contextvars.ContextVar(
+            "memu_http_llm_last_payload",
+            default=None,
+        )
 
     async def _throttle(self) -> None:
         """Enforce minimum gap between API calls to avoid burst limits."""
@@ -154,6 +160,7 @@ class HTTPLLMClient:
         if isinstance(response_format, dict) and response_format:
             payload["response_format"] = response_format
 
+        self._last_payload_var.set(copy.deepcopy(payload))
         data = await self._post_with_retry(self.summary_endpoint, payload)
         logger.debug("HTTP LLM chat response: %s", data)
         return self.backend.parse_summary_response(data), data
@@ -164,6 +171,7 @@ class HTTPLLMClient:
         payload = self.backend.build_summary_payload(
             text=text, system_prompt=system_prompt, chat_model=self.chat_model, max_tokens=max_tokens
         )
+        self._last_payload_var.set(copy.deepcopy(payload))
         data = await self._post_with_retry(self.summary_endpoint, payload)
         logger.debug("HTTP LLM summarize response: %s", data)
         return self.backend.parse_summary_response(data), data
@@ -211,6 +219,7 @@ class HTTPLLMClient:
             max_tokens=max_tokens,
         )
 
+        self._last_payload_var.set(copy.deepcopy(payload))
         data = await self._post_with_retry(self.summary_endpoint, payload)
         logger.debug("HTTP LLM vision response: %s", data)
         return self.backend.parse_summary_response(data), data
@@ -218,9 +227,16 @@ class HTTPLLMClient:
     async def embed(self, inputs: list[str]) -> tuple[list[list[float]], dict[str, Any]]:
         """Create text embeddings using the provider-specific embedding API."""
         payload = self.embedding_backend.build_embedding_payload(inputs=inputs, embed_model=self.embed_model)
+        self._last_payload_var.set(copy.deepcopy(payload))
         data = await self._post_with_retry(self.embedding_endpoint, payload)
         logger.debug("HTTP embedding response: %s", data)
         return self.embedding_backend.parse_embedding_response(data), data
+
+    def get_last_payload(self) -> dict[str, Any] | None:
+        payload = self._last_payload_var.get()
+        if not isinstance(payload, dict):
+            return None
+        return copy.deepcopy(payload)
 
     async def transcribe(
         self,

@@ -6,6 +6,7 @@ import logging
 import threading
 import time
 import uuid
+from copy import deepcopy
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -280,15 +281,9 @@ class LLMClientWrapper:
         temperature: float | None = None,
         response_format: dict[str, Any] | None = None,
     ) -> Any:
-        resolved_temp = temperature if temperature is not None else self._client.temperature
-        resolved_mtok = max_tokens if max_tokens is not None else self._client.max_tokens
         metadata: dict[str, Any] = {
             "system_prompt": system_prompt or "",
         }
-        if resolved_mtok is not None:
-            metadata["max_tokens"] = resolved_mtok
-        if resolved_temp is not None:
-            metadata["temperature"] = resolved_temp
         if response_format is not None:
             metadata["response_format"] = response_format
         request_view = _build_text_request_view(
@@ -417,6 +412,12 @@ class LLMClientWrapper:
             raise
         else:
             latency_ms = (time.perf_counter() - start_time) * 1000
+            last_payload = None
+            get_last_payload = getattr(self._client, "get_last_payload", None)
+            if callable(get_last_payload):
+                last_payload = get_last_payload()
+            if isinstance(last_payload, dict):
+                request_view.metadata["payload"] = deepcopy(last_payload)
 
             # Handle tuple response: (pure_response, raw_response)
             pure_result = result
