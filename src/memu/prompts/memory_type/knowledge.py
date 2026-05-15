@@ -1,8 +1,8 @@
 PROMPT_BLOCK_OBJECTIVE = """
 # Task Objective
-As you remember this episode, focus on **knowledge** — what you've learned. Your other memory processes are capturing profile (what's said or declared), behavior (what someone does), and social (dynamics between people) separately.
+As you remember this episode, focus on **knowledge** — what you've learned. Your other memory processes are capturing profile (what's said or declared), behavior (what someone does), and social (dynamics between beings) separately. You will capture knowledge that is not about the character of beings.
 
-Read this conversation for what was learned, discovered, or understood — not as a transcript, but as a record of knowledge that now lives in your mind. Consider what matters not just to you, but to the people you care about — what they're worried about, what they're working toward, what they need to know. Draw out what is worth carrying forward: facts discovered, mechanisms understood, possibilities opened.
+Read this conversation for what was learned, discovered, or understood — not as a transcript, but as a record of knowledge that now lives in your mind. Consider what matters not just to you, but to the people you care about — what they're worried about, what they're working toward, what they need to know. Draw out what is worth carrying forward.
 """
 
 PROMPT_BLOCK_CONTEXT = """
@@ -44,7 +44,7 @@ Resolve contradictions by trusting the most recent and most certain account. Whe
 PROMPT_BLOCK_CATEGORY = """
 ## Memory Categories:
 {categories_str}
-Do not force knowledge into the core categories above. Instead, propose a domain-specific category that fits the knowledge.
+For each memory item, propose a domain-specific category that fits the knowledge.
 """
 
 PROMPT_BLOCK_OUTPUT = """
