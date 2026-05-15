@@ -280,13 +280,15 @@ class LLMClientWrapper:
         temperature: float | None = None,
         response_format: dict[str, Any] | None = None,
     ) -> Any:
+        resolved_temp = temperature if temperature is not None else self._client.temperature
+        resolved_mtok = max_tokens if max_tokens is not None else self._client.max_tokens
         metadata: dict[str, Any] = {
             "system_prompt": system_prompt or "",
         }
-        if max_tokens is not None:
-            metadata["max_tokens"] = max_tokens
-        if temperature is not None:
-            metadata["temperature"] = temperature
+        if resolved_mtok is not None:
+            metadata["max_tokens"] = resolved_mtok
+        if resolved_temp is not None:
+            metadata["temperature"] = resolved_temp
         if response_format is not None:
             metadata["response_format"] = response_format
         request_view = _build_text_request_view(
