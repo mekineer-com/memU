@@ -7,15 +7,12 @@ import logging
 import math
 import pathlib
 import re
-from datetime import UTC, datetime
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from typing import TYPE_CHECKING, Any, NamedTuple, cast
-from xml.etree.ElementTree import Element
 
-import defusedxml.ElementTree as ET
-import pendulum
 from pydantic import BaseModel
 
+from memu.app import memorize_parsing as parsing
 from memu.app.settings import CategoryConfig, CustomPrompt
 from memu.database.models import CategoryItem, MemoryCategory, MemoryItem, MemoryType, Resource, Triple
 from memu.prompts.category_summary import (
@@ -122,28 +119,15 @@ class MemorizeMixin:
 
     @staticmethod
     def _normalize_reflection_salience(value: Any) -> float | None:
-        try:
-            parsed = float(value)
-        except (TypeError, ValueError):
-            return None
-        if 0.0 <= parsed <= 1.0:
-            return parsed
-        return None
+        return parsing._normalize_reflection_salience(value)
 
     @staticmethod
     def _normalize_replaces_previous_fact(value: Any) -> str | None:
-        if not isinstance(value, str):
-            return None
-        text = re.sub(r"\s+", " ", value).strip()
-        return text or None
+        return parsing._normalize_replaces_previous_fact(value)
 
     @staticmethod
     def _parse_episode_ref(value: Any) -> int | None:
-        try:
-            parsed = int(str(value).strip())
-        except (TypeError, ValueError):
-            return None
-        return parsed if parsed > 0 else None
+        return parsing._parse_episode_ref(value)
 
     @staticmethod
     def _hedge_summary_for_confidence(summary: str, confidence: float | None) -> str:
@@ -3249,18 +3233,7 @@ Decide which clusters/candidates should map into existing categories, and which 
 
     @staticmethod
     def _dedupe_message_indices(values: Sequence[int | float | str]) -> list[int]:
-        out: list[int] = []
-        seen: set[int] = set()
-        for value in values:
-            try:
-                candidate = int(value)
-            except (TypeError, ValueError):
-                continue
-            if candidate in seen or candidate < 0:
-                continue
-            seen.add(candidate)
-            out.append(candidate)
-        return out
+        return parsing._dedupe_message_indices(values)
 
     def _resolve_source_message_ids(
         self,
@@ -3277,112 +3250,26 @@ Decide which clusters/candidates should map into existing categories, and which 
         allowed episode range so downstream provenance (speaker attribution,
         happened_at, retrieve rendering) stays populated.
         """
-        parsed = self._dedupe_message_indices(self._coerce_to_iterable(values))
-        allowed = self._dedupe_message_indices(self._coerce_to_iterable(allowed_values))
-        if not allowed:
-            return parsed
-        allowed_set = set(allowed)
-        filtered = [candidate for candidate in parsed if candidate in allowed_set]
-        return filtered if filtered else allowed
+        return parsing._resolve_source_message_ids(values, allowed_values)
 
     @staticmethod
     def _coerce_to_iterable(values: Any) -> Sequence[Any]:
-        # Strings, scalars, dicts, and None collapse to []. Callers avoid
-        # their own isinstance narrowing by routing through this.
-        if isinstance(values, (list, tuple)):
-            return values
-        return []
+        return parsing._coerce_to_iterable(values)
 
     @staticmethod
     def _extract_message_indices(text: str | None) -> list[int]:
-        # Empty return = "no `[N] ` prefix lines found". Callers
-        # (_prepare_episode, _memorize_memory_type) treat [] as "no
-        # episode metadata available" and fall back to the full range.
-        if not isinstance(text, str) or not text.strip():
-            return []
-        out: list[int] = []
-        for line in text.splitlines():
-            match = re.match(r"\[(\d+)\]\s", line)
-            if match is None:
-                continue
-            try:
-                out.append(int(match.group(1)))
-            except (TypeError, ValueError):
-                continue
-        return out
+        return parsing._extract_message_indices(text)
 
     @staticmethod
     def _extract_conversation_messages(raw_text: Any) -> list[tuple[int, dict[str, Any]]]:
-        # Empty return = "raw_text isn't a parseable conversation payload".
-        # Callers (_memorize_workflow) use this to build messages_by_index;
-        # empty means no speaker_map resolution, which gracefully degrades
-        # to source_role-only attribution.
-        if not isinstance(raw_text, str) or not raw_text.strip():
-            return []
-        try:
-            parsed = json.loads(raw_text)
-        except (json.JSONDecodeError, ValueError):
-            return []
-        messages: list[dict[str, Any]] | None = None
-        if isinstance(parsed, list):
-            messages = [msg for msg in parsed if isinstance(msg, dict)]
-        elif isinstance(parsed, dict) and isinstance(parsed.get("content"), list):
-            messages = [msg for msg in parsed.get("content", []) if isinstance(msg, dict)]
-        if not messages:
-            return []
-        return list(enumerate(messages))
+        return parsing._extract_conversation_messages(raw_text)
 
     @staticmethod
     def _parse_message_happened_at(raw: Any) -> Any | None:
-        if isinstance(raw, (int, float)) and math.isfinite(raw):
-            try:
-                # Avoid pendulum's deprecated utcfromtimestamp() path on Python 3.12+.
-                ts = datetime.fromtimestamp(float(raw) / 1000.0, tz=UTC)
-                return pendulum.datetime(
-                    ts.year,
-                    ts.month,
-                    ts.day,
-                    ts.hour,
-                    ts.minute,
-                    ts.second,
-                    ts.microsecond,
-                    tz="UTC",
-                )
-            except (ValueError, OverflowError, OSError):
-                return None
-        if not isinstance(raw, str) or not raw.strip():
-            return None
-        try:
-            parsed = pendulum.parse(raw, strict=False)
-        except (ValueError, OverflowError):
-            return None
-        if not isinstance(parsed, pendulum.DateTime):
-            return None
-        if parsed.tzinfo is None:
-            return pendulum.datetime(
-                parsed.year,
-                parsed.month,
-                parsed.day,
-                parsed.hour,
-                parsed.minute,
-                parsed.second,
-                parsed.microsecond,
-                tz="UTC",
-            )
-        return parsed
+        return parsing._parse_message_happened_at(raw)
 
     def _extract_message_happened_at_map(self, raw_text: Any) -> dict[int, Any]:
-        messages = self._extract_conversation_messages(raw_text)
-        out: dict[int, Any] = {}
-        for idx, msg in messages:
-            happened_at = self._parse_message_happened_at(msg.get("ts_ms"))
-            if happened_at is None:
-                happened_at = self._parse_message_happened_at(msg.get("timestamp"))
-            if happened_at is None:
-                happened_at = self._parse_message_happened_at(msg.get("created_at"))
-            if happened_at is not None:
-                out[idx] = happened_at
-        return out
+        return parsing._extract_message_happened_at_map(raw_text)
 
     @staticmethod
     def _normalize_speaker_slug(prefix: str, raw: Any) -> str:
@@ -3779,185 +3666,13 @@ Decide which clusters/candidates should map into existing categories, and which 
         return content or None
 
     def _parse_memory_type_response(self, raw: str) -> list[dict[str, Any]]:
-        # Empty return = "LLM output couldn't be coerced into the expected
-        # shape" (empty string, JSON parse failure, wrong top-level type,
-        # or missing `memories_items`). Caller treats [] as "nothing
-        # extracted this episode" — not as an error. This preserves robustness
-        # on flaky LLM output; the tradeoff is that a model consistently
-        # emitting the wrong shape would extract zero memories silently.
-        if not raw:
-            return []
-        raw = raw.strip()
-        if not raw:
-            return []
-        payload = None
-        try:
-            payload = json.loads(raw)
-        except json.JSONDecodeError:
-            try:
-                blob = self._extract_json_blob(raw)
-                payload = json.loads(blob)
-            except (json.JSONDecodeError, ValueError, TypeError):
-                logger.warning("memory-type response: unparseable after fallback extraction: %.200s", raw)
-                return []
-        if not isinstance(payload, dict):
-            return []
-        items = payload.get("memories_items")
-        if not isinstance(items, list):
-            return []
-        normalized: list[dict[str, Any]] = []
-        for entry in items:
-            if not isinstance(entry, dict):
-                continue
-            normalized.append(entry)
-        return normalized
+        return parsing._parse_memory_type_response(raw, self._extract_json_blob)
 
     def _find_xml_boundaries(self, raw: str) -> tuple[int, int, str] | None:
-        root_tags = ["item"]
-        for tag in root_tags:
-            opening = f"<{tag}>"
-            closing = f"</{tag}>"
-            start_idx = raw.find(opening)
-            if start_idx != -1:
-                end_idx = raw.rfind(closing)
-                if end_idx != -1:
-                    return (start_idx, end_idx, closing)
-        return None
+        return parsing._find_xml_boundaries(raw)
 
-    def _parse_memory_element(self, memory_elem: Element) -> dict[str, Any] | None:
-        # None return = "this memory element is missing required fields
-        # (content AND categories)". Caller (_parse_memory_type_response_xml)
-        # filters out None results silently — partial memories don't reach
-        # extraction. If an LLM consistently emits malformed elements, the
-        # episode extracts nothing, which matches _parse_memory_type_response's
-        # robustness contract above.
-        memory_dict: dict[str, Any] = {}
-
-        content_elem = memory_elem.find("content")
-        if content_elem is not None and content_elem.text:
-            memory_dict["content"] = content_elem.text.strip()
-
-        categories_elem = memory_elem.find("categories")
-        if categories_elem is not None:
-            categories = [cat_elem.text.strip() for cat_elem in categories_elem.findall("category") if cat_elem.text]
-            memory_dict["categories"] = categories
-
-        source_ids_elem = memory_elem.find("source_message_ids")
-        if source_ids_elem is not None:
-            raw_ids = [id_elem.text.strip() for id_elem in source_ids_elem.findall("id") if id_elem.text]
-            source_ids = self._dedupe_message_indices(raw_ids)
-            if source_ids:
-                memory_dict["source_message_ids"] = source_ids
-
-        source_role_elem = memory_elem.find("source_role")
-        if source_role_elem is not None and source_role_elem.text:
-            raw_role = source_role_elem.text.strip().lower()
-            if raw_role in {"soul", "user", "peer", "entity", "environment"}:
-                memory_dict["source_role"] = raw_role
-
-        speaker_ref_elem = memory_elem.find("speaker_ref")
-        if speaker_ref_elem is not None and speaker_ref_elem.text:
-            memory_dict["speaker_ref"] = speaker_ref_elem.text.strip()
-
-        episode_ref_elem = memory_elem.find("episode_ref")
-        if episode_ref_elem is not None and episode_ref_elem.text:
-            episode_ref = self._parse_episode_ref(episode_ref_elem.text)
-            if episode_ref is not None:
-                memory_dict["episode_ref"] = episode_ref
-
-        confidence_elem = memory_elem.find("confidence")
-        if confidence_elem is not None and confidence_elem.text:
-            try:
-                confidence = float(confidence_elem.text.strip())
-            except (TypeError, ValueError):
-                confidence = None
-            if confidence is not None and 0.0 <= confidence <= 1.0:
-                memory_dict["confidence"] = confidence
-
-        salience_elem = memory_elem.find("reflection_salience")
-        if salience_elem is not None and salience_elem.text:
-            try:
-                reflection_salience = float(salience_elem.text.strip())
-            except (TypeError, ValueError):
-                reflection_salience = None
-            if reflection_salience is not None and 0.0 <= reflection_salience <= 1.0:
-                memory_dict["reflection_salience"] = reflection_salience
-
-        ei_elem = memory_elem.find("emotional_intensity")
-        if ei_elem is not None and ei_elem.text:
-            try:
-                emotional_intensity = float(ei_elem.text.strip())
-            except (TypeError, ValueError):
-                emotional_intensity = None
-            if emotional_intensity is not None and 0.0 <= emotional_intensity <= 1.0:
-                memory_dict["emotional_intensity"] = emotional_intensity
-
-        replaces_previous_fact_elem = memory_elem.find("replaces_previous_fact")
-        if replaces_previous_fact_elem is not None and replaces_previous_fact_elem.text:
-            replaces_previous_fact = self._normalize_replaces_previous_fact(replaces_previous_fact_elem.text)
-            if replaces_previous_fact:
-                memory_dict["replaces_previous_fact"] = replaces_previous_fact
-
-        entities_elem = memory_elem.find("entities")
-        if entities_elem is not None:
-            entities = []
-            for entity_el in entities_elem.findall("entity"):
-                name_text = (entity_el.findtext("name") or "").strip()
-                type_text = (entity_el.findtext("type") or "").strip()
-                if name_text and type_text:
-                    entities.append({"name": name_text, "type": type_text})
-            if entities:
-                memory_dict["entities"] = entities
-
-        if memory_dict.get("content") and memory_dict.get("categories"):
-            return memory_dict
-        return None
+    def _parse_memory_element(self, memory_elem: Any) -> dict[str, Any] | None:
+        return parsing._parse_memory_element(memory_elem)
 
     def _parse_memory_type_response_xml(self, raw: str) -> list[dict[str, Any]]:
-        """
-        Parse XML memory extraction output into a list of memory items.
-
-        Expected XML format:
-        <item>
-            <memory>
-                <episode_ref>1</episode_ref>                 <!-- required for batch -->
-                <content>...</content>
-                <categories>
-                    <category>...</category>
-                </categories>
-                <source_role>user|soul|peer|entity|environment</source_role>  <!-- optional -->
-                <speaker_ref>speaker_id_from_roster</speaker_ref> <!-- optional; only when roster is provided -->
-                <confidence>0.0-1.0</confidence>                 <!-- optional -->
-                <reflection_salience>0.0-1.0</reflection_salience> <!-- optional -->
-                <emotional_intensity>0.0-1.0</emotional_intensity> <!-- optional -->
-                <replaces_previous_fact>older fact text</replaces_previous_fact> <!-- optional -->
-            </memory>
-        </item>
-        """
-        if not raw or not raw.strip():
-            return []
-        raw = raw.strip()
-
-        try:
-            boundaries = self._find_xml_boundaries(raw)
-            if boundaries is None:
-                logger.warning("Could not find valid root tag in XML response")
-                return []
-
-            start_idx, end_idx, end_tag = boundaries
-            xml_content = raw[start_idx : end_idx + len(end_tag)]
-            xml_content = xml_content.replace("&", "&amp;")
-
-            root = ET.fromstring(xml_content)
-            result: list[dict[str, Any]] = []
-
-            for memory_elem in root.findall("memory"):
-                parsed = self._parse_memory_element(memory_elem)
-                if parsed:
-                    result.append(parsed)
-
-        except ET.ParseError:
-            logger.exception("Failed to parse XML")
-            return []
-        else:
-            return result
+        return parsing._parse_memory_type_response_xml(raw)
