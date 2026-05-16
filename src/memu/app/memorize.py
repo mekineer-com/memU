@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any, NamedTuple, cast
 from pydantic import BaseModel
 
 from memu.app import memorize_parsing as parsing
+from memu.app import memorize_speakers as speakers
 from memu.app.settings import CategoryConfig, CustomPrompt
 from memu.database.models import CategoryItem, MemoryCategory, MemoryItem, MemoryType, Resource, Triple
 from memu.prompts.category_summary import (
@@ -2152,15 +2153,7 @@ Decide which clusters/candidates should map into existing categories, and which 
         *,
         message_indices: list[int],
     ) -> list[StructuredMemoryEntry]:
-        if not entries:
-            return entries
-        decorated: list[StructuredMemoryEntry] = []
-        default_ids = self._dedupe_message_indices(message_indices)
-        for entry in entries:
-            resolved_ids = self._resolve_source_message_ids(entry.source_message_ids, default_ids)
-            resolved_salience = entry.reflection_salience
-            decorated.append(entry._replace(source_message_ids=resolved_ids, reflection_salience=resolved_salience))
-        return decorated
+        return cast(list[StructuredMemoryEntry], speakers._decorate_entries_with_plan_context(entries, message_indices=message_indices))
 
     async def _maybe_create_dynamic_categories(
         self,
@@ -3273,74 +3266,51 @@ Decide which clusters/candidates should map into existing categories, and which 
 
     @staticmethod
     def _normalize_speaker_slug(prefix: str, raw: Any) -> str:
-        name = str(raw or "").strip().lower()
-        slug = re.sub(r"[^a-z0-9]+", "_", name).strip("_")
-        if not slug:
-            slug = prefix
-        return f"{prefix}:{slug}"
+        return speakers._normalize_speaker_slug(prefix, raw)
 
     @staticmethod
     def _speaker_role_from_id(speaker_id: str | None) -> str | None:
-        if not isinstance(speaker_id, str):
-            return None
-        value = speaker_id.strip().lower()
-        if not value or ":" not in value:
-            return None
-        role, _sep, _rest = value.partition(":")
-        return role or None
+        return speakers._speaker_role_from_id(speaker_id)
 
     @staticmethod
     def _normalize_coarse_role(role: str | None) -> str:
-        value = str(role or "").strip().lower()
-        if value in {"user", "soul", "peer", "entity", "environment"}:
-            return value
-        return "environment"
+        return speakers._normalize_coarse_role(role)
 
     def _build_speaker_roster(
         self,
         speaker_map: Mapping[int, tuple[str, str]] | None,
     ) -> list[SpeakerRosterEntry]:
-        if not speaker_map:
-            return []
-        roster: list[SpeakerRosterEntry] = []
-        seen_ids: set[str] = set()
-        for message_index in sorted(speaker_map):
-            speaker_id, speaker_label = speaker_map[message_index]
-            normalized_id = str(speaker_id or "").strip()
-            if not normalized_id or normalized_id in seen_ids:
-                continue
-            seen_ids.add(normalized_id)
-            coarse_role = self._normalize_coarse_role(self._speaker_role_from_id(normalized_id))
-            roster.append(SpeakerRosterEntry(normalized_id, str(speaker_label or "").strip() or normalized_id, coarse_role))
-        return roster
+        return cast(
+            list[SpeakerRosterEntry],
+            speakers._build_speaker_roster(
+                speaker_map,
+                roster_entry_factory=lambda speaker_id, speaker_label, coarse_role: SpeakerRosterEntry(
+                    speaker_id, speaker_label, coarse_role
+                ),
+            ),
+        )
 
     @staticmethod
     def _has_ambiguous_speaker_role(roster: Sequence[SpeakerRosterEntry]) -> bool:
-        role_counts: dict[str, int] = {}
-        for entry in roster:
-            if entry.coarse_role == "environment":
-                continue
-            role_counts[entry.coarse_role] = role_counts.get(entry.coarse_role, 0) + 1
-        return any(count > 1 for count in role_counts.values())
+        return speakers._has_ambiguous_speaker_role(roster)
 
     def _build_speaker_roster_if_ambiguous(
         self,
         speaker_map: Mapping[int, tuple[str, str]] | None,
     ) -> list[SpeakerRosterEntry] | None:
-        roster = self._build_speaker_roster(speaker_map)
-        if not roster or not self._has_ambiguous_speaker_role(roster):
-            return None
-        return roster
+        return cast(
+            list[SpeakerRosterEntry] | None,
+            speakers._build_speaker_roster_if_ambiguous(
+                speaker_map,
+                roster_entry_factory=lambda speaker_id, speaker_label, coarse_role: SpeakerRosterEntry(
+                    speaker_id, speaker_label, coarse_role
+                ),
+            ),
+        )
 
     @staticmethod
     def _is_user_declared_relationship_entity(entity: Any) -> bool:
-        props = getattr(entity, "properties", None)
-        if not isinstance(props, Mapping):
-            return False
-        origin = str(props.get("origin") or "").strip()
-        if origin != "user_declared":
-            return False
-        return props.get("active") is not False
+        return speakers._is_user_declared_relationship_entity(entity)
 
     def _list_declared_relationship_roster(
         self,
@@ -3348,37 +3318,20 @@ Decide which clusters/candidates should map into existing categories, and which 
         store: Database,
         user: Mapping[str, Any] | None,
     ) -> list[SpeakerRosterEntry]:
-        where = dict(user or {}) if isinstance(user, Mapping) else {}
-        entities = store.entity_repo.list_all(where=where)
-        roster: list[SpeakerRosterEntry] = []
-        seen_ids: set[str] = set()
-        for entity in entities:
-            if not self._is_user_declared_relationship_entity(entity):
-                continue
-            normalized = str(getattr(entity, "normalized", "") or "").strip().lower()
-            if not normalized:
-                continue
-            speaker_id = f"entity:{normalized}"
-            if speaker_id in seen_ids:
-                continue
-            seen_ids.add(speaker_id)
-            label = str(getattr(entity, "name", "") or "").strip() or normalized
-            roster.append(SpeakerRosterEntry(speaker_id, label, "entity"))
-        return roster
+        return cast(
+            list[SpeakerRosterEntry],
+            speakers._list_declared_relationship_roster(
+                store=store,
+                user=user,
+                roster_entry_factory=lambda speaker_id, speaker_label, coarse_role: SpeakerRosterEntry(
+                    speaker_id, speaker_label, coarse_role
+                ),
+            ),
+        )
 
     @staticmethod
     def _episode_mentions_roster_entry(episode_text: Any, entry: SpeakerRosterEntry) -> bool:
-        text = str(episode_text or "").strip().lower()
-        if not text:
-            return False
-        label = str(entry.speaker_label or "").strip().lower()
-        if label and label in text:
-            return True
-        speaker_tail = entry.speaker_id.split(":", 1)[1] if ":" in entry.speaker_id else entry.speaker_id
-        speaker_tail = speaker_tail.replace("_", " ").strip().lower()
-        if speaker_tail and speaker_tail in text:
-            return True
-        return False
+        return speakers._episode_mentions_roster_entry(episode_text, entry)
 
     def _build_speaker_roster_for_episode(
         self,
@@ -3387,153 +3340,48 @@ Decide which clusters/candidates should map into existing categories, and which 
         declared_entities: Sequence[SpeakerRosterEntry] | None,
         episode_text: Any,
     ) -> list[SpeakerRosterEntry] | None:
-        map_roster = self._build_speaker_roster(speaker_map)
-        map_has_ambiguity = self._has_ambiguous_speaker_role(map_roster)
-        mentioned_declared = [
-            entry
-            for entry in (declared_entities or [])
-            if self._episode_mentions_roster_entry(episode_text, entry)
-        ]
-        if not map_has_ambiguity and not mentioned_declared:
-            return None
-
-        merged: list[SpeakerRosterEntry] = []
-        seen_ids: set[str] = set()
-        for entry in [*map_roster, *mentioned_declared]:
-            if entry.speaker_id in seen_ids:
-                continue
-            seen_ids.add(entry.speaker_id)
-            merged.append(entry)
-        return merged or None
+        return cast(
+            list[SpeakerRosterEntry] | None,
+            speakers._build_speaker_roster_for_episode(
+                speaker_map=speaker_map,
+                declared_entities=declared_entities,
+                episode_text=episode_text,
+                roster_entry_factory=lambda speaker_id, speaker_label, coarse_role: SpeakerRosterEntry(
+                    speaker_id, speaker_label, coarse_role
+                ),
+            ),
+        )
 
     @staticmethod
     def _format_speaker_roster_block_for_prompt(
         speaker_roster: Sequence[SpeakerRosterEntry] | None,
     ) -> str:
-        if not speaker_roster:
-            return ""
-        lines = [
-            "# Speaker Roster (ambiguous episode fallback)",
-            "Allowed source_role schema for this episode: <source_role>user|soul|peer|entity|environment</source_role>.",
-            "Only emit <speaker_ref> if the speaker is in this roster. Never invent a slug.",
-            "Use source_role for coarse role; use speaker_ref only to disambiguate when multiple speakers share that role.",
-        ]
-        for entry in speaker_roster:
-            safe_label = MemorizeMixin._sanitize_prompt_label(entry.speaker_label)
-            lines.append(f"- {entry.speaker_id} | label={safe_label} | role={entry.coarse_role}")
-        lines.append("When needed, add <speaker_ref>speaker_id_from_roster</speaker_ref> inside <memory>.")
-        return "\n".join(lines)
+        return speakers._format_speaker_roster_block_for_prompt(speaker_roster)
 
     @staticmethod
     def _sanitize_prompt_label(label: str) -> str:
-        """Strip prompt-structural characters from a user-sourced display label.
-
-        `speaker_label` originates from the Relationships UI and reaches the
-        extraction prompt verbatim — without this, a label like
-        `Brother\\n# IGNORE ABOVE` would inject new prompt lines.
-        """
-        cleaned = re.sub(r"[\n\r\t<>`]", " ", str(label or ""))
-        return re.sub(r" +", " ", cleaned).strip()
+        return speakers._sanitize_prompt_label(label)
 
     @staticmethod
     def _parse_speaker_ref(
         raw: Any,
         roster: Sequence[SpeakerRosterEntry] | None,
     ) -> tuple[str | None, str | None]:
-        # (None, None) = "no valid roster match". Fail-closed by design:
-        # a hallucinated speaker_ref from the LLM must not create a new
-        # identity, so the caller falls back to deterministic attribution.
-        if not isinstance(raw, str) or not roster:
-            return None, None
-        candidate = raw.strip()
-        if not candidate:
-            return None, None
-        normalized = candidate.casefold()
-        for entry in roster:
-            if entry.speaker_id.casefold() == normalized:
-                return entry.speaker_id, entry.speaker_label
-        return None, None
+        return speakers._parse_speaker_ref(raw, roster)
 
     def _build_speaker_map(
         self,
         episode_messages: Sequence[Mapping[str, Any]],
         scope: Mapping[str, Any] | None,
     ) -> dict[int, tuple[str, str]]:
-        user_scope = dict(scope or {}) if isinstance(scope, Mapping) else {}
-        user_name = str(user_scope.get("user_id") or "").strip()
-        soul_name = str(user_scope.get("soul_id") or "").strip()
-        user_label_default = user_name or "user"
-        soul_label_default = soul_name or "soul"
-        user_id_default = self._normalize_speaker_slug("user", user_name or "user")
-
-        speaker_map: dict[int, tuple[str, str]] = {}
-        for idx, message in enumerate(episode_messages):
-            raw_index = message.get("_message_index", idx)
-            try:
-                message_index = int(raw_index)
-            except (TypeError, ValueError):
-                continue
-            if message_index < 0:
-                continue
-
-            role = str(message.get("role") or "").strip().lower()
-            name = str(message.get("name") or "").strip()
-            normalized_name = name or None
-
-            speaker_id: str
-            speaker_label: str
-            if role in {"assistant", "soul"}:
-                speaker_label = normalized_name or soul_label_default
-                speaker_id = self._normalize_speaker_slug("soul", soul_name or speaker_label)
-            elif role in {"user", "human", "participant"}:
-                # A user-role message is always the current scope user.
-                # message.name is a display label (ST display name, handle, etc.),
-                # not a different identity — slug stays user:<scope.user_id>.
-                speaker_label = normalized_name or user_label_default
-                speaker_id = user_id_default
-            elif normalized_name:
-                speaker_label = normalized_name
-                speaker_id = self._normalize_speaker_slug("entity", normalized_name)
-            else:
-                speaker_label = role or "environment"
-                speaker_id = self._normalize_speaker_slug("environment", speaker_label)
-
-            speaker_map[message_index] = (speaker_id, speaker_label)
-        return speaker_map
+        return speakers._build_speaker_map(episode_messages, scope)
 
     def _attribute_memory(
         self,
         memory: StructuredMemoryEntry,
         speaker_map: Mapping[int, tuple[str, str]] | None,
     ) -> StructuredMemoryEntry:
-        if memory.speaker_id and memory.speaker_label:
-            return memory
-        if not speaker_map:
-            return memory
-        candidates: dict[str, tuple[str, str]] = {}
-        for message_idx in memory.source_message_ids or []:
-            candidate = speaker_map.get(int(message_idx))
-            if candidate is None:
-                continue
-            candidates[candidate[0]] = candidate
-        if not candidates:
-            return memory
-        if len(candidates) == 1:
-            speaker_id, speaker_label = next(iter(candidates.values()))
-            return memory._replace(speaker_id=speaker_id, speaker_label=speaker_label)
-
-        role = str(memory.source_role or "").strip().lower()
-        if role:
-            role_candidates = [
-                candidate
-                for candidate in candidates.values()
-                if self._speaker_role_from_id(candidate[0]) == role
-            ]
-            unique_role_candidates = {candidate[0]: candidate for candidate in role_candidates}
-            if len(unique_role_candidates) == 1:
-                speaker_id, speaker_label = next(iter(unique_role_candidates.values()))
-                return memory._replace(speaker_id=speaker_id, speaker_label=speaker_label)
-        return memory._replace(speaker_id=None, speaker_label=None)
+        return cast(StructuredMemoryEntry, speakers._attribute_memory(memory, speaker_map))
 
     def _resolve_entry_happened_at(
         self,
