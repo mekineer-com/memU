@@ -21,6 +21,8 @@ This is a private fork of the upstream NevaMind memU project, significantly dive
 
 Pipeline-owned types (not extracted from conversation): `subconscious` (APImw background thoughts), `reflection` (consolidation), `episode` (summaries).
 
+**Batch extraction:** Episodes are routed individually (exclusion model — all types included by default), then combined into one LLM call per type with `<episode_ref>` provenance. Conversations marked `memorize_chat=false` become background context (inline summaries for routing/extraction) rather than primary extraction targets.
+
 **Three-layer storage:**
 
 ```
