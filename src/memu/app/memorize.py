@@ -391,39 +391,110 @@ class MemorizeMixin:
                 message_indices=episode_payload.get("message_indices"),
             )
 
-            episode_summary: str | None = None
-            episode_item: str | None = None
-            applicable_types: list[MemoryType] = memory_types
-            if isinstance(text, str):
-                applicable_types, episode_summary, episode_item = await self._route_episode(
-                    text,
-                    memory_types,
-                    extract_client,
-                    soul_card=(soul_card or "").strip() or None,
-                    skipped_reasons=routing_notes,
-                )
-
             message_happened_at_map = self._extract_message_happened_at_map(raw_text)
             conversation_messages = self._extract_conversation_messages(raw_text)
             messages_by_index = {idx: msg for idx, msg in conversation_messages}
-            episode_messages: list[dict[str, Any]] = []
+            episode_messages_all: list[dict[str, Any]] = []
             for message_idx in message_indices:
                 msg_payload = messages_by_index.get(message_idx)
                 if msg_payload is None:
                     continue
                 episode_msg = dict(msg_payload)
                 episode_msg["_message_index"] = message_idx
-                episode_messages.append(episode_msg)
-            speaker_map = self._build_speaker_map(episode_messages, user_scope)
+                episode_messages_all.append(episode_msg)
+
+            primary_messages = [
+                msg
+                for msg in episode_messages_all
+                if self._message_is_primary_for_memorize(msg)
+            ]
+            background_messages = [
+                msg
+                for msg in episode_messages_all
+                if not self._message_is_primary_for_memorize(msg)
+            ]
+
+            preprocessor_rows_raw = episode_payload.get("background_summaries")
+            preprocessor_rows: list[dict[str, Any]] = []
+            if isinstance(preprocessor_rows_raw, list):
+                for row in preprocessor_rows_raw:
+                    if not isinstance(row, Mapping):
+                        continue
+                    summary = str(row.get("summary") or "").strip()
+                    if not summary:
+                        continue
+                    after_raw = row.get("after_index")
+                    if after_raw is None:
+                        after_index = None
+                    else:
+                        try:
+                            after_index = int(after_raw)
+                        except (TypeError, ValueError):
+                            continue
+                    preprocessor_rows.append(
+                        {
+                            "after_index": after_index,
+                            "summary": summary,
+                            "source_label": str(row.get("source_label") or "background"),
+                        }
+                    )
+
+            if preprocessor_rows and primary_messages:
+                background_summaries = preprocessor_rows
+                rendered_text = self._render_episode_with_summary_rows(
+                    primary_messages=primary_messages,
+                    summary_rows=background_summaries,
+                )
+            else:
+                rendered_text, background_summaries = await self._render_episode_with_background_context(
+                    primary_messages=primary_messages,
+                    background_messages=background_messages,
+                    llm_client=extract_client,
+                )
+            episode_text = rendered_text or (str(text).strip() if isinstance(text, str) else "")
+            context_only = bool(episode_messages_all) and not primary_messages
+
+            episode_summary: str | None = str(caption).strip() if isinstance(caption, str) and str(caption).strip() else None
+            episode_item: str | None = None
+            applicable_types: list[MemoryType] = memory_types
+            if context_only:
+                applicable_types = []
+                if not episode_summary:
+                    episode_summary = await self._summarize_background_messages(
+                        messages=background_messages or episode_messages_all,
+                        llm_client=extract_client,
+                    )
+                episode_item = episode_summary
+                if not episode_summary:
+                    routing_notes.append(f"episode {episode_ref}: context-only background, no summary generated")
+            elif episode_text:
+                applicable_types, routed_summary, routed_item = await self._route_episode(
+                    episode_text,
+                    memory_types,
+                    extract_client,
+                    soul_card=(soul_card or "").strip() or None,
+                    skipped_reasons=routing_notes,
+                )
+                if routed_summary:
+                    episode_summary = routed_summary
+                episode_item = routed_item
+
+            primary_indices = [
+                self._message_index_for_sort(msg)
+                for msg in primary_messages
+                if self._message_index_for_sort(msg) >= 0
+            ]
+            selected_indices = self._dedupe_message_indices(primary_indices or message_indices)
+            speaker_map = self._build_speaker_map(primary_messages or episode_messages_all, user_scope)
 
             plan_message_happened_at_map = {
                 message_idx: message_happened_at_map[message_idx]
-                for message_idx in message_indices
+                for message_idx in selected_indices
                 if message_idx in message_happened_at_map
             }
             conv_id = conversation_id or self._resolve_conversation_id(user)
-            if conv_id and message_indices:
-                episode_id = f"{conv_id}:{message_indices[0]}-{message_indices[-1]}"
+            if conv_id and selected_indices:
+                episode_id = f"{conv_id}:{selected_indices[0]}-{selected_indices[-1]}"
             else:
                 episode_id = None
 
@@ -432,13 +503,15 @@ class MemorizeMixin:
                 "resource_url": resource_url,
                 "local_path": str(episode_job.get("local_path") or resource_url),
                 "segment_raw_text": raw_text,
-                "text": text,
+                "text": episode_text,
                 "caption": caption,
                 "episode_summary": episode_summary,
                 "episode_item": episode_item,
-                "message_indices": message_indices,
+                "message_indices": selected_indices,
                 "message_happened_at_map": plan_message_happened_at_map,
-                "episode_messages": episode_messages,
+                "episode_messages": primary_messages,
+                "background_summaries": background_summaries,
+                "context_only": context_only,
                 "speaker_map": speaker_map,
                 "applicable_types": applicable_types,
                 "entries": [],
@@ -2781,6 +2854,154 @@ Decide which clusters/candidates should map into existing categories, and which 
         return "\n\n".join(s for s in sections if s).strip()
 
     @staticmethod
+    def _message_is_primary_for_memorize(message: Mapping[str, Any]) -> bool:
+        flag = message.get("memorize_chat")
+        if isinstance(flag, bool):
+            return flag
+        return True
+
+    @staticmethod
+    def _message_index_for_sort(message: Mapping[str, Any]) -> int:
+        raw = message.get("_message_index")
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            return -1
+
+    @staticmethod
+    def _format_episode_message_line(message: Mapping[str, Any]) -> str:
+        idx = MemorizeMixin._message_index_for_sort(message)
+        role = str(message.get("name") or message.get("role") or "user").strip() or "user"
+        content = str(message.get("content") or "").strip()
+        source = str(message.get("source_label") or "").strip()
+        source_prefix = f"[{source}] " if source else ""
+        return f"[{max(0, idx)}] {source_prefix}[{role}]: {content}"
+
+    async def _summarize_background_messages(
+        self,
+        *,
+        messages: Sequence[Mapping[str, Any]],
+        llm_client: Any | None = None,
+    ) -> str | None:
+        if not messages:
+            return None
+        rendered = "\n".join(
+            self._format_episode_message_line(msg)
+            for msg in sorted(messages, key=self._message_index_for_sort)
+        ).strip()
+        if not rendered:
+            return None
+        summary = await self._summarize_episode(rendered, llm_client=llm_client)
+        return str(summary or "").strip() or None
+
+    async def _render_episode_with_background_context(
+        self,
+        *,
+        primary_messages: Sequence[Mapping[str, Any]],
+        background_messages: Sequence[Mapping[str, Any]],
+        llm_client: Any | None = None,
+    ) -> tuple[str, list[dict[str, Any]]]:
+        """Render episode text with inline background summaries.
+
+        Returns (rendered_text, background_summary_rows), where summary rows carry
+        ``after_index`` and ``summary``.
+        """
+        prim = sorted(primary_messages, key=self._message_index_for_sort)
+        bg = sorted(background_messages, key=self._message_index_for_sort)
+        if not prim and not bg:
+            return "", []
+        if not bg:
+            return "\n".join(self._format_episode_message_line(msg) for msg in prim).strip(), []
+
+        grouped: dict[str, list[Mapping[str, Any]]] = {}
+        group_order: list[str] = []
+        for msg in bg:
+            source_key = str(msg.get("source_conversation_id") or msg.get("source_label") or "background").strip() or "background"
+            if source_key not in grouped:
+                grouped[source_key] = []
+                group_order.append(source_key)
+            grouped[source_key].append(msg)
+
+        summary_rows: list[dict[str, Any]] = []
+        for source_key in group_order:
+            group_msgs = grouped[source_key]
+            summary = await self._summarize_background_messages(messages=group_msgs, llm_client=llm_client)
+            if not summary:
+                continue
+            source_label = str(group_msgs[0].get("source_label") or source_key).strip() or source_key
+            first_idx = self._message_index_for_sort(group_msgs[0])
+            after_index = None
+            for primary in prim:
+                pidx = self._message_index_for_sort(primary)
+                if pidx <= first_idx:
+                    after_index = pidx
+                else:
+                    break
+            summary_rows.append(
+                {
+                    "after_index": after_index,
+                    "summary": summary,
+                    "source_label": source_label,
+                }
+            )
+
+        rendered_lines: list[str] = []
+        for primary in prim:
+            pidx = self._message_index_for_sort(primary)
+            for row in summary_rows:
+                if row.get("_emitted"):
+                    continue
+                if row.get("after_index") == pidx:
+                    rendered_lines.append(
+                        f"[Background:{row.get('source_label')}] {str(row.get('summary') or '').strip()}"
+                    )
+                    row["_emitted"] = True
+            rendered_lines.append(self._format_episode_message_line(primary))
+
+        prefix_lines: list[str] = []
+        for row in summary_rows:
+            if row.get("_emitted"):
+                row.pop("_emitted", None)
+                continue
+            prefix_lines.append(
+                f"[Background:{row.get('source_label')}] {str(row.get('summary') or '').strip()}"
+            )
+            row.pop("_emitted", None)
+        if prefix_lines:
+            rendered_lines = [*prefix_lines, *rendered_lines]
+
+        return "\n".join(line for line in rendered_lines if line.strip()).strip(), summary_rows
+
+    def _render_episode_with_summary_rows(
+        self,
+        *,
+        primary_messages: Sequence[Mapping[str, Any]],
+        summary_rows: Sequence[Mapping[str, Any]],
+    ) -> str:
+        prim = sorted(primary_messages, key=self._message_index_for_sort)
+        rendered_lines: list[str] = []
+        mutable_rows: list[dict[str, Any]] = [dict(row) for row in summary_rows if isinstance(row, Mapping)]
+        for primary in prim:
+            pidx = self._message_index_for_sort(primary)
+            for row in mutable_rows:
+                if row.get("_emitted"):
+                    continue
+                if row.get("after_index") == pidx:
+                    label = str(row.get("source_label") or "background").strip() or "background"
+                    rendered_lines.append(f"[Background:{label}] {str(row.get('summary') or '').strip()}")
+                    row["_emitted"] = True
+            rendered_lines.append(self._format_episode_message_line(primary))
+        prefix_lines: list[str] = []
+        for row in mutable_rows:
+            if row.get("_emitted"):
+                continue
+            label = str(row.get("source_label") or "background").strip() or "background"
+            prefix_lines.append(f"[Background:{label}] {str(row.get('summary') or '').strip()}")
+        if prefix_lines:
+            rendered_lines = [*prefix_lines, *rendered_lines]
+        return "\n".join(line for line in rendered_lines if line.strip()).strip()
+
+    @staticmethod
     def _normalize_confidence(
         entries: list[StructuredMemoryEntry],
         target_mean: float = 0.70,
@@ -3488,7 +3709,7 @@ Decide which clusters/candidates should map into existing categories, and which 
         episodes = self._extract_episodes_with_fallback(raw)
         return conversation, episodes
 
-    def _extract_episodes_with_fallback(self, raw: str) -> list[dict[str, int | str]] | None:
+    def _extract_episodes_with_fallback(self, raw: str) -> list[dict[str, Any]] | None:
         episodes = self._episodes_from_json_payload(raw)
         if episodes is not None:
             return episodes
@@ -3499,7 +3720,7 @@ Decide which clusters/candidates should map into existing categories, and which 
             return None
         return self._episodes_from_json_payload(blob)
 
-    def _episodes_from_json_payload(self, payload: str) -> list[dict[str, int | str]] | None:
+    def _episodes_from_json_payload(self, payload: str) -> list[dict[str, Any]] | None:
         try:
             parsed = json.loads(payload)
         except (json.JSONDecodeError, TypeError):
@@ -3507,13 +3728,13 @@ Decide which clusters/candidates should map into existing categories, and which 
         return self._episodes_from_parsed_data(parsed)
 
     @staticmethod
-    def _episodes_from_parsed_data(parsed: Any) -> list[dict[str, int | str]] | None:
+    def _episodes_from_parsed_data(parsed: Any) -> list[dict[str, Any]] | None:
         if not isinstance(parsed, dict):
             return None
         episodes_data = parsed.get("episodes")
         if not isinstance(episodes_data, list):
             return None
-        episodes: list[dict[str, int | str]] = []
+        episodes: list[dict[str, Any]] = []
         for ep in episodes_data:
             if not isinstance(ep, dict):
                 continue
@@ -3521,6 +3742,29 @@ Decide which clusters/candidates should map into existing categories, and which 
                 episode: dict[str, Any] = {"message_indices": ep["message_indices"]}
                 if "caption" in ep and isinstance(ep["caption"], str):
                     episode["caption"] = ep["caption"]
+                if "background_summaries" in ep and isinstance(ep["background_summaries"], list):
+                    cleaned_background: list[dict[str, Any]] = []
+                    for row in ep["background_summaries"]:
+                        if not isinstance(row, dict):
+                            continue
+                        summary = str(row.get("summary") or "").strip()
+                        if not summary:
+                            continue
+                        after_raw = row.get("after_index")
+                        if after_raw is None:
+                            after_index = None
+                        else:
+                            try:
+                                after_index = int(after_raw)
+                            except (TypeError, ValueError):
+                                continue
+                        cleaned_background.append(
+                            {
+                                "after_index": after_index,
+                                "summary": summary,
+                            }
+                        )
+                    episode["background_summaries"] = cleaned_background
                 episodes.append(episode)
             elif "start" in ep and "end" in ep:
                 try:

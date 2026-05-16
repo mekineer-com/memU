@@ -67,7 +67,9 @@ def _format_messages(messages: list[dict[str, Any]]) -> str:
         created_part = f"{created_at} " if created_at else ""
         source = msg.get("source_label")
         source_part = f"[{source}] " if source else ""
-        out.append(f"[{idx}] {created_part}{source_part}[{role}]: {text}")
+        memorize_chat = msg.get("memorize_chat")
+        scope_part = "[background] " if memorize_chat is False else "[primary] "
+        out.append(f"[{idx}] {created_part}{scope_part}{source_part}[{role}]: {text}")
     return "\n".join(out)
 
 
