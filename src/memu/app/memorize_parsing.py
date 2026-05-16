@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import re
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any, Callable
@@ -27,7 +28,7 @@ def _normalize_reflection_salience(value: Any) -> float | None:
 def _normalize_replaces_previous_fact(value: Any) -> str | None:
     if not isinstance(value, str):
         return None
-    text = " ".join(value.split())
+    text = re.sub(r"\s+", " ", value).strip()
     return text or None
 
 
@@ -78,13 +79,11 @@ def _extract_message_indices(text: str | None) -> list[int]:
         return []
     out: list[int] = []
     for line in text.splitlines():
-        if not line.startswith("["):
-            continue
-        close = line.find("] ")
-        if close <= 1:
+        match = re.match(r"\[(\d+)\]\s", line)
+        if match is None:
             continue
         try:
-            out.append(int(line[1:close]))
+            out.append(int(match.group(1)))
         except (TypeError, ValueError):
             continue
     return out
