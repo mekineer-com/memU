@@ -120,13 +120,3 @@ def reciprocal_rank_fusion(
     if max_score > 0:
         scores = {doc_id: s / max_score for doc_id, s in scores.items()}
     return sorted(scores.items(), key=lambda x: x[1], reverse=True)
-
-
-def query_cosine(query_vec: list[float], vecs: list[list[float]]) -> list[tuple[int, float]]:
-    res: list[tuple[int, float]] = []
-    q = np.array(query_vec, dtype=np.float32)
-    for i, v in enumerate(vecs):
-        vec_array = np.array(v, dtype=np.float32)
-        res.append((i, _cosine(q, vec_array)))
-    res.sort(key=lambda x: x[1], reverse=True)
-    return res
