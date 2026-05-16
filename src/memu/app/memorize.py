@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 import logging
 import math
@@ -100,20 +99,6 @@ class MemorizeMixin:
         _extract_json_blob: Callable[[str], str]
         _escape_prompt_value: Callable[[str], str]
         user_model: type[BaseModel]
-
-    def _episode_entry_sort_key(self, entry: StructuredMemoryEntry) -> tuple[float, int]:
-        confidence = entry[4] if entry[4] is not None else 0.0
-        tie_payload = "\x1f".join([
-            entry[0],
-            entry[1],
-            "\x1e".join(entry[2]),
-            entry[3] or "",
-        ])
-        tie_break = int.from_bytes(
-            hashlib.blake2s(tie_payload.encode("utf-8"), digest_size=8).digest(),
-            "big",
-        )
-        return (confidence, tie_break)
 
     @staticmethod
     def _normalize_reflection_salience(value: Any) -> float | None:
@@ -643,18 +628,6 @@ class MemorizeMixin:
         candidate = str(raw).strip()
         return candidate or None
 
-    @staticmethod
-    def _normalize_text_list(raw: Any) -> list[str]:
-        if not isinstance(raw, list):
-            return []
-        out: list[str] = []
-        for value in raw:
-            text = str(value or "").strip()
-            if not text:
-                continue
-            out.append(text)
-        return out
-
     def _build_memorize_workflow(self) -> list[WorkflowStep]:
         steps = [
             WorkflowStep(
@@ -887,70 +860,8 @@ class MemorizeMixin:
         )
 
     @staticmethod
-    def _extract_scope_field(
-        scope: Mapping[str, Any],
-        *,
-        keys: Sequence[str],
-    ) -> tuple[str, str] | None:
-        return dedupe._extract_scope_field(scope, keys=keys)
-
-    def _build_semantic_dedupe_scope(self, scope: Mapping[str, Any] | None) -> dict[str, str] | None:
-        return dedupe._build_semantic_dedupe_scope(scope)
-
-    @staticmethod
-    def _normalize_embedding_vector(embedding: Any) -> list[float] | None:
-        return dedupe._normalize_embedding_vector(embedding)
-
-    @staticmethod
-    def _is_merged_item(item: Any) -> bool:
-        return dedupe._is_merged_item(item)
-
-    @staticmethod
-    def _item_embedding(item: Any) -> list[float] | None:
-        return dedupe._item_embedding(item)
-
-    async def _dedupe_reembed_for_similarity(
-        self,
-        *,
-        item: Any,
-        embed_client: Any,
-        cache: dict[str, list[float] | None],
-    ) -> list[float] | None:
-        return await dedupe._dedupe_reembed_for_similarity(
-            item=item,
-            embed_client=embed_client,
-            cache=cache,
-        )
-
-    @staticmethod
-    def _summary_len(item: Any) -> int:
-        return dedupe._summary_len(item)
-
-    def _choose_survivor_and_redundant(self, left: MemoryItem, right: MemoryItem) -> tuple[MemoryItem, MemoryItem]:
-        return cast(tuple[MemoryItem, MemoryItem], dedupe._choose_survivor_and_redundant(left, right))
-
-    @staticmethod
-    def _cosine_similarity(a: Sequence[float], b: Sequence[float]) -> float:
-        return dedupe._cosine_similarity(a, b)
-
-    @staticmethod
-    def _filter_merged_from_category_updates(
-        updates: Any,
-        merged_ids: set[str],
-    ) -> dict[str, list[tuple[str, str]]]:
-        return dedupe._filter_merged_from_category_updates(updates, merged_ids)
-
-    @staticmethod
     def _dedupe_summary_tokens(summary: Any) -> set[str]:
         return dedupe._dedupe_summary_tokens(summary)
-
-    @staticmethod
-    def _dedupe_source_role(item: Any) -> str | None:
-        return dedupe._dedupe_source_role(item)
-
-    @staticmethod
-    def _dedupe_speaker_id(item: Any) -> str | None:
-        return dedupe._dedupe_speaker_id(item)
 
     def _prefilter_dedupe_candidate_ids(
         self,
@@ -973,14 +884,6 @@ class MemorizeMixin:
             token_freq=token_freq,
         )
 
-    def _dynamic_category_cluster_threshold(self) -> float:
-        return categories._dynamic_category_cluster_threshold()
-
-    def _dynamic_category_cluster_min_size(self) -> int:
-        return categories._dynamic_category_cluster_min_size(
-            getattr(self.memorize_config, "dynamic_category_cluster_size", 3),
-        )
-
     def _cluster_homeless_entries(
         self,
         *,
@@ -994,34 +897,14 @@ class MemorizeMixin:
                 filtered_entries=cast(list[Any], filtered_entries),
                 per_entry_unknowns=per_entry_unknowns,
                 item_embeddings=item_embeddings,
-                normalize_embedding_vector=self._normalize_embedding_vector,
-                cosine_similarity=self._cosine_similarity,
+                normalize_embedding_vector=dedupe._normalize_embedding_vector,
+                cosine_similarity=dedupe._cosine_similarity,
                 cluster_factory=HomelessCategoryCluster,
-                cluster_similarity_threshold=self._dynamic_category_cluster_threshold(),
-                cluster_min_size=self._dynamic_category_cluster_min_size(),
+                cluster_similarity_threshold=categories._dynamic_category_cluster_threshold(),
+                cluster_min_size=categories._dynamic_category_cluster_min_size(
+                    getattr(self.memorize_config, "dynamic_category_cluster_size", 3),
+                ),
             ),
-        )
-
-    def _build_existing_category_block(self, *, ctx: Context, store: Database) -> str:
-        return categories._build_existing_category_block(
-            ctx=ctx,
-            store=store,
-            fallback_category_configs=self.memorize_config.memory_categories or [],
-        )
-
-    @staticmethod
-    def _build_cluster_prompt_block(strong_clusters: Sequence[HomelessCategoryCluster]) -> str:
-        return categories._build_cluster_prompt_block(cast(Sequence[Any], strong_clusters))
-
-    @staticmethod
-    def _build_ungrouped_candidate_block(
-        *,
-        ungrouped_unknown_counts: Mapping[str, int],
-        ungrouped_unknown_examples: Mapping[str, list[str]],
-    ) -> str:
-        return categories._build_ungrouped_candidate_block(
-            ungrouped_unknown_counts=ungrouped_unknown_counts,
-            ungrouped_unknown_examples=ungrouped_unknown_examples,
         )
 
     async def _plan_dynamic_categories(
@@ -1051,7 +934,9 @@ class MemorizeMixin:
                 get_llm_client=self._get_llm_client,
                 planner_profile=getattr(self.memorize_config, "category_update_llm_profile", "default"),
                 normalize_category_name=self._normalize_category_name,
-                dynamic_category_cluster_min_size=self._dynamic_category_cluster_min_size(),
+                dynamic_category_cluster_min_size=categories._dynamic_category_cluster_min_size(
+                    getattr(self.memorize_config, "dynamic_category_cluster_size", 3),
+                ),
             ),
         )
 
@@ -1233,7 +1118,7 @@ class MemorizeMixin:
         ctx = state["ctx"]
         store = state["store"]
         resources = [self._model_dump_without_embeddings(r) for r in state.get("resources", [])]
-        active_items = [item for item in state.get("items", []) if not self._is_merged_item(item)]
+        active_items = [item for item in state.get("items", []) if not dedupe._is_merged_item(item)]
         active_item_ids = {getattr(item, "id", None) for item in active_items}
         items = [self._model_dump_without_embeddings(item) for item in active_items]
         relations = [
@@ -1568,17 +1453,6 @@ class MemorizeMixin:
             kept.append(entry._replace(content=normalized_summary))
 
         return kept
-
-    def _extract_episode_text(self, lines: list[str], start_idx: int, end_idx: int) -> str | None:
-        episode_lines = []
-        for line in lines:
-            match = re.match(r"\[(\d+)\]", line)
-            if not match:
-                continue
-            idx = int(match.group(1))
-            if start_idx <= idx <= end_idx:
-                episode_lines.append(line)
-        return "\n".join(episode_lines) if episode_lines else None
 
     def _decorate_entries_with_plan_context(
         self,
@@ -2259,9 +2133,6 @@ class MemorizeMixin:
     def _build_item_ref_id(self, item_id: str) -> str:
         return persistence._build_item_ref_id(item_id)
 
-    def _extract_refs_from_summaries(self, summaries: dict[str, str]) -> set[str]:
-        return persistence._extract_refs_from_summaries(summaries)
-
     async def _persist_item_references(
         self,
         *,
@@ -2361,10 +2232,6 @@ class MemorizeMixin:
         return parsing._resolve_source_message_ids(values, allowed_values)
 
     @staticmethod
-    def _coerce_to_iterable(values: Any) -> Sequence[Any]:
-        return parsing._coerce_to_iterable(values)
-
-    @staticmethod
     def _extract_message_indices(text: str | None) -> list[int]:
         return parsing._extract_message_indices(text)
 
@@ -2372,24 +2239,8 @@ class MemorizeMixin:
     def _extract_conversation_messages(raw_text: Any) -> list[tuple[int, dict[str, Any]]]:
         return parsing._extract_conversation_messages(raw_text)
 
-    @staticmethod
-    def _parse_message_happened_at(raw: Any) -> Any | None:
-        return parsing._parse_message_happened_at(raw)
-
     def _extract_message_happened_at_map(self, raw_text: Any) -> dict[int, Any]:
         return parsing._extract_message_happened_at_map(raw_text)
-
-    @staticmethod
-    def _normalize_speaker_slug(prefix: str, raw: Any) -> str:
-        return speakers._normalize_speaker_slug(prefix, raw)
-
-    @staticmethod
-    def _speaker_role_from_id(speaker_id: str | None) -> str | None:
-        return speakers._speaker_role_from_id(speaker_id)
-
-    @staticmethod
-    def _normalize_coarse_role(role: str | None) -> str:
-        return speakers._normalize_coarse_role(role)
 
     def _build_speaker_roster(
         self,
@@ -2402,10 +2253,6 @@ class MemorizeMixin:
             ),
         )
 
-    @staticmethod
-    def _has_ambiguous_speaker_role(roster: Sequence[SpeakerRosterEntry]) -> bool:
-        return speakers._has_ambiguous_speaker_role(roster)
-
     def _build_speaker_roster_if_ambiguous(
         self,
         speaker_map: Mapping[int, tuple[str, str]] | None,
@@ -2416,10 +2263,6 @@ class MemorizeMixin:
                 speaker_id, speaker_label, coarse_role
             ),
         )
-
-    @staticmethod
-    def _is_user_declared_relationship_entity(entity: Any) -> bool:
-        return speakers._is_user_declared_relationship_entity(entity)
 
     def _list_declared_relationship_roster(
         self,
@@ -2434,10 +2277,6 @@ class MemorizeMixin:
                 speaker_id, speaker_label, coarse_role
             ),
         )
-
-    @staticmethod
-    def _episode_mentions_roster_entry(episode_text: Any, entry: SpeakerRosterEntry) -> bool:
-        return speakers._episode_mentions_roster_entry(episode_text, entry)
 
     def _build_speaker_roster_for_episode(
         self,
@@ -2605,15 +2444,6 @@ class MemorizeMixin:
             return None
         content = match.group(1).strip()
         return content or None
-
-    def _parse_memory_type_response(self, raw: str) -> list[dict[str, Any]]:
-        return parsing._parse_memory_type_response(raw, self._extract_json_blob)
-
-    def _find_xml_boundaries(self, raw: str) -> tuple[int, int, str] | None:
-        return parsing._find_xml_boundaries(raw)
-
-    def _parse_memory_element(self, memory_elem: Any) -> dict[str, Any] | None:
-        return parsing._parse_memory_element(memory_elem)
 
     def _parse_memory_type_response_xml(self, raw: str) -> list[dict[str, Any]]:
         return parsing._parse_memory_type_response_xml(raw)
