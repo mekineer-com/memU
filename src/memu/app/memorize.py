@@ -237,8 +237,6 @@ class MemorizeMixin:
         raw_text: str | None,
         modality: str,
     ) -> list[dict[str, Any]]:
-        if not self.memorize_config.enable_preprocessor:
-            return [{"text": raw_text, "caption": None}]
         llm_client = self._get_llm_client(
             self.memorize_config.preprocess_llm_profile,
             step_context={"operation": "memorize", "step_id": "preprocess"},
@@ -259,8 +257,6 @@ class MemorizeMixin:
         raw_text: str,
     ) -> list[dict[str, Any]]:
         """Split merged multi-source conversation into episodes grouped by storyline."""
-        if not self.memorize_config.enable_preprocessor:
-            return [{"text": raw_text, "caption": None}]
         template = PREPROCESS_PROMPTS.get("cross_conversation")
         if not template:
             return [{"text": raw_text, "caption": None}]
@@ -770,9 +766,6 @@ class MemorizeMixin:
         return state
 
     async def _memorize_split_episodes(self, state: WorkflowState, step_context: Any) -> WorkflowState:
-        if not self.memorize_config.enable_preprocessor:
-            state["episodes"] = [{"text": state.get("raw_text"), "caption": None}]
-            return state
         llm_client = self._get_step_llm_client(step_context)
         preprocessed = await self._split_into_episodes(
             local_path=state["local_path"],
