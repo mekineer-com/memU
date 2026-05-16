@@ -13,6 +13,7 @@
 | `app/memorize_speakers.py` | Speaker attribution seam for memorize: speaker-id slugging, roster construction/validation, prompt-label sanitization, parsed speaker_ref resolution, and source-message speaker attribution helpers |
 | `app/memorize_dedupe.py` | Dedupe/supersession seam for memorize: semantic dedupe scope/filtering, similarity scoring and re-embed fallback, merged-category-update filtering, and `replaces_previous_fact` supersede target resolution |
 | `app/memorize_categories.py` | Category seam for memorize: homeless-entry clustering, dynamic-category planning/creation, category init/scope mapping, and category-summary update rendering |
+| `app/memorize_persistence.py` | Persistence seam for memorize: resource creation, item/link/triple writes, item-reference backfill, and happened-at resolution |
 | `app/retrieve.py` | Retrieve workflow: rewrite query → embed → rank → judge; server-provided context queries (identity, summaries, cache, intentions, recent history) are preserved across steps and rendered as plain text in soul context; optional `as_of` filters graph edges by `valid_from`/`valid_to`; serialized retrieved memory items explicitly carry `speaker_id` + `speaker_label` when present |
 | `app/settings.py` | Pydantic config models (MemorizeConfig, RetrieveConfig, LLMProfile, etc.) |
 | `database/models.py` | Backend-agnostic data models (MemoryItem, MemoryCategory, Resource, Entity, Triple); `EntityType` literal; `PREDICATES` literal (`caused_by`, `evokes`, `evolved_into`, `conflicts_with`, `parallels`, `shaped_by`, `mentions`) |

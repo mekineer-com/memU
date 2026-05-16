@@ -16,8 +16,9 @@ from memu.app import memorize_parsing as parsing
 from memu.app import memorize_speakers as speakers
 from memu.app import memorize_dedupe as dedupe
 from memu.app import memorize_categories as categories
+from memu.app import memorize_persistence as persistence
 from memu.app.settings import CategoryConfig, CustomPrompt
-from memu.database.models import CategoryItem, MemoryCategory, MemoryItem, MemoryType, Resource, Triple
+from memu.database.models import CategoryItem, MemoryCategory, MemoryItem, MemoryType, Resource
 from memu.prompts.memory_type import (
     CUSTOM_PROMPTS as MEMORY_TYPE_CUSTOM_PROMPTS,
 )
@@ -1281,44 +1282,28 @@ class MemorizeMixin:
         memory_prior_context: list[str] | None = None,
         session: Any | None = None,
     ) -> Resource:
-        caption_text = caption.strip() if caption else None
-        if caption_text:
-            client = embed_client or self._get_llm_client("embedding")
-            caption_embedding = (await client.embed([caption_text]))[0]
-        else:
-            caption_embedding = None
-
-        resource_kwargs: dict[str, Any] = {
-            "url": resource_url,
-            "modality": modality,
-            "local_path": local_path,
-            "caption": caption_text,
-            "embedding": caption_embedding,
-            "user_data": dict(user or {}),
-        }
-        if episode_id:
-            resource_kwargs["episode_id"] = episode_id
-        if conversation_id:
-            resource_kwargs["conversation_id"] = conversation_id
-        if memory_retrieve_history:
-            resource_kwargs["memory_retrieve_history"] = memory_retrieve_history
-        if memory_prior_context:
-            resource_kwargs["memory_prior_context"] = memory_prior_context
-        if session is not None:
-            res = cast(Any, store.resource_repo).create_resource(**resource_kwargs, session=session)
-        else:
-            res = store.resource_repo.create_resource(**resource_kwargs)
-        return cast(Resource, res)
+        return cast(
+            Resource,
+            await persistence._create_resource_with_caption(
+                resource_url=resource_url,
+                modality=modality,
+                local_path=local_path,
+                caption=caption,
+                store=store,
+                embed_client=embed_client,
+                get_embedding_client=self._get_llm_client,
+                user=user,
+                episode_id=episode_id,
+                conversation_id=conversation_id,
+                memory_retrieve_history=memory_retrieve_history,
+                memory_prior_context=memory_prior_context,
+                session=session,
+            ),
+        )
 
     @staticmethod
     def _sqlite_write_session(store: Database) -> Any | None:
-        try:
-            from memu.database.sqlite.sqlite import SQLiteStore
-        except ImportError:
-            return None
-        if isinstance(store, SQLiteStore):
-            return store._sessions.session()
-        return None
+        return persistence._sqlite_write_session(store)
 
     def _resolve_memory_types(self) -> list[MemoryType]:
         configured_types = self.memorize_config.memory_types or DEFAULT_MEMORY_TYPES
@@ -1649,99 +1634,32 @@ class MemorizeMixin:
         message_happened_at_map: Mapping[int, Any] | None = None,
         session: Any | None = None,
     ) -> tuple[list[MemoryItem], list[CategoryItem], dict[str, list[tuple[str, str]]], int]:
-        summary_payloads = [entry.content for entry in structured_entries]
-        client = embed_client or self._get_llm_client()
-        item_embeddings = await client.embed(summary_payloads) if summary_payloads else []
-        items: list[MemoryItem] = []
-        rels: list[CategoryItem] = []
-        category_memory_updates: dict[str, list[tuple[str, str]]] = {}
-        superseded_targets: set[str] = set()
-
-        structured_entries = await self._maybe_create_dynamic_categories(
-            structured_entries=structured_entries,
-            item_embeddings=item_embeddings,
+        items, rels, category_memory_updates, homeless_count = await persistence._persist_memory_items(
+            resource_id=resource_id,
+            structured_entries=cast(list[Any], structured_entries),
             ctx=ctx,
             store=store,
-            embed_client=client,
+            embed_client=embed_client,
+            get_llm_client=self._get_llm_client,
             user=user,
+            conversation_id=conversation_id,
+            episode_id=episode_id,
+            message_happened_at_map=message_happened_at_map,
             session=session,
+            maybe_create_dynamic_categories=self._maybe_create_dynamic_categories,
+            enable_confidence_normalization=self.memorize_config.enable_confidence_normalization,
+            normalize_confidence=lambda entries: cast(list[Any], self._normalize_confidence(cast(list[StructuredMemoryEntry], entries))),
+            find_supersede_targets=self._find_supersede_targets,
+            hedge_summary_for_confidence=self._hedge_summary_for_confidence,
+            resolve_entry_happened_at=self._resolve_entry_happened_at,
+            map_category_names_to_ids=self._map_category_names_to_ids,
         )
-        if self.memorize_config.enable_confidence_normalization:
-            structured_entries = self._normalize_confidence(structured_entries)
-        homeless_count = sum(1 for entry in structured_entries if not entry.categories)
-        supersede_targets = await self._find_supersede_targets(
-            structured_entries=structured_entries,
-            store=store,
-            embed_client=client,
-            user=user,
+        return (
+            cast(list[MemoryItem], items),
+            cast(list[CategoryItem], rels),
+            category_memory_updates,
+            homeless_count,
         )
-        for idx, (entry, emb) in enumerate(zip(structured_entries, item_embeddings, strict=True)):
-            resolved_summary = self._hedge_summary_for_confidence(entry.content, entry.confidence)
-            item_kwargs = {
-                "resource_id": resource_id,
-                "memory_type": entry.memory_type,
-                "summary": resolved_summary,
-                "embedding": emb,
-                "user_data": dict(user or {}),
-                "source_role": entry.source_role,
-                "speaker_id": entry.speaker_id,
-                "speaker_label": entry.speaker_label,
-                "confidence": entry.confidence,
-                "source_message_ids": entry.source_message_ids,
-                "happened_at": self._resolve_entry_happened_at(entry.source_message_ids, message_happened_at_map),
-                "reflection_salience": entry.reflection_salience,
-                "emotional_intensity": entry.emotional_intensity,
-                "conversation_id": conversation_id,
-                "episode_id": episode_id,
-            }
-            if session is not None:
-                item = cast(Any, store.memory_item_repo).create_item(**item_kwargs, session=session)
-            else:
-                item = store.memory_item_repo.create_item(**item_kwargs)
-            items.append(item)
-            if entry.entities:
-                for ent_data in entry.entities:
-                    ent_name = str(ent_data.get("name") or "").strip()
-                    ent_type = str(ent_data.get("type") or "").strip()
-                    if not ent_name or not ent_type:
-                        continue
-                    entity_record = store.entity_repo.get_or_create(
-                        ent_name,
-                        ent_type,
-                        user_data=dict(user or {}),
-                        session=session,
-                    )
-                    store.triple_repo.add(Triple(
-                        subject_id=item.id,
-                        subject_kind="memory",
-                        predicate="mentions",
-                        object_id=entity_record.id,
-                        object_kind="entity",
-                        source_memory_id=item.id,
-                    ), user_data=dict(user or {}), session=session)
-            target_item_id = supersede_targets.get(idx)
-            if target_item_id and target_item_id != item.id and target_item_id not in superseded_targets:
-                superseded_targets.add(target_item_id)
-                store.triple_repo.add(Triple(
-                    subject_id=target_item_id,
-                    subject_kind="memory",
-                    predicate="evolved_into",
-                    object_id=item.id,
-                    object_kind="memory",
-                    source_memory_id=item.id,
-                ), user_data=dict(user or {}), session=session)
-            mapped_cat_ids = self._map_category_names_to_ids(entry.categories, ctx)
-            if resolved_summary.strip():
-                for cid in mapped_cat_ids:
-                    category_memory_updates.setdefault(cid, []).append((item.id, resolved_summary))
-                    rel_kwargs = {"item_id": item.id, "category_id": cid, "user_data": dict(user or {})}
-                    if session is not None:
-                        rel = cast(Any, store.category_item_repo).link_item_category(**rel_kwargs, session=session)
-                    else:
-                        rel = store.category_item_repo.link_item_category(**rel_kwargs)
-                    rels.append(rel)
-
-        return items, rels, category_memory_updates, homeless_count
 
     def _supersede_similarity_threshold(self) -> float:
         return dedupe._supersede_similarity_threshold(
@@ -2339,15 +2257,10 @@ class MemorizeMixin:
         return rendered
 
     def _build_item_ref_id(self, item_id: str) -> str:
-        return item_id.replace("-", "")[:6]
+        return persistence._build_item_ref_id(item_id)
 
     def _extract_refs_from_summaries(self, summaries: dict[str, str]) -> set[str]:
-        from memu.utils.references import extract_references
-
-        refs: set[str] = set()
-        for summary in summaries.values():
-            refs.update(extract_references(summary))
-        return refs
+        return persistence._extract_refs_from_summaries(summaries)
 
     async def _persist_item_references(
         self,
@@ -2356,43 +2269,16 @@ class MemorizeMixin:
         category_updates: dict[str, list[tuple[str, str]]],
         store: Database,
     ) -> None:
-        referenced_short_ids = self._extract_refs_from_summaries(updated_summaries)
-        if not referenced_short_ids:
-            return
-
-        short_id_to_item_id: dict[str, str] = {}
-        for item_tuples in category_updates.values():
-            for item_id, _ in item_tuples:
-                short_id = self._build_item_ref_id(item_id)
-                short_id_to_item_id[short_id] = item_id
-
-        for short_id in referenced_short_ids:
-            matched_item_id = short_id_to_item_id.get(short_id)
-            if matched_item_id:
-                store.memory_item_repo.update_item(
-                    item_id=matched_item_id,
-                    extra={"ref_id": short_id},
-                )
+        await persistence._persist_item_references(
+            updated_summaries=updated_summaries,
+            category_updates=category_updates,
+            store=store,
+            build_item_ref_id=self._build_item_ref_id,
+        )
 
     @staticmethod
     def _looks_like_identifier_value(value: str) -> bool:
-        text = value.strip()
-        if not text:
-            return True
-        lowered = text.lower()
-        if re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", lowered):
-            return True
-        if re.fullmatch(r"[0-9a-f]{24,}", lowered):
-            return True
-        if " " in text:
-            return False
-        if len(text) < 12:
-            return False
-        if not re.fullmatch(r"[A-Za-z0-9_-]+", text):
-            return False
-        has_digit = any(ch.isdigit() for ch in text)
-        has_sep = ("-" in text) or ("_" in text)
-        return has_digit and has_sep
+        return persistence._looks_like_identifier_value(value)
 
     def _summary_user_name(self, user_scope: Mapping[str, Any] | None, *, default: str) -> str:
         scope = user_scope or {}
@@ -2605,17 +2491,7 @@ class MemorizeMixin:
         source_message_ids: Sequence[int] | None,
         message_happened_at_map: Mapping[int, Any] | None,
     ) -> Any | None:
-        if not message_happened_at_map:
-            return None
-        for message_idx in source_message_ids or []:
-            happened_at = message_happened_at_map.get(int(message_idx))
-            if happened_at is not None:
-                return happened_at
-        for message_idx in sorted(message_happened_at_map):
-            happened_at = message_happened_at_map.get(message_idx)
-            if happened_at is not None:
-                return happened_at
-        return None
+        return persistence._resolve_entry_happened_at(source_message_ids, message_happened_at_map)
 
     def _prepare_episode(
         self,
