@@ -293,13 +293,12 @@ def _prefilter_dedupe_candidate_ids(
 
 async def _memorize_dedupe_merge(
     state: dict[str, Any],
-    step_context: Any,
+    _step_context: Any,
     *,
     semantic_dedupe_enabled: bool,
     semantic_dedupe_similarity_threshold: float,
     get_llm_client: Callable[[str], Any],
 ) -> dict[str, Any]:
-    _ = step_context
     items = list(state.get("items") or [])
     state["items"] = items
 

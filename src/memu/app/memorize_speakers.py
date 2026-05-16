@@ -2,9 +2,17 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable, Mapping, Sequence
-from typing import Any
+from typing import Any, Protocol, TypeVar
 
 from memu.app import memorize_parsing as parsing
+
+TEntry = TypeVar("TEntry", bound="SpeakerLike")
+
+
+class SpeakerLike(Protocol):
+    speaker_id: str
+    speaker_label: str
+    coarse_role: str
 
 
 def _normalize_speaker_slug(prefix: str, raw: Any) -> str:
@@ -35,11 +43,11 @@ def _normalize_coarse_role(role: str | None) -> str:
 def _build_speaker_roster(
     speaker_map: Mapping[int, tuple[str, str]] | None,
     *,
-    roster_entry_factory: Callable[[str, str, str], Any],
-) -> list[Any]:
+    roster_entry_factory: Callable[[str, str, str], TEntry],
+) -> list[TEntry]:
     if not speaker_map:
         return []
-    roster: list[Any] = []
+    roster: list[TEntry] = []
     seen_ids: set[str] = set()
     for message_index in sorted(speaker_map):
         speaker_id, speaker_label = speaker_map[message_index]
@@ -52,7 +60,7 @@ def _build_speaker_roster(
     return roster
 
 
-def _has_ambiguous_speaker_role(roster: Sequence[Any]) -> bool:
+def _has_ambiguous_speaker_role(roster: Sequence[SpeakerLike]) -> bool:
     role_counts: dict[str, int] = {}
     for entry in roster:
         if entry.coarse_role == "environment":
@@ -64,8 +72,8 @@ def _has_ambiguous_speaker_role(roster: Sequence[Any]) -> bool:
 def _build_speaker_roster_if_ambiguous(
     speaker_map: Mapping[int, tuple[str, str]] | None,
     *,
-    roster_entry_factory: Callable[[str, str, str], Any],
-) -> list[Any] | None:
+    roster_entry_factory: Callable[[str, str, str], TEntry],
+) -> list[TEntry] | None:
     roster = _build_speaker_roster(speaker_map, roster_entry_factory=roster_entry_factory)
     if not roster or not _has_ambiguous_speaker_role(roster):
         return None
@@ -86,11 +94,11 @@ def _list_declared_relationship_roster(
     *,
     store: Any,
     user: Mapping[str, Any] | None,
-    roster_entry_factory: Callable[[str, str, str], Any],
-) -> list[Any]:
+    roster_entry_factory: Callable[[str, str, str], TEntry],
+) -> list[TEntry]:
     where = dict(user or {}) if isinstance(user, Mapping) else {}
     entities = store.entity_repo.list_all(where=where)
-    roster: list[Any] = []
+    roster: list[TEntry] = []
     seen_ids: set[str] = set()
     for entity in entities:
         if not _is_user_declared_relationship_entity(entity):
@@ -107,7 +115,7 @@ def _list_declared_relationship_roster(
     return roster
 
 
-def _episode_mentions_roster_entry(episode_text: Any, entry: Any) -> bool:
+def _episode_mentions_roster_entry(episode_text: Any, entry: SpeakerLike) -> bool:
     text = str(episode_text or "").strip().lower()
     if not text:
         return False
@@ -124,10 +132,10 @@ def _episode_mentions_roster_entry(episode_text: Any, entry: Any) -> bool:
 def _build_speaker_roster_for_episode(
     *,
     speaker_map: Mapping[int, tuple[str, str]] | None,
-    declared_entities: Sequence[Any] | None,
+    declared_entities: Sequence[TEntry] | None,
     episode_text: Any,
-    roster_entry_factory: Callable[[str, str, str], Any],
-) -> list[Any] | None:
+    roster_entry_factory: Callable[[str, str, str], TEntry],
+) -> list[TEntry] | None:
     map_roster = _build_speaker_roster(speaker_map, roster_entry_factory=roster_entry_factory)
     map_has_ambiguity = _has_ambiguous_speaker_role(map_roster)
     mentioned_declared = [
@@ -138,7 +146,7 @@ def _build_speaker_roster_for_episode(
     if not map_has_ambiguity and not mentioned_declared:
         return None
 
-    merged: list[Any] = []
+    merged: list[TEntry] = []
     seen_ids: set[str] = set()
     for entry in [*map_roster, *mentioned_declared]:
         if entry.speaker_id in seen_ids:
@@ -154,7 +162,7 @@ def _sanitize_prompt_label(label: str) -> str:
 
 
 def _format_speaker_roster_block_for_prompt(
-    speaker_roster: Sequence[Any] | None,
+    speaker_roster: Sequence[SpeakerLike] | None,
 ) -> str:
     if not speaker_roster:
         return ""
@@ -173,7 +181,7 @@ def _format_speaker_roster_block_for_prompt(
 
 def _parse_speaker_ref(
     raw: Any,
-    roster: Sequence[Any] | None,
+    roster: Sequence[SpeakerLike] | None,
 ) -> tuple[str | None, str | None]:
     if not isinstance(raw, str) or not roster:
         return None, None

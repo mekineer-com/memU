@@ -2943,13 +2943,10 @@ Decide which clusters/candidates should map into existing categories, and which 
         self,
         speaker_map: Mapping[int, tuple[str, str]] | None,
     ) -> list[SpeakerRosterEntry]:
-        return cast(
-            list[SpeakerRosterEntry],
-            speakers._build_speaker_roster(
-                speaker_map,
-                roster_entry_factory=lambda speaker_id, speaker_label, coarse_role: SpeakerRosterEntry(
-                    speaker_id, speaker_label, coarse_role
-                ),
+        return speakers._build_speaker_roster(
+            speaker_map,
+            roster_entry_factory=lambda speaker_id, speaker_label, coarse_role: SpeakerRosterEntry(
+                speaker_id, speaker_label, coarse_role
             ),
         )
 
@@ -2961,13 +2958,10 @@ Decide which clusters/candidates should map into existing categories, and which 
         self,
         speaker_map: Mapping[int, tuple[str, str]] | None,
     ) -> list[SpeakerRosterEntry] | None:
-        return cast(
-            list[SpeakerRosterEntry] | None,
-            speakers._build_speaker_roster_if_ambiguous(
-                speaker_map,
-                roster_entry_factory=lambda speaker_id, speaker_label, coarse_role: SpeakerRosterEntry(
-                    speaker_id, speaker_label, coarse_role
-                ),
+        return speakers._build_speaker_roster_if_ambiguous(
+            speaker_map,
+            roster_entry_factory=lambda speaker_id, speaker_label, coarse_role: SpeakerRosterEntry(
+                speaker_id, speaker_label, coarse_role
             ),
         )
 
@@ -2981,14 +2975,11 @@ Decide which clusters/candidates should map into existing categories, and which 
         store: Database,
         user: Mapping[str, Any] | None,
     ) -> list[SpeakerRosterEntry]:
-        return cast(
-            list[SpeakerRosterEntry],
-            speakers._list_declared_relationship_roster(
-                store=store,
-                user=user,
-                roster_entry_factory=lambda speaker_id, speaker_label, coarse_role: SpeakerRosterEntry(
-                    speaker_id, speaker_label, coarse_role
-                ),
+        return speakers._list_declared_relationship_roster(
+            store=store,
+            user=user,
+            roster_entry_factory=lambda speaker_id, speaker_label, coarse_role: SpeakerRosterEntry(
+                speaker_id, speaker_label, coarse_role
             ),
         )
 
@@ -3003,15 +2994,12 @@ Decide which clusters/candidates should map into existing categories, and which 
         declared_entities: Sequence[SpeakerRosterEntry] | None,
         episode_text: Any,
     ) -> list[SpeakerRosterEntry] | None:
-        return cast(
-            list[SpeakerRosterEntry] | None,
-            speakers._build_speaker_roster_for_episode(
-                speaker_map=speaker_map,
-                declared_entities=declared_entities,
-                episode_text=episode_text,
-                roster_entry_factory=lambda speaker_id, speaker_label, coarse_role: SpeakerRosterEntry(
-                    speaker_id, speaker_label, coarse_role
-                ),
+        return speakers._build_speaker_roster_for_episode(
+            speaker_map=speaker_map,
+            declared_entities=declared_entities,
+            episode_text=episode_text,
+            roster_entry_factory=lambda speaker_id, speaker_label, coarse_role: SpeakerRosterEntry(
+                speaker_id, speaker_label, coarse_role
             ),
         )
 
