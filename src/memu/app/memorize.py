@@ -14,6 +14,7 @@ from pydantic import BaseModel
 
 from memu.app import memorize_parsing as parsing
 from memu.app import memorize_speakers as speakers
+from memu.app import memorize_dedupe as dedupe
 from memu.app.settings import CategoryConfig, CustomPrompt
 from memu.database.models import CategoryItem, MemoryCategory, MemoryItem, MemoryType, Resource, Triple
 from memu.prompts.category_summary import (
@@ -878,140 +879,16 @@ class MemorizeMixin:
         return state
 
     async def _memorize_dedupe_merge(self, state: WorkflowState, step_context: Any) -> WorkflowState:
-        _ = step_context
-        items = list(state.get("items") or [])
-        state["items"] = items
-
-        if not self.memorize_config.semantic_dedupe_enabled:
-            return state
-        if len(items) < 1:
-            return state
-
-        dedupe_scope = self._build_semantic_dedupe_scope(state.get("user"))
-        if dedupe_scope is None:
-            return state
-
-        store = state["store"]
-        active_pool = dict(store.memory_item_repo.list_items(dedupe_scope))
-        if len(active_pool) < 2:
-            return state
-
-        new_item_ids: list[str] = []
-        seen_new: set[str] = set()
-        for item in items:
-            item_id = getattr(item, "id", None)
-            if not item_id or item_id in seen_new:
-                continue
-            seen_new.add(item_id)
-            pool_item = active_pool.get(item_id)
-            if pool_item is None:
-                continue
-            if self._is_merged_item(pool_item):
-                continue
-            if self._item_embedding(pool_item) is None:
-                continue
-            new_item_ids.append(item_id)
-        if not new_item_ids:
-            return state
-
-        threshold = max(0.0, min(1.0, float(self.memorize_config.semantic_dedupe_similarity_threshold)))
-        merged_map: dict[str, str] = {}
-        dedupe_embed_client: Any | None = None
-        dedupe_embed_cache: dict[str, list[float] | None] = {}
-        summary_tokens: dict[str, set[str]] = {}
-        token_index: dict[str, set[str]] = {}
-        token_freq: dict[str, int] = {}
-
-        for pool_item_id, pool_item in active_pool.items():
-            tokens = self._dedupe_summary_tokens(getattr(pool_item, "summary", ""))
-            summary_tokens[pool_item_id] = tokens
-            for token in tokens:
-                token_index.setdefault(token, set()).add(pool_item_id)
-                token_freq[token] = token_freq.get(token, 0) + 1
-
-        for new_item_id in new_item_ids:
-            anchor = active_pool.get(new_item_id)
-            if anchor is None or self._is_merged_item(anchor):
-                continue
-            anchor_embedding = self._item_embedding(anchor)
-            if anchor_embedding is None:
-                continue
-
-            candidates: list[tuple[float, str]] = []
-            candidate_ids = self._prefilter_dedupe_candidate_ids(
-                anchor_id=new_item_id,
-                anchor=anchor,
-                active_pool=active_pool,
-                merged_map=merged_map,
-                summary_tokens=summary_tokens,
-                token_index=token_index,
-                token_freq=token_freq,
-            )
-            for candidate_id in candidate_ids:
-                candidate = active_pool.get(candidate_id)
-                if candidate is None:
-                    continue
-                candidate_embedding = self._item_embedding(candidate)
-                compare_anchor: list[float] | None = anchor_embedding
-                compare_candidate: list[float] | None = candidate_embedding
-
-                if candidate_embedding is None or len(anchor_embedding) != len(candidate_embedding):
-                    if dedupe_embed_client is None:
-                        dedupe_embed_client = self._get_llm_client("embedding")
-                    compare_anchor = await self._dedupe_reembed_for_similarity(
-                        item=anchor,
-                        embed_client=dedupe_embed_client,
-                        cache=dedupe_embed_cache,
-                    )
-                    compare_candidate = await self._dedupe_reembed_for_similarity(
-                        item=candidate,
-                        embed_client=dedupe_embed_client,
-                        cache=dedupe_embed_cache,
-                    )
-                if compare_anchor is None or compare_candidate is None or len(compare_anchor) != len(compare_candidate):
-                    continue
-                similarity = self._cosine_similarity(compare_anchor, compare_candidate)
-                if similarity >= threshold:
-                    candidates.append((similarity, candidate_id))
-            if not candidates:
-                continue
-
-            candidates.sort(key=lambda row: (-row[0], row[1]))
-            for similarity, candidate_id in candidates:
-                current_anchor = active_pool.get(new_item_id)
-                candidate = active_pool.get(candidate_id)
-                if current_anchor is None or candidate is None:
-                    continue
-                if self._is_merged_item(current_anchor) or self._is_merged_item(candidate):
-                    continue
-
-                survivor, redundant = self._choose_survivor_and_redundant(current_anchor, candidate)
-                if survivor.id == redundant.id:
-                    continue
-
-                store.memory_item_repo.update_item(item_id=redundant.id, merged_into=survivor.id)
-                merged_map[redundant.id] = survivor.id
-                active_pool.pop(redundant.id, None)
-                if redundant.id == new_item_id:
-                    break
-
-        if not merged_map:
-            return state
-
-        merged_ids = set(merged_map.keys())
-        remaining_items: list[MemoryItem] = []
-        for item in items:
-            item_id = getattr(item, "id", None)
-            if item_id in merged_ids:
-                continue
-            refreshed = active_pool.get(item_id)
-            remaining_items.append(refreshed if refreshed is not None else item)
-        state["items"] = remaining_items
-        state["relations"] = [
-            rel for rel in (state.get("relations") or []) if getattr(rel, "item_id", None) not in merged_ids
-        ]
-        state["category_updates"] = self._filter_merged_from_category_updates(state.get("category_updates"), merged_ids)
-        return state
+        return cast(
+            WorkflowState,
+            await dedupe._memorize_dedupe_merge(
+                cast(dict[str, Any], state),
+                step_context,
+                semantic_dedupe_enabled=self.memorize_config.semantic_dedupe_enabled,
+                semantic_dedupe_similarity_threshold=self.memorize_config.semantic_dedupe_similarity_threshold,
+                get_llm_client=self._get_llm_client,
+            ),
+        )
 
     @staticmethod
     def _extract_scope_field(
@@ -1019,51 +896,22 @@ class MemorizeMixin:
         *,
         keys: Sequence[str],
     ) -> tuple[str, str] | None:
-        for key in keys:
-            raw = scope.get(key)
-            if raw is None:
-                continue
-            value = str(raw).strip()
-            if value:
-                return key, value
-        return None
+        return dedupe._extract_scope_field(scope, keys=keys)
 
     def _build_semantic_dedupe_scope(self, scope: Mapping[str, Any] | None) -> dict[str, str] | None:
-        if not isinstance(scope, Mapping):
-            return None
-        user_field = self._extract_scope_field(scope, keys=("user_id",))
-        soul_field = self._extract_scope_field(scope, keys=("soul_id",))
-        if user_field is None or soul_field is None:
-            return None
-        _user_key, user_value = user_field
-        _soul_key, soul_value = soul_field
-        return {
-            "user_id": user_value,
-            "soul_id": soul_value,
-        }
+        return dedupe._build_semantic_dedupe_scope(scope)
 
     @staticmethod
     def _normalize_embedding_vector(embedding: Any) -> list[float] | None:
-        if not isinstance(embedding, Sequence):
-            return None
-        if isinstance(embedding, (str, bytes, bytearray)):
-            return None
-        normalized: list[float] = []
-        for value in embedding:
-            try:
-                normalized.append(float(value))
-            except (TypeError, ValueError):
-                return None
-        return normalized if normalized else None
+        return dedupe._normalize_embedding_vector(embedding)
 
     @staticmethod
     def _is_merged_item(item: Any) -> bool:
-        merged_into = getattr(item, "merged_into", None)
-        return isinstance(merged_into, str) and merged_into.strip() != ""
+        return dedupe._is_merged_item(item)
 
     @staticmethod
     def _item_embedding(item: Any) -> list[float] | None:
-        return MemorizeMixin._normalize_embedding_vector(getattr(item, "embedding", None))
+        return dedupe._item_embedding(item)
 
     async def _dedupe_reembed_for_similarity(
         self,
@@ -1072,168 +920,41 @@ class MemorizeMixin:
         embed_client: Any,
         cache: dict[str, list[float] | None],
     ) -> list[float] | None:
-        item_id = str(getattr(item, "id", "")).strip()
-        summary = str(getattr(item, "summary", "")).strip()
-        cache_key = item_id or summary
-        if not cache_key:
-            return None
-        if cache_key in cache:
-            return cache[cache_key]
-        if not summary:
-            cache[cache_key] = None
-            return None
-
-        try:
-            vectors = await embed_client.embed([summary])
-        except Exception:
-            logger.warning("dedupe: fallback re-embed failed for %s", item_id or "<no-id>", exc_info=True)
-            cache[cache_key] = None
-            return None
-
-        vector: list[float] | None = None
-        if isinstance(vectors, list) and vectors:
-            raw = vectors[0]
-            if isinstance(raw, Sequence) and not isinstance(raw, (str, bytes, bytearray)):
-                normalized: list[float] = []
-                for value in raw:
-                    try:
-                        normalized.append(float(value))
-                    except (TypeError, ValueError):
-                        normalized = []
-                        break
-                if normalized:
-                    vector = normalized
-
-        cache[cache_key] = vector
-        return vector
+        return await dedupe._dedupe_reembed_for_similarity(
+            item=item,
+            embed_client=embed_client,
+            cache=cache,
+        )
 
     @staticmethod
     def _summary_len(item: Any) -> int:
-        summary = getattr(item, "summary", "")
-        return len(str(summary).strip())
+        return dedupe._summary_len(item)
 
     def _choose_survivor_and_redundant(self, left: MemoryItem, right: MemoryItem) -> tuple[MemoryItem, MemoryItem]:
-        left_time = getattr(left, "happened_at", None) or getattr(left, "created_at", None)
-        right_time = getattr(right, "happened_at", None) or getattr(right, "created_at", None)
-        if left_time is not None and right_time is not None:
-            try:
-                if left_time > right_time:
-                    return left, right
-                if right_time > left_time:
-                    return right, left
-            except TypeError:
-                left_iso = str(getattr(left_time, "isoformat", lambda: left_time)())
-                right_iso = str(getattr(right_time, "isoformat", lambda: right_time)())
-                if left_iso > right_iso:
-                    return left, right
-                if right_iso > left_iso:
-                    return right, left
-        elif left_time is not None:
-            return left, right
-        elif right_time is not None:
-            return right, left
-
-        left_len = self._summary_len(left)
-        right_len = self._summary_len(right)
-        if left_len > right_len:
-            return left, right
-        if right_len > left_len:
-            return right, left
-        left_id = str(getattr(left, "id", ""))
-        right_id = str(getattr(right, "id", ""))
-        if left_id <= right_id:
-            return left, right
-        return right, left
+        return cast(tuple[MemoryItem, MemoryItem], dedupe._choose_survivor_and_redundant(left, right))
 
     @staticmethod
     def _cosine_similarity(a: Sequence[float], b: Sequence[float]) -> float:
-        if not a or not b or len(a) != len(b):
-            return 0.0
-        dot = sum(x * y for x, y in zip(a, b, strict=True))
-        norm_a = math.sqrt(sum(x * x for x in a))
-        norm_b = math.sqrt(sum(y * y for y in b))
-        if norm_a <= 0.0 or norm_b <= 0.0:
-            return 0.0
-        return dot / (norm_a * norm_b)
+        return dedupe._cosine_similarity(a, b)
 
     @staticmethod
     def _filter_merged_from_category_updates(
         updates: Any,
         merged_ids: set[str],
     ) -> dict[str, list[tuple[str, str]]]:
-        if not isinstance(updates, dict):
-            return {}
-        filtered: dict[str, list[tuple[str, str]]] = {}
-        for category_id, item_tuples in updates.items():
-            if not isinstance(item_tuples, list):
-                continue
-            kept: list[tuple[str, str]] = []
-            for entry in item_tuples:
-                if not isinstance(entry, (tuple, list)) or len(entry) != 2:
-                    continue
-                item_id = str(entry[0]).strip()
-                summary = str(entry[1])
-                if not item_id or item_id in merged_ids:
-                    continue
-                kept.append((item_id, summary))
-            if kept:
-                filtered[str(category_id)] = kept
-        return filtered
+        return dedupe._filter_merged_from_category_updates(updates, merged_ids)
 
     @staticmethod
     def _dedupe_summary_tokens(summary: Any) -> set[str]:
-        text = str(summary or "").lower()
-        if not text:
-            return set()
-        stopwords = {
-            "about",
-            "after",
-            "before",
-            "being",
-            "during",
-            "from",
-            "have",
-            "just",
-            "said",
-            "some",
-            "still",
-            "that",
-            "their",
-            "them",
-            "then",
-            "there",
-            "they",
-            "this",
-            "through",
-            "very",
-            "when",
-            "where",
-            "while",
-            "with",
-            "would",
-        }
-        out: set[str] = set()
-        for token in re.findall(r"[a-z0-9]{4,}", text):
-            if token in stopwords:
-                continue
-            out.add(token)
-        return out
+        return dedupe._dedupe_summary_tokens(summary)
 
     @staticmethod
     def _dedupe_source_role(item: Any) -> str | None:
-        raw = getattr(item, "source_role", None)
-        if not isinstance(raw, str):
-            return None
-        value = raw.strip()
-        return value or None
+        return dedupe._dedupe_source_role(item)
 
     @staticmethod
     def _dedupe_speaker_id(item: Any) -> str | None:
-        raw = getattr(item, "speaker_id", None)
-        if not isinstance(raw, str):
-            return None
-        value = raw.strip()
-        return value or None
+        return dedupe._dedupe_speaker_id(item)
 
     def _prefilter_dedupe_candidate_ids(
         self,
@@ -1246,52 +967,15 @@ class MemorizeMixin:
         token_index: Mapping[str, set[str]],
         token_freq: Mapping[str, int],
     ) -> list[str]:
-        anchor_role = self._dedupe_source_role(anchor)
-        anchor_speaker_id = self._dedupe_speaker_id(anchor)
-        anchor_tokens = summary_tokens.get(anchor_id) or set()
-        candidate_scores: dict[str, int] = {}
-
-        selected_tokens = sorted(
-            anchor_tokens,
-            key=lambda token: (token_freq.get(token, 0), -len(token), token),
-        )[:4]
-
-        for token in selected_tokens:
-            for candidate_id in token_index.get(token, set()):
-                if candidate_id == anchor_id or candidate_id in merged_map:
-                    continue
-                candidate = active_pool.get(candidate_id)
-                if candidate is None or self._is_merged_item(candidate):
-                    continue
-                candidate_role = self._dedupe_source_role(candidate)
-                candidate_speaker_id = self._dedupe_speaker_id(candidate)
-                if anchor_role != candidate_role:
-                    continue
-                if anchor_speaker_id != candidate_speaker_id:
-                    continue
-                overlap = len(anchor_tokens & (summary_tokens.get(candidate_id) or set()))
-                if overlap <= 0:
-                    continue
-                prev = candidate_scores.get(candidate_id, 0)
-                if overlap > prev:
-                    candidate_scores[candidate_id] = overlap
-
-        if not candidate_scores:
-            for candidate_id, candidate in active_pool.items():
-                if candidate_id == anchor_id or candidate_id in merged_map:
-                    continue
-                if self._is_merged_item(candidate):
-                    continue
-                candidate_role = self._dedupe_source_role(candidate)
-                candidate_speaker_id = self._dedupe_speaker_id(candidate)
-                if anchor_role != candidate_role:
-                    continue
-                if anchor_speaker_id != candidate_speaker_id:
-                    continue
-                candidate_scores[candidate_id] = 0
-
-        ordered = sorted(candidate_scores.items(), key=lambda row: (-row[1], row[0]))
-        return [candidate_id for candidate_id, _score in ordered[:64]]
+        return dedupe._prefilter_dedupe_candidate_ids(
+            anchor_id=anchor_id,
+            anchor=anchor,
+            active_pool=active_pool,
+            merged_map=merged_map,
+            summary_tokens=summary_tokens,
+            token_index=token_index,
+            token_freq=token_freq,
+        )
 
     def _dynamic_category_cluster_threshold(self) -> float:
         return 0.75
@@ -2392,8 +2076,9 @@ Decide which clusters/candidates should map into existing categories, and which 
         return items, rels, category_memory_updates, homeless_count
 
     def _supersede_similarity_threshold(self) -> float:
-        threshold = float(getattr(self.memorize_config, "supersede_similarity_threshold", 0.75) or 0.75)
-        return max(0.0, min(1.0, threshold))
+        return dedupe._supersede_similarity_threshold(
+            getattr(self.memorize_config, "supersede_similarity_threshold", 0.75)
+        )
 
     async def _find_supersede_targets(
         self,
@@ -2403,38 +2088,16 @@ Decide which clusters/candidates should map into existing categories, and which 
         embed_client: Any,
         user: Mapping[str, Any] | None = None,
     ) -> dict[int, str]:
-        replace_requests = [
-            (idx, entry)
-            for idx, entry in enumerate(structured_entries)
-            if isinstance(entry.replaces_previous_fact, str) and entry.replaces_previous_fact.strip()
-        ]
-        if not replace_requests:
-            return {}
-
-        replace_texts = [cast(str, entry.replaces_previous_fact).strip() for _, entry in replace_requests]
-        replace_vectors = await embed_client.embed(replace_texts)
-        threshold = self._supersede_similarity_threshold()
-        targets: dict[int, str] = {}
-
-        for (idx, entry), raw_vector in zip(replace_requests, replace_vectors, strict=True):
-            vector = self._normalize_embedding_vector(raw_vector)
-            if vector is None:
-                logger.warning(
-                    "supersede: embedding normalization failed for replacement text, skipping: %.80s",
-                    entry.replaces_previous_fact,
-                )
-                continue
-            where = dict(user or {})
-            where["memory_type"] = entry.memory_type
-            if entry.source_role:
-                where["source_role"] = entry.source_role
-            hits = store.memory_item_repo.vector_search_items(query_vec=vector, top_k=3, where=where)
-            for candidate_id, similarity in hits:
-                if similarity >= threshold:
-                    targets[idx] = candidate_id
-                    break
-
-        return targets
+        return cast(
+            dict[int, str],
+            await dedupe._find_supersede_targets(
+                structured_entries=cast(list[Any], structured_entries),
+                store=store,
+                embed_client=embed_client,
+                user=user,
+                threshold=self._supersede_similarity_threshold(),
+            ),
+        )
 
     @staticmethod
     def _category_scope_key(user_scope: Mapping[str, Any] | None) -> str:
