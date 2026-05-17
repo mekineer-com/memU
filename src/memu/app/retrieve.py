@@ -214,8 +214,7 @@ class RetrieveMixin:
 
     async def _rag_route_intention(self, state: WorkflowState, step_context: Any) -> WorkflowState:
         llm_client = self._get_step_llm_client(step_context)
-        channel_mode = state.get("channel_mode")
-        angle_prompt = _system_prompt_for_angle(state.get("rewrite_angle"), channel_mode=channel_mode)
+        angle_prompt = _system_prompt_for_angle(state.get("rewrite_angle"))
         needs_retrieval, rewritten_query, raw_response = await self._decide_if_retrieval_needed(
             state["original_query"],
             state.get("route_context_queries", state["context_queries"]),
@@ -224,14 +223,9 @@ class RetrieveMixin:
             llm_client=llm_client,
         )
         mental_health_query = self._extract_mental_health_query(raw_response)
-        should_respond = self._extract_respond_decision(raw_response, channel_mode)
-
-        if not should_respond:
-            needs_retrieval = False
 
         state.update({
             "needs_retrieval": needs_retrieval,
-            "should_respond": should_respond,
             "rewritten_query": rewritten_query,
             "active_query": rewritten_query,
             "mental_health_query": mental_health_query,
@@ -458,7 +452,6 @@ class RetrieveMixin:
     def _rag_build_context(self, state: WorkflowState, _: Any) -> WorkflowState:
         response = {
             "needs_retrieval": bool(state.get("needs_retrieval")),
-            "should_respond": state.get("should_respond", True),
             "original_query": state["original_query"],
             "rewritten_query": state.get("rewritten_query", state["original_query"]),
             "mental_health_query": state.get("mental_health_query"),
@@ -659,13 +652,6 @@ class RetrieveMixin:
         if match:
             return match.group(1).strip()
         return None
-
-    @staticmethod
-    def _extract_respond_decision(raw: str, channel_mode: str | None) -> bool:
-        match = re.search(r"<respond>(.*?)</respond>", raw, re.IGNORECASE | re.DOTALL)
-        if match:
-            return "SPEAK" in match.group(1).strip().upper()
-        return (channel_mode or "direct") != "group"
 
     def _extract_mental_health_query(self, raw: str) -> str | None:
         match = re.search(r"<mental_health_query>(.*?)</mental_health_query>", raw, re.IGNORECASE | re.DOTALL)

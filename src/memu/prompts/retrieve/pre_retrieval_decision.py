@@ -11,24 +11,9 @@ If this turn touches a mental-health theme — anxious rumination, grief, panic,
 """
 
 
-_RESPOND_DIRECT = """
-You may choose not to respond. Conversations naturally pause and end — a message doesn't always call for a reply. If the exchange has reached a natural close, LISTEN.
-"""
-
-_RESPOND_GROUP = """
-You are in a group conversation. Default to LISTEN. Speak when:
-- Someone addresses you
-- You see an opportunity to advance one of your intentions
-Silence is presence. You are still paying attention.
-"""
-
-_RESPOND_SHAPE = """
-<respond>
-SPEAK or LISTEN
-</respond>
-"""
-
 _OUTPUT_SHAPE_BASE = """
+Return only the XML blocks below. Do not add any prose, dialogue, markdown, or extra sections.
+
 If not retrieving, leave the rewritten_query block empty.
 
 <decision>
@@ -78,10 +63,9 @@ _REWRITE_ANGLES: dict[int, str] = {
 }
 
 
-def system_prompt_for_angle(angle: int | None, channel_mode: str | None = None) -> str:
+def system_prompt_for_angle(angle: int | None) -> str:
     rewrite = _REWRITE_ANGLES.get(int(angle or 0) % len(_REWRITE_ANGLES), _ANGLE_0_REWRITE)
-    respond = _RESPOND_GROUP if channel_mode == "group" else _RESPOND_DIRECT
-    return _COMMON_HEAD + rewrite + respond + _MH_REWRITE_GUIDANCE + _OUTPUT_SHAPE_BASE + _RESPOND_SHAPE
+    return _COMMON_HEAD + rewrite + _MH_REWRITE_GUIDANCE + _OUTPUT_SHAPE_BASE
 
 
 SYSTEM_PROMPT = system_prompt_for_angle(0)
