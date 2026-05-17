@@ -1,7 +1,10 @@
 _COMMON_HEAD = """
 Decide whether this query needs memory retrieval, or whether the current conversation is enough to answer it.
 
-Skip retrieval for: greetings, casual chat, or acknowledgments.
+Skip retrieval only for:
+- Greetings or acknowledgments.
+- Commands/system messages — "stop"
+- Pure logistics — "be there in 5", "ok"
 """
 
 
