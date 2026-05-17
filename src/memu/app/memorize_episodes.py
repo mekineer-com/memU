@@ -1,0 +1,634 @@
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import pathlib
+import re
+from collections.abc import Awaitable, Callable, Mapping, Sequence
+from typing import Any
+
+from memu.utils.conversation import format_conversation_for_preprocess
+from memu.utils.video import VideoFrameExtractor
+
+logger = logging.getLogger(__name__)
+
+
+async def _split_into_episodes(
+    *,
+    local_path: str,
+    text: str | None,
+    modality: str,
+    memorize_config: Any,
+    preprocess_prompts: Mapping[str, str],
+    resolve_custom_prompt: Callable[[Any, Mapping[str, str]], str],
+    prepare_audio_text: Callable[..., Awaitable[str | None]],
+    modality_requires_text: Callable[[str], bool],
+    dispatch_preprocessor: Callable[..., Awaitable[list[dict[str, Any]]]],
+    llm_client: Any | None = None,
+) -> list[dict[str, Any]]:
+    configured_prompt = memorize_config.multimodal_preprocess_prompts.get(modality)
+    if configured_prompt is None:
+        template = preprocess_prompts.get(modality)
+    elif isinstance(configured_prompt, str):
+        template = configured_prompt
+    else:
+        template = resolve_custom_prompt(configured_prompt, {})
+
+    if not template:
+        return [{"text": text, "caption": None}]
+
+    if modality == "audio":
+        text = await prepare_audio_text(local_path, text, llm_client=llm_client)
+        if text is None:
+            return [{"text": None, "caption": None}]
+
+    if modality_requires_text(modality) and not text:
+        return [{"text": text, "caption": None}]
+
+    return await dispatch_preprocessor(
+        modality=modality,
+        local_path=local_path,
+        text=text,
+        template=template,
+        llm_client=llm_client,
+    )
+
+
+async def _prepare_audio_text(
+    local_path: str,
+    text: str | None,
+    *,
+    llm_client: Any | None,
+    get_llm_client: Callable[..., Any],
+) -> str | None:
+    if text:
+        return text
+
+    audio_extensions = {".mp3", ".mp4", ".mpeg", ".mpga", ".m4a", ".wav", ".webm"}
+    text_extensions = {".txt", ".text", ".jsonl"}
+    file_ext = pathlib.Path(local_path).suffix.lower()
+
+    if file_ext in audio_extensions:
+        try:
+            client = llm_client or get_llm_client()
+            transcribed = await client.transcribe(local_path)
+        except Exception:
+            logger.exception("Audio transcription failed for %s", local_path)
+            return None
+        return str(transcribed)
+
+    if file_ext in text_extensions:
+        path_obj = pathlib.Path(local_path)
+        try:
+            text_content = path_obj.read_text(encoding="utf-8")
+        except OSError:
+            logger.exception("Failed to read text file %s", local_path)
+            return None
+        return text_content
+
+    logger.warning("Unknown audio file type: %s, skipping transcription", file_ext)
+    return None
+
+
+def _modality_requires_text(modality: str) -> bool:
+    return modality in ("conversation", "document")
+
+
+async def _dispatch_preprocessor(
+    *,
+    modality: str,
+    local_path: str,
+    text: str | None,
+    template: str,
+    llm_client: Any | None,
+    split_conversation_into_episodes: Callable[..., Awaitable[list[dict[str, Any]]]],
+    preprocess_video: Callable[..., Awaitable[list[dict[str, str | None]]]],
+    preprocess_image: Callable[..., Awaitable[list[dict[str, str | None]]]],
+    preprocess_document: Callable[..., Awaitable[list[dict[str, str | None]]]],
+    preprocess_audio: Callable[..., Awaitable[list[dict[str, str | None]]]],
+) -> list[dict[str, Any]]:
+    if modality == "conversation" and text is not None:
+        return await split_conversation_into_episodes(text, template, llm_client=llm_client)
+    if modality == "video":
+        return await preprocess_video(local_path, template, llm_client=llm_client)
+    if modality == "image":
+        return await preprocess_image(local_path, template, llm_client=llm_client)
+    if modality == "document" and text is not None:
+        return await preprocess_document(text, template, llm_client=llm_client)
+    if modality == "audio" and text is not None:
+        return await preprocess_audio(text, template, llm_client=llm_client)
+    return [{"text": text, "caption": None}]
+
+
+async def _split_conversation_into_episodes(
+    *,
+    conversation_raw_text: str,
+    template: str,
+    llm_client: Any | None,
+    memorize_config: Any,
+    escape_prompt_value: Callable[[str], str],
+    get_llm_client: Callable[..., Any],
+    parse_conversation_preprocess_with_episodes: Callable[[str, str], tuple[str | None, list[dict[str, Any]] | None]],
+    extract_message_indices: Callable[[str | None], list[int]],
+    dedupe_message_indices: Callable[[Sequence[int | float | str]], list[int]],
+    summarize_episode: Callable[..., Awaitable[str | None]],
+) -> list[dict[str, Any]]:
+    indexed_conversation_text = format_conversation_for_preprocess(conversation_raw_text)
+    eps_per_seg = getattr(memorize_config, "episodes_per_segment", 3) or 3
+    prompt = template.format(
+        conversation=escape_prompt_value(indexed_conversation_text),
+        episodes_per_segment=eps_per_seg,
+    )
+    client = llm_client or get_llm_client()
+    preprocessor_response = await client.chat(prompt)
+    _, episodes = parse_conversation_preprocess_with_episodes(
+        preprocessor_response,
+        indexed_conversation_text,
+    )
+
+    # Always use the original indexed conversation text for downstream extraction.
+    all_message_indices = extract_message_indices(indexed_conversation_text)
+    if not episodes:
+        return [{"text": indexed_conversation_text, "caption": None, "message_indices": all_message_indices}]
+
+    indexed_lines = indexed_conversation_text.split("\n")
+    max_idx = len(indexed_lines) - 1
+    episode_resources: list[dict[str, Any]] = []
+    pending_captions: list[tuple[int, str]] = []
+
+    for episode in episodes:
+        explicit_indices = episode.get("message_indices")
+        if isinstance(explicit_indices, list) and explicit_indices:
+            parsed_indices = dedupe_message_indices([
+                value for value in explicit_indices if isinstance(value, (int, float, str))
+            ])
+            indices = sorted(i for i in parsed_indices if 0 <= i <= max_idx)
+        else:
+            start = int(episode.get("start", 0))
+            end = int(episode.get("end", max_idx))
+            start = max(0, min(start, max_idx))
+            end = max(0, min(end, max_idx))
+            indices = list(range(start, end + 1))
+
+        episode_text = "\n".join(indexed_lines[i] for i in indices if i <= max_idx)
+        if episode_text.strip():
+            caption_raw = episode.get("caption")
+            caption = str(caption_raw).strip() if isinstance(caption_raw, str) else ""
+            episode_resources.append({
+                "text": episode_text,
+                "caption": caption or None,
+                "message_indices": indices,
+            })
+            if not caption:
+                pending_captions.append((len(episode_resources) - 1, episode_text))
+
+    if pending_captions:
+        max_parallel = min(4, len(pending_captions))
+        limiter = asyncio.Semaphore(max_parallel)
+
+        async def summarize_one(resource_idx: int, episode_text: str) -> tuple[int, str | None]:
+            async with limiter:
+                caption = await summarize_episode(episode_text, llm_client=client)
+                return resource_idx, caption
+
+        caption_results = await asyncio.gather(
+            *(summarize_one(resource_idx, episode_text) for resource_idx, episode_text in pending_captions)
+        )
+        for resource_idx, generated_caption in caption_results:
+            episode_resources[resource_idx]["caption"] = generated_caption
+    return (
+        episode_resources
+        if episode_resources
+        else [{"text": indexed_conversation_text, "caption": None, "message_indices": all_message_indices}]
+    )
+
+
+async def _summarize_episode(
+    *,
+    episode_text: str,
+    llm_client: Any | None,
+    get_llm_client: Callable[..., Any],
+) -> str | None:
+    system_prompt = (
+        "Summarize the given conversation episode in 1-2 concise sentences. "
+        "Focus on the main topic or theme discussed."
+    )
+    try:
+        client = llm_client or get_llm_client(
+            step_context={"operation": "memorize", "step_id": "episode_summary"},
+        )
+        response = await client.chat(episode_text, system_prompt=system_prompt)
+        return response.strip() if response else None
+    except Exception:
+        logger.exception("Failed to summarize episode")
+        return None
+
+
+async def _preprocess_video(
+    *,
+    local_path: str,
+    template: str,
+    llm_client: Any | None,
+    get_llm_client: Callable[..., Any],
+    parse_multimodal_response: Callable[[str, str, str], tuple[str | None, str | None]],
+) -> list[dict[str, str | None]]:
+    try:
+        if not VideoFrameExtractor.is_ffmpeg_available():
+            logger.warning("ffmpeg not available, cannot process video. Returning None.")
+            return [{"text": None, "caption": None}]
+
+        frame_path = VideoFrameExtractor.extract_middle_frame(local_path)
+
+        try:
+            client = llm_client or get_llm_client()
+            processed = await client.vision(prompt=template, image_path=frame_path, system_prompt=None)
+            description, caption = parse_multimodal_response(processed, "detailed_description", "caption")
+            return [{"text": description, "caption": caption}]
+        finally:
+            try:
+                pathlib.Path(frame_path).unlink(missing_ok=True)
+            except OSError as exc:
+                logger.warning("Failed to clean up frame %s: %s", frame_path, exc)
+
+    except (OSError, RuntimeError) as exc:
+        logger.error("Video preprocessing failed: %s", exc, exc_info=True)
+        return [{"text": None, "caption": None}]
+
+
+async def _preprocess_image(
+    *,
+    local_path: str,
+    template: str,
+    llm_client: Any | None,
+    get_llm_client: Callable[..., Any],
+    parse_multimodal_response: Callable[[str, str, str], tuple[str | None, str | None]],
+) -> list[dict[str, str | None]]:
+    client = llm_client or get_llm_client()
+    processed = await client.vision(prompt=template, image_path=local_path, system_prompt=None)
+    description, caption = parse_multimodal_response(processed, "detailed_description", "caption")
+    return [{"text": description, "caption": caption}]
+
+
+async def _preprocess_document(
+    *,
+    text: str,
+    template: str,
+    llm_client: Any | None,
+    get_llm_client: Callable[..., Any],
+    escape_prompt_value: Callable[[str], str],
+    parse_multimodal_response: Callable[[str, str, str], tuple[str | None, str | None]],
+) -> list[dict[str, str | None]]:
+    prompt = template.format(document_text=escape_prompt_value(text))
+    client = llm_client or get_llm_client()
+    processed = await client.chat(prompt)
+    processed_content, caption = parse_multimodal_response(processed, "processed_content", "caption")
+    return [{"text": processed_content or text, "caption": caption}]
+
+
+async def _preprocess_audio(
+    *,
+    text: str,
+    template: str,
+    llm_client: Any | None,
+    get_llm_client: Callable[..., Any],
+    escape_prompt_value: Callable[[str], str],
+    parse_multimodal_response: Callable[[str, str, str], tuple[str | None, str | None]],
+) -> list[dict[str, str | None]]:
+    prompt = template.format(transcription=escape_prompt_value(text))
+    client = llm_client or get_llm_client()
+    processed = await client.chat(prompt)
+    processed_content, caption = parse_multimodal_response(processed, "processed_content", "caption")
+    return [{"text": processed_content or text, "caption": caption}]
+
+
+def _estimate_text_tokens(text: str) -> int:
+    words = len((text or "").split())
+    if words < 1:
+        return 0
+    return int(words / 0.75)
+
+
+def _compute_batch_max_items(total_message_count: int) -> int:
+    if total_message_count >= 80:
+        return 12
+    if total_message_count >= 40:
+        return 8
+    return 6
+
+
+def _build_batch_extraction_text(
+    *,
+    episodes: Sequence[Mapping[str, Any]],
+    parse_episode_ref: Callable[[Any], int | None],
+    dedupe_message_indices: Callable[[Sequence[int | float | str]], list[int]],
+) -> str:
+    sections: list[str] = []
+    summaries: list[str] = []
+    for episode in episodes:
+        episode_ref = parse_episode_ref(episode.get("episode_ref"))
+        if episode_ref is None:
+            continue
+        episode_text = str(episode.get("text") or "").strip()
+        if not episode_text:
+            continue
+        message_indices = dedupe_message_indices(episode.get("message_indices"))
+        if message_indices:
+            heading = f"## Episode {episode_ref} (messages {message_indices[0]}-{message_indices[-1]})"
+        else:
+            heading = f"## Episode {episode_ref}"
+        sections.append(heading)
+        sections.append(episode_text)
+        episode_summary = (
+            str(episode.get("episode_summary") or "").strip()
+            or str(episode.get("caption") or "").strip()
+        )
+        if episode_summary:
+            summaries.append(f"Episode {episode_ref}: {episode_summary}")
+    if summaries:
+        sections.append("## Episode Summaries")
+        sections.extend(summaries)
+    return "\n\n".join(section for section in sections if section).strip()
+
+
+def _message_is_primary_for_memorize(message: Mapping[str, Any]) -> bool:
+    flag = message.get("memorize_chat")
+    if isinstance(flag, bool):
+        return flag
+    return True
+
+
+def _message_index_for_sort(message: Mapping[str, Any]) -> int:
+    raw = message.get("_message_index")
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return -1
+
+
+def _format_episode_message_line(message: Mapping[str, Any]) -> str:
+    idx = _message_index_for_sort(message)
+    role = str(message.get("name") or message.get("role") or "user").strip() or "user"
+    content = str(message.get("content") or "").strip()
+    source = str(message.get("source_label") or "").strip()
+    source_prefix = f"[{source}] " if source else ""
+    return f"[{max(0, idx)}] {source_prefix}[{role}]: {content}"
+
+
+async def _summarize_background_messages(
+    *,
+    messages: Sequence[Mapping[str, Any]],
+    llm_client: Any | None,
+    summarize_episode: Callable[..., Awaitable[str | None]],
+) -> str | None:
+    if not messages:
+        return None
+    rendered = "\n".join(
+        _format_episode_message_line(msg)
+        for msg in sorted(messages, key=_message_index_for_sort)
+    ).strip()
+    if not rendered:
+        return None
+    summary = await summarize_episode(rendered, llm_client=llm_client)
+    return str(summary or "").strip() or None
+
+
+async def _render_episode_with_background_context(
+    *,
+    primary_messages: Sequence[Mapping[str, Any]],
+    background_messages: Sequence[Mapping[str, Any]],
+    llm_client: Any | None,
+    summarize_background_messages: Callable[..., Awaitable[str | None]],
+) -> tuple[str, list[dict[str, Any]]]:
+    prim = sorted(primary_messages, key=_message_index_for_sort)
+    bg = sorted(background_messages, key=_message_index_for_sort)
+    if not prim and not bg:
+        return "", []
+    if not bg:
+        return "\n".join(_format_episode_message_line(msg) for msg in prim).strip(), []
+
+    grouped: dict[str, list[Mapping[str, Any]]] = {}
+    group_order: list[str] = []
+    for msg in bg:
+        source_key = str(msg.get("source_conversation_id") or msg.get("source_label") or "background").strip() or "background"
+        if source_key not in grouped:
+            grouped[source_key] = []
+            group_order.append(source_key)
+        grouped[source_key].append(msg)
+
+    summary_rows: list[dict[str, Any]] = []
+    for source_key in group_order:
+        group_msgs = grouped[source_key]
+        summary = await summarize_background_messages(messages=group_msgs, llm_client=llm_client)
+        if not summary:
+            continue
+        source_label = str(group_msgs[0].get("source_label") or source_key).strip() or source_key
+        first_idx = _message_index_for_sort(group_msgs[0])
+        after_index = None
+        for primary in prim:
+            pidx = _message_index_for_sort(primary)
+            if pidx <= first_idx:
+                after_index = pidx
+            else:
+                break
+        summary_rows.append(
+            {
+                "after_index": after_index,
+                "summary": summary,
+                "source_label": source_label,
+            }
+        )
+
+    rendered_lines: list[str] = []
+    for primary in prim:
+        pidx = _message_index_for_sort(primary)
+        for row in summary_rows:
+            if row.get("_emitted"):
+                continue
+            if row.get("after_index") == pidx:
+                rendered_lines.append(
+                    f"[Background:{row.get('source_label')}] {str(row.get('summary') or '').strip()}"
+                )
+                row["_emitted"] = True
+        rendered_lines.append(_format_episode_message_line(primary))
+
+    prefix_lines: list[str] = []
+    for row in summary_rows:
+        if row.get("_emitted"):
+            row.pop("_emitted", None)
+            continue
+        prefix_lines.append(
+            f"[Background:{row.get('source_label')}] {str(row.get('summary') or '').strip()}"
+        )
+        row.pop("_emitted", None)
+    if prefix_lines:
+        rendered_lines = [*prefix_lines, *rendered_lines]
+
+    return "\n".join(line for line in rendered_lines if line.strip()).strip(), summary_rows
+
+
+def _render_episode_with_summary_rows(
+    *,
+    primary_messages: Sequence[Mapping[str, Any]],
+    summary_rows: Sequence[Mapping[str, Any]],
+) -> str:
+    prim = sorted(primary_messages, key=_message_index_for_sort)
+    rendered_lines: list[str] = []
+    mutable_rows: list[dict[str, Any]] = [dict(row) for row in summary_rows if isinstance(row, Mapping)]
+    for primary in prim:
+        pidx = _message_index_for_sort(primary)
+        for row in mutable_rows:
+            if row.get("_emitted"):
+                continue
+            if row.get("after_index") == pidx:
+                label = str(row.get("source_label") or "background").strip() or "background"
+                rendered_lines.append(f"[Background:{label}] {str(row.get('summary') or '').strip()}")
+                row["_emitted"] = True
+        rendered_lines.append(_format_episode_message_line(primary))
+    prefix_lines: list[str] = []
+    for row in mutable_rows:
+        if row.get("_emitted"):
+            continue
+        label = str(row.get("source_label") or "background").strip() or "background"
+        prefix_lines.append(f"[Background:{label}] {str(row.get('summary') or '').strip()}")
+    if prefix_lines:
+        rendered_lines = [*prefix_lines, *rendered_lines]
+    return "\n".join(line for line in rendered_lines if line.strip()).strip()
+
+
+def _prepare_episode(
+    *,
+    modality: str,
+    text: str | None,
+    message_indices: Any,
+    dedupe_message_indices: Callable[[Sequence[int | float | str]], list[int]],
+    extract_message_indices: Callable[[str | None], list[int]],
+) -> tuple[str | None, list[int]]:
+    if modality != "conversation" or not isinstance(text, str) or not text.strip():
+        return None, []
+    episode_text = format_conversation_for_preprocess(text)
+    if not episode_text.strip():
+        episode_text = text.strip()
+    if isinstance(message_indices, list):
+        indices = dedupe_message_indices([
+            value for value in message_indices if isinstance(value, (int, float, str))
+        ])
+    else:
+        indices = extract_message_indices(episode_text)
+    return episode_text, indices
+
+
+def _parse_multimodal_response(
+    raw: str,
+    content_tag: str,
+    caption_tag: str,
+    *,
+    extract_tag_content: Callable[[str, str], str | None],
+) -> tuple[str | None, str | None]:
+    content = extract_tag_content(raw, content_tag)
+    caption = extract_tag_content(raw, caption_tag)
+    if not content:
+        content = raw.strip()
+    if not caption and content:
+        first_sentence = content.split(".")[0]
+        caption = first_sentence if len(first_sentence) <= 200 else first_sentence[:200]
+    return content, caption
+
+
+def _parse_conversation_preprocess_with_episodes(
+    raw: str,
+    original_text: str,
+    *,
+    extract_tag_content: Callable[[str, str], str | None],
+    extract_episodes_with_fallback: Callable[[str], list[dict[str, Any]] | None],
+) -> tuple[str | None, list[dict[str, Any]] | None]:
+    conversation = extract_tag_content(raw, "conversation")
+    episodes = extract_episodes_with_fallback(raw)
+    return conversation, episodes
+
+
+def _extract_episodes_with_fallback(
+    raw: str,
+    *,
+    extract_json_blob: Callable[[str], str],
+    episodes_from_json_payload: Callable[[str], list[dict[str, Any]] | None],
+) -> list[dict[str, Any]] | None:
+    episodes = episodes_from_json_payload(raw)
+    if episodes is not None:
+        return episodes
+    try:
+        blob = extract_json_blob(raw)
+    except (ValueError, IndexError):
+        logger.warning("Failed to extract episodes from conversation preprocess response: %.200s", raw)
+        return None
+    return episodes_from_json_payload(blob)
+
+
+def _episodes_from_json_payload(
+    payload: str,
+    *,
+    episodes_from_parsed_data: Callable[[Any], list[dict[str, Any]] | None],
+) -> list[dict[str, Any]] | None:
+    try:
+        parsed = json.loads(payload)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    return episodes_from_parsed_data(parsed)
+
+
+def _episodes_from_parsed_data(parsed: Any) -> list[dict[str, Any]] | None:
+    if not isinstance(parsed, dict):
+        return None
+    episodes_data = parsed.get("episodes")
+    if not isinstance(episodes_data, list):
+        return None
+    episodes: list[dict[str, Any]] = []
+    for ep in episodes_data:
+        if not isinstance(ep, dict):
+            continue
+        if "message_indices" in ep and isinstance(ep["message_indices"], list):
+            episode: dict[str, Any] = {"message_indices": ep["message_indices"]}
+            if "caption" in ep and isinstance(ep["caption"], str):
+                episode["caption"] = ep["caption"]
+            if "background_summaries" in ep and isinstance(ep["background_summaries"], list):
+                cleaned_background: list[dict[str, Any]] = []
+                for row in ep["background_summaries"]:
+                    if not isinstance(row, dict):
+                        continue
+                    summary = str(row.get("summary") or "").strip()
+                    if not summary:
+                        continue
+                    after_raw = row.get("after_index")
+                    if after_raw is None:
+                        after_index = None
+                    else:
+                        try:
+                            after_index = int(after_raw)
+                        except (TypeError, ValueError):
+                            continue
+                    cleaned_background.append(
+                        {
+                            "after_index": after_index,
+                            "summary": summary,
+                        }
+                    )
+                episode["background_summaries"] = cleaned_background
+            episodes.append(episode)
+        elif "start" in ep and "end" in ep:
+            try:
+                episode = {"start": int(ep["start"]), "end": int(ep["end"])}
+                if "caption" in ep and isinstance(ep["caption"], str):
+                    episode["caption"] = ep["caption"]
+                episodes.append(episode)
+            except (TypeError, ValueError):
+                continue
+    return episodes or None
+
+
+def _extract_tag_content(raw: str, tag: str) -> str | None:
+    pattern = re.compile(rf"<{tag}>(.*?)</{tag}>", re.IGNORECASE | re.DOTALL)
+    match = pattern.search(raw)
+    if not match:
+        return None
+    content = match.group(1).strip()
+    return content or None
