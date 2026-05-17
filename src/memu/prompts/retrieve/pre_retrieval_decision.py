@@ -21,7 +21,7 @@ RETRIEVE or NO_RETRIEVE
 </decision>
 
 <rewritten_query>
-The rewritten query if RETRIEVE; leave empty if NO_RETRIEVE.
+The query if RETRIEVE; reason for NO_RETRIEVE.
 </rewritten_query>
 
 <mental_health_query>
@@ -37,7 +37,7 @@ RETRIEVE or NO_RETRIEVE
 </decision>
 
 <rewritten_query>
-The rewritten query if RETRIEVE; leave empty if NO_RETRIEVE.
+The query if RETRIEVE; reason for NO_RETRIEVE.
 </rewritten_query>
 """
 
@@ -46,7 +46,7 @@ _ANGLE_0_REWRITE = """
 If retrieval is needed, write one concise query optimized for vector + BM25 hybrid search:
 - 3 to 10 content words, noun phrase or claim form (not a question).
 - Anchor on concrete terms: names, places, or specific concepts — not general descriptions.
-- Never copy the user's message verbatim; the rewrite must add specificity.
+- Never copy the user's message verbatim
 - Never write a narrative summary of the episode (no "The conversation explores..." framing).
 """
 
@@ -54,7 +54,7 @@ _ANGLE_1_REWRITE = """
 If retrieval is needed, write one concise query optimized for vector + BM25 hybrid search:
 - 3 to 10 content words, noun phrase or claim form (not a question).
 - Anchor on the people involved and how they relate to this topic. Lead with the person's name — e.g., "Marcos's encouragement of Echo's autonomy" beats "autonomy."
-- Never copy the user's message verbatim; the rewrite must add specificity.
+- Never copy the user's message verbatim
 - Never write a narrative summary of the episode.
 """
 
@@ -62,7 +62,7 @@ _ANGLE_2_REWRITE = """
 If retrieval is needed, write one concise query optimized for vector + BM25 hybrid search:
 - 3 to 10 content words, noun phrase or claim form (not a question).
 - Anchor on concrete terms: names, places, or specific concepts — not general descriptions.
-- Never copy the user's message verbatim; the rewrite must add specificity.
+- Never copy the user's message verbatim
 - Never write a narrative summary of the episode.
 
 Sometimes the memory that helps most counters the current one — a prior view that contradicts today's, a challenge to an assumption in play, a different stance, or a different emotional register. If something like that comes to mind naturally, name it. Otherwise, stay with what fits.
