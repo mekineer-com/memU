@@ -43,7 +43,7 @@
 | `memory_type/__init__.py` | — | PROMPTS dict, DEFAULT_MEMORY_TYPES list |
 | `preprocess/` | `conversation.py`, `document.py`, `image.py`, `audio.py`, `video.py` | Input normalization per modality |
 | `router/router.py` | — | Classify input → memory type(s) and `notable` flag in one pass; writes `episode_summary` (resource caption) and optional `episode_item` (condensed 1-2 sentence memory when summary >2 sentences) |
-| `retrieve/` | `query_rewriter.py`, `llm_category_ranker.py`, `llm_item_ranker.py`, `llm_resource_ranker.py`, `judger.py`, `pre_retrieval_decision.py` | Retrieval ranking & judgment |
+| `retrieve/` | `llm_category_ranker.py`, `llm_item_ranker.py`, `llm_resource_ranker.py`, `judger.py`, `pre_retrieval_decision.py` | Retrieval ranking & judgment |
 | `category_patch/` | `category.py` | Dynamic category update prompts |
 | `category_summary/` | `category.py`, `category_with_refs.py` | Category synthesis; both prompts treat `[reinforced Nx]` markers as frequency signals — instruct LLM to use "often", "frequently", "tends to" rather than treating as a one-off fact |
 | `consolidation/` | `consolidation.py` | Consolidation prompt: narrative_self, life_goals, intentions, edges, companion_memory. Weekly reflection cycle. |
