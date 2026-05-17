@@ -11,7 +11,7 @@ If this turn touches a mental-health theme — anxious rumination, grief, panic,
 """
 
 
-_OUTPUT_SHAPE_BASE = """
+_OUTPUT_SHAPE_WITH_MH = """
 Return only the XML blocks below. Do not add any prose, dialogue, markdown, or extra sections.
 
 If not retrieving, leave the rewritten_query block empty.
@@ -27,6 +27,20 @@ The rewritten query if RETRIEVE; leave empty if NO_RETRIEVE.
 <mental_health_query>
 A concise mental-health noun phrase if the turn touches that kind of theme; empty otherwise.
 </mental_health_query>
+"""
+
+_OUTPUT_SHAPE_NO_MH = """
+Return only the XML blocks below. Do not add any prose, dialogue, markdown, or extra sections.
+
+If not retrieving, leave the rewritten_query block empty.
+
+<decision>
+RETRIEVE or NO_RETRIEVE
+</decision>
+
+<rewritten_query>
+The rewritten query if RETRIEVE; leave empty if NO_RETRIEVE.
+</rewritten_query>
 """
 
 
@@ -63,9 +77,11 @@ _REWRITE_ANGLES: dict[int, str] = {
 }
 
 
-def system_prompt_for_angle(angle: int | None) -> str:
+def system_prompt_for_angle(angle: int | None, *, include_mental_health_query: bool = True) -> str:
     rewrite = _REWRITE_ANGLES.get(int(angle or 0) % len(_REWRITE_ANGLES), _ANGLE_0_REWRITE)
-    return _COMMON_HEAD + rewrite + _MH_REWRITE_GUIDANCE + _OUTPUT_SHAPE_BASE
+    if include_mental_health_query:
+        return _COMMON_HEAD + rewrite + _MH_REWRITE_GUIDANCE + _OUTPUT_SHAPE_WITH_MH
+    return _COMMON_HEAD + rewrite + _OUTPUT_SHAPE_NO_MH
 
 
 SYSTEM_PROMPT = system_prompt_for_angle(0)

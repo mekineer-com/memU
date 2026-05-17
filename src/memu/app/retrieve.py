@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING, Any, cast
 from pydantic import BaseModel
 
 from memu.database.vector import cosine_topk
-from memu.prompts.retrieve.pre_retrieval_decision import SYSTEM_PROMPT as PRE_RETRIEVAL_SYSTEM_PROMPT
 from memu.prompts.retrieve.pre_retrieval_decision import USER_PROMPT as PRE_RETRIEVAL_USER_PROMPT
 from memu.prompts.retrieve.pre_retrieval_decision import system_prompt_for_angle as _system_prompt_for_angle
 from memu.workflow.step import WorkflowState, WorkflowStep
@@ -45,6 +44,7 @@ class RetrieveMixin:
         as_of: datetime | None = None,
         rewrite_angle: int = 0,
         channel_mode: str | None = None,
+        mental_health_enabled: bool = True,
     ) -> dict[str, Any]:
         if not queries:
             raise ValueError("empty_queries")
@@ -65,6 +65,7 @@ class RetrieveMixin:
             "route_context_queries": route_context_queries,
             "rewrite_angle": int(rewrite_angle) if rewrite_angle is not None else 0,
             "channel_mode": channel_mode,
+            "mental_health_enabled": bool(mental_health_enabled),
             "ctx": ctx,
             "store": store,
             "where": where_filters,
@@ -210,19 +211,25 @@ class RetrieveMixin:
             "store",
             "where",
             "as_of",
+            "mental_health_enabled",
         }
 
     async def _rag_route_intention(self, state: WorkflowState, step_context: Any) -> WorkflowState:
         llm_client = self._get_step_llm_client(step_context)
-        angle_prompt = _system_prompt_for_angle(state.get("rewrite_angle"))
+        mental_health_enabled = bool(state.get("mental_health_enabled", True))
+        angle_prompt = _system_prompt_for_angle(
+            state.get("rewrite_angle"),
+            include_mental_health_query=mental_health_enabled,
+        )
         needs_retrieval, rewritten_query, raw_response = await self._decide_if_retrieval_needed(
             state["original_query"],
             state.get("route_context_queries", state["context_queries"]),
             retrieved_content=None,
             system_prompt=angle_prompt,
+            include_mental_health_query=mental_health_enabled,
             llm_client=llm_client,
         )
-        mental_health_query = self._extract_mental_health_query(raw_response)
+        mental_health_query = self._extract_mental_health_query(raw_response) if mental_health_enabled else None
 
         state.update({
             "needs_retrieval": needs_retrieval,
@@ -285,12 +292,18 @@ class RetrieveMixin:
             )
 
         llm_client = self._get_step_llm_client(step_context)
-        needs_more, rewritten_query, _ = await self._decide_if_retrieval_needed(
+        mental_health_enabled = bool(state.get("mental_health_enabled", True))
+        needs_more, rewritten_query, raw_response = await self._decide_if_retrieval_needed(
             state["active_query"],
             state["context_queries"],
             retrieved_content=retrieved_content or "No content retrieved yet.",
+            include_mental_health_query=mental_health_enabled,
             llm_client=llm_client,
         )
+        if mental_health_enabled:
+            mental_health_query = self._extract_mental_health_query(raw_response)
+            if mental_health_query:
+                state["mental_health_query"] = mental_health_query
         state["next_step_query"] = rewritten_query
         state["active_query"] = rewritten_query
         state["proceed_to_items"] = needs_more
@@ -550,6 +563,7 @@ class RetrieveMixin:
         context_queries: list[dict[str, Any]] | None,
         retrieved_content: str | None = None,
         system_prompt: str | None = None,
+        include_mental_health_query: bool = True,
         llm_client: Any | None = None,
     ) -> tuple[bool, str, str]:
         history_text = self._format_query_context(context_queries)
@@ -562,7 +576,10 @@ class RetrieveMixin:
             retrieved_content=self._escape_prompt_value(content_text),
         )
 
-        sys_prompt = system_prompt or PRE_RETRIEVAL_SYSTEM_PROMPT
+        sys_prompt = system_prompt or _system_prompt_for_angle(
+            0,
+            include_mental_health_query=include_mental_health_query,
+        )
         client = llm_client or self._get_llm_client()
         response = await client.chat(user_prompt, system_prompt=sys_prompt)
         decision = self._extract_decision(response)
