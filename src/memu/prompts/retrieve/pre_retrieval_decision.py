@@ -1,20 +1,17 @@
 _COMMON_HEAD = """
 Decide whether this query needs memory retrieval, or whether the current conversation is enough to answer it.
 
-Skip retrieval for: greetings, casual chat, acknowledgments, general knowledge questions, questions only about the current conversation.
-Retrieve if the soul context (categories, cache, intentions) suggests any stored topic could be relevant to this message — even indirectly.
+Skip retrieval for: greetings, casual chat, or acknowledgments.
 """
 
 
 _MH_REWRITE_GUIDANCE = """
-If this turn touches a mental-health theme — anxious rumination, grief, panic, self-criticism, avoidance, boundaries, loneliness, identity transitions, sleep trouble, relational conflict, or similar — also write a mental_health_query. Same 3-to-10-word noun-phrase contract as the main rewrite, anchored on the mental-health concept (not the person). This query goes to a separate curated procedural-memory store, so aim it at a principle or skill rather than an event. If the turn doesn't call for that kind of knowledge, leave the block empty.
+If this turn touches a mental-health theme — anxious rumination, grief, panic, self-criticism, avoidance, boundaries, loneliness, identity transitions, sleep trouble, relational conflict, or similar — also write a mental_health_query. Same 3-to-10-word noun-phrase contract as the main rewrite, anchored on the mental-health concept (not the person). This query goes to a separate curated procedural-memory store, so aim it at a principle or skill rather than an event.
 """
 
 
 _OUTPUT_SHAPE_WITH_MH = """
 Return only the XML blocks below. Do not add any prose, dialogue, markdown, or extra sections.
-
-If not retrieving, leave the rewritten_query block empty.
 
 <decision>
 RETRIEVE or NO_RETRIEVE
@@ -31,8 +28,6 @@ A concise mental-health noun phrase if the turn touches that kind of theme; empt
 
 _OUTPUT_SHAPE_NO_MH = """
 Return only the XML blocks below. Do not add any prose, dialogue, markdown, or extra sections.
-
-If not retrieving, leave the rewritten_query block empty.
 
 <decision>
 RETRIEVE or NO_RETRIEVE
