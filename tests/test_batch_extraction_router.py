@@ -50,6 +50,27 @@ async def test_route_episode_raises_on_unparseable_router_response() -> None:
         )
 
 
+@pytest.mark.asyncio
+async def test_split_segment_into_episodes_raises_when_preprocessor_returns_no_episodes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = _service()
+
+    monkeypatch.setattr(service, "_get_llm_client", lambda *_args, **_kwargs: object())
+
+    async def _empty_split(**_kwargs):
+        return []
+
+    monkeypatch.setattr(service, "_split_into_episodes", _empty_split)
+
+    with pytest.raises(RuntimeError, match="Preprocessor returned no episodes for segment"):
+        await service.split_segment_into_episodes(
+            local_path="mem://segment",
+            raw_text='[{"role":"user","content":"hello"}]',
+            modality="conversation",
+        )
+
+
 def test_parse_structured_entries_requires_episode_ref_when_requested() -> None:
     service = _service()
     missing_ref = """

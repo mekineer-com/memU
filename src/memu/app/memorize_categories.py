@@ -275,7 +275,7 @@ Decide which clusters/candidates should map into existing categories, and which 
         resp = await planner.chat(user_prompt, system_prompt=system_prompt)
     except Exception:
         logger.warning("dynamic-category planner LLM call failed", exc_info=True)
-        return cluster_mapping, label_mapping, new_defs
+        raise
     match = re.search(r"\{[\s\S]*\}", resp or "")
     if match is None:
         return cluster_mapping, label_mapping, new_defs

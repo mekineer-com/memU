@@ -214,7 +214,8 @@ class MemorizeMixin:
             llm_client=llm_client,
         )
         if not segment_episodes:
-            segment_episodes = [{"text": raw_text, "caption": None}]
+            msg = "Preprocessor returned no episodes for segment"
+            raise RuntimeError(msg)
         return segment_episodes
 
     async def split_cross_conversation_into_episodes(
