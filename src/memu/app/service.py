@@ -120,9 +120,7 @@ class MemoryService(MemorizeMixin, RetrieveMixin):
             return client
         cfg: LLMConfig | None = self.llm_profiles.profiles.get(name)
         if cfg is None:
-            cfg = self.llm_profiles.profiles.get("default")
-        if cfg is None:
-            msg = f"Unknown llm profile '{name}'"
+            msg = f"Step profile '{name}' not found in config"
             raise KeyError(msg)
         client = self._init_llm_client(cfg)
         self._llm_clients[name] = client
