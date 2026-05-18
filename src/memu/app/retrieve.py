@@ -43,7 +43,6 @@ class RetrieveMixin:
         where: dict[str, Any] | None = None,
         as_of: datetime | None = None,
         rewrite_angle: int = 0,
-        channel_mode: str | None = None,
         mental_health_enabled: bool = True,
     ) -> dict[str, Any]:
         if not queries:
@@ -54,17 +53,14 @@ class RetrieveMixin:
         where_filters = self._normalize_where(where)
 
         context_queries = queries[:-1] if len(queries) > 1 else []
-        route_context_queries, retrieval_context_queries = self._split_context_queries(context_queries)
 
         workflow_name = "retrieve_rag"
 
         state: WorkflowState = {
             "method": self.retrieve_config.method,
             "original_query": original_query,
-            "context_queries": retrieval_context_queries,
-            "route_context_queries": route_context_queries,
+            "context_queries": list(context_queries),
             "rewrite_angle": int(rewrite_angle) if rewrite_angle is not None else 0,
-            "channel_mode": channel_mode,
             "mental_health_enabled": bool(mental_health_enabled),
             "ctx": ctx,
             "store": store,
@@ -223,7 +219,7 @@ class RetrieveMixin:
         )
         needs_retrieval, rewritten_query, raw_response = await self._decide_if_retrieval_needed(
             state["original_query"],
-            state.get("route_context_queries", state["context_queries"]),
+            state["context_queries"],
             retrieved_content=None,
             system_prompt=angle_prompt,
             include_mental_health_query=mental_health_enabled,
@@ -594,31 +590,21 @@ class RetrieveMixin:
 
         blocks: list[str] = []
         for q in queries:
-            if isinstance(q, str):
-                # Backward compatibility
-                text = q.strip()
-                if text:
-                    blocks.append(f"- {text}")
-                continue
-            if isinstance(q, dict):
-                role = str(q.get("role", "user") or "user").strip()
-                content = q.get("content")
-                if isinstance(content, dict):
-                    text = str(content.get("text", "") or "").strip()
-                elif isinstance(content, str):
-                    text = content.strip()
-                else:
-                    text = str(content or "").strip()
-                if not text:
-                    continue
+            if not isinstance(q, dict):
+                raise TypeError("INVALID_CONTEXT_QUERY")
+            role = str(q.get("role", "user") or "user").strip()
+            content = q.get("content")
+            if isinstance(content, dict):
+                text = str(content.get("text", "") or "").strip()
+            elif isinstance(content, str):
+                text = content.strip()
+            else:
+                raise TypeError("INVALID_CONTEXT_QUERY")
+            if text:
                 if role.lower() == "identity_context":
                     blocks.append(text)
-                    continue
-                blocks.append(f"- [{role}]:\n{text}")
-                continue
-            text = str(q).strip()
-            if text:
-                blocks.append(f"- {text}")
+                else:
+                    blocks.append(f"- [{role}]:\n{text}")
 
         if not blocks:
             return "No query context."
@@ -626,13 +612,7 @@ class RetrieveMixin:
         return "\n\n".join(blocks)
 
     @staticmethod
-    def _split_context_queries(context_queries: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        return list(context_queries), list(context_queries)
-
-    @staticmethod
     def _extract_query_text(query: dict[str, Any]) -> str:
-        if isinstance(query, str):
-            return query
         if not isinstance(query, dict):
             raise TypeError("INVALID")
         content = query.get("content")

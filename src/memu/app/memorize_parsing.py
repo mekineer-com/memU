@@ -6,7 +6,7 @@ import math
 import re
 from collections.abc import Sequence
 from datetime import UTC, datetime
-from typing import Any, Callable
+from typing import Any
 from xml.etree.ElementTree import Element
 
 import defusedxml.ElementTree as ET
@@ -162,37 +162,6 @@ def _extract_message_happened_at_map(raw_text: Any) -> dict[int, Any]:
     return out
 
 
-def _parse_memory_type_response(
-    raw: str,
-    extract_json_blob: Callable[[str], str],
-) -> list[dict[str, Any]]:
-    if not raw:
-        return []
-    raw = raw.strip()
-    if not raw:
-        return []
-    payload = None
-    try:
-        payload = json.loads(raw)
-    except json.JSONDecodeError:
-        try:
-            blob = extract_json_blob(raw)
-            payload = json.loads(blob)
-        except (json.JSONDecodeError, ValueError, TypeError):
-            logger.warning("memory-type response: unparseable after fallback extraction: %.200s", raw)
-            return []
-    if not isinstance(payload, dict):
-        return []
-    items = payload.get("memories_items")
-    if not isinstance(items, list):
-        return []
-    normalized: list[dict[str, Any]] = []
-    for entry in items:
-        if isinstance(entry, dict):
-            normalized.append(entry)
-    return normalized
-
-
 def _find_xml_boundaries(raw: str) -> tuple[int, int, str] | None:
     root_tags = ["item"]
     for tag in root_tags:
@@ -217,13 +186,6 @@ def _parse_memory_element(memory_elem: Element) -> dict[str, Any] | None:
     if categories_elem is not None:
         categories = [cat_elem.text.strip() for cat_elem in categories_elem.findall("category") if cat_elem.text]
         memory_dict["categories"] = categories
-
-    source_ids_elem = memory_elem.find("source_message_ids")
-    if source_ids_elem is not None:
-        raw_ids = [id_elem.text.strip() for id_elem in source_ids_elem.findall("id") if id_elem.text]
-        source_ids = _dedupe_message_indices(raw_ids)
-        if source_ids:
-            memory_dict["source_message_ids"] = source_ids
 
     source_role_elem = memory_elem.find("source_role")
     if source_role_elem is not None and source_role_elem.text:

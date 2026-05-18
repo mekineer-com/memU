@@ -9,39 +9,18 @@ import os
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import httpx
 
+from memu.embedding.backends.base import EmbeddingBackend
+from memu.embedding.backends.openai import OpenAIEmbeddingBackend
 from memu.llm.backends.base import LLMBackend
 from memu.llm.backends.openai import OpenAILLMBackend
 
 
 def _load_proxy() -> str | None:
     return os.getenv("MEMU_HTTP_PROXY") or os.getenv("HTTP_PROXY") or os.getenv("HTTPS_PROXY") or None
-
-
-# Minimal embedding backend support (moved from embedding module)
-class _EmbeddingBackend:
-    name: str
-    embedding_endpoint: str
-
-    def build_embedding_payload(self, *, inputs: list[str], embed_model: str) -> dict[str, Any]:
-        raise NotImplementedError
-
-    def parse_embedding_response(self, data: dict[str, Any]) -> list[list[float]]:
-        raise NotImplementedError
-
-
-class _OpenAIEmbeddingBackend(_EmbeddingBackend):
-    name = "openai"
-    embedding_endpoint = "/embeddings"
-
-    def build_embedding_payload(self, *, inputs: list[str], embed_model: str) -> dict[str, Any]:
-        return {"model": embed_model, "input": inputs}
-
-    def parse_embedding_response(self, data: dict[str, Any]) -> list[list[float]]:
-        return [cast(list[float], d["embedding"]) for d in data["data"]]
 
 
 logger = logging.getLogger(__name__)
@@ -76,7 +55,7 @@ class HTTPLLMClient:
         self.backend = self._load_backend(self.provider)
         self.embedding_backend = self._load_embedding_backend(self.provider)
         overrides = endpoint_overrides or {}
-        raw_summary_ep = overrides.get("chat") or overrides.get("summary") or self.backend.summary_endpoint
+        raw_chat_ep = overrides.get("chat") or overrides.get("summary") or self.backend.summary_endpoint
         raw_embedding_ep = (
             overrides.get("embeddings")
             or overrides.get("embedding")
@@ -85,7 +64,7 @@ class HTTPLLMClient:
         )
         # Strip leading "/" from endpoints so httpx resolves them relative to
         # base_url instead of treating them as absolute paths.
-        self.summary_endpoint = raw_summary_ep.lstrip("/")
+        self.summary_endpoint = raw_chat_ep.lstrip("/")
         self.embedding_endpoint = raw_embedding_ep.lstrip("/")
         self.timeout = timeout
         self.embed_model = embed_model or chat_model
@@ -306,9 +285,9 @@ class HTTPLLMClient:
             raise ValueError(msg)
         return factory()
 
-    def _load_embedding_backend(self, provider: str) -> _EmbeddingBackend:
-        backends: dict[str, type[_EmbeddingBackend]] = {
-            _OpenAIEmbeddingBackend.name: _OpenAIEmbeddingBackend,
+    def _load_embedding_backend(self, provider: str) -> EmbeddingBackend:
+        backends: dict[str, type[EmbeddingBackend]] = {
+            OpenAIEmbeddingBackend.name: OpenAIEmbeddingBackend,
         }
         factory = backends.get(provider)
         if not factory:

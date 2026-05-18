@@ -4,27 +4,6 @@ from memu.app.retrieve import RetrieveMixin
 from memu.prompts.retrieve.pre_retrieval_decision import system_prompt_for_angle
 
 
-def test_split_context_queries_returns_identical_copies():
-    queries = [
-        {"role": "all_categories_summary", "content": {"text": "cats"}},
-        {"role": "history", "content": {"text": "conversation history"}},
-        {"role": "memory_cache", "content": {"text": "cache"}},
-    ]
-    route_ctx, downstream_ctx = RetrieveMixin._split_context_queries(queries)
-    assert route_ctx == queries
-    assert downstream_ctx == queries
-
-
-def test_split_context_queries_no_history_unchanged():
-    queries = [
-        {"role": "all_categories_summary", "content": {"text": "cats"}},
-        {"role": "intentions", "content": {"text": "intentions"}},
-    ]
-    route_ctx, downstream_ctx = RetrieveMixin._split_context_queries(queries)
-    assert route_ctx == queries
-    assert downstream_ctx == queries
-
-
 def test_format_query_context_uses_separated_multiline_blocks():
     mixin = RetrieveMixin()
     queries = [
@@ -48,6 +27,12 @@ def test_format_query_context_uses_separated_multiline_blocks():
     assert "- [cross_conversation]:\n--- Wednesday ---\n[whatsapp:dm] [user]: O hai!" in rendered
     assert "\n\n- [cross_conversation]:\n" in rendered
     assert "\n\n- [history]:\n[10] [Marcos] hello" in rendered
+
+
+def test_format_query_context_rejects_legacy_string_entries():
+    mixin = RetrieveMixin()
+    with pytest.raises(TypeError, match="INVALID_CONTEXT_QUERY"):
+        mixin._format_query_context([{"role": "history", "content": {"text": "ok"}}, "legacy"])  # type: ignore[list-item]
 
 
 def test_system_prompt_excludes_mental_health_block_when_disabled():

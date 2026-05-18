@@ -24,7 +24,7 @@ def test_build_memory_type_prompt_injects_soul_context_for_activated_types(memor
 
 
 @pytest.mark.parametrize("memory_type", ["knowledge", "behavior"])
-def test_parse_structured_entries_keeps_salience_and_source_ids_for_activated_types(memory_type: MemoryType) -> None:
+def test_parse_structured_entries_keeps_salience_and_uses_default_source_ids(memory_type: MemoryType) -> None:
     service = _service()
 
     response = """
@@ -56,5 +56,5 @@ def test_parse_structured_entries_keeps_salience_and_source_ids_for_activated_ty
     assert entries[0].categories == ["communication"]
     assert entries[0].source_role == "user"
     assert entries[0].confidence == pytest.approx(0.8)
-    assert entries[0].source_message_ids == [3, 5]
+    assert entries[0].source_message_ids == [3, 5, 8]
     assert entries[0].reflection_salience == pytest.approx(0.72)
