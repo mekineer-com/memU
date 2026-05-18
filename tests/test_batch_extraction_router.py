@@ -2,6 +2,7 @@ import json
 
 import pytest
 
+from memu.app import memorize_parsing as parsing
 from memu.app.memorize import SpeakerRosterEntry
 from memu.app.service import MemoryService
 
@@ -34,6 +35,19 @@ async def test_route_episode_uses_excluded_types_model() -> None:
     assert routed == ["profile", "behavior"]
     assert summary == "S"
     assert item == "I"
+
+
+@pytest.mark.asyncio
+async def test_route_episode_raises_on_unparseable_router_response() -> None:
+    service = _service()
+    client = _RouterStub("not-json-and-no-json-blob")
+
+    with pytest.raises(ValueError):
+        await service._route_episode(
+            "episode text",
+            ["profile", "knowledge"],
+            llm_client=client,
+        )
 
 
 def test_parse_structured_entries_requires_episode_ref_when_requested() -> None:
@@ -72,6 +86,13 @@ def test_parse_structured_entries_requires_episode_ref_when_requested() -> None:
     assert dropped == []
     assert len(kept) == 1
     assert kept[0].episode_ref == 2
+
+
+def test_parse_memory_type_response_xml_raises_extraction_parse_error() -> None:
+    bad_xml = "<item><memory></item>"
+
+    with pytest.raises(parsing.ExtractionParseError):
+        parsing._parse_memory_type_response_xml(bad_xml)
 
 
 @pytest.mark.asyncio

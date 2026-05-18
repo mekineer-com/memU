@@ -1261,13 +1261,7 @@ class MemorizeMixin:
         try:
             payload = json.loads(raw)
         except (json.JSONDecodeError, TypeError):
-            try:
-                payload = json.loads(self._extract_json_blob(raw))
-            except Exception:
-                logger.warning("Router returned unparseable response, skipping episode: %.120s", raw)
-                if skipped_reasons is not None:
-                    skipped_reasons.append("router returned unparseable JSON")
-                return [], None, None
+            payload = json.loads(self._extract_json_blob(raw))
         if not isinstance(payload, dict):
             logger.warning("Router returned non-dict payload, skipping episode: %s", type(payload).__name__)
             if skipped_reasons is not None:
