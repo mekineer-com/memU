@@ -647,8 +647,8 @@ class RetrieveMixin:
             raise TypeError("INVALID")
 
     def _extract_decision(self, raw: str) -> str:
-        if not raw:
-            return "RETRIEVE"
+        if not raw or not str(raw).strip():
+            raise ValueError("sufficiency check returned empty response")
 
         match = re.search(r"<decision>(.*?)</decision>", raw, re.IGNORECASE | re.DOTALL)
         if match:

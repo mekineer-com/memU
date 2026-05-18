@@ -56,6 +56,12 @@ def test_system_prompt_excludes_mental_health_block_when_disabled():
     assert "also write a mental_health_query" not in prompt
 
 
+def test_extract_decision_raises_on_empty_llm_response():
+    mixin = RetrieveMixin()
+    with pytest.raises(ValueError, match="sufficiency check returned empty response"):
+        mixin._extract_decision("")
+
+
 @pytest.mark.asyncio
 async def test_route_intention_disables_mental_health_query_extraction():
     mixin = RetrieveMixin()
