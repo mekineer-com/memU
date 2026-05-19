@@ -118,10 +118,10 @@ def _parse_message_happened_at(raw: Any) -> Any | None:
                 ts.year,
                 ts.month,
                 ts.day,
-                ts.hour,
-                ts.minute,
-                ts.second,
-                ts.microsecond,
+                0,
+                0,
+                0,
+                0,
                 tz="UTC",
             )
         except (ValueError, OverflowError, OSError):
@@ -135,7 +135,7 @@ def _parse_message_happened_at(raw: Any) -> Any | None:
     if not isinstance(parsed, pendulum.DateTime):
         return None
     if parsed.tzinfo is None:
-        return pendulum.datetime(
+        parsed = pendulum.datetime(
             parsed.year,
             parsed.month,
             parsed.day,
@@ -145,7 +145,17 @@ def _parse_message_happened_at(raw: Any) -> Any | None:
             parsed.microsecond,
             tz="UTC",
         )
-    return parsed
+    parsed_utc = parsed.in_timezone("UTC")
+    return pendulum.datetime(
+        parsed_utc.year,
+        parsed_utc.month,
+        parsed_utc.day,
+        0,
+        0,
+        0,
+        0,
+        tz="UTC",
+    )
 
 
 def _extract_message_happened_at_map(raw_text: Any) -> dict[int, Any]:

@@ -23,10 +23,10 @@ class _RouterStub:
 async def test_route_episode_uses_excluded_types_model() -> None:
     service = _service()
     client = _RouterStub(
-        '{"memorable": true, "excluded_types": ["knowledge", "social"], "episode_summary": "S", "episode_item": "I"}'
+        '{"excluded_types": ["knowledge", "social"], "episode_summary": "S", "episode_items": [{"title": "Story", "summary": "I"}]}'
     )
 
-    routed, summary, item = await service._route_episode(
+    routed, summary, items = await service._route_episode(
         "episode text",
         ["profile", "knowledge", "behavior", "social"],
         llm_client=client,
@@ -34,7 +34,7 @@ async def test_route_episode_uses_excluded_types_model() -> None:
 
     assert routed == ["profile", "behavior"]
     assert summary == "S"
-    assert item == "I"
+    assert items == [{"title": "Story", "summary": "I"}]
 
 
 @pytest.mark.asyncio

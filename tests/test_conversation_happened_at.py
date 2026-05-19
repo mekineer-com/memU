@@ -21,8 +21,8 @@ def test_extract_message_happened_at_map_prefers_ts_ms_and_falls_back() -> None:
     assert happened_at_map[1] is not None
     assert happened_at_map[2] is not None
     assert happened_at_map[0].to_iso8601_string() == "2025-01-26T00:00:00Z"
-    assert happened_at_map[1].to_iso8601_string() == "2025-01-26T03:40:49.205000Z"
-    assert happened_at_map[2].to_iso8601_string() == "2025-01-27T01:02:03Z"
+    assert happened_at_map[1].to_iso8601_string() == "2025-01-26T00:00:00Z"
+    assert happened_at_map[2].to_iso8601_string() == "2025-01-27T00:00:00Z"
 
 
 def test_resolve_entry_happened_at_uses_source_message_ids_then_episode_fallback() -> None:
@@ -39,7 +39,7 @@ def test_resolve_entry_happened_at_uses_source_message_ids_then_episode_fallback
 
     assert direct is not None
     assert fallback is not None
-    assert direct.to_iso8601_string() == "2025-01-26T00:01:00Z"
+    assert direct.to_iso8601_string() == "2025-01-26T00:00:00Z"
     assert fallback.to_iso8601_string() == "2025-01-26T00:00:00Z"
 
 

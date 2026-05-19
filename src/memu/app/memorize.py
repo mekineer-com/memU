@@ -418,7 +418,7 @@ class MemorizeMixin:
             context_only = bool(episode_messages_all) and not primary_messages
 
             episode_summary: str | None = str(caption).strip() if isinstance(caption, str) and str(caption).strip() else None
-            episode_item: str | None = None
+            episode_items: list[dict[str, str]] = []
             applicable_types: list[MemoryType] = memory_types
             if context_only:
                 applicable_types = []
@@ -427,11 +427,12 @@ class MemorizeMixin:
                         messages=background_messages or episode_messages_all,
                         llm_client=extract_client,
                     )
-                episode_item = episode_summary
+                if episode_summary:
+                    episode_items = [{"title": "Story", "summary": episode_summary}]
                 if not episode_summary:
                     routing_notes.append(f"episode {episode_ref}: context-only background, no summary generated")
             elif episode_text:
-                applicable_types, routed_summary, routed_item = await self._route_episode(
+                applicable_types, routed_summary, routed_items = await self._route_episode(
                     episode_text,
                     memory_types,
                     extract_client,
@@ -440,7 +441,7 @@ class MemorizeMixin:
                 )
                 if routed_summary:
                     episode_summary = routed_summary
-                episode_item = routed_item
+                episode_items = routed_items
 
             primary_indices = [
                 self._message_index_for_sort(msg)
@@ -455,11 +456,15 @@ class MemorizeMixin:
                 for message_idx in selected_indices
                 if message_idx in message_happened_at_map
             }
-            conv_id = conversation_id or self._resolve_conversation_id(user)
-            if conv_id and selected_indices:
-                episode_id = f"{conv_id}:{selected_indices[0]}-{selected_indices[-1]}"
+            segment_id = str(episode_payload.get("segment_id") or "").strip() or None
+            if segment_id:
+                episode_id = segment_id
             else:
-                episode_id = None
+                conv_id = conversation_id or self._resolve_conversation_id(user)
+                if conv_id and selected_indices:
+                    episode_id = f"{conv_id}:{selected_indices[0]}-{selected_indices[-1]}"
+                else:
+                    episode_id = None
 
             prepared.append({
                 "episode_ref": episode_ref,
@@ -469,7 +474,7 @@ class MemorizeMixin:
                 "text": episode_text,
                 "caption": caption,
                 "episode_summary": episode_summary,
-                "episode_item": episode_item,
+                "episode_items": episode_items,
                 "message_indices": selected_indices,
                 "message_happened_at_map": plan_message_happened_at_map,
                 "episode_messages": primary_messages,
@@ -479,6 +484,7 @@ class MemorizeMixin:
                 "applicable_types": applicable_types,
                 "entries": [],
                 "episode_id": episode_id,
+                "segment_id": segment_id or episode_id,
             })
 
         extractable = [
@@ -561,11 +567,12 @@ class MemorizeMixin:
                 "text": ep["text"],
                 "caption": ep["episode_summary"] or ep["caption"],
                 "episode_summary": ep["episode_summary"],
-                "episode_item": ep["episode_item"],
+                "episode_items": ep["episode_items"],
                 "message_indices": ep["message_indices"],
                 "message_happened_at_map": ep["message_happened_at_map"],
                 "entries": episode_entries,
                 "episode_id": ep["episode_id"],
+                "segment_id": ep["segment_id"],
                 "memory_retrieve_history": memory_retrieve_history,
                 "memory_prior_context": memory_prior_context,
                 "episode_messages": ep["episode_messages"],
@@ -760,9 +767,9 @@ class MemorizeMixin:
             message_indices=prep.get("message_indices"),
         )
         episode_summary: str | None = None
-        episode_item: str | None = None
+        episode_items: list[dict[str, str]] = []
         if state["modality"] == "conversation" and isinstance(text, str):
-            applicable_types, episode_summary, episode_item = await self._route_episode(
+            applicable_types, episode_summary, episode_items = await self._route_episode(
                 text, state["memory_types"], llm_client,
                 soul_card=state.get("soul_card"),
                 skipped_reasons=skipped_reasons,
@@ -821,21 +828,26 @@ class MemorizeMixin:
             if message_idx in message_happened_at_map
         }
 
-        conv_id = state.get("conversation_id")
-        if conv_id and message_indices:
-            episode_id = f"{conv_id}:{message_indices[0]}-{message_indices[-1]}"
+        segment_id = str(prep.get("segment_id") or "").strip() or None
+        if segment_id:
+            episode_id = segment_id
         else:
-            episode_id = None
+            conv_id = state.get("conversation_id")
+            if conv_id and message_indices:
+                episode_id = f"{conv_id}:{message_indices[0]}-{message_indices[-1]}"
+            else:
+                episode_id = None
         plan: dict[str, Any] = {
             "resource_url": state["resource_url"],
             "text": text,
             "caption": episode_summary or caption,
             "episode_summary": episode_summary,
-            "episode_item": episode_item,
+            "episode_items": episode_items,
             "message_indices": message_indices,
             "message_happened_at_map": plan_message_happened_at_map,
             "entries": structured_entries,
             "episode_id": episode_id,
+            "segment_id": segment_id or episode_id,
             "memory_retrieve_history": state.get("memory_retrieve_history"),
             "memory_prior_context": state.get("memory_prior_context"),
             "episode_messages": episode_messages,
@@ -973,6 +985,21 @@ class MemorizeMixin:
             episode_file.write_text(plan["text"], encoding="utf-8")
             episode_local_path = str(episode_file)
 
+        segment_id = str(plan.get("segment_id") or plan.get("episode_id") or "").strip() or None
+        message_happened_at_map = plan.get("message_happened_at_map")
+        happened_at_value: Any | None = None
+        memory_date: str | None = None
+        if isinstance(message_happened_at_map, Mapping):
+            for message_idx in sorted(message_happened_at_map):
+                happened_at_candidate = message_happened_at_map.get(message_idx)
+                if happened_at_candidate is None:
+                    continue
+                happened_at_value = happened_at_candidate
+                match = re.search(r"\d{4}-\d{2}-\d{2}", str(happened_at_candidate))
+                if match:
+                    memory_date = match.group(0)
+                break
+
         res = await self._create_resource_with_caption(
             resource_url=plan["resource_url"],
             modality=modality,
@@ -981,7 +1008,7 @@ class MemorizeMixin:
             store=store,
             embed_client=embed_client,
             user=user_scope,
-            episode_id=plan.get("episode_id"),
+            episode_id=segment_id,
             conversation_id=conversation_id,
             memory_retrieve_history=plan.get("memory_retrieve_history"),
             memory_prior_context=plan.get("memory_prior_context"),
@@ -989,29 +1016,53 @@ class MemorizeMixin:
         )
 
         episode_summary_text = str(plan.get("episode_summary") or "").strip()
-        episode_item_text = str(plan.get("episode_item") or "").strip() or episode_summary_text
-        if episode_item_text and res.embedding is not None:
-            summary_item = store.memory_item_repo.create_item(
-                resource_id=res.id,
-                memory_type="episode",
-                source_role="environment",
-                summary=episode_item_text,
-                embedding=res.embedding,
-                user_data=dict(user_scope or {}),
-                conversation_id=conversation_id,
-                episode_id=plan.get("episode_id"),
-                **({"session": session} if session is not None else {}),
-            )
-            items.append(summary_item)
-            exp_ids = self._map_category_names_to_ids(["Experiences"], ctx)
-            for cid in exp_ids:
-                rel_kwargs = {"item_id": summary_item.id, "category_id": cid, "user_data": dict(user_scope or {})}
-                if session is not None:
-                    rel = cast(Any, store.category_item_repo).link_item_category(**rel_kwargs, session=session)
-                else:
-                    rel = store.category_item_repo.link_item_category(**rel_kwargs)
-                relations.append(rel)
-                category_updates.setdefault(cid, []).append((summary_item.id, episode_item_text))
+        raw_episode_items = plan.get("episode_items")
+        episode_items: list[dict[str, str]] = []
+        if isinstance(raw_episode_items, list):
+            for row in raw_episode_items:
+                if not isinstance(row, Mapping):
+                    continue
+                title = str(row.get("title") or "").strip()
+                summary = str(row.get("summary") or "").strip()
+                if not summary:
+                    continue
+                episode_items.append({"title": title or "Story", "summary": summary})
+        if not episode_items and episode_summary_text:
+            episode_items = [{"title": "Story", "summary": episode_summary_text}]
+        if episode_items and res.embedding is not None:
+            for episode_item in episode_items:
+                title = str(episode_item.get("title") or "").strip() or "Story"
+                summary = str(episode_item.get("summary") or "").strip()
+                if not summary:
+                    continue
+                extra_payload: dict[str, Any] = {"episode_item_title": title}
+                if segment_id:
+                    extra_payload["segment_id"] = segment_id
+                if memory_date:
+                    extra_payload["memory_date"] = memory_date
+                summary_item = store.memory_item_repo.create_item(
+                    resource_id=res.id,
+                    memory_type="episode",
+                    source_role="environment",
+                    summary=f"{title}: {summary}",
+                    embedding=res.embedding,
+                    user_data=dict(user_scope or {}),
+                    conversation_id=conversation_id,
+                    episode_id=segment_id,
+                    happened_at=happened_at_value,
+                    extra=extra_payload,
+                    **({"session": session} if session is not None else {}),
+                )
+                items.append(summary_item)
+                exp_ids = self._map_category_names_to_ids(["Experiences"], ctx)
+                for cid in exp_ids:
+                    rel_kwargs = {"item_id": summary_item.id, "category_id": cid, "user_data": dict(user_scope or {})}
+                    if session is not None:
+                        rel = cast(Any, store.category_item_repo).link_item_category(**rel_kwargs, session=session)
+                    else:
+                        rel = store.category_item_repo.link_item_category(**rel_kwargs)
+                    relations.append(rel)
+                    category_updates.setdefault(cid, []).append((summary_item.id, summary_item.summary))
 
         entries = plan.get("entries") or []
         episode_id = str(plan.get("episode_id") or "").strip()
@@ -1031,8 +1082,8 @@ class MemorizeMixin:
             embed_client=embed_client,
             user=user_scope,
             conversation_id=conversation_id,
-            episode_id=plan.get("episode_id"),
-            message_happened_at_map=plan.get("message_happened_at_map"),
+            episode_id=segment_id,
+            message_happened_at_map=message_happened_at_map,
             **persist_kwargs,
         )
         items.extend(mem_items)
@@ -1246,9 +1297,9 @@ class MemorizeMixin:
         llm_client: Any | None = None,
         soul_card: str | None = None,
         skipped_reasons: list[str] | None = None,
-    ) -> tuple[list[MemoryType], str | None, str | None]:
+    ) -> tuple[list[MemoryType], str | None, list[dict[str, str]]]:
         if not memory_types:
-            return [], None, None
+            return [], None, []
         client = llm_client or self._get_llm_client()
         prompt = ROUTER_PROMPT.format(
             episode=episode_text,
@@ -1267,30 +1318,48 @@ class MemorizeMixin:
             logger.warning("Router returned non-dict payload, skipping episode: %s", type(payload).__name__)
             if skipped_reasons is not None:
                 skipped_reasons.append("router returned non-dict payload")
-            return [], None, None
-        memorable = payload.get("memorable")
+            return [], None, []
         excluded_types = payload.get("excluded_types")
         reason = payload.get("reason", "")
         episode_summary = str(payload.get("episode_summary") or "").strip() or None
-        episode_item = str(payload.get("episode_item") or "").strip() or None
-        if memorable is False:
-            if skipped_reasons is not None and reason:
-                skipped_reasons.append(reason)
-            return [], episode_summary, episode_item
+        episode_items: list[dict[str, str]] = []
+        raw_episode_items = payload.get("episode_items")
+        if isinstance(raw_episode_items, list):
+            for row in raw_episode_items:
+                if not isinstance(row, Mapping):
+                    continue
+                summary = str(row.get("summary") or "").strip()
+                if not summary:
+                    continue
+                title = str(row.get("title") or "").strip() or "Story"
+                episode_items.append({"title": title, "summary": summary})
+        legacy_episode_item = str(payload.get("episode_item") or "").strip()
+        if not episode_items and legacy_episode_item:
+            episode_items = [{"title": "Story", "summary": legacy_episode_item}]
+        if not episode_items and episode_summary:
+            episode_items = [{"title": "Story", "summary": episode_summary}]
+        try:
+            max_items = int(getattr(self.memorize_config, "episodes_per_segment", 3) or 3)
+        except (TypeError, ValueError):
+            max_items = 3
+        episode_items = episode_items[: max(1, max_items)]
         if excluded_types is None:
             excluded_types = []
         if not isinstance(excluded_types, list):
             logger.warning("Router returned invalid excluded_types, skipping episode")
             if skipped_reasons is not None:
                 skipped_reasons.append("router returned invalid excluded_types")
-            return [], episode_summary, episode_item
+            return [], episode_summary, episode_items
         excluded = {
             routed_type
             for routed_type in excluded_types
             if isinstance(routed_type, str) and routed_type in set(memory_types)
         }
         allowed_types = set(memory_types) - excluded
-        return [mtype for mtype in memory_types if mtype in allowed_types], episode_summary, episode_item
+        routed_types = [mtype for mtype in memory_types if mtype in allowed_types]
+        if not routed_types and skipped_reasons is not None and isinstance(reason, str) and reason.strip():
+            skipped_reasons.append(reason.strip())
+        return routed_types, episode_summary, episode_items
 
     async def _generate_entries_from_text(
         self,
