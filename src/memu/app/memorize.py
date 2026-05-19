@@ -402,8 +402,16 @@ class MemorizeMixin:
                         }
                     )
 
-            if preprocessor_rows and primary_messages:
-                background_summaries = preprocessor_rows
+            if preprocessor_rows:
+                seeded_rows = list(preprocessor_rows)
+                if background_messages:
+                    _rendered_with_tail, tail_rows = await self._render_episode_with_background_context(
+                        primary_messages=primary_messages,
+                        background_messages=background_messages,
+                        llm_client=extract_client,
+                    )
+                    seeded_rows.extend(tail_rows)
+                background_summaries = seeded_rows
                 rendered_text = self._render_episode_with_summary_rows(
                     primary_messages=primary_messages,
                     summary_rows=background_summaries,
@@ -1865,6 +1873,35 @@ class MemorizeMixin:
             summarize_episode=self._summarize_episode,
         )
 
+    async def summarize_background_chat_rollup(
+        self,
+        *,
+        prior_summary: str | None,
+        messages: Sequence[Mapping[str, Any]],
+        llm_client: Any | None = None,
+    ) -> str:
+        return await episode_helpers._summarize_background_rollup(
+            prior_summary=prior_summary,
+            messages=messages,
+            llm_client=llm_client,
+            get_llm_client=self._get_llm_client,
+        )
+
+    async def _summarize_background_groups_batched(
+        self,
+        *,
+        grouped_messages: Mapping[str, Sequence[Mapping[str, Any]]],
+        group_order: Sequence[str],
+        llm_client: Any | None = None,
+    ) -> dict[str, str]:
+        return await episode_helpers._summarize_background_groups_batched(
+            grouped_messages=grouped_messages,
+            group_order=group_order,
+            llm_client=llm_client,
+            get_llm_client=self._get_llm_client,
+            extract_json_blob=self._extract_json_blob,
+        )
+
     async def _render_episode_with_background_context(
         self,
         *,
@@ -1876,7 +1913,9 @@ class MemorizeMixin:
             primary_messages=primary_messages,
             background_messages=background_messages,
             llm_client=llm_client,
-            summarize_background_messages=self._summarize_background_messages,
+            summarize_background_rollup=self.summarize_background_chat_rollup,
+            summarize_background_groups_batched=self._summarize_background_groups_batched,
+            memorize_config=self.memorize_config,
         )
 
     def _render_episode_with_summary_rows(

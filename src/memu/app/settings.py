@@ -204,6 +204,13 @@ class MemorizeConfig(BaseModel):
         default=3,
         description="Maximum number of episodes the LLM preprocessor can create from one conversation segment.",
     )
+    background_extra_messages_tokens: int = Field(
+        default=100,
+        description=(
+            "During segment preprocessing, if the total token estimate across unsummarized background tails "
+            "is below this threshold, skip background-tail summarization and keep raw lines."
+        ),
+    )
     enable_confidence_normalization: bool = Field(
         default=False,
         description="When true, redistribute clustered confidence scores via z-score rescaling.",

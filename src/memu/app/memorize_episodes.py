@@ -375,6 +375,19 @@ def _format_episode_message_line(message: Mapping[str, Any]) -> str:
     return f"[{max(0, idx)}] {source_prefix}[{role}]: {content}"
 
 
+def _summary_row_lines(row: Mapping[str, Any]) -> list[str]:
+    label = str(row.get("source_label") or "background").strip() or "background"
+    summary = str(row.get("summary") or "").strip()
+    if not summary:
+        return []
+    if "\n" not in summary:
+        return [f"[Background:{label}] {summary}"]
+    lines = [line.strip() for line in summary.splitlines() if line.strip()]
+    if not lines:
+        return [f"[Background:{label}]"]
+    return [f"[Background:{label}]", *lines]
+
+
 async def _summarize_background_messages(
     *,
     messages: Sequence[Mapping[str, Any]],
@@ -393,12 +406,117 @@ async def _summarize_background_messages(
     return str(summary or "").strip() or None
 
 
+async def _summarize_background_rollup(
+    *,
+    prior_summary: str | None,
+    messages: Sequence[Mapping[str, Any]],
+    llm_client: Any | None,
+    get_llm_client: Callable[..., Any],
+) -> str:
+    if not messages:
+        msg = "background rollup requires at least one message"
+        raise ValueError(msg)
+    rendered = "\n".join(
+        _format_episode_message_line(msg)
+        for msg in sorted(messages, key=_message_index_for_sort)
+    ).strip()
+    if not rendered:
+        msg = "background rollup rendered empty message payload"
+        raise ValueError(msg)
+    prior_block = str(prior_summary or "").strip()
+    prompt_parts = [
+        "Prior rolling summary (if present):",
+        prior_block or "<none>",
+        "",
+        "New unsummarized tail:",
+        rendered,
+    ]
+    prompt = "\n".join(prompt_parts).strip()
+    system_prompt = (
+        "You maintain a rolling summary for one background chat. "
+        "Return one concise paragraph that merges prior summary + new tail. "
+        "Preserve names, concrete facts, quoted phrases, and references. "
+        "Drop pleasantries and filler. No bullets. No markdown."
+    )
+    client = llm_client or get_llm_client(
+        step_context={"operation": "memorize", "step_id": "background_rollup"},
+    )
+    response = await client.chat(prompt, system_prompt=system_prompt)
+    summary = str(response or "").strip()
+    if not summary:
+        msg = "background rollup returned empty summary"
+        raise ValueError(msg)
+    return summary
+
+
+async def _summarize_background_groups_batched(
+    *,
+    grouped_messages: Mapping[str, Sequence[Mapping[str, Any]]],
+    group_order: Sequence[str],
+    llm_client: Any | None,
+    get_llm_client: Callable[..., Any],
+    extract_json_blob: Callable[[str], str],
+) -> dict[str, str]:
+    batches: list[dict[str, Any]] = []
+    for source_key in group_order:
+        messages = grouped_messages.get(source_key) or []
+        if not messages:
+            continue
+        source_label = str(messages[0].get("source_label") or source_key).strip() or source_key
+        rendered = "\n".join(
+            _format_episode_message_line(msg)
+            for msg in sorted(messages, key=_message_index_for_sort)
+        ).strip()
+        if not rendered:
+            continue
+        batches.append(
+            {
+                "source_key": source_key,
+                "source_label": source_label,
+                "messages": rendered,
+            }
+        )
+    if not batches:
+        return {}
+    prompt = json.dumps({"groups": batches}, ensure_ascii=False, indent=2)
+    system_prompt = (
+        "Summarize each background group independently. "
+        "Return strict JSON only: {\"summaries\":[{\"source_key\":\"...\",\"summary\":\"...\"}]}. "
+        "Each summary must be 1-2 concise sentences preserving names, facts, references, and quoted phrases. "
+        "Drop filler and pleasantries."
+    )
+    client = llm_client or get_llm_client(
+        step_context={"operation": "memorize", "step_id": "background_batch_summary"},
+    )
+    raw = await client.chat(prompt, system_prompt=system_prompt)
+    try:
+        payload = json.loads(str(raw or ""))
+    except json.JSONDecodeError:
+        payload = json.loads(extract_json_blob(str(raw or "")))
+    summaries = payload.get("summaries") if isinstance(payload, Mapping) else None
+    if not isinstance(summaries, list):
+        msg = "background batch summary returned invalid JSON schema"
+        raise ValueError(msg)
+    out: dict[str, str] = {}
+    for row in summaries:
+        if not isinstance(row, Mapping):
+            continue
+        source_key = str(row.get("source_key") or "").strip()
+        summary = str(row.get("summary") or "").strip()
+        if not source_key or not summary:
+            continue
+        out[source_key] = summary
+    return out
+
+
 async def _render_episode_with_background_context(
     *,
     primary_messages: Sequence[Mapping[str, Any]],
     background_messages: Sequence[Mapping[str, Any]],
     llm_client: Any | None,
-    summarize_background_messages: Callable[..., Awaitable[str | None]],
+    summarize_background_rollup: Callable[..., Awaitable[str]],
+    summarize_background_groups_batched: Callable[..., Awaitable[dict[str, str]]],
+    memorize_config: Any,
 ) -> tuple[str, list[dict[str, Any]]]:
     prim = sorted(primary_messages, key=_message_index_for_sort)
     bg = sorted(background_messages, key=_message_index_for_sort)
@@ -416,12 +534,37 @@ async def _render_episode_with_background_context(
             group_order.append(source_key)
         grouped[source_key].append(msg)
 
+    total_bg_tokens = sum(_estimate_text_tokens(str(msg.get("content") or "")) for msg in bg)
+    raw_floor = int(getattr(memorize_config, "background_extra_messages_tokens", 100) or 100)
+    summarize_background = total_bg_tokens >= max(0, raw_floor)
+
+    batched_summaries: dict[str, str] = {}
+    if summarize_background:
+        batched_summaries = await summarize_background_groups_batched(
+            grouped_messages=grouped,
+            group_order=group_order,
+            llm_client=llm_client,
+        )
+
     summary_rows: list[dict[str, Any]] = []
     for source_key in group_order:
         group_msgs = grouped[source_key]
-        summary = await summarize_background_messages(messages=group_msgs, llm_client=llm_client)
-        if not summary:
-            continue
+        if summarize_background:
+            summary = str(batched_summaries.get(source_key) or "").strip()
+            if not summary:
+                summary = await summarize_background_rollup(
+                    prior_summary=None,
+                    messages=group_msgs,
+                    llm_client=llm_client,
+                )
+            summary_lines = [f"[Background:{str(group_msgs[0].get('source_label') or source_key).strip() or source_key}] {summary}"]
+        else:
+            summary_lines = [
+                _format_episode_message_line(msg)
+                for msg in sorted(group_msgs, key=_message_index_for_sort)
+            ]
+            if not summary_lines:
+                continue
         source_label = str(group_msgs[0].get("source_label") or source_key).strip() or source_key
         first_idx = _message_index_for_sort(group_msgs[0])
         after_index = None
@@ -434,7 +577,7 @@ async def _render_episode_with_background_context(
         summary_rows.append(
             {
                 "after_index": after_index,
-                "summary": summary,
+                "summary": "\n".join(summary_lines),
                 "source_label": source_label,
             }
         )
@@ -446,9 +589,7 @@ async def _render_episode_with_background_context(
             if row.get("_emitted"):
                 continue
             if row.get("after_index") == pidx:
-                rendered_lines.append(
-                    f"[Background:{row.get('source_label')}] {str(row.get('summary') or '').strip()}"
-                )
+                rendered_lines.extend(_summary_row_lines(row))
                 row["_emitted"] = True
         rendered_lines.append(_format_episode_message_line(primary))
 
@@ -457,9 +598,7 @@ async def _render_episode_with_background_context(
         if row.get("_emitted"):
             row.pop("_emitted", None)
             continue
-        prefix_lines.append(
-            f"[Background:{row.get('source_label')}] {str(row.get('summary') or '').strip()}"
-        )
+        prefix_lines.extend(_summary_row_lines(row))
         row.pop("_emitted", None)
     if prefix_lines:
         rendered_lines = [*prefix_lines, *rendered_lines]
@@ -481,16 +620,14 @@ def _render_episode_with_summary_rows(
             if row.get("_emitted"):
                 continue
             if row.get("after_index") == pidx:
-                label = str(row.get("source_label") or "background").strip() or "background"
-                rendered_lines.append(f"[Background:{label}] {str(row.get('summary') or '').strip()}")
+                rendered_lines.extend(_summary_row_lines(row))
                 row["_emitted"] = True
         rendered_lines.append(_format_episode_message_line(primary))
     prefix_lines: list[str] = []
     for row in mutable_rows:
         if row.get("_emitted"):
             continue
-        label = str(row.get("source_label") or "background").strip() or "background"
-        prefix_lines.append(f"[Background:{label}] {str(row.get('summary') or '').strip()}")
+        prefix_lines.extend(_summary_row_lines(row))
     if prefix_lines:
         rendered_lines = [*prefix_lines, *rendered_lines]
     return "\n".join(line for line in rendered_lines if line.strip()).strip()
