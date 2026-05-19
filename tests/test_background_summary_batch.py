@@ -36,9 +36,6 @@ async def test_render_episode_with_background_context_uses_raw_lines_below_floor
     primary_messages = [{"_message_index": 2, "role": "user", "name": "Marcos", "content": "primary"}]
     background_messages = [{"_message_index": 1, "role": "user", "name": "N", "content": "small", "source_label": "whatsapp:dm"}]
 
-    async def _rollup(**_kwargs):
-        raise AssertionError("rollup should not run when below floor")
-
     async def _batch(**_kwargs):
         raise AssertionError("batch should not run when below floor")
 
@@ -46,7 +43,6 @@ async def test_render_episode_with_background_context_uses_raw_lines_below_floor
         primary_messages=primary_messages,
         background_messages=background_messages,
         llm_client=None,
-        summarize_background_rollup=_rollup,
         summarize_background_groups_batched=_batch,
         memorize_config=SimpleNamespace(background_extra_messages_tokens=9999),
     )
@@ -63,9 +59,6 @@ async def test_render_episode_with_background_context_uses_batch_summary_when_ab
         {"_message_index": 2, "role": "user", "name": "B", "content": "w " * 150, "source_label": "sillytavern", "source_conversation_id": "c2"},
     ]
 
-    async def _rollup(**_kwargs):
-        raise AssertionError("rollup fallback should not run when batch returns all summaries")
-
     async def _batch(**_kwargs):
         return {"c1": "summary one", "c2": "summary two"}
 
@@ -73,10 +66,30 @@ async def test_render_episode_with_background_context_uses_batch_summary_when_ab
         primary_messages=primary_messages,
         background_messages=background_messages,
         llm_client=None,
-        summarize_background_rollup=_rollup,
         summarize_background_groups_batched=_batch,
         memorize_config=SimpleNamespace(background_extra_messages_tokens=0),
     )
     assert "summary one" in rendered
     assert "summary two" in rendered
     assert len(rows) == 2
+
+
+@pytest.mark.asyncio
+async def test_render_episode_with_background_context_raises_on_missing_batch_group() -> None:
+    primary_messages = [{"_message_index": 3, "role": "user", "name": "Marcos", "content": "primary"}]
+    background_messages = [
+        {"_message_index": 1, "role": "user", "name": "A", "content": "w " * 150, "source_label": "whatsapp:dm", "source_conversation_id": "c1"},
+        {"_message_index": 2, "role": "user", "name": "B", "content": "w " * 150, "source_label": "sillytavern", "source_conversation_id": "c2"},
+    ]
+
+    async def _batch(**_kwargs):
+        return {"c1": "summary one"}
+
+    with pytest.raises(ValueError, match="missing background summary for source"):
+        await episode_helpers._render_episode_with_background_context(
+            primary_messages=primary_messages,
+            background_messages=background_messages,
+            llm_client=None,
+            summarize_background_groups_batched=_batch,
+            memorize_config=SimpleNamespace(background_extra_messages_tokens=0),
+        )

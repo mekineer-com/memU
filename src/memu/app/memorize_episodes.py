@@ -506,6 +506,11 @@ async def _summarize_background_groups_batched(
         if not source_key or not summary:
             continue
         out[source_key] = summary
+    expected_keys = {str(batch.get("source_key") or "").strip() for batch in batches}
+    missing_keys = sorted(key for key in expected_keys if key and key not in out)
+    if missing_keys:
+        msg = f"background batch summary missing source keys: {', '.join(missing_keys)}"
+        raise ValueError(msg)
     return out
 
 
@@ -514,7 +519,6 @@ async def _render_episode_with_background_context(
     primary_messages: Sequence[Mapping[str, Any]],
     background_messages: Sequence[Mapping[str, Any]],
     llm_client: Any | None,
-    summarize_background_rollup: Callable[..., Awaitable[str]],
     summarize_background_groups_batched: Callable[..., Awaitable[dict[str, str]]],
     memorize_config: Any,
 ) -> tuple[str, list[dict[str, Any]]]:
@@ -552,11 +556,8 @@ async def _render_episode_with_background_context(
         if summarize_background:
             summary = str(batched_summaries.get(source_key) or "").strip()
             if not summary:
-                summary = await summarize_background_rollup(
-                    prior_summary=None,
-                    messages=group_msgs,
-                    llm_client=llm_client,
-                )
+                msg = f"missing background summary for source '{source_key}'"
+                raise ValueError(msg)
             summary_lines = [f"[Background:{str(group_msgs[0].get('source_label') or source_key).strip() or source_key}] {summary}"]
         else:
             summary_lines = [

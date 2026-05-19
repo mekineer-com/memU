@@ -1913,7 +1913,6 @@ class MemorizeMixin:
             primary_messages=primary_messages,
             background_messages=background_messages,
             llm_client=llm_client,
-            summarize_background_rollup=self.summarize_background_chat_rollup,
             summarize_background_groups_batched=self._summarize_background_groups_batched,
             memorize_config=self.memorize_config,
         )
