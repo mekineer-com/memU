@@ -88,7 +88,7 @@ class LLMConfig(BaseModel):
         description="Optional overrides for HTTP endpoints (keys: 'chat'/'summary').",
     )
     embed_model: str = Field(
-        default="text-embedding-3-small",
+        default="text-embedding-3-large",
         description="Default embedding model used for vectorization.",
     )
     embed_batch_size: int = Field(
