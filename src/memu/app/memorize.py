@@ -326,6 +326,7 @@ class MemorizeMixin:
             self.memorize_config.memory_extract_llm_profile,
             step_context={"operation": "memorize", "step_id": "extract_items_batch"},
         )
+        extract_model = str(getattr(extract_client, "chat_model", "") or "").strip() or None
         memory_types = self._resolve_memory_types()
         declared_entity_roster = self._list_declared_relationship_roster(
             store=store,
@@ -493,6 +494,7 @@ class MemorizeMixin:
                 "entries": [],
                 "episode_id": episode_id,
                 "segment_id": segment_id or episode_id,
+                "extract_model": extract_model,
             })
 
         extractable = [
@@ -584,6 +586,7 @@ class MemorizeMixin:
                 "memory_retrieve_history": memory_retrieve_history,
                 "memory_prior_context": memory_prior_context,
                 "episode_messages": ep["episode_messages"],
+                "extract_model": ep.get("extract_model"),
             }
             state: WorkflowState = {
                 "resource_url": ep["resource_url"],
@@ -750,6 +753,7 @@ class MemorizeMixin:
 
     async def _memorize_extract_items(self, state: WorkflowState, step_context: Any) -> WorkflowState:
         llm_client = self._get_step_llm_client(step_context)
+        extract_model = str(getattr(llm_client, "chat_model", "") or "").strip() or None
         episodes = state.get("episodes", [])
         episode_plans: list[dict[str, Any]] = []
         skipped_reasons: list[str] = []
@@ -859,6 +863,7 @@ class MemorizeMixin:
             "memory_retrieve_history": state.get("memory_retrieve_history"),
             "memory_prior_context": state.get("memory_prior_context"),
             "episode_messages": episode_messages,
+            "extract_model": extract_model,
         }
         episode_plans.append(plan)
 
@@ -1091,6 +1096,7 @@ class MemorizeMixin:
             user=user_scope,
             conversation_id=conversation_id,
             episode_id=segment_id,
+            extract_model=str(plan.get("extract_model") or "").strip() or None,
             message_happened_at_map=message_happened_at_map,
             **persist_kwargs,
         )
@@ -1576,6 +1582,7 @@ class MemorizeMixin:
         user: Mapping[str, Any] | None = None,
         conversation_id: str | None = None,
         episode_id: str | None = None,
+        extract_model: str | None = None,
         message_happened_at_map: Mapping[int, Any] | None = None,
         session: Any | None = None,
     ) -> tuple[list[MemoryItem], list[CategoryItem], dict[str, list[tuple[str, str]]], int]:
@@ -1589,6 +1596,7 @@ class MemorizeMixin:
             user=user,
             conversation_id=conversation_id,
             episode_id=episode_id,
+            extract_model=extract_model,
             message_happened_at_map=message_happened_at_map,
             session=session,
             maybe_create_dynamic_categories=self._maybe_create_dynamic_categories,

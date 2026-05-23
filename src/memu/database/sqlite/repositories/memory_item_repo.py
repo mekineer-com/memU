@@ -264,6 +264,7 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
         summary: str,
         embedding: list[float],
         user_data: dict[str, Any],
+        extra: dict[str, Any] | None = None,
         tool_record: dict[str, Any] | None = None,
         source_role: str | None = None,
         speaker_id: str | None = None,
@@ -286,6 +287,7 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
                     summary=summary,
                     embedding=embedding,
                     user_data=user_data,
+                    extra=extra,
                     tool_record=tool_record,
                     source_role=source_role,
                     speaker_id=speaker_id,
@@ -303,15 +305,15 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
                 session.commit()
                 return item
 
-        # Build extra dict with tool_record fields at top level
-        extra: dict[str, Any] = {}
+        # Build extra dict with tool_record fields at top level.
+        merged_extra: dict[str, Any] = dict(extra or {})
         if tool_record:
             if tool_record.get("when_to_use") is not None:
-                extra["when_to_use"] = tool_record["when_to_use"]
+                merged_extra["when_to_use"] = tool_record["when_to_use"]
             if tool_record.get("metadata") is not None:
-                extra["metadata"] = tool_record["metadata"]
+                merged_extra["metadata"] = tool_record["metadata"]
             if tool_record.get("tool_calls") is not None:
-                extra["tool_calls"] = tool_record["tool_calls"]
+                merged_extra["tool_calls"] = tool_record["tool_calls"]
 
         create_user_data = dict(user_data or {})
         create_user_data.pop("conversation_id", None)
@@ -333,7 +335,7 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
             conversation_id=conv_id,
             episode_id=episode_id,
             unresolved=unresolved,
-            extra=extra if extra else {},
+            extra=merged_extra if merged_extra else {},
             created_at=now,
             updated_at=now,
             **create_user_data,

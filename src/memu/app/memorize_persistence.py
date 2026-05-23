@@ -149,6 +149,7 @@ async def _persist_memory_items(
     user: Mapping[str, Any] | None,
     conversation_id: str | None,
     episode_id: str | None,
+    extract_model: str | None,
     message_happened_at_map: Mapping[int, Any] | None,
     session: Any | None,
     maybe_create_dynamic_categories: Callable[..., Awaitable[list[Any]]],
@@ -185,6 +186,7 @@ async def _persist_memory_items(
         embed_client=client,
         user=user,
     )
+    normalized_extract_model = str(extract_model or "").strip() or None
     for idx, (entry, emb) in enumerate(zip(structured_entries, item_embeddings, strict=True)):
         resolved_summary = hedge_summary_for_confidence(entry.content, entry.confidence)
         item_kwargs = {
@@ -204,6 +206,8 @@ async def _persist_memory_items(
             "conversation_id": conversation_id,
             "episode_id": episode_id,
         }
+        if normalized_extract_model is not None:
+            item_kwargs["extra"] = {"model": normalized_extract_model}
         if session is not None:
             item = store.memory_item_repo.create_item(**item_kwargs, session=session)
         else:
