@@ -80,6 +80,19 @@ def test_normalize_score_with_percentiles_linear_piecewise():
     assert 0.5 < mid < 0.75
 
 
+def test_normalize_score_with_percentiles_duplicate_anchor_edges():
+    params = {"p10": 0.5, "p25": 0.5, "p50": 0.5, "p75": 0.5, "p90": 0.5}
+    assert normalize_score_with_percentiles(0.1, params) == 0.1
+    assert normalize_score_with_percentiles(0.5, params) == 0.1
+    assert normalize_score_with_percentiles(0.8, params) == 0.9
+
+
+def test_normalize_score_with_percentiles_duplicate_anchor_interior():
+    params = {"p10": 0.2, "p25": 0.2, "p50": 0.2, "p75": 0.7, "p90": 0.9}
+    assert normalize_score_with_percentiles(0.2, params) == 0.1
+    assert normalize_score_with_percentiles(0.25, params) == 0.525
+
+
 def test_rerank_by_salience_applies_model_calibration():
     now = datetime.now(timezone.utc)
     candidates = [

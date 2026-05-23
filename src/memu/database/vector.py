@@ -19,9 +19,20 @@ W_IMPORTANCE = 0.3
 
 
 def normalize_score_with_percentiles(value: float, params: Mapping[str, float]) -> float:
+    p10 = float(params["p10"])
+    p25 = float(params["p25"])
+    p50 = float(params["p50"])
+    p75 = float(params["p75"])
+    p90 = float(params["p90"])
+    if value <= p10:
+        return 0.1
+    if value >= p90:
+        return 0.9
+
     ys_anchors = (0.1, 0.25, 0.5, 0.75, 0.9)
-    xs = [float(params[f"p{int(y * 100)}"]) for y in ys_anchors]
-    # Collapse equal anchors (low-variance distribution) — keep the highest y per unique x.
+    xs = [p10, p25, p50, p75, p90]
+    # For interior values, collapse duplicate x anchors by retaining the highest y
+    # so repeated quantiles still interpolate from the last plateau.
     seen: dict[float, float] = {}
     for x, y in zip(xs, ys_anchors, strict=True):
         seen[x] = y

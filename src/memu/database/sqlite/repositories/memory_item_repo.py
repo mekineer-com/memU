@@ -22,6 +22,7 @@ from memu.database.vector import cosine_topk, reciprocal_rank_fusion, rerank_by_
 logger = logging.getLogger(__name__)
 
 _SCORE_FIELDS: tuple[str, ...] = ("confidence", "reflection_salience", "emotional_intensity")
+_MISSING_CALIBRATION_WARNED: set[tuple[str, str]] = set()
 
 
 class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
@@ -177,6 +178,14 @@ WHERE version = 1 AND model IN ({placeholders})
             except (KeyError, TypeError, ValueError):
                 logger.warning("model_score_calibration missing percentile keys for model=%s field=%s", model, field)
         return calibration_map
+
+    @staticmethod
+    def _warn_missing_calibration_once(model: str, field: str) -> None:
+        key = (model, field)
+        if key in _MISSING_CALIBRATION_WARNED:
+            return
+        _MISSING_CALIBRATION_WARNED.add(key)
+        logger.warning("No score calibration found for model=%s field=%s; using identity mapping", model, field)
 
     def _active_item_filter(self, model: Any, *, include_superseded: bool = False) -> Any | None:
         merged_into_col = getattr(model, "merged_into", None)
@@ -700,7 +709,7 @@ WHERE version = 1 AND model IN ({placeholders})
             for model in sorted(models):
                 for field in ("reflection_salience", "emotional_intensity"):
                     if (model, field) not in calibration_map:
-                        logger.warning("No score calibration found for model=%s field=%s; using identity mapping", model, field)
+                        self._warn_missing_calibration_once(model, field)
 
             candidates: list[tuple[str, float, datetime, float | None, float | None, str | None]] = []
             for item_id, score in hits[:vector_k]:
