@@ -18,36 +18,15 @@ W_RECENCY = 0.2
 W_IMPORTANCE = 0.3
 
 
-def _clamp01(value: float) -> float:
-    return max(0.0, min(1.0, value))
-
-
 def normalize_score_with_percentiles(value: float, params: Mapping[str, float]) -> float:
-    p10 = float(params["p10"])
-    p25 = float(params["p25"])
-    p50 = float(params["p50"])
-    p75 = float(params["p75"])
-    p90 = float(params["p90"])
-
-    if value <= p10:
-        return 0.1
-    if value >= p90:
-        return 0.9
-
-    anchors = (
-        (0.1, p10),
-        (0.25, p25),
-        (0.5, p50),
-        (0.75, p75),
-        (0.9, p90),
-    )
-    for (y0, x0), (y1, x1) in zip(anchors, anchors[1:], strict=True):
-        if value <= x1:
-            if x1 == x0:
-                return y1
-            t = (value - x0) / (x1 - x0)
-            return _clamp01(y0 + t * (y1 - y0))
-    return 0.9
+    ys_anchors = (0.1, 0.25, 0.5, 0.75, 0.9)
+    xs = [float(params[f"p{int(y * 100)}"]) for y in ys_anchors]
+    # Collapse equal anchors (low-variance distribution) — keep the highest y per unique x.
+    seen: dict[float, float] = {}
+    for x, y in zip(xs, ys_anchors, strict=True):
+        seen[x] = y
+    xs_u, ys_u = zip(*sorted(seen.items()), strict=True)
+    return float(np.clip(np.interp(value, xs_u, ys_u), 0.0, 1.0))
 
 
 def salience_score(
