@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import Mapping
 from datetime import datetime
@@ -19,6 +20,8 @@ from memu.database.state import DatabaseState
 from memu.database.vector import cosine_topk, reciprocal_rank_fusion, rerank_by_salience
 
 logger = logging.getLogger(__name__)
+
+_SCORE_FIELDS: tuple[str, ...] = ("confidence", "reflection_salience", "emotional_intensity")
 
 
 class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
@@ -58,6 +61,122 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
         if isinstance(raw, str) and raw.strip():
             return raw.strip()
         return None
+
+    @staticmethod
+    def _next_recalibration_threshold(sample_size: int) -> int:
+        if sample_size < 50:
+            return 50
+        if sample_size < 100:
+            return 100
+        if sample_size < 250:
+            return 250
+        if sample_size < 500:
+            return 500
+        return ((sample_size // 500) + 1) * 500
+
+    @staticmethod
+    def _percentile(sorted_values: list[float], p: float) -> float:
+        idx = max(0, min(len(sorted_values) - 1, int(round(p * (len(sorted_values) - 1)))))
+        return sorted_values[idx]
+
+    def _build_percentile_params(self, values: list[float]) -> dict[str, float]:
+        sorted_values = sorted(values)
+        return {
+            "p10": self._percentile(sorted_values, 0.10),
+            "p25": self._percentile(sorted_values, 0.25),
+            "p50": self._percentile(sorted_values, 0.50),
+            "p75": self._percentile(sorted_values, 0.75),
+            "p90": self._percentile(sorted_values, 0.90),
+        }
+
+    def refresh_model_score_calibration(self, *, model: str, session: Any | None = None) -> dict[str, int]:
+        normalized_model = model.strip()
+        if not normalized_model:
+            msg = "refresh_model_score_calibration requires non-empty model"
+            raise ValueError(msg)
+
+        if session is None:
+            with self._sessions.session() as managed_session:
+                refreshed = self.refresh_model_score_calibration(model=normalized_model, session=managed_session)
+                managed_session.commit()
+                return refreshed
+
+        from sqlalchemy import func
+
+        refreshed_samples: dict[str, int] = {}
+        conn = session.connection()
+        for field in _SCORE_FIELDS:
+            score_col = getattr(self._memory_item_model, field)
+            model_col = func.json_extract(self._memory_item_model.extra, "$.model")
+            values_stmt = (
+                select(score_col)
+                .where(model_col == normalized_model)
+                .where(score_col.isnot(None))
+            )
+            values = [float(v) for v in session.exec(values_stmt).all() if v is not None]
+            if not values:
+                continue
+            sample_size = len(values)
+            existing = conn.exec_driver_sql(
+                "SELECT sample_size FROM model_score_calibration WHERE model = ? AND field = ? AND version = 1",
+                (normalized_model, field),
+            ).fetchone()
+            if existing is not None:
+                previous_sample_size = int(existing[0] or 0)
+                threshold = self._next_recalibration_threshold(previous_sample_size)
+                if sample_size < threshold:
+                    refreshed_samples[field] = previous_sample_size
+                    continue
+            params = self._build_percentile_params(values)
+            conn.exec_driver_sql(
+                """
+INSERT INTO model_score_calibration(model, field, version, params_json, sample_size, updated_at)
+VALUES (?, ?, 1, ?, ?, CURRENT_TIMESTAMP)
+ON CONFLICT(model, field, version) DO UPDATE SET
+  params_json = excluded.params_json,
+  sample_size = excluded.sample_size,
+  updated_at = excluded.updated_at
+""",
+                (normalized_model, field, json.dumps(params), sample_size),
+            )
+            refreshed_samples[field] = sample_size
+        return refreshed_samples
+
+    def _load_score_calibration_map(self, *, models: set[str]) -> dict[tuple[str, str], dict[str, float]]:
+        if not models:
+            return {}
+        with self._sessions.session() as session:
+            conn = session.connection()
+            placeholders = ",".join("?" for _ in models)
+            rows = conn.exec_driver_sql(
+                f"""
+SELECT model, field, params_json
+FROM model_score_calibration
+WHERE version = 1 AND model IN ({placeholders})
+""",
+                tuple(sorted(models)),
+            ).fetchall()
+        calibration_map: dict[tuple[str, str], dict[str, float]] = {}
+        for model, field, params_json in rows:
+            try:
+                parsed = json.loads(str(params_json))
+            except json.JSONDecodeError:
+                logger.warning("model_score_calibration has invalid json for model=%s field=%s", model, field)
+                continue
+            if not isinstance(parsed, dict):
+                logger.warning("model_score_calibration has non-dict params for model=%s field=%s", model, field)
+                continue
+            try:
+                calibration_map[(str(model), str(field))] = {
+                    "p10": float(parsed["p10"]),
+                    "p25": float(parsed["p25"]),
+                    "p50": float(parsed["p50"]),
+                    "p75": float(parsed["p75"]),
+                    "p90": float(parsed["p90"]),
+                }
+            except (KeyError, TypeError, ValueError):
+                logger.warning("model_score_calibration missing percentile keys for model=%s field=%s", model, field)
+        return calibration_map
 
     def _active_item_filter(self, model: Any, *, include_superseded: bool = False) -> Any | None:
         merged_into_col = getattr(model, "merged_into", None)
@@ -560,27 +679,39 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
                     self._memory_item_model.reflection_salience,
                     self._memory_item_model.emotional_intensity,
                     self._memory_item_model.created_at,
+                    self._memory_item_model.extra,
                 ).where(self._memory_item_model.id.in_(candidate_ids))
                 active_filter = self._active_item_filter(self._memory_item_model)
                 if active_filter is not None:
                     stmt = stmt.where(active_filter)
                 rows = session.exec(stmt).all()
 
-            item_meta: dict[str, tuple[float | None, float | None, datetime]] = {
+            item_meta: dict[str, tuple[float | None, float | None, datetime, str | None]] = {
                 item_id: (
                     float(sal) if sal is not None else None,
                     float(emo) if emo is not None else None,
                     cat,
+                    str((extra or {}).get("model", "")).strip() or None,
                 )
-                for item_id, sal, emo, cat in rows
+                for item_id, sal, emo, cat, extra in rows
             }
+            models = {m for _, _, _, m in item_meta.values() if m}
+            calibration_map = self._load_score_calibration_map(models=models)
+            for model in sorted(models):
+                for field in ("reflection_salience", "emotional_intensity"):
+                    if (model, field) not in calibration_map:
+                        logger.warning("No score calibration found for model=%s field=%s; using identity mapping", model, field)
 
-            candidates: list[tuple[str, float, datetime, float | None, float | None]] = []
+            candidates: list[tuple[str, float, datetime, float | None, float | None, str | None]] = []
             for item_id, score in hits[:vector_k]:
-                sal, emo, cat = item_meta.get(item_id, (None, None, datetime.min))
-                candidates.append((item_id, score, cat, sal, emo))
+                sal, emo, cat, model = item_meta.get(item_id, (None, None, datetime.min, None))
+                candidates.append((item_id, score, cat, sal, emo, model))
 
-            return rerank_by_salience(candidates, recency_decay_days=recency_decay_days)[:top_k]
+            return rerank_by_salience(
+                candidates,
+                recency_decay_days=recency_decay_days,
+                calibrations=calibration_map,
+            )[:top_k]
 
         return hits[:top_k]
 

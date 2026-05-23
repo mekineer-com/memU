@@ -11,10 +11,15 @@ from memu.app import memorize_persistence as persistence
 class _StubMemoryRepo:
     def __init__(self) -> None:
         self.calls: list[dict[str, Any]] = []
+        self.calibration_calls: list[str] = []
 
     def create_item(self, **kwargs: Any) -> Any:
         self.calls.append(dict(kwargs))
         return SimpleNamespace(id="item-1", summary=kwargs.get("summary", ""))
+
+    def refresh_model_score_calibration(self, *, model: str, session: Any | None = None) -> dict[str, int]:
+        self.calibration_calls.append(model)
+        return {}
 
 
 class _StubCategoryItemRepo:
@@ -95,6 +100,7 @@ async def test_persist_memory_items_stamps_extract_model_in_extra() -> None:
     assert homeless == 1
     assert len(store.memory_item_repo.calls) == 1
     assert store.memory_item_repo.calls[0]["extra"] == {"model": "claude-opus-4-6"}
+    assert store.memory_item_repo.calibration_calls == ["claude-opus-4-6"]
 
 
 @pytest.mark.asyncio
@@ -143,3 +149,4 @@ async def test_persist_memory_items_without_extract_model_does_not_set_extra() -
 
     assert len(store.memory_item_repo.calls) == 1
     assert "extra" not in store.memory_item_repo.calls[0]
+    assert store.memory_item_repo.calibration_calls == []

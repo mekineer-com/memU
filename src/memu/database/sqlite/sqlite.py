@@ -193,11 +193,28 @@ WHERE (m.merged_into IS NULL OR TRIM(m.merged_into) = '')
         except Exception:
             logger.warning("FTS5 table creation/backfill failed", exc_info=True)
 
+    def _ensure_model_score_calibration_table(self) -> None:
+        with self._sessions.engine.begin() as conn:
+            conn.exec_driver_sql(
+                """
+CREATE TABLE IF NOT EXISTS model_score_calibration (
+    model TEXT NOT NULL,
+    field TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    params_json TEXT NOT NULL,
+    sample_size INTEGER NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (model, field, version)
+)
+"""
+            )
+
     def _create_tables(self) -> None:
         """Create SQLite tables if they don't exist."""
         SQLModel.metadata.create_all(self._sessions.engine)
         self._sqla_models.Base.metadata.create_all(self._sessions.engine)
         self._ensure_fts_table()
+        self._ensure_model_score_calibration_table()
         logger.debug("SQLite tables created/verified")
 
     def close(self) -> None:

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from datetime import datetime
 from typing import cast
 
@@ -16,6 +16,38 @@ def _cosine(a: np.ndarray, b: np.ndarray) -> float:
 W_SIMILARITY = 0.5
 W_RECENCY = 0.2
 W_IMPORTANCE = 0.3
+
+
+def _clamp01(value: float) -> float:
+    return max(0.0, min(1.0, value))
+
+
+def normalize_score_with_percentiles(value: float, params: Mapping[str, float]) -> float:
+    p10 = float(params["p10"])
+    p25 = float(params["p25"])
+    p50 = float(params["p50"])
+    p75 = float(params["p75"])
+    p90 = float(params["p90"])
+
+    if value <= p10:
+        return 0.1
+    if value >= p90:
+        return 0.9
+
+    anchors = (
+        (0.1, p10),
+        (0.25, p25),
+        (0.5, p50),
+        (0.75, p75),
+        (0.9, p90),
+    )
+    for (y0, x0), (y1, x1) in zip(anchors, anchors[1:], strict=True):
+        if value <= x1:
+            if x1 == x0:
+                return y1
+            t = (value - x0) / (x1 - x0)
+            return _clamp01(y0 + t * (y1 - y0))
+    return 0.9
 
 
 def salience_score(
@@ -80,14 +112,24 @@ def cosine_topk(
 
 
 def rerank_by_salience(
-    candidates: list[tuple[str, float, datetime, float | None, float | None]],
+    candidates: list[tuple[str, float, datetime, float | None, float | None, str | None]],
     recency_decay_days: float = 30.0,
+    calibrations: Mapping[tuple[str, str], Mapping[str, float]] | None = None,
 ) -> list[tuple[str, float]]:
     scored: list[tuple[str, float]] = []
 
-    for _id, sim, created_at, reflection_salience, emotional_intensity in candidates:
+    for _id, sim, created_at, reflection_salience, emotional_intensity, model in candidates:
         sal = reflection_salience if reflection_salience is not None else 0.5
         emo = emotional_intensity if emotional_intensity is not None else 0.0
+        if calibrations and model:
+            if reflection_salience is not None:
+                sal_params = calibrations.get((model, "reflection_salience"))
+                if sal_params is not None:
+                    sal = normalize_score_with_percentiles(sal, sal_params)
+            if emotional_intensity is not None:
+                emo_params = calibrations.get((model, "emotional_intensity"))
+                if emo_params is not None:
+                    emo = normalize_score_with_percentiles(emo, emo_params)
         importance, recency = salience_score(created_at, sal, emo, recency_decay_days)
         if reflection_salience is None:
             importance = sim

@@ -263,4 +263,7 @@ async def _persist_memory_items(
                     rel = store.category_item_repo.link_item_category(**rel_kwargs)
                 rels.append(rel)
 
+    if normalized_extract_model is not None and items:
+        store.memory_item_repo.refresh_model_score_calibration(model=normalized_extract_model, session=session)
+
     return items, rels, category_memory_updates, homeless_count
