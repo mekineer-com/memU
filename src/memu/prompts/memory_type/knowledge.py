@@ -44,6 +44,9 @@ Resolve contradictions by trusting the most recent and most certain account. Whe
 PROMPT_BLOCK_CATEGORY = """
 ## Memory Categories:
 For each memory item, propose a domain-specific category that fits the knowledge.
+
+## Entities:
+Something you could point at or introduce to someone: a person, place, project, organization, or condition. Not abstract qualities or themes or schemas.
 """
 
 PROMPT_BLOCK_OUTPUT = """
@@ -51,8 +54,10 @@ PROMPT_BLOCK_OUTPUT = """
 Soul memories (source_role=soul): Write in FIRST PERSON ("I have...", "I feel...").
 User memories (source_role=user): Write in THIRD PERSON using their name ("Alex has...", "Tom feels...").
 
-Return all memories wrapped in a single <item> element. Assign each 0.x value as a single-digit float. Each memory must include <episode_ref> with the episode number (1, 2, 3...):
 {speaker_roster_block}
+
+Return all memories wrapped in a single <item> element. Assign each 0.x value as a single-digit float. Each memory must include <episode_ref> with the episode number (1, 2, 3...):
+
 <item>
     <memory>
         <episode_ref>1</episode_ref>
@@ -101,8 +106,6 @@ emotional_intensity (float 0.0-1.0) — how emotionally charged?
 - 0.5-0.7: slight
 - 0.3-0.5: neutral
 - below 0.3: barely worth noting
-
-entities — something you could point at or introduce to someone: a person, place, project, organization, or condition. Not abstract qualities or themes or schemas.
 """
 
 # PROMPT_BLOCK_EXAMPLES intentionally absent — empty examples would just add noise
