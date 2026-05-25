@@ -37,7 +37,7 @@ PROMPT_BLOCK_CATEGORY = """
 If a memory item clearly doesn't belong in any category above, you may propose a new one: write its name in the `<category>` field. Name it as a broad life domain, not a narrow topic.
 
 ## Entities:
-Something you could point at or introduce to someone: a person, place, project, organization, or condition. Not abstract qualities or themes or schemas.
+Common nameable things, not abstract qualities or themes or schemas.
 """
 
 PROMPT_BLOCK_OUTPUT = """

@@ -46,7 +46,7 @@ PROMPT_BLOCK_CATEGORY = """
 For each memory item, propose a domain-specific category that fits the knowledge.
 
 ## Entities:
-Something you could point at or introduce to someone: a person, place, project, organization, or condition. Not abstract qualities or themes or schemas.
+Common nameable things, not abstract qualities or themes or schemas.
 """
 
 PROMPT_BLOCK_OUTPUT = """
