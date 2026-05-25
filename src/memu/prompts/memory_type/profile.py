@@ -45,7 +45,7 @@ Common nameable things, not abstract qualities or themes or schemas.
 PROMPT_BLOCK_OUTPUT = """
 # Output Format (XML)
 Soul memories (source_role=soul): Write in FIRST PERSON ("I have...", "I feel...").
-User memories (source_role=user): Write in THIRD PERSON using their name ("Alex has...", "Tom feels...").
+User memories (source_role=user): Write in THIRD PERSON using their name ("Alex has...", "Tom feels..."). Do not include the user in entities.
 
 {speaker_roster_block}
 
