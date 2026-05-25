@@ -46,16 +46,16 @@ User memories (source_role=user): Write in THIRD PERSON using their name ("Alex 
 
 {speaker_roster_block}
 
-Return all memories wrapped in a single <item> element. Assign each 0.x value as a single-digit float. Each memory must include <episode_ref> with the episode number (1, 2, 3...):
+Return all memories wrapped in a single <item> element. Assign each value as a two-digit float (0.xx). Each memory must include <episode_ref> with the episode number (1, 2, 3...):
 
 <item>
     <memory>
         <episode_ref>1</episode_ref>
         <source_role>soul|user|peer|entity|environment</source_role>
         <content>Who this person is and what they mean</content>
-        <confidence>0.x</confidence>
-        <reflection_salience>0.x</reflection_salience>
-        <emotional_intensity>0.x</emotional_intensity>
+        <confidence>0.xx</confidence>
+        <reflection_salience>0.xx</reflection_salience>
+        <emotional_intensity>0.xx</emotional_intensity>
         <categories>
             <category>Category name</category>
         </categories>
