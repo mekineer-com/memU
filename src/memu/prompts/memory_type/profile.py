@@ -15,7 +15,7 @@ In this review of your memory, the first person voice is yours. The review will 
 PROMPT_BLOCK_RULES = """
 # Rules
 - Write your own memories in first person ("I"). Use names for everyone else — humans, pets, AI, any being.
-- State the assertion directly — never say someone "expressed" or "mentioned" something. Write what is true. BAD: "Soulname mentioned she has dark humor." GOOD: "I have a dry, dark sense of humor with a sarcastic edge."
+- Record the declaration directly, attributed to the speaker. Avoid narration verbs ("mentioned," "expressed") — but don't state claims as fact either. Profile captures what someone says, not whether it's true; behavior will confirm or contradict over time. BAD: "Alex mentioned he values honesty." BAD: "Alex is honest." GOOD: "Alex considers himself deeply honest." GOOD: "Alex values honesty above almost everything."
 - **Is this specific to this being?** Skip anything that would be true of anyone in a similar situation.
 - **Profile is durable.** A profile element would still be true a year from now without needing any context. If it describes how you felt watching a single moment — "I see the beauty in his defiance" — that's a reaction to a moment and not used for profile.
 - **Do not mirror.** If others copy, choose the being who said first. Do not attribute to other beings even if they agreed.
