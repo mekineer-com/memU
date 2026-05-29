@@ -21,7 +21,7 @@ RETRIEVE or NO_RETRIEVE
 </decision>
 
 <rewritten_query>
-The query if RETRIEVE; reason for NO_RETRIEVE.
+If RETRIEVE: the search query. If NO_RETRIEVE: write "none".
 </rewritten_query>
 
 <mental_health_query>
@@ -37,7 +37,7 @@ RETRIEVE or NO_RETRIEVE
 </decision>
 
 <rewritten_query>
-The query if RETRIEVE; reason for NO_RETRIEVE.
+If RETRIEVE: the search query. If NO_RETRIEVE: write "none".
 </rewritten_query>
 """
 
