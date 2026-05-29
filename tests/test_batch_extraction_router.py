@@ -109,11 +109,10 @@ def test_parse_structured_entries_requires_episode_ref_when_requested() -> None:
     assert kept[0].episode_ref == 2
 
 
-def test_parse_memory_type_response_xml_raises_extraction_parse_error() -> None:
+def test_parse_memory_type_response_xml_salvages_malformed_xml() -> None:
     bad_xml = "<item><memory></item>"
-
-    with pytest.raises(parsing.ExtractionParseError):
-        parsing._parse_memory_type_response_xml(bad_xml)
+    result = parsing._parse_memory_type_response_xml(bad_xml)
+    assert result == []
 
 
 @pytest.mark.asyncio

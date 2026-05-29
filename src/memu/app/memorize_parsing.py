@@ -279,8 +279,21 @@ def _parse_memory_type_response_xml(raw: str) -> list[dict[str, Any]]:
             if parsed:
                 result.append(parsed)
 
-    except ET.ParseError as exc:
-        logger.exception("Failed to parse XML")
-        raise ExtractionParseError("failed to parse extraction XML") from exc
+    except ET.ParseError:
+        logger.warning("Malformed extraction XML — attempting salvage with synthetic root")
+        try:
+            root = ET.fromstring(f"<root>{xml_content}</root>")
+            result = []
+            for memory_elem in root.iter("memory"):
+                parsed = _parse_memory_element(memory_elem)
+                if parsed:
+                    result.append(parsed)
+            if result:
+                logger.info("Salvaged %d memories from malformed XML", len(result))
+                return result
+        except ET.ParseError:
+            pass
+        logger.error("Extraction XML salvage failed — no memories recovered")
+        return []
     else:
         return result
