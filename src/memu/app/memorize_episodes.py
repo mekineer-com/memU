@@ -642,17 +642,24 @@ def _prepare_episode(
     dedupe_message_indices: Callable[[Sequence[int | float | str]], list[int]],
     extract_message_indices: Callable[[str | None], list[int]],
 ) -> tuple[str | None, list[int]]:
-    if modality != "conversation" or not isinstance(text, str) or not text.strip():
+    if modality != "conversation":
+        return None, []
+    if isinstance(message_indices, list) and message_indices:
+        indices = dedupe_message_indices([
+            value for value in message_indices if isinstance(value, (int, float, str))
+        ])
+        episode_text = None
+        if isinstance(text, str) and text.strip():
+            episode_text = format_conversation_for_preprocess(text)
+            if not episode_text.strip():
+                episode_text = text.strip()
+        return episode_text, indices
+    if not isinstance(text, str) or not text.strip():
         return None, []
     episode_text = format_conversation_for_preprocess(text)
     if not episode_text.strip():
         episode_text = text.strip()
-    if isinstance(message_indices, list):
-        indices = dedupe_message_indices([
-            value for value in message_indices if isinstance(value, (int, float, str))
-        ])
-    else:
-        indices = extract_message_indices(episode_text)
+    indices = extract_message_indices(episode_text)
     return episode_text, indices
 
 
