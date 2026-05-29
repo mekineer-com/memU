@@ -290,7 +290,7 @@ class RetrieveMixin:
         llm_client = self._get_step_llm_client(step_context)
         mental_health_enabled = bool(state.get("mental_health_enabled", True))
         needs_more, rewritten_query, raw_response = await self._decide_if_retrieval_needed(
-            state["active_query"],
+            state["original_query"],
             state["context_queries"],
             retrieved_content=retrieved_content or "No content retrieved yet.",
             include_mental_health_query=mental_health_enabled,
@@ -588,7 +588,8 @@ class RetrieveMixin:
         if not queries:
             return "No query context."
 
-        blocks: list[str] = []
+        by_role: dict[str, list[str]] = {}
+        passthrough: list[str] = []
         for q in queries:
             if not isinstance(q, dict):
                 raise TypeError("INVALID_CONTEXT_QUERY")
@@ -601,10 +602,39 @@ class RetrieveMixin:
             else:
                 raise TypeError("INVALID_CONTEXT_QUERY")
             if text:
-                if role.lower() == "identity_context":
-                    blocks.append(text)
+                role_key = role.lower()
+                if role_key in {
+                    "identity_context",
+                    "all_categories_summary",
+                    "history",
+                    "cross_conversation",
+                    "memory_cache",
+                    "intentions",
+                }:
+                    by_role.setdefault(role_key, []).append(text)
                 else:
-                    blocks.append(f"- [{role}]:\n{text}")
+                    passthrough.append(f"- [{role}]:\n{text}")
+
+        blocks: list[str] = []
+        identity = "\n\n".join(by_role.get("identity_context", []))
+        if identity:
+            blocks.append(identity)
+        all_categories = "\n\n".join(by_role.get("all_categories_summary", []))
+        if all_categories:
+            blocks.append(f"**My Life Overview**\n{all_categories}")
+        history_text = "\n\n".join(by_role.get("history", []))
+        if history_text:
+            blocks.append(history_text)
+        cross_text = "\n\n".join(by_role.get("cross_conversation", []))
+        if cross_text:
+            blocks.append(cross_text)
+        working_text = "\n".join(by_role.get("memory_cache", []))
+        if working_text:
+            blocks.append(f"My working thoughts:\n{working_text}")
+        intentions_text = "\n\n".join(by_role.get("intentions", []))
+        if intentions_text:
+            blocks.append(f"My intentions:\n{intentions_text}")
+        blocks.extend(passthrough)
 
         if not blocks:
             return "No query context."
