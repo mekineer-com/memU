@@ -22,6 +22,7 @@ from memu.app.settings import (
 from memu.blob.local_fs import LocalFS
 from memu.database.factory import build_database
 from memu.database.interfaces import Database
+from memu.llm.claude_cli import ClaudeCLIClient
 from memu.llm.http_client import HTTPLLMClient
 from memu.llm.wrapper import (
     LLMCallMetadata,
@@ -59,6 +60,10 @@ class MemoryService(MemorizeMixin, RetrieveMixin):
         retrieve_config: RetrieveConfig | dict[str, Any] | None = None,
         workflow_runner: WorkflowRunner | str | None = None,
         user_config: UserConfig | dict[str, Any] | None = None,
+        claude_code: bool = False,
+        claude_code_model: str = "claude-opus-4-7",
+        claude_code_effort: str = "medium",
+        claude_code_scope: str = "retrieve_only",
     ):
         self.llm_profiles = self._validate_config(llm_profiles, LLMProfilesConfig)
         self.user_config = self._validate_config(user_config, UserConfig)
@@ -68,6 +73,11 @@ class MemoryService(MemorizeMixin, RetrieveMixin):
         self.database_config = self._validate_config(database_config, DatabaseConfig)
         self.memorize_config = self._validate_config(memorize_config, MemorizeConfig)
         self.retrieve_config = self._validate_config(retrieve_config, RetrieveConfig)
+        self._claude_code = bool(claude_code)
+        self._claude_code_model = str(claude_code_model or "claude-opus-4-7").strip() or "claude-opus-4-7"
+        self._claude_code_effort = str(claude_code_effort or "").strip() or None
+        scope = str(claude_code_scope or "retrieve_only").strip().lower()
+        self._claude_code_scope = scope if scope in {"retrieve_only", "all_chat"} else "retrieve_only"
 
         self.fs = LocalFS(self.blob_config.resources_dir)
         self.category_configs: list[CategoryConfig] = list(self.memorize_config.memory_categories or [])
@@ -84,6 +94,7 @@ class MemoryService(MemorizeMixin, RetrieveMixin):
 
         # Initialize client caches (lazy creation on first use)
         self._llm_clients: dict[str, Any] = {}
+        self._claude_cli_client: ClaudeCLIClient | None = None
         self._llm_interceptors = LLMInterceptorRegistry()
         self._workflow_interceptors = WorkflowInterceptorRegistry()
 
@@ -147,7 +158,7 @@ class MemoryService(MemorizeMixin, RetrieveMixin):
         step_context: Mapping[str, Any] | None = None,
     ) -> Any:
         cfg: LLMConfig | None = self.llm_profiles.profiles.get(profile or "default")
-        provider = cfg.provider if cfg is not None else None
+        provider = cfg.provider if cfg is not None else getattr(client, "provider", None)
         metadata = self._llm_call_metadata(profile or "default", step_context)
         return LLMClientWrapper(
             client,
@@ -216,12 +227,36 @@ class MemoryService(MemorizeMixin, RetrieveMixin):
         return None
 
     def _get_step_llm_client(self, step_context: Mapping[str, Any] | None) -> Any:
+        if self._claude_code and self._should_use_claude_code(step_context):
+            return self._wrap_llm_client(
+                self._get_claude_cli_client(),
+                profile="claude_code",
+                step_context=step_context,
+            )
         profile = self._llm_profile_from_context(step_context, task="chat") or "default"
         return self._get_llm_client(profile, step_context=step_context)
 
     def _get_step_embedding_client(self, step_context: Mapping[str, Any] | None) -> Any:
         profile = self._llm_profile_from_context(step_context, task="embedding") or "embedding"
         return self._get_llm_client(profile, step_context=step_context)
+
+    def _get_claude_cli_client(self) -> ClaudeCLIClient:
+        if self._claude_cli_client is None:
+            self._claude_cli_client = ClaudeCLIClient(
+                model=self._claude_code_model,
+                effort=self._claude_code_effort,
+            )
+        return self._claude_cli_client
+
+    def _should_use_claude_code(self, step_context: Mapping[str, Any] | None) -> bool:
+        if self._claude_code_scope == "all_chat":
+            return True
+        if self._claude_code_scope != "retrieve_only":
+            return False
+        if not isinstance(step_context, Mapping):
+            return False
+        workflow_name = step_context.get("workflow_name")
+        return isinstance(workflow_name, str) and workflow_name.strip() == "retrieve_rag"
 
     def intercept_before_llm_call(
         self,
