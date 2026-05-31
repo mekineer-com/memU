@@ -20,7 +20,7 @@ RETRIEVE or NO_RETRIEVE
 </decision>
 
 <rewritten_query>
-If RETRIEVE: the search query. If NO_RETRIEVE: a brief reason why.
+The search query.
 </rewritten_query>
 
 <mental_health_query>
@@ -36,7 +36,7 @@ RETRIEVE or NO_RETRIEVE
 </decision>
 
 <rewritten_query>
-If RETRIEVE: the search query. If NO_RETRIEVE: a brief reason why.
+The search query.
 </rewritten_query>
 """
 
