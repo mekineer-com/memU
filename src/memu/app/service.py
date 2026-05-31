@@ -63,7 +63,6 @@ class MemoryService(MemorizeMixin, RetrieveMixin):
         claude_code: bool = False,
         claude_code_model: str = "claude-opus-4-7",
         claude_code_effort: str = "medium",
-        claude_code_scope: str = "retrieve_only",
     ):
         self.llm_profiles = self._validate_config(llm_profiles, LLMProfilesConfig)
         self.user_config = self._validate_config(user_config, UserConfig)
@@ -76,8 +75,6 @@ class MemoryService(MemorizeMixin, RetrieveMixin):
         self._claude_code = bool(claude_code)
         self._claude_code_model = str(claude_code_model or "claude-opus-4-7").strip() or "claude-opus-4-7"
         self._claude_code_effort = str(claude_code_effort or "").strip() or None
-        scope = str(claude_code_scope or "retrieve_only").strip().lower()
-        self._claude_code_scope = scope if scope in {"retrieve_only", "all_chat"} else "retrieve_only"
 
         self.fs = LocalFS(self.blob_config.resources_dir)
         self.category_configs: list[CategoryConfig] = list(self.memorize_config.memory_categories or [])
@@ -191,7 +188,15 @@ class MemoryService(MemorizeMixin, RetrieveMixin):
         step: str | None = None,
     ) -> Any:
         step_context = {"operation": op, "step_id": step} if (op or step) else None
-        return await self._get_llm_client(profile, step_context=step_context).chat(
+        if self._claude_code:
+            client = self._wrap_llm_client(
+                self._get_claude_cli_client(),
+                profile="claude_code",
+                step_context=step_context,
+            )
+        else:
+            client = self._get_llm_client(profile, step_context=step_context)
+        return await client.chat(
             prompt,
             max_tokens=max_tokens,
             system_prompt=system_prompt,
@@ -227,7 +232,7 @@ class MemoryService(MemorizeMixin, RetrieveMixin):
         return None
 
     def _get_step_llm_client(self, step_context: Mapping[str, Any] | None) -> Any:
-        if self._claude_code and self._should_use_claude_code(step_context):
+        if self._claude_code:
             return self._wrap_llm_client(
                 self._get_claude_cli_client(),
                 profile="claude_code",
@@ -247,16 +252,6 @@ class MemoryService(MemorizeMixin, RetrieveMixin):
                 effort=self._claude_code_effort,
             )
         return self._claude_cli_client
-
-    def _should_use_claude_code(self, step_context: Mapping[str, Any] | None) -> bool:
-        if self._claude_code_scope == "all_chat":
-            return True
-        if self._claude_code_scope != "retrieve_only":
-            return False
-        if not isinstance(step_context, Mapping):
-            return False
-        workflow_name = step_context.get("workflow_name")
-        return isinstance(workflow_name, str) and workflow_name.strip() == "retrieve_rag"
 
     def intercept_before_llm_call(
         self,
