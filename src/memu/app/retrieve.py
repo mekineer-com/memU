@@ -45,7 +45,7 @@ class RetrieveMixin:
         rewrite_angle: int = 0,
         mental_health_enabled: bool = True,
         force_retrieve: bool = False,
-        chain_id: str | None = None,
+        trace_id: str | None = None,
     ) -> dict[str, Any]:
         if not queries:
             raise ValueError("empty_queries")
@@ -70,9 +70,9 @@ class RetrieveMixin:
             "where": where_filters,
             "as_of": as_of,
         }
-        chain_id_clean = str(chain_id or "").strip()
-        if chain_id_clean:
-            state["trace_id"] = chain_id_clean
+        trace_id_clean = str(trace_id or "").strip()
+        if trace_id_clean:
+            state["trace_id"] = trace_id_clean
 
         result = await self._run_workflow(workflow_name, state)
         response = cast(dict[str, Any] | None, result.get("response"))
