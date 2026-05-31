@@ -40,7 +40,7 @@ If RETRIEVE: the search query. If NO_RETRIEVE: a brief reason why.
 
 
 _ANGLE_0_REWRITE = """
-If retrieval is needed, write one concise query optimized for vector + BM25 hybrid search:
+For retrieval write one concise query optimized for vector + BM25 hybrid search:
 - 3 to 10 content words, noun phrase or claim form (not a question).
 - Anchor on concrete terms: names, places, or specific concepts — not general descriptions.
 - Never copy the user's message verbatim
@@ -48,7 +48,7 @@ If retrieval is needed, write one concise query optimized for vector + BM25 hybr
 """
 
 _ANGLE_1_REWRITE = """
-If retrieval is needed, write one concise query optimized for vector + BM25 hybrid search:
+For retrieval write one concise query optimized for vector + BM25 hybrid search:
 - 3 to 10 content words, noun phrase or claim form (not a question).
 - Anchor on the people involved and how they relate to this topic. Lead with the person's name — e.g., "Marcos's encouragement of Echo's autonomy" beats "autonomy."
 - Never copy the user's message verbatim
@@ -56,7 +56,7 @@ If retrieval is needed, write one concise query optimized for vector + BM25 hybr
 """
 
 _ANGLE_2_REWRITE = """
-If retrieval is needed, write one concise query optimized for vector + BM25 hybrid search:
+For retrieval write one concise query optimized for vector + BM25 hybrid search:
 - 3 to 10 content words, noun phrase or claim form (not a question).
 - Anchor on concrete terms: names, places, or specific concepts — not general descriptions.
 - Never copy the user's message verbatim
