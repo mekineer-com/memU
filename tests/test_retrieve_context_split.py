@@ -93,6 +93,30 @@ async def test_route_intention_disables_mental_health_query_extraction():
 
 
 @pytest.mark.asyncio
+async def test_route_intention_force_retrieve_skips_llm_and_uses_original_query():
+    mixin = RetrieveMixin()
+
+    async def _should_not_run(*_args, **_kwargs):  # type: ignore[no-untyped-def]
+        raise AssertionError("route_intention LLM path should be skipped when force_retrieve=true")
+
+    mixin._decide_if_retrieval_needed = _should_not_run  # type: ignore[method-assign]
+    state = {
+        "original_query": "topic statement text",
+        "context_queries": [],
+        "rewrite_angle": 0,
+        "mental_health_enabled": True,
+        "force_retrieve": True,
+    }
+
+    out = await mixin._rag_route_intention(state, step_context=None)
+
+    assert out["needs_retrieval"] is True
+    assert out["rewritten_query"] == "topic statement text"
+    assert out["active_query"] == "topic statement text"
+    assert out["mental_health_query"] == "topic statement text"
+
+
+@pytest.mark.asyncio
 async def test_category_sufficiency_uses_second_step_mental_health_query():
     mixin = RetrieveMixin()
     mixin._get_step_llm_client = lambda _ctx: object()

@@ -44,6 +44,7 @@ class RetrieveMixin:
         as_of: datetime | None = None,
         rewrite_angle: int = 0,
         mental_health_enabled: bool = True,
+        force_retrieve: bool = False,
     ) -> dict[str, Any]:
         if not queries:
             raise ValueError("empty_queries")
@@ -62,6 +63,7 @@ class RetrieveMixin:
             "context_queries": list(context_queries),
             "rewrite_angle": int(rewrite_angle) if rewrite_angle is not None else 0,
             "mental_health_enabled": bool(mental_health_enabled),
+            "force_retrieve": bool(force_retrieve),
             "ctx": ctx,
             "store": store,
             "where": where_filters,
@@ -208,9 +210,24 @@ class RetrieveMixin:
             "where",
             "as_of",
             "mental_health_enabled",
+            "force_retrieve",
         }
 
     async def _rag_route_intention(self, state: WorkflowState, step_context: Any) -> WorkflowState:
+        if bool(state.get("force_retrieve")):
+            original_query = str(state.get("original_query") or "")
+            mental_health_enabled = bool(state.get("mental_health_enabled", True))
+            state.update({
+                "needs_retrieval": True,
+                "rewritten_query": original_query,
+                "active_query": original_query,
+                "mental_health_query": original_query if mental_health_enabled else None,
+                "next_step_query": None,
+                "proceed_to_items": False,
+                "proceed_to_resources": False,
+            })
+            return state
+
         llm_client = self._get_step_llm_client(step_context)
         mental_health_enabled = bool(state.get("mental_health_enabled", True))
         angle_prompt = _system_prompt_for_angle(
