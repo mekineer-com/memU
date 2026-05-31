@@ -186,8 +186,12 @@ class MemoryService(MemorizeMixin, RetrieveMixin):
         response_format: dict[str, Any] | None = None,
         op: str | None = None,
         step: str | None = None,
+        chain_id: str | None = None,
     ) -> Any:
-        step_context = {"operation": op, "step_id": step} if (op or step) else None
+        chain_id_clean = str(chain_id or "").strip()
+        step_context = {"operation": op, "step_id": step} if (op or step or chain_id_clean) else None
+        if step_context is not None and chain_id_clean:
+            step_context["trace_id"] = chain_id_clean
         if self._claude_code:
             client = self._wrap_llm_client(
                 self._get_claude_cli_client(),
@@ -352,6 +356,9 @@ class MemoryService(MemorizeMixin, RetrieveMixin):
         """Execute a workflow through the configured runner backend."""
         steps = self._pipelines.build(workflow_name)
         runner_context = {"workflow_name": workflow_name}
+        trace_id = initial_state.get("trace_id")
+        if isinstance(trace_id, str) and trace_id.strip():
+            runner_context["trace_id"] = trace_id.strip()
         return await self._workflow_runner.run(
             workflow_name,
             steps,
