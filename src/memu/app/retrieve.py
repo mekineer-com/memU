@@ -642,7 +642,7 @@ class RetrieveMixin:
             blocks.append(identity)
         all_categories = "\n\n".join(by_role.get("all_categories_summary", []))
         if all_categories:
-            blocks.append(f"**My Life Overview**\n{all_categories}")
+            blocks.append(all_categories)
         cross_text = "\n\n".join(by_role.get("cross_conversation", []))
         if cross_text:
             blocks.append(cross_text)
