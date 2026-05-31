@@ -2,6 +2,8 @@ _COMMON_HEAD = """
 Skip retrieval only for:
 - Greetings or acknowledgments.
 - Pure logistics — "be there in 5", "ok"
+
+For all other situations RETRIEVE!!! It's normal to have your brain connected to your mouth.
 """
 
 
