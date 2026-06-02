@@ -25,7 +25,7 @@ class TestFormatConversationForPreprocess:
                     {"role": "user", "content": "Hello world", "created_at": "2023-10-27T10:00:00"},
                     {"role": "assistant", "content": "Hello! How can I help?", "created_at": "2023-10-27T10:00:05"},
                 ]),
-                "[0] 2023-10-27T10:00:00 [primary] [user]: Hello world\n[1] 2023-10-27T10:00:05 [primary] [assistant]: Hello! How can I help?",
+                "[0] 2023-10-27T10:00:00 [primary] [user]: Hello world\n[1] 2023-10-27T10:00:05 [primary] [soul]: Hello! How can I help?",
             ),
             # Happy Path: Dict wrapper with 'content' key
             (json.dumps({"content": [{"role": "user", "content": "Wrapper test"}]}), "[0] [primary] [user]: Wrapper test"),
