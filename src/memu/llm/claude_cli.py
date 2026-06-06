@@ -4,8 +4,8 @@ import asyncio
 import copy
 import shutil
 import subprocess
-import tempfile
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -23,7 +23,7 @@ class ClaudeCLIClient:
         timeout_seconds: int = 900,
         min_call_gap_seconds: float = 2.0,
         claude_binary: str = "claude",
-        sandbox_root: str | Path | None = None,
+        workspace: str | Path | None = None,
     ) -> None:
         if not model:
             raise ValueError("model is required")
@@ -42,8 +42,12 @@ class ClaudeCLIClient:
         self.timeout_seconds = timeout_seconds
         self._min_call_gap_seconds = min_call_gap_seconds
         self._claude_binary = resolved
-        self._sandbox_root = Path(sandbox_root) if sandbox_root else (Path.home() / ".cache" / "memu-claude-sandbox")
-        self._sandbox_root.mkdir(parents=True, exist_ok=True)
+        self._workspace = (
+            Path(workspace).expanduser() if workspace else (Path.home() / ".cache" / "memu-claude-workspace")
+        )
+        self._workspace.mkdir(parents=True, exist_ok=True)
+        self._prompt_dir = self._workspace / ".prompts"
+        self._prompt_dir.mkdir(parents=True, exist_ok=True)
         self._last_call_monotonic = 0.0
         self._last_payload: dict[str, Any] | None = None
 
@@ -101,9 +105,9 @@ class ClaudeCLIClient:
         )
 
     def _run_claude(self, *, prompt: str, system_prompt: str) -> tuple[str, dict[str, Any]]:
-        with tempfile.TemporaryDirectory(prefix="run-", dir=str(self._sandbox_root)) as run_dir:
-            system_prompt_file = Path(run_dir) / "system_prompt.txt"
-            system_prompt_file.write_text(system_prompt, encoding="utf-8")
+        system_prompt_file = self._prompt_dir / f"system-prompt-{uuid.uuid4().hex}.txt"
+        system_prompt_file.write_text(system_prompt, encoding="utf-8")
+        try:
             cmd = [
                 self._claude_binary,
                 "-p",
@@ -117,7 +121,7 @@ class ClaudeCLIClient:
             try:
                 completed = subprocess.run(
                     cmd,
-                    cwd=run_dir,
+                    cwd=self._workspace,
                     input=prompt,
                     text=True,
                     capture_output=True,
@@ -128,6 +132,8 @@ class ClaudeCLIClient:
                 raise TimeoutError(
                     f"Claude CLI timed out after {self.timeout_seconds}s for model={self.chat_model}"
                 ) from exc
+        finally:
+            system_prompt_file.unlink(missing_ok=True)
 
         if completed.returncode != 0:
             stderr = (completed.stderr or "").strip()

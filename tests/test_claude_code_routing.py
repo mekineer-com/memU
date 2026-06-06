@@ -10,9 +10,10 @@ from memu.llm.http_client import HTTPLLMClient
 class _FakeClaudeCLIClient:
     provider = "claude_code"
 
-    def __init__(self, *, model: str, effort: str | None = None) -> None:
+    def __init__(self, *, model: str, effort: str | None = None, workspace: str | None = None) -> None:
         self.chat_model = model
         self.effort = effort
+        self.workspace = workspace
         self.embed_model = None
 
     async def chat(self, prompt: str, **_: object):  # pragma: no cover - not needed in this seam test
@@ -54,3 +55,16 @@ async def test_service_chat_uses_claude_when_enabled(monkeypatch) -> None:
     service = _service(claude_code=True, claude_code_model="claude-opus-4-7")
     out = await service.chat("hello", op="manual_chat")
     assert out == "hello"
+
+
+def test_claude_code_passes_workspace(monkeypatch) -> None:
+    monkeypatch.setattr(service_module, "ClaudeCLIClient", _FakeClaudeCLIClient)
+    service = _service(
+        claude_code=True,
+        claude_code_model="claude-opus-4-7",
+        claude_code_workspace="/tmp/siri-workspace",
+    )
+
+    client = service._get_claude_cli_client()
+
+    assert client.workspace == "/tmp/siri-workspace"
