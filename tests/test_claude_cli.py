@@ -32,3 +32,25 @@ def test_claude_cli_uses_workspace_and_cleans_prompt_file(monkeypatch, tmp_path:
     assert seen["system_prompt"] == "system"
     assert not seen["prompt_file"].exists()
     assert list((tmp_path / ".prompts").iterdir()) == []
+
+
+def test_claude_cli_passes_permission_mode(monkeypatch, tmp_path: Path) -> None:
+    seen: dict[str, object] = {}
+
+    monkeypatch.setattr(claude_cli.shutil, "which", lambda _binary: "/bin/claude")
+
+    def fake_run(cmd, *, cwd, input, text, capture_output, timeout, check):
+        seen["cmd"] = cmd
+        return subprocess.CompletedProcess(cmd, 0, stdout="reply", stderr="")
+
+    monkeypatch.setattr(claude_cli.subprocess, "run", fake_run)
+    client = ClaudeCLIClient(
+        model="claude-opus-4-7",
+        permission_mode="bypassPermissions",
+        workspace=tmp_path,
+    )
+
+    client._run_claude(prompt="hello", system_prompt="system")
+
+    assert "--permission-mode" in seen["cmd"]
+    assert seen["cmd"][seen["cmd"].index("--permission-mode") + 1] == "bypassPermissions"

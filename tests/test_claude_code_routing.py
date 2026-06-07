@@ -10,9 +10,17 @@ from memu.llm.http_client import HTTPLLMClient
 class _FakeClaudeCLIClient:
     provider = "claude_code"
 
-    def __init__(self, *, model: str, effort: str | None = None, workspace: str | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        model: str,
+        effort: str | None = None,
+        permission_mode: str | None = None,
+        workspace: str | None = None,
+    ) -> None:
         self.chat_model = model
         self.effort = effort
+        self.permission_mode = permission_mode
         self.workspace = workspace
         self.embed_model = None
 
@@ -68,3 +76,16 @@ def test_claude_code_passes_workspace(monkeypatch) -> None:
     client = service._get_claude_cli_client()
 
     assert client.workspace == "/tmp/siri-workspace"
+
+
+def test_claude_code_passes_permission_mode(monkeypatch) -> None:
+    monkeypatch.setattr(service_module, "ClaudeCLIClient", _FakeClaudeCLIClient)
+    service = _service(
+        claude_code=True,
+        claude_code_model="claude-opus-4-7",
+        claude_code_permission_mode="bypassPermissions",
+    )
+
+    client = service._get_claude_cli_client()
+
+    assert client.permission_mode == "bypassPermissions"

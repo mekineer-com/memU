@@ -23,6 +23,7 @@ class ClaudeCLIClient:
         timeout_seconds: int = 900,
         min_call_gap_seconds: float = 2.0,
         claude_binary: str = "claude",
+        permission_mode: str | None = None,
         workspace: str | Path | None = None,
     ) -> None:
         if not model:
@@ -42,6 +43,7 @@ class ClaudeCLIClient:
         self.timeout_seconds = timeout_seconds
         self._min_call_gap_seconds = min_call_gap_seconds
         self._claude_binary = resolved
+        self.permission_mode = str(permission_mode or "").strip() or None
         self._workspace = (
             Path(workspace).expanduser() if workspace else (Path.home() / ".cache" / "memu-claude-workspace")
         )
@@ -118,6 +120,8 @@ class ClaudeCLIClient:
             ]
             if self.effort:
                 cmd.extend(["--effort", self.effort])
+            if self.permission_mode:
+                cmd.extend(["--permission-mode", self.permission_mode])
             try:
                 completed = subprocess.run(
                     cmd,

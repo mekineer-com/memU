@@ -63,6 +63,7 @@ class MemoryService(MemorizeMixin, RetrieveMixin):
         claude_code: bool = False,
         claude_code_model: str = "claude-opus-4-7",
         claude_code_effort: str = "medium",
+        claude_code_permission_mode: str | None = None,
         claude_code_workspace: str | None = None,
     ):
         self.llm_profiles = self._validate_config(llm_profiles, LLMProfilesConfig)
@@ -76,6 +77,7 @@ class MemoryService(MemorizeMixin, RetrieveMixin):
         self._claude_code = bool(claude_code)
         self._claude_code_model = str(claude_code_model or "claude-opus-4-7").strip() or "claude-opus-4-7"
         self._claude_code_effort = str(claude_code_effort or "").strip() or None
+        self._claude_code_permission_mode = str(claude_code_permission_mode or "").strip() or None
         self._claude_code_workspace = str(claude_code_workspace or "").strip() or None
 
         self.fs = LocalFS(self.blob_config.resources_dir)
@@ -256,6 +258,7 @@ class MemoryService(MemorizeMixin, RetrieveMixin):
             self._claude_cli_client = ClaudeCLIClient(
                 model=self._claude_code_model,
                 effort=self._claude_code_effort,
+                permission_mode=self._claude_code_permission_mode,
                 workspace=self._claude_code_workspace,
             )
         return self._claude_cli_client
