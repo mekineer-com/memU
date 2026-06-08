@@ -41,15 +41,22 @@ def _service(**kwargs) -> MemoryService:
     )
 
 
-def test_claude_code_routes_all_chat_workflow_steps(monkeypatch) -> None:
+def test_claude_code_routes_chat_workflow_steps_to_neutral_workspace(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(service_module, "ClaudeCLIClient", _FakeClaudeCLIClient)
-    service = _service(claude_code=True, claude_code_model="claude-opus-4-7")
+    monkeypatch.setenv("HOME", str(tmp_path))
+    service = _service(
+        claude_code=True,
+        claude_code_model="claude-opus-4-7",
+        claude_code_workspace="/tmp/siri-workspace",
+    )
 
     retrieve_client = service._get_step_llm_client({"workflow_name": "retrieve_rag", "step_id": "route_intention"})
     memorize_client = service._get_step_llm_client({"workflow_name": "memorize", "step_id": "memory_extract"})
 
     assert isinstance(retrieve_client._client, _FakeClaudeCLIClient)
     assert isinstance(memorize_client._client, _FakeClaudeCLIClient)
+    assert retrieve_client._client.workspace == tmp_path / ".cache" / "memu-claude-internal"
+    assert memorize_client._client.workspace == tmp_path / ".cache" / "memu-claude-internal"
 
 
 def test_claude_code_does_not_change_embedding_client(monkeypatch) -> None:
@@ -64,22 +71,38 @@ def test_claude_code_does_not_change_embedding_client(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_service_chat_uses_claude_when_enabled(monkeypatch) -> None:
+async def test_service_chat_without_session_uses_neutral_workspace(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(service_module, "ClaudeCLIClient", _FakeClaudeCLIClient)
-    service = _service(claude_code=True, claude_code_model="claude-opus-4-7")
+    monkeypatch.setenv("HOME", str(tmp_path))
+    service = _service(
+        claude_code=True,
+        claude_code_model="claude-opus-4-7",
+        claude_code_workspace="/tmp/siri-workspace",
+    )
+
     out = await service.chat("hello", op="manual_chat")
+
     assert out == "hello"
+    assert service._claude_cli_client is None
+    assert service._claude_cli_internal_client is not None
+    assert service._claude_cli_internal_client.workspace == tmp_path / ".cache" / "memu-claude-internal"
 
 
 @pytest.mark.asyncio
 async def test_service_chat_passes_claude_session_args_through_wrapper(monkeypatch) -> None:
     monkeypatch.setattr(service_module, "ClaudeCLIClient", _FakeClaudeCLIClient)
-    service = _service(claude_code=True, claude_code_model="claude-opus-4-7")
+    service = _service(
+        claude_code=True,
+        claude_code_model="claude-opus-4-7",
+        claude_code_workspace="/tmp/siri-workspace",
+    )
 
     out = await service.chat("hello", op="manual_chat", session_id="turn-123")
 
     assert out == "hello"
     assert service._get_claude_cli_client().last_chat_kwargs["session_id"] == "turn-123"
+    assert service._get_claude_cli_client().workspace == "/tmp/siri-workspace"
+    assert service._claude_cli_internal_client is None
 
 
 @pytest.mark.asyncio

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Literal, TypeVar
 
 from pydantic import BaseModel
@@ -82,6 +83,7 @@ class MemoryService(MemorizeMixin, RetrieveMixin):
         self._claude_code_permission_mode = str(claude_code_permission_mode or "").strip() or None
         self._claude_code_settings = str(claude_code_settings or "").strip() or None
         self._claude_code_workspace = str(claude_code_workspace or "").strip() or None
+        self._claude_code_internal_workspace = Path.home() / ".cache" / "memu-claude-internal"
         self._claude_code_timeout_seconds = int(claude_code_timeout_seconds)
 
         self.fs = LocalFS(self.blob_config.resources_dir)
@@ -100,6 +102,7 @@ class MemoryService(MemorizeMixin, RetrieveMixin):
         # Initialize client caches (lazy creation on first use)
         self._llm_clients: dict[str, Any] = {}
         self._claude_cli_client: ClaudeCLIClient | None = None
+        self._claude_cli_internal_client: ClaudeCLIClient | None = None
         self._llm_interceptors = LLMInterceptorRegistry()
         self._workflow_interceptors = WorkflowInterceptorRegistry()
 
@@ -209,8 +212,13 @@ class MemoryService(MemorizeMixin, RetrieveMixin):
         if step_context is not None and trace_id_clean:
             step_context["trace_id"] = trace_id_clean
         if self._claude_code:
+            claude_client = (
+                self._get_claude_cli_client()
+                if (session_id_clean or resume_session_id_clean)
+                else self._get_claude_cli_internal_client()
+            )
             client = self._wrap_llm_client(
-                self._get_claude_cli_client(),
+                claude_client,
                 profile="claude_code",
                 step_context=step_context,
             )
@@ -256,7 +264,7 @@ class MemoryService(MemorizeMixin, RetrieveMixin):
     def _get_step_llm_client(self, step_context: Mapping[str, Any] | None) -> Any:
         if self._claude_code:
             return self._wrap_llm_client(
-                self._get_claude_cli_client(),
+                self._get_claude_cli_internal_client(),
                 profile="claude_code",
                 step_context=step_context,
             )
@@ -278,6 +286,18 @@ class MemoryService(MemorizeMixin, RetrieveMixin):
                 timeout_seconds=self._claude_code_timeout_seconds,
             )
         return self._claude_cli_client
+
+    def _get_claude_cli_internal_client(self) -> ClaudeCLIClient:
+        if self._claude_cli_internal_client is None:
+            self._claude_cli_internal_client = ClaudeCLIClient(
+                model=self._claude_code_model,
+                effort=self._claude_code_effort,
+                permission_mode=self._claude_code_permission_mode,
+                settings=self._claude_code_settings,
+                workspace=self._claude_code_internal_workspace,
+                timeout_seconds=self._claude_code_timeout_seconds,
+            )
+        return self._claude_cli_internal_client
 
     def intercept_before_llm_call(
         self,
