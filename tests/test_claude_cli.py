@@ -4,6 +4,7 @@ import subprocess
 from pathlib import Path
 
 import memu.llm.claude_cli as claude_cli
+import pytest
 from memu.llm.claude_cli import ClaudeCLIClient
 
 
@@ -125,12 +126,17 @@ def test_claude_cli_passes_json_output_format(monkeypatch, tmp_path: Path) -> No
 
     def fake_run(cmd, *, cwd, input, text, capture_output, timeout, check):
         seen["cmd"] = cmd
-        return subprocess.CompletedProcess(cmd, 0, stdout='{"ok":true}', stderr="")
+        return subprocess.CompletedProcess(
+            cmd,
+            0,
+            stdout='{"type":"result","result":"{\\"response_target\\":\\"respond\\",\\"response\\":\\"hi\\"}","usage":{"input_tokens":1}}',
+            stderr="",
+        )
 
     monkeypatch.setattr(claude_cli.subprocess, "run", fake_run)
     client = ClaudeCLIClient(model="claude-opus-4-7", workspace=tmp_path)
 
-    client._run_claude(
+    text, raw = client._run_claude(
         prompt="hello",
         system_prompt="system",
         response_format={"type": "json_object"},
@@ -138,3 +144,22 @@ def test_claude_cli_passes_json_output_format(monkeypatch, tmp_path: Path) -> No
 
     assert "--output-format" in seen["cmd"]
     assert seen["cmd"][seen["cmd"].index("--output-format") + 1] == "json"
+    assert text == '{"response_target":"respond","response":"hi"}'
+    assert raw["usage"] == {"input_tokens": 1}
+
+
+def test_claude_cli_json_output_requires_result_field(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(claude_cli.shutil, "which", lambda _binary: "/bin/claude")
+
+    def fake_run(cmd, *, cwd, input, text, capture_output, timeout, check):
+        return subprocess.CompletedProcess(cmd, 0, stdout='{"type":"result","usage":{}}', stderr="")
+
+    monkeypatch.setattr(claude_cli.subprocess, "run", fake_run)
+    client = ClaudeCLIClient(model="claude-opus-4-7", workspace=tmp_path)
+
+    with pytest.raises(RuntimeError, match="missing string result"):
+        client._run_claude(
+            prompt="hello",
+            system_prompt="system",
+            response_format={"type": "json_object"},
+        )

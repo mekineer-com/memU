@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import json
 import shutil
 import subprocess
 import time
@@ -143,7 +144,8 @@ class ClaudeCLIClient:
                 cmd.extend(["--session-id", session_id])
             if resume_session_id:
                 cmd.extend(["--resume", resume_session_id])
-            if isinstance(response_format, dict) and response_format.get("type") == "json_object":
+            json_output = isinstance(response_format, dict) and response_format.get("type") == "json_object"
+            if json_output:
                 cmd.extend(["--output-format", "json"])
             if self.effort:
                 cmd.extend(["--effort", self.effort])
@@ -178,6 +180,16 @@ class ClaudeCLIClient:
         response_text = completed.stdout
         if not response_text or not response_text.strip():
             raise RuntimeError(f"Claude CLI returned empty output for model={self.chat_model}")
+        usage = None
+        if json_output:
+            try:
+                envelope = json.loads(response_text)
+            except json.JSONDecodeError as exc:
+                raise RuntimeError("Claude CLI JSON output was not valid JSON") from exc
+            if not isinstance(envelope, dict) or not isinstance(envelope.get("result"), str):
+                raise RuntimeError("Claude CLI JSON output missing string result field")
+            response_text = envelope["result"]
+            usage = envelope.get("usage")
 
         raw = {
             "provider": self.provider,
@@ -186,7 +198,7 @@ class ClaudeCLIClient:
             "exit_code": completed.returncode,
             "session_id": session_id,
             "resume_session_id": resume_session_id,
-            "usage": None,
+            "usage": usage,
         }
         return response_text, raw
 
