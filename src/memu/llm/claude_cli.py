@@ -98,6 +98,7 @@ class ClaudeCLIClient:
             self._run_claude,
             prompt=prompt,
             system_prompt=system_prompt or "",
+            response_format=response_format,
             session_id=session_id_clean,
             resume_session_id=resume_session_id_clean,
         )
@@ -123,11 +124,10 @@ class ClaudeCLIClient:
         *,
         prompt: str,
         system_prompt: str,
+        response_format: dict[str, Any] | None = None,
         session_id: str | None = None,
         resume_session_id: str | None = None,
     ) -> tuple[str, dict[str, Any]]:
-        if session_id and resume_session_id:
-            raise ValueError("session_id and resume_session_id are mutually exclusive")
         system_prompt_file = self._prompt_dir / f"system-prompt-{uuid.uuid4().hex}.txt"
         system_prompt_file.write_text(system_prompt, encoding="utf-8")
         try:
@@ -143,6 +143,8 @@ class ClaudeCLIClient:
                 cmd.extend(["--session-id", session_id])
             if resume_session_id:
                 cmd.extend(["--resume", resume_session_id])
+            if isinstance(response_format, dict) and response_format.get("type") == "json_object":
+                cmd.extend(["--output-format", "json"])
             if self.effort:
                 cmd.extend(["--effort", self.effort])
             if self.permission_mode:

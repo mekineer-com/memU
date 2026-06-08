@@ -116,3 +116,25 @@ def test_claude_cli_passes_resume_session_id(monkeypatch, tmp_path: Path) -> Non
     assert seen["cmd"][seen["cmd"].index("--resume") + 1] == "turn-123"
     assert "--session-id" not in seen["cmd"]
     assert raw["resume_session_id"] == "turn-123"
+
+
+def test_claude_cli_passes_json_output_format(monkeypatch, tmp_path: Path) -> None:
+    seen: dict[str, object] = {}
+
+    monkeypatch.setattr(claude_cli.shutil, "which", lambda _binary: "/bin/claude")
+
+    def fake_run(cmd, *, cwd, input, text, capture_output, timeout, check):
+        seen["cmd"] = cmd
+        return subprocess.CompletedProcess(cmd, 0, stdout='{"ok":true}', stderr="")
+
+    monkeypatch.setattr(claude_cli.subprocess, "run", fake_run)
+    client = ClaudeCLIClient(model="claude-opus-4-7", workspace=tmp_path)
+
+    client._run_claude(
+        prompt="hello",
+        system_prompt="system",
+        response_format={"type": "json_object"},
+    )
+
+    assert "--output-format" in seen["cmd"]
+    assert seen["cmd"][seen["cmd"].index("--output-format") + 1] == "json"

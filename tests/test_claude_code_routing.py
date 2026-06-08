@@ -18,12 +18,14 @@ class _FakeClaudeCLIClient:
         permission_mode: str | None = None,
         settings: str | None = None,
         workspace: str | None = None,
+        timeout_seconds: int = 900,
     ) -> None:
         self.chat_model = model
         self.effort = effort
         self.permission_mode = permission_mode
         self.settings = settings
         self.workspace = workspace
+        self.timeout_seconds = timeout_seconds
         self.embed_model = None
         self.last_chat_kwargs: dict[str, object] = {}
 
@@ -126,3 +128,16 @@ def test_claude_code_passes_settings(monkeypatch) -> None:
     client = service._get_claude_cli_client()
 
     assert client.settings == "/tmp/siri-settings.json"
+
+
+def test_claude_code_passes_timeout_seconds(monkeypatch) -> None:
+    monkeypatch.setattr(service_module, "ClaudeCLIClient", _FakeClaudeCLIClient)
+    service = _service(
+        claude_code=True,
+        claude_code_model="claude-opus-4-7",
+        claude_code_timeout_seconds=3600,
+    )
+
+    client = service._get_claude_cli_client()
+
+    assert client.timeout_seconds == 3600

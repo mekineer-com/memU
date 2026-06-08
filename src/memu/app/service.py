@@ -66,6 +66,7 @@ class MemoryService(MemorizeMixin, RetrieveMixin):
         claude_code_permission_mode: str | None = None,
         claude_code_settings: str | None = None,
         claude_code_workspace: str | None = None,
+        claude_code_timeout_seconds: int = 900,
     ):
         self.llm_profiles = self._validate_config(llm_profiles, LLMProfilesConfig)
         self.user_config = self._validate_config(user_config, UserConfig)
@@ -81,6 +82,7 @@ class MemoryService(MemorizeMixin, RetrieveMixin):
         self._claude_code_permission_mode = str(claude_code_permission_mode or "").strip() or None
         self._claude_code_settings = str(claude_code_settings or "").strip() or None
         self._claude_code_workspace = str(claude_code_workspace or "").strip() or None
+        self._claude_code_timeout_seconds = int(claude_code_timeout_seconds)
 
         self.fs = LocalFS(self.blob_config.resources_dir)
         self.category_configs: list[CategoryConfig] = list(self.memorize_config.memory_categories or [])
@@ -273,6 +275,7 @@ class MemoryService(MemorizeMixin, RetrieveMixin):
                 permission_mode=self._claude_code_permission_mode,
                 settings=self._claude_code_settings,
                 workspace=self._claude_code_workspace,
+                timeout_seconds=self._claude_code_timeout_seconds,
             )
         return self._claude_cli_client
 

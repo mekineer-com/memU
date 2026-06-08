@@ -643,12 +643,12 @@ class RetrieveMixin:
         all_categories = "\n\n".join(by_role.get("all_categories_summary", []))
         if all_categories:
             blocks.append(all_categories)
-        cross_text = "\n\n".join(by_role.get("cross_conversation", []))
-        if cross_text:
-            blocks.append(cross_text)
         history_text = "\n\n".join(by_role.get("history", []))
         if history_text:
             blocks.append(history_text)
+        cross_text = "\n\n".join(by_role.get("cross_conversation", []))
+        if cross_text:
+            blocks.append(cross_text)
         working_text = "\n".join(by_role.get("memory_cache", []))
         if working_text:
             blocks.append(f"My working thoughts:\n{working_text}")
