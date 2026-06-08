@@ -64,6 +64,7 @@ class MemoryService(MemorizeMixin, RetrieveMixin):
         claude_code_model: str = "claude-opus-4-7",
         claude_code_effort: str = "medium",
         claude_code_permission_mode: str | None = None,
+        claude_code_settings: str | None = None,
         claude_code_workspace: str | None = None,
     ):
         self.llm_profiles = self._validate_config(llm_profiles, LLMProfilesConfig)
@@ -78,6 +79,7 @@ class MemoryService(MemorizeMixin, RetrieveMixin):
         self._claude_code_model = str(claude_code_model or "claude-opus-4-7").strip() or "claude-opus-4-7"
         self._claude_code_effort = str(claude_code_effort or "").strip() or None
         self._claude_code_permission_mode = str(claude_code_permission_mode or "").strip() or None
+        self._claude_code_settings = str(claude_code_settings or "").strip() or None
         self._claude_code_workspace = str(claude_code_workspace or "").strip() or None
 
         self.fs = LocalFS(self.blob_config.resources_dir)
@@ -191,7 +193,15 @@ class MemoryService(MemorizeMixin, RetrieveMixin):
         op: str | None = None,
         step: str | None = None,
         trace_id: str | None = None,
+        session_id: str | None = None,
+        resume_session_id: str | None = None,
     ) -> Any:
+        session_id_clean = str(session_id or "").strip() or None
+        resume_session_id_clean = str(resume_session_id or "").strip() or None
+        if session_id_clean and resume_session_id_clean:
+            raise ValueError("session_id and resume_session_id are mutually exclusive")
+        if (session_id_clean or resume_session_id_clean) and not self._claude_code:
+            raise ValueError("Claude session arguments require claude_code=True")
         trace_id_clean = str(trace_id or "").strip()
         step_context = {"operation": op, "step_id": step} if (op or step or trace_id_clean) else None
         if step_context is not None and trace_id_clean:
@@ -210,6 +220,8 @@ class MemoryService(MemorizeMixin, RetrieveMixin):
             system_prompt=system_prompt,
             temperature=temperature,
             response_format=response_format,
+            session_id=session_id_clean,
+            resume_session_id=resume_session_id_clean,
         )
 
     async def embed(self, texts: list[str], *, profile: str | None = None) -> Any:
@@ -259,6 +271,7 @@ class MemoryService(MemorizeMixin, RetrieveMixin):
                 model=self._claude_code_model,
                 effort=self._claude_code_effort,
                 permission_mode=self._claude_code_permission_mode,
+                settings=self._claude_code_settings,
                 workspace=self._claude_code_workspace,
             )
         return self._claude_cli_client

@@ -16,15 +16,19 @@ class _FakeClaudeCLIClient:
         model: str,
         effort: str | None = None,
         permission_mode: str | None = None,
+        settings: str | None = None,
         workspace: str | None = None,
     ) -> None:
         self.chat_model = model
         self.effort = effort
         self.permission_mode = permission_mode
+        self.settings = settings
         self.workspace = workspace
         self.embed_model = None
+        self.last_chat_kwargs: dict[str, object] = {}
 
-    async def chat(self, prompt: str, **_: object):  # pragma: no cover - not needed in this seam test
+    async def chat(self, prompt: str, **kwargs: object):
+        self.last_chat_kwargs = dict(kwargs)
         return prompt, {"provider": self.provider}
 
 
@@ -65,6 +69,26 @@ async def test_service_chat_uses_claude_when_enabled(monkeypatch) -> None:
     assert out == "hello"
 
 
+@pytest.mark.asyncio
+async def test_service_chat_passes_claude_session_args_through_wrapper(monkeypatch) -> None:
+    monkeypatch.setattr(service_module, "ClaudeCLIClient", _FakeClaudeCLIClient)
+    service = _service(claude_code=True, claude_code_model="claude-opus-4-7")
+
+    out = await service.chat("hello", op="manual_chat", session_id="turn-123")
+
+    assert out == "hello"
+    assert service._get_claude_cli_client().last_chat_kwargs["session_id"] == "turn-123"
+
+
+@pytest.mark.asyncio
+async def test_service_chat_rejects_claude_session_args_without_claude(monkeypatch) -> None:
+    monkeypatch.setattr(service_module, "ClaudeCLIClient", _FakeClaudeCLIClient)
+    service = _service(claude_code=False)
+
+    with pytest.raises(ValueError, match="claude_code=True"):
+        await service.chat("hello", session_id="turn-123")
+
+
 def test_claude_code_passes_workspace(monkeypatch) -> None:
     monkeypatch.setattr(service_module, "ClaudeCLIClient", _FakeClaudeCLIClient)
     service = _service(
@@ -89,3 +113,16 @@ def test_claude_code_passes_permission_mode(monkeypatch) -> None:
     client = service._get_claude_cli_client()
 
     assert client.permission_mode == "bypassPermissions"
+
+
+def test_claude_code_passes_settings(monkeypatch) -> None:
+    monkeypatch.setattr(service_module, "ClaudeCLIClient", _FakeClaudeCLIClient)
+    service = _service(
+        claude_code=True,
+        claude_code_model="claude-opus-4-7",
+        claude_code_settings="/tmp/siri-settings.json",
+    )
+
+    client = service._get_claude_cli_client()
+
+    assert client.settings == "/tmp/siri-settings.json"

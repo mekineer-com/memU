@@ -280,12 +280,18 @@ class LLMClientWrapper:
         system_prompt: str | None = None,
         temperature: float | None = None,
         response_format: dict[str, Any] | None = None,
+        session_id: str | None = None,
+        resume_session_id: str | None = None,
     ) -> Any:
         metadata: dict[str, Any] = {
             "system_prompt": system_prompt or "",
         }
         if response_format is not None:
             metadata["response_format"] = response_format
+        if session_id:
+            metadata["session_id"] = session_id
+        if resume_session_id:
+            metadata["resume_session_id"] = resume_session_id
         request_view = _build_text_request_view(
             "chat",
             prompt,
@@ -293,13 +299,17 @@ class LLMClientWrapper:
         )
 
         async def _call() -> Any:
-            return await self._client.chat(
-                prompt,
-                max_tokens=max_tokens,
-                system_prompt=system_prompt,
-                temperature=temperature,
-                response_format=response_format,
-            )
+            kwargs: dict[str, Any] = {
+                "max_tokens": max_tokens,
+                "system_prompt": system_prompt,
+                "temperature": temperature,
+                "response_format": response_format,
+            }
+            if session_id:
+                kwargs["session_id"] = session_id
+            if resume_session_id:
+                kwargs["resume_session_id"] = resume_session_id
+            return await self._client.chat(prompt, **kwargs)
 
         return await self._invoke(
             kind="chat",
