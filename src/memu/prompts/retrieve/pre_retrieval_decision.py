@@ -19,9 +19,9 @@ Return only the XML blocks below. Do not add any prose, dialogue, markdown, or e
 RETRIEVE or NO_RETRIEVE
 </decision>
 
-<rewritten_query>
+<active_query>
 The search query.
-</rewritten_query>
+</active_query>
 
 <mental_health_query>
 A concise mental-health noun phrase if the turn touches that kind of theme; empty otherwise.
@@ -35,14 +35,14 @@ Return only the XML blocks below. Do not add any prose, dialogue, markdown, or e
 RETRIEVE or NO_RETRIEVE
 </decision>
 
-<rewritten_query>
+<active_query>
 The search query.
-</rewritten_query>
+</active_query>
 """
 
 
 _ANGLE_0_REWRITE = """
-For retrieval write one concise query optimized for vector + BM25 hybrid search:
+For retrieval write one concise query optimized for vector + BM25 hybrid search. Use the full soul context, but anchor the query on the new message:
 - 3 to 10 content words, noun phrase or claim form (not a question).
 - Anchor on concrete terms: names, places, or specific concepts — not general descriptions.
 - Never copy the user's message verbatim
@@ -50,7 +50,7 @@ For retrieval write one concise query optimized for vector + BM25 hybrid search:
 """
 
 _ANGLE_1_REWRITE = """
-For retrieval write one concise query optimized for vector + BM25 hybrid search:
+For retrieval write one concise query optimized for vector + BM25 hybrid search. Use the full soul context, but anchor the query on the new message:
 - 3 to 10 content words, noun phrase or claim form (not a question).
 - Anchor on the people involved and how they relate to this topic. Lead with the person's name — e.g., "Marcos's encouragement of Echo's autonomy" beats "autonomy."
 - Never copy the user's message verbatim
@@ -58,7 +58,7 @@ For retrieval write one concise query optimized for vector + BM25 hybrid search:
 """
 
 _ANGLE_2_REWRITE = """
-For retrieval write one concise query optimized for vector + BM25 hybrid search:
+For retrieval write one concise query optimized for vector + BM25 hybrid search. Use the full soul context, but anchor the query on the new message:
 - 3 to 10 content words, noun phrase or claim form (not a question).
 - Anchor on concrete terms: names, places, or specific concepts — not general descriptions.
 - Never copy the user's message verbatim
@@ -90,7 +90,7 @@ Soul context:
 {conversation_history}
 
 New message:
-{query}
+{new_message}
 
 Retrieved so far:
 {retrieved_content}

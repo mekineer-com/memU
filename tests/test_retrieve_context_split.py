@@ -68,7 +68,7 @@ async def test_route_intention_disables_mental_health_query_extraction():
     mixin._get_step_llm_client = lambda _ctx: object()
 
     async def _fake_decide(  # type: ignore[no-untyped-def]
-        query,
+        new_message,
         context_queries,
         retrieved_content=None,
         system_prompt=None,
@@ -80,7 +80,7 @@ async def test_route_intention_disables_mental_health_query_extraction():
 
     mixin._decide_if_retrieval_needed = _fake_decide  # type: ignore[method-assign]
     state = {
-        "original_query": "help",
+        "new_message": "help",
         "context_queries": [],
         "rewrite_angle": 0,
         "mental_health_enabled": False,
@@ -93,7 +93,7 @@ async def test_route_intention_disables_mental_health_query_extraction():
 
 
 @pytest.mark.asyncio
-async def test_route_intention_force_retrieve_skips_llm_and_uses_original_query():
+async def test_route_intention_force_retrieve_skips_llm_and_uses_new_message_as_search_fallback():
     mixin = RetrieveMixin()
 
     async def _should_not_run(*_args, **_kwargs):  # type: ignore[no-untyped-def]
@@ -101,7 +101,7 @@ async def test_route_intention_force_retrieve_skips_llm_and_uses_original_query(
 
     mixin._decide_if_retrieval_needed = _should_not_run  # type: ignore[method-assign]
     state = {
-        "original_query": "topic statement text",
+        "new_message": "topic statement text",
         "context_queries": [],
         "rewrite_angle": 0,
         "mental_health_enabled": True,
@@ -111,7 +111,6 @@ async def test_route_intention_force_retrieve_skips_llm_and_uses_original_query(
     out = await mixin._rag_route_intention(state, step_context=None)
 
     assert out["needs_retrieval"] is True
-    assert out["rewritten_query"] == "topic statement text"
     assert out["active_query"] == "topic statement text"
     assert out["mental_health_query"] == "topic statement text"
 
@@ -123,7 +122,7 @@ async def test_category_sufficiency_uses_second_step_mental_health_query():
     captured: dict[str, str] = {}
     state = {
         "needs_retrieval": True,
-        "original_query": "original",
+        "new_message": "original",
         "active_query": "original",
         "context_queries": [],
         "category_pool": {"c1": object()},
@@ -135,21 +134,39 @@ async def test_category_sufficiency_uses_second_step_mental_health_query():
     }
 
     async def _fake_decide(  # type: ignore[no-untyped-def]
-        query,
+        new_message,
         context_queries,
         retrieved_content=None,
         system_prompt=None,
         include_mental_health_query=True,
         llm_client=None,
     ):
-        captured["query"] = query
+        captured["new_message"] = new_message
         return False, "second-step-rewrite", "<mental_health_query>second step query</mental_health_query>"
 
     mixin._decide_if_retrieval_needed = _fake_decide  # type: ignore[method-assign]
 
     out = await mixin._rag_category_sufficiency(state, step_context=None)
 
-    assert captured["query"] == "original"
+    assert captured["new_message"] == "original"
     assert out["mental_health_query"] == "second step query"
     assert out["active_query"] == "second-step-rewrite"
     assert out["proceed_to_items"] is False
+
+
+@pytest.mark.asyncio
+async def test_decide_if_retrieval_needed_requires_active_query_when_retrieving():
+    mixin = RetrieveMixin()
+    mixin._get_llm_client = lambda: object()
+    mixin._escape_prompt_value = lambda text: text
+
+    class Client:
+        async def chat(self, *_args, **_kwargs):  # type: ignore[no-untyped-def]
+            return "<decision>RETRIEVE</decision>"
+
+    with pytest.raises(ValueError, match="missing active_query"):
+        await mixin._decide_if_retrieval_needed(
+            "new message",
+            [],
+            llm_client=Client(),
+        )

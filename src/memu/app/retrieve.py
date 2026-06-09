@@ -51,7 +51,7 @@ class RetrieveMixin:
             raise ValueError("empty_queries")
         ctx = self._get_context()
         store = self._get_database()
-        original_query = self._extract_query_text(queries[-1])
+        new_message = self._extract_query_text(queries[-1])
         where_filters = self._normalize_where(where)
 
         context_queries = queries[:-1] if len(queries) > 1 else []
@@ -60,7 +60,7 @@ class RetrieveMixin:
 
         state: WorkflowState = {
             "method": self.retrieve_config.method,
-            "original_query": original_query,
+            "new_message": new_message,
             "context_queries": list(context_queries),
             "rewrite_angle": int(rewrite_angle) if rewrite_angle is not None else 0,
             "mental_health_enabled": bool(mental_health_enabled),
@@ -105,8 +105,8 @@ class RetrieveMixin:
                 step_id="route_intention",
                 role="route_intention",
                 handler=self._rag_route_intention,
-                requires={"original_query", "context_queries"},
-                produces={"needs_retrieval", "rewritten_query", "active_query", "next_step_query"},
+                requires={"new_message", "context_queries"},
+                produces={"needs_retrieval", "active_query"},
                 capabilities={"llm"},
                 config={"chat_llm_profile": self.retrieve_config.sufficiency_check_llm_profile},
             ),
@@ -125,6 +125,7 @@ class RetrieveMixin:
                 handler=self._rag_category_sufficiency,
                 requires={
                     "needs_retrieval",
+                    "new_message",
                     "active_query",
                     "context_queries",
                     "category_hits",
@@ -132,7 +133,7 @@ class RetrieveMixin:
                     "store",
                     "where",
                 },
-                produces={"next_step_query", "proceed_to_items", "query_vector"},
+                produces={"proceed_to_items", "query_vector"},
                 capabilities={"llm"},
                 config={
                     "chat_llm_profile": self.retrieve_config.sufficiency_check_llm_profile,
@@ -169,7 +170,7 @@ class RetrieveMixin:
                     "store",
                     "where",
                 },
-                produces={"next_step_query", "proceed_to_resources", "query_vector"},
+                produces={"proceed_to_resources", "query_vector"},
                 capabilities={"llm"},
                 config={
                     "chat_llm_profile": self.retrieve_config.sufficiency_check_llm_profile,
@@ -197,7 +198,7 @@ class RetrieveMixin:
                 step_id="build_context",
                 role="build_context",
                 handler=self._rag_build_context,
-                requires={"needs_retrieval", "original_query", "rewritten_query", "ctx", "store", "where"},
+                requires={"needs_retrieval", "new_message", "active_query", "ctx", "store", "where"},
                 produces={"response"},
                 capabilities=set(),
             ),
@@ -207,7 +208,7 @@ class RetrieveMixin:
     def _list_retrieve_initial_keys(self) -> set[str]:
         return {
             "method",
-            "original_query",
+            "new_message",
             "context_queries",
             "ctx",
             "store",
@@ -219,14 +220,12 @@ class RetrieveMixin:
 
     async def _rag_route_intention(self, state: WorkflowState, step_context: Any) -> WorkflowState:
         if bool(state.get("force_retrieve")):
-            original_query = str(state.get("original_query") or "")
+            new_message = str(state.get("new_message") or "")
             mental_health_enabled = bool(state.get("mental_health_enabled", True))
             state.update({
                 "needs_retrieval": True,
-                "rewritten_query": original_query,
-                "active_query": original_query,
-                "mental_health_query": original_query if mental_health_enabled else None,
-                "next_step_query": None,
+                "active_query": new_message,
+                "mental_health_query": new_message if mental_health_enabled else None,
                 "proceed_to_items": False,
                 "proceed_to_resources": False,
             })
@@ -238,8 +237,8 @@ class RetrieveMixin:
             state.get("rewrite_angle"),
             include_mental_health_query=mental_health_enabled,
         )
-        needs_retrieval, rewritten_query, raw_response = await self._decide_if_retrieval_needed(
-            state["original_query"],
+        needs_retrieval, active_query, raw_response = await self._decide_if_retrieval_needed(
+            state["new_message"],
             state["context_queries"],
             retrieved_content=None,
             system_prompt=angle_prompt,
@@ -250,10 +249,8 @@ class RetrieveMixin:
 
         state.update({
             "needs_retrieval": needs_retrieval,
-            "rewritten_query": rewritten_query,
-            "active_query": rewritten_query,
+            "active_query": active_query,
             "mental_health_query": mental_health_query,
-            "next_step_query": None,
             "proceed_to_items": False,
             "proceed_to_resources": False,
         })
@@ -310,8 +307,8 @@ class RetrieveMixin:
 
         llm_client = self._get_step_llm_client(step_context)
         mental_health_enabled = bool(state.get("mental_health_enabled", True))
-        needs_more, rewritten_query, raw_response = await self._decide_if_retrieval_needed(
-            state["original_query"],
+        needs_more, active_query, raw_response = await self._decide_if_retrieval_needed(
+            state["new_message"],
             state["context_queries"],
             retrieved_content=retrieved_content or "No content retrieved yet.",
             include_mental_health_query=mental_health_enabled,
@@ -321,8 +318,7 @@ class RetrieveMixin:
             mental_health_query = self._extract_mental_health_query(raw_response)
             if mental_health_query:
                 state["mental_health_query"] = mental_health_query
-        state["next_step_query"] = rewritten_query
-        state["active_query"] = rewritten_query
+        state["active_query"] = active_query
         state["proceed_to_items"] = needs_more
         if needs_more:
             embed_client = self._get_step_embedding_client(step_context)
@@ -453,7 +449,6 @@ class RetrieveMixin:
         return state
 
     async def _rag_item_sufficiency(self, state: WorkflowState, step_context: Any) -> WorkflowState:
-        state["next_step_query"] = state.get("active_query")
         state["proceed_to_resources"] = False
         return state
 
@@ -482,10 +477,9 @@ class RetrieveMixin:
     def _rag_build_context(self, state: WorkflowState, _: Any) -> WorkflowState:
         response = {
             "needs_retrieval": bool(state.get("needs_retrieval")),
-            "original_query": state["original_query"],
-            "rewritten_query": state.get("rewritten_query", state["original_query"]),
+            "new_message": state["new_message"],
+            "active_query": state.get("active_query", ""),
             "mental_health_query": state.get("mental_health_query"),
-            "next_step_query": state.get("next_step_query"),
             "categories": [],
             "items": [],
             "resources": [],
@@ -576,7 +570,7 @@ class RetrieveMixin:
 
     async def _decide_if_retrieval_needed(
         self,
-        query: str,
+        new_message: str,
         context_queries: list[dict[str, Any]] | None,
         retrieved_content: str | None = None,
         system_prompt: str | None = None,
@@ -588,7 +582,7 @@ class RetrieveMixin:
 
         prompt = PRE_RETRIEVAL_USER_PROMPT
         user_prompt = prompt.format(
-            query=self._escape_prompt_value(query),
+            new_message=self._escape_prompt_value(new_message),
             conversation_history=self._escape_prompt_value(history_text),
             retrieved_content=self._escape_prompt_value(content_text),
         )
@@ -600,10 +594,12 @@ class RetrieveMixin:
         client = llm_client or self._get_llm_client()
         response = await client.chat(user_prompt, system_prompt=sys_prompt)
         decision = self._extract_decision(response)
-        rewritten = self._extract_rewritten_query(response) or query
+        active_query = self._extract_active_query(response)
+        if decision == "RETRIEVE" and not active_query:
+            raise ValueError("retrieval decision missing active_query")
 
         # Caller can pull <mental_health_query> out of `response` if it cares.
-        return decision == "RETRIEVE", rewritten, response
+        return decision == "RETRIEVE", active_query or "", response
 
     def _format_query_context(self, queries: list[dict[str, Any]] | None) -> str:
         if not queries:
@@ -695,8 +691,8 @@ class RetrieveMixin:
 
         return "RETRIEVE"
 
-    def _extract_rewritten_query(self, raw: str) -> str | None:
-        match = re.search(r"<rewritten_query>(.*?)</rewritten_query>", raw, re.IGNORECASE | re.DOTALL)
+    def _extract_active_query(self, raw: str) -> str | None:
+        match = re.search(r"<active_query>(.*?)</active_query>", raw, re.IGNORECASE | re.DOTALL)
         if match:
             return match.group(1).strip()
         return None
