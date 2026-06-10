@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import pytest
 
 from memu.app.retrieve import RetrieveMixin
@@ -178,3 +180,41 @@ async def test_decide_if_retrieval_needed_requires_active_query_when_retrieving(
             [],
             llm_client=Client(),
         )
+
+
+def test_retrieve_context_excludes_message_to_self_audit_memories():
+    mixin = RetrieveMixin()
+    mixin._model_dump_without_embeddings = lambda obj: dict(obj)
+    mixin._find_superseded_at = lambda *_args, **_kwargs: None
+    store = SimpleNamespace(
+        resource_repo=SimpleNamespace(list_resources=lambda _where: {}),
+    )
+    state = {
+        "needs_retrieval": True,
+        "new_message": "hello",
+        "item_hits": [("keep", 0.9), ("audit", 0.8)],
+        "item_pool": {
+            "keep": {
+                "id": "keep",
+                "memory_type": "profile",
+                "summary": "Marcos likes continuity.",
+                "extra": {},
+            },
+            "audit": {
+                "id": "audit",
+                "memory_type": "subconscious",
+                "summary": "Notice the quiet signal before answering.",
+                "extra": {"apimw_message_to_self": True},
+            },
+        },
+        "category_hits": [],
+        "category_pool": {"unused": object()},
+        "resource_hits": [],
+        "resource_pool": {},
+        "store": store,
+        "where": {},
+    }
+
+    out = mixin._rag_build_context(state, None)
+
+    assert [item["id"] for item in out["response"]["items"]] == ["keep"]

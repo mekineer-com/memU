@@ -498,13 +498,12 @@ class RetrieveMixin:
                 categories_pool,
             )
             response["items"] = self._materialize_hits(state.get("item_hits", []), items_pool)
-            # Exclude narrative_self from retrieval — the current narrative_self is
-            # already delivered through the soul_card / self-model path; pulling
-            # paragraph-sized self-identity prose in as a retrieved "memory" is
-            # pure bloat. Evolution awareness is a TODO for a separate surface.
+            # These memory rows have dedicated prompt paths; retrieving them as
+            # ordinary memories duplicates or bloats the turn context.
             response["items"] = [
                 it for it in response["items"]
                 if (it.get("memory_type") or "") != "narrative_self"
+                and not (it.get("extra") or {}).get("apimw_message_to_self")
             ]
             graph_provenance = state.get("graph_provenance") or {}
             graph_edges = state.get("graph_edges") or {}
