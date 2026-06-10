@@ -205,6 +205,16 @@ class ClaudeCLIClient:
     async def embed(self, inputs: list[str]) -> tuple[list[list[float]], dict[str, Any]]:
         raise NotImplementedError("ClaudeCLIClient does not support embeddings")
 
+    async def transcribe(
+        self,
+        audio_path: str,
+        *,
+        prompt: str | None = None,
+        language: str | None = None,
+        response_format: str = "text",
+    ) -> tuple[str, dict[str, Any] | None]:
+        raise NotImplementedError("claude_code backend has no audio transcription")
+
     def get_last_payload(self) -> dict[str, Any] | None:
         if not isinstance(self._last_payload, dict):
             return None
