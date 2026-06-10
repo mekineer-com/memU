@@ -1,4 +1,8 @@
 _COMMON_HEAD = """
+This step only chooses whether to search memory and what query to use.
+You are not speaking to the user here. Do not answer the new message.
+Do not mention files, feelings, plans, or what you would say. Output only the routing XML.
+
 Skip retrieval only for:
 - Greetings or acknowledgments.
 - Pure logistics — "be there in 5", "ok"
