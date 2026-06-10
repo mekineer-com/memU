@@ -25,6 +25,10 @@ class ResourceRepo(Protocol):
         caption: str | None,
         embedding: list[float] | None,
         user_data: dict[str, Any],
+        episode_id: str | None = None,
+        conversation_id: str | None = None,
+        memory_retrieve_history: list[str] | None = None,
+        memory_prior_context: list[str] | None = None,
+        session: Any | None = None,
     ) -> Resource: ...
 
-    def load_existing(self) -> None: ...

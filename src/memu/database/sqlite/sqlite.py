@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from sqlmodel import SQLModel
 
 from memu.database.interfaces import Database
-from memu.database.models import CategoryItem, MemoryCategory, MemoryItem, Resource
+from memu.database.models import MemoryCategory, Resource
 from memu.database.repositories import CategoryItemRepo, EntityRepo, MemoryCategoryRepo, MemoryItemRepo, ResourceRepo, TripleRepo
 from memu.database.sqlite.repositories.category_item_repo import SQLiteCategoryItemRepo
 from memu.database.sqlite.repositories.entity_repo import SQLiteEntityRepo
@@ -37,9 +37,7 @@ class SQLiteStore(Database):
         memory_item_repo: Repository for memory items.
         category_item_repo: Repository for category-item relations.
         resources: Dict cache of resource records.
-        items: Dict cache of memory item records.
         categories: Dict cache of memory category records.
-        relations: List cache of category-item relations.
     """
 
     resource_repo: ResourceRepo
@@ -49,9 +47,7 @@ class SQLiteStore(Database):
     entity_repo: EntityRepo
     triple_repo: TripleRepo
     resources: dict[str, Resource]
-    items: dict[str, MemoryItem]
     categories: dict[str, MemoryCategory]
-    relations: list[CategoryItem]
 
     def __init__(
         self,
@@ -139,21 +135,7 @@ class SQLiteStore(Database):
 
         # Set up cache references
         self.resources = self._state.resources
-        self.items = self._state.items
         self.categories = self._state.categories
-        self.relations = self._state.relations
-
-    @staticmethod
-    def _table_columns(conn: Any, table_name: str) -> list[str]:
-        rows = conn.exec_driver_sql(f"PRAGMA table_info({table_name})").fetchall()
-        return [r[1] for r in rows] if rows else []
-
-    def _add_column_if_missing(self, conn: Any, table_name: str, column_name: str, ddl: str) -> bool:
-        cols = self._table_columns(conn, table_name)
-        if not cols or column_name in cols:
-            return False
-        conn.exec_driver_sql(f"ALTER TABLE {table_name} ADD COLUMN {ddl}")
-        return True
 
     def _ensure_fts_table(self) -> None:
         """Create FTS5 virtual table for BM25 keyword search on memory items."""
@@ -220,13 +202,6 @@ CREATE TABLE IF NOT EXISTS model_score_calibration (
     def close(self) -> None:
         """Close the database connection and release resources."""
         self._sessions.close()
-
-    def load_existing(self) -> None:
-        """Load all existing data from database into cache."""
-        self.resource_repo.load_existing()
-        self.memory_category_repo.load_existing()
-        self.memory_item_repo.load_existing()
-        self.category_item_repo.load_existing()
 
 
 __all__ = ["SQLiteStore"]

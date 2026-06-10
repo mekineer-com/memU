@@ -245,9 +245,5 @@ class SQLiteResourceRepo(SQLiteRepoBase, ResourceRepo):
         self.resources[row.id] = res
         return res
 
-    def load_existing(self) -> None:
-        """Load all existing resources from database into cache."""
-        self.list_resources()
-
 
 __all__ = ["SQLiteResourceRepo"]

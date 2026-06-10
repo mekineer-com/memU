@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
-from memu.database.models import CategoryItem as CategoryItemRecord
 from memu.database.models import MemoryCategory as MemoryCategoryRecord
 from memu.database.models import MemoryItem as MemoryItemRecord
 from memu.database.models import Resource as ResourceRecord
@@ -21,15 +20,12 @@ class Database(Protocol):
     triple_repo: TripleRepo
 
     resources: dict[str, ResourceRecord]
-    items: dict[str, MemoryItemRecord]
     categories: dict[str, MemoryCategoryRecord]
-    relations: list[CategoryItemRecord]
 
     def close(self) -> None: ...
 
 
 __all__ = [
-    "CategoryItemRecord",
     "Database",
     "MemoryCategoryRecord",
     "MemoryItemRecord",

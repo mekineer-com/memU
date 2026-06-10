@@ -1,7 +1,6 @@
 """Lightweight database interfaces and record aliases."""
 
 from memu.database.interfaces import (
-    CategoryItemRecord,
     Database,
     MemoryCategoryRecord,
     MemoryItemRecord,
@@ -17,7 +16,6 @@ from memu.database.repositories import (
 )
 
 __all__ = [
-    "CategoryItemRecord",
     "CategoryItemRepo",
     "Database",
     "EntityRepo",

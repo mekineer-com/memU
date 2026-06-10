@@ -186,9 +186,5 @@ class SQLiteCategoryItemRepo(SQLiteRepoBase, CategoryItemRepo):
         """
         return self.list_relations({"item_id": item_id})
 
-    def load_existing(self) -> None:
-        """Load all existing relations from database into cache."""
-        self.list_relations()
-
 
 __all__ = ["SQLiteCategoryItemRepo"]

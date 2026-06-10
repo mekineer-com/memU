@@ -526,20 +526,6 @@ WHERE version = 1 AND model IN ({placeholders})
 
         return self._to_memory_item(row)
 
-    def delete_item(self, item_id: str) -> None:
-        """Delete a memory item.
-
-        Args:
-            item_id: ID of item to delete.
-        """
-        with self._sessions.session() as session:
-            stmt = select(self._memory_item_model).where(self._memory_item_model.id == item_id)
-            row = session.exec(stmt).first()
-            if row:
-                self._fts_delete(session, item_id)
-                session.delete(row)
-                session.commit()
-
     # ── FTS5 helpers ──────────────────────────────────────────────────
 
     def _fts_upsert(self, session: Any, item_id: str, summary: str, memory_type: str) -> None:
@@ -685,10 +671,6 @@ WHERE version = 1 AND model IN ({placeholders})
             )[:top_k]
 
         return hits[:top_k]
-
-    def load_existing(self) -> None:
-        """No-op: SQLite repo does not keep an in-memory item cache."""
-        return None
 
 
 __all__ = ["SQLiteMemoryItemRepo"]

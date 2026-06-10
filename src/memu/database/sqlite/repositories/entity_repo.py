@@ -120,16 +120,6 @@ class SQLiteEntityRepo(SQLiteRepoBase, EntityRepo):
                 session=session,
             )
 
-    def lookup(self, normalized: str) -> Entity | None:
-        with self._sessions.session() as session:
-            stmt = select(self._entity_model).where(
-                self._entity_model.normalized == normalized
-            )
-            row = session.exec(stmt).first()
-            if row is None:
-                return None
-            return self._row_to_entity(row)
-
     def list_all(self, where: Mapping[str, Any] | None = None) -> list[Entity]:
         with self._sessions.session() as session:
             stmt = select(self._entity_model)

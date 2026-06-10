@@ -285,9 +285,5 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
         self.categories[row.id] = cat
         return cat
 
-    def load_existing(self) -> None:
-        """Load all existing categories from database into cache."""
-        self.list_categories()
-
 
 __all__ = ["SQLiteMemoryCategoryRepo"]

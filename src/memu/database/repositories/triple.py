@@ -58,32 +58,3 @@ class TripleRepo(Protocol):
         """
         ...
 
-    def query_entity(
-        self,
-        entity_id: str,
-        as_of: datetime | None = None,
-        direction: str = "outgoing",
-        where: Mapping[str, Any] | None = None,
-    ) -> list[Triple]:
-        """Return triples where entity_id is subject (direction='outgoing'), object
-        (direction='incoming'), or either (direction='both').
-
-        When as_of is provided, only triples valid at that instant are returned
-        (valid_from <= as_of AND (valid_to IS NULL OR valid_to >= as_of)).
-        current_only is implicitly overridden by as_of when as_of is set.
-        """
-        ...
-
-    def timeline(
-        self,
-        entity_id: str,
-        limit: int = 100,
-        as_of: datetime | None = None,
-        where: Mapping[str, Any] | None = None,
-    ) -> list[Triple]:
-        """Return triples where entity_id is subject OR object, ordered by
-        valid_from ASC (NULLs last).  limit caps the result set.
-
-        When as_of is provided, only triples valid at that instant are returned.
-        """
-        ...

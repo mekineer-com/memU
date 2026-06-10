@@ -61,8 +61,6 @@ class MemoryItemRepo(Protocol):
         session: Any | None = None,
     ) -> MemoryItem: ...
 
-    def delete_item(self, item_id: str) -> None: ...
-
     def vector_search_items(
         self,
         query_vec: list[float],
@@ -77,7 +75,5 @@ class MemoryItemRepo(Protocol):
         rrf_k: int = 60,
         include_superseded: bool = False,
     ) -> list[tuple[str, float]]: ...
-
-    def load_existing(self) -> None: ...
 
     def refresh_model_score_calibration(self, *, model: str, session: Any | None = None) -> dict[str, int]: ...
