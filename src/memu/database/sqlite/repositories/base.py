@@ -63,12 +63,6 @@ class SQLiteRepoBase:
             return None
         return json.dumps(embedding)
 
-    def _merge_and_commit(self, obj: Any) -> None:
-        """Merge object into session and commit."""
-        with self._sessions.session() as session:
-            session.merge(obj)
-            session.commit()
-
     def _now(self) -> pendulum.DateTime:
         """Get current UTC time."""
         return pendulum.now("UTC")
@@ -94,30 +88,5 @@ class SQLiteRepoBase:
             else:
                 filters.append(column == expected)
         return filters
-
-    @staticmethod
-    def _matches_where(obj: Any, where: Mapping[str, Any] | None) -> bool:
-        """Check if object matches where clause (for in-memory filtering)."""
-        if not where:
-            return True
-        for raw_key, expected in where.items():
-            if expected is None:
-                continue
-            field, op = [*raw_key.split("__", 1), None][:2]
-            actual = getattr(obj, str(field), None)
-            if op == "in":
-                if isinstance(expected, str):
-                    if actual != expected:
-                        return False
-                else:
-                    try:
-                        if actual not in expected:
-                            return False
-                    except TypeError:
-                        return False
-            elif actual != expected:
-                return False
-        return True
-
 
 __all__ = ["SQLiteRepoBase"]

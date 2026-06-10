@@ -130,24 +130,6 @@ class SQLiteEntityRepo(SQLiteRepoBase, EntityRepo):
                 return None
             return self._row_to_entity(row)
 
-    def lookup_many(self, normalized_names: list[str]) -> list[Entity]:
-        if not normalized_names:
-            return []
-        with self._sessions.session() as session:
-            stmt = select(self._entity_model).where(
-                self._entity_model.normalized.in_(normalized_names)
-            )
-            rows = session.exec(stmt).all()
-            return [self._row_to_entity(r) for r in rows]
-
-    def list_by_type(self, entity_type: str) -> list[Entity]:
-        with self._sessions.session() as session:
-            stmt = select(self._entity_model).where(
-                self._entity_model.entity_type == entity_type
-            )
-            rows = session.exec(stmt).all()
-            return [self._row_to_entity(r) for r in rows]
-
     def list_all(self, where: Mapping[str, Any] | None = None) -> list[Entity]:
         with self._sessions.session() as session:
             stmt = select(self._entity_model)

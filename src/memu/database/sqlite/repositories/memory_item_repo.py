@@ -307,44 +307,6 @@ WHERE version = 1 AND model IN ({placeholders})
 
         return result
 
-    def list_items_by_ref_ids(
-        self, ref_ids: list[str], where: Mapping[str, Any] | None = None
-    ) -> dict[str, MemoryItem]:
-        """List items by their ref_id in the extra column.
-
-        Args:
-            ref_ids: List of ref_ids to query.
-            where: Additional filter conditions.
-
-        Returns:
-            Dict mapping item_id -> MemoryItem for items whose extra.ref_id is in ref_ids.
-        """
-        if not ref_ids:
-            return {}
-
-        from sqlalchemy import func
-
-        with self._sessions.session() as session:
-            stmt = select(self._memory_item_model)
-            filters = self._build_filters(self._memory_item_model, where)
-            active_filter = self._active_item_filter(self._memory_item_model)
-            if active_filter is not None:
-                filters.append(active_filter)
-            # Add filter for json_extract(extra, '$.ref_id') IN ref_ids (only rows with ref_id key)
-            ref_id_col = func.json_extract(self._memory_item_model.extra, "$.ref_id")
-            filters.append(ref_id_col.isnot(None))
-            filters.append(ref_id_col.in_(ref_ids))
-            if filters:
-                stmt = stmt.where(*filters)
-            rows = session.exec(stmt).all()
-
-        result: dict[str, MemoryItem] = {}
-        for row in rows:
-            item = self._to_memory_item(row)
-            result[row.id] = item
-
-        return result
-
     def clear_items(self, where: Mapping[str, Any] | None = None) -> dict[str, MemoryItem]:
         """Clear items matching the where clause.
 
@@ -723,20 +685,6 @@ WHERE version = 1 AND model IN ({placeholders})
             )[:top_k]
 
         return hits[:top_k]
-
-    @staticmethod
-    def _parse_datetime(dt_str: str | None) -> pendulum.DateTime | None:
-        """Parse ISO datetime string from extra dict."""
-        if dt_str is None:
-            return None
-        try:
-            parsed = pendulum.parse(dt_str)
-        except (ValueError, TypeError):
-            return None
-        else:
-            if isinstance(parsed, pendulum.DateTime):
-                return parsed
-            return None
 
     def load_existing(self) -> None:
         """No-op: SQLite repo does not keep an in-memory item cache."""

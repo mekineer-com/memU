@@ -8,11 +8,6 @@ from typing import cast
 import numpy as np
 
 
-def _cosine(a: np.ndarray, b: np.ndarray) -> float:
-    denom = (np.linalg.norm(a) * np.linalg.norm(b)) + 1e-9
-    return float(np.dot(a, b) / denom)
-
-
 W_SIMILARITY = 0.5
 W_RECENCY = 0.2
 W_IMPORTANCE = 0.3

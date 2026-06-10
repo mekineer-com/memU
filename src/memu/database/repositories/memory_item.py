@@ -63,10 +63,6 @@ class MemoryItemRepo(Protocol):
 
     def delete_item(self, item_id: str) -> None: ...
 
-    def list_items_by_ref_ids(
-        self, ref_ids: list[str], where: Mapping[str, Any] | None = None
-    ) -> dict[str, MemoryItem]: ...
-
     def vector_search_items(
         self,
         query_vec: list[float],

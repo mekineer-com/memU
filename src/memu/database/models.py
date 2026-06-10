@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import hashlib
-import json
 import secrets
 from datetime import datetime
 from typing import Any, Literal
@@ -11,45 +9,12 @@ from pydantic import BaseModel, ConfigDict, Field
 
 MemoryType = Literal["profile", "knowledge", "behavior", "social", "episode", "skill", "tool", "narrative_self", "subconscious", "reflection"]
 
-EntityType = Literal["person", "topic", "place", "project"]
-
-PREDICATES = Literal[
-    "caused_by", "evokes", "evolved_into", "conflicts_with",
-    "parallels", "shaped_by", "mentions",
-]
-
-
 class BaseRecord(BaseModel):
     """Backend-agnostic record interface."""
 
     id: str = Field(default_factory=lambda: secrets.token_hex(4))
     created_at: datetime = Field(default_factory=lambda: pendulum.now("UTC"))
     updated_at: datetime = Field(default_factory=lambda: pendulum.now("UTC"))
-
-
-class ToolCallResult(BaseModel):
-    """Represents the result of a tool invocation for Tool Memory."""
-
-    tool_name: str = Field(..., description="Name of the tool that was called")
-    input: dict[str, Any] | str = Field(default="", description="Tool input parameters")
-    output: str = Field(default="", description="Tool output result")
-    success: bool = Field(default=True, description="Whether the tool invocation succeeded")
-    time_cost: float = Field(default=0.0, description="Time consumed by the tool invocation in seconds")
-    token_cost: int = Field(default=-1, description="Token consumption of the tool (-1 if unknown)")
-    score: float = Field(default=0.0, description="Quality score from 0.0 to 1.0")
-    call_hash: str = Field(default="", description="Hash of input+output for deduplication")
-    created_at: datetime = Field(default_factory=lambda: pendulum.now("UTC"))
-
-    def generate_hash(self) -> str:
-        """Generate MD5 hash from tool input and output for deduplication."""
-        input_str = json.dumps(self.input, sort_keys=True) if isinstance(self.input, dict) else str(self.input)
-        combined = f"{self.tool_name}|{input_str}|{self.output}"
-        return hashlib.md5(combined.encode("utf-8"), usedforsecurity=False).hexdigest()
-
-    def ensure_hash(self) -> None:
-        """Ensure call_hash is set, generate if empty."""
-        if not self.call_hash:
-            self.call_hash = self.generate_hash()
 
 
 class Entity(BaseRecord):
@@ -113,7 +78,7 @@ class MemoryItem(BaseRecord):
     # # Tool memory fields
     # - when_to_use: str - Hint for when this memory should be retrieved
     # - metadata: dict - Type-specific metadata (e.g., tool_name, avg_success_rate)
-    # - tool_calls: list[dict] - Tool call history for tool memories (serialized ToolCallResult)
+    # - tool_calls: list[dict] - Tool call history for tool memories
 
 
 class MemoryCategory(BaseRecord):
@@ -167,7 +132,6 @@ __all__ = [
     "MemoryItem",
     "MemoryType",
     "Resource",
-    "ToolCallResult",
     "Triple",
     "build_scoped_models",
     "merge_scope_model",

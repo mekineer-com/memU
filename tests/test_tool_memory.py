@@ -28,90 +28,11 @@ rebuild_ns = {
     "Any": Any,
     "datetime": datetime,
     "MemoryType": models.MemoryType,
-    "ToolCallResult": models.ToolCallResult,
 }
-models.ToolCallResult.model_rebuild(_types_namespace=rebuild_ns)
 models.MemoryItem.model_rebuild(_types_namespace=rebuild_ns)
 
 MemoryItem = models.MemoryItem
 MemoryType = models.MemoryType
-ToolCallResult = models.ToolCallResult
-
-
-class TestToolCallResult:
-    """Tests for ToolCallResult model."""
-
-    def test_create_tool_call_result(self):
-        """Test creating a basic ToolCallResult."""
-        result = ToolCallResult(
-            tool_name="file_reader",
-            input={"path": "/data/config.json"},
-            output="File content here",
-            success=True,
-            time_cost=0.5,
-            token_cost=100,
-            score=0.95,
-        )
-
-        assert result.tool_name == "file_reader"
-        assert result.input == {"path": "/data/config.json"}
-        assert result.output == "File content here"
-        assert result.success is True
-        assert result.time_cost == 0.5
-        assert result.token_cost == 100
-        assert result.score == 0.95
-
-    def test_generate_hash(self):
-        """Test hash generation for deduplication."""
-        result = ToolCallResult(
-            tool_name="calculator",
-            input={"a": 1, "b": 2},
-            output="3",
-        )
-
-        hash1 = result.generate_hash()
-        assert hash1 != ""
-        assert len(hash1) == 32  # MD5 hex digest length
-
-        # Same input/output should generate same hash
-        result2 = ToolCallResult(
-            tool_name="calculator",
-            input={"a": 1, "b": 2},
-            output="3",
-        )
-        assert result2.generate_hash() == hash1
-
-        # Different input should generate different hash
-        result3 = ToolCallResult(
-            tool_name="calculator",
-            input={"a": 2, "b": 3},
-            output="5",
-        )
-        assert result3.generate_hash() != hash1
-
-    def test_ensure_hash(self):
-        """Test ensure_hash sets call_hash if empty."""
-        result = ToolCallResult(
-            tool_name="test_tool",
-            input="test input",
-            output="test output",
-        )
-
-        assert result.call_hash == ""
-        result.ensure_hash()
-        assert result.call_hash != ""
-        assert len(result.call_hash) == 32
-
-    def test_string_input(self):
-        """Test ToolCallResult with string input."""
-        result = ToolCallResult(
-            tool_name="echo",
-            input="hello world",
-            output="hello world",
-        )
-
-        result.ensure_hash()
-        assert result.call_hash != ""
 
 
 class TestMemoryItemToolType:

@@ -107,18 +107,4 @@ def get_sqlite_sqlalchemy_models(*, scope_model: type[BaseModel] | None = None) 
     return models
 
 
-def get_sqlite_metadata(scope_model: type[BaseModel] | None = None) -> MetaData:
-    """Get SQLAlchemy metadata for SQLite tables.
-
-    Args:
-        scope_model: Optional Pydantic model defining user scope fields.
-
-    Returns:
-        SQLAlchemy MetaData object.
-    """
-    from typing import cast
-
-    return cast(MetaData, get_sqlite_sqlalchemy_models(scope_model=scope_model).Base.metadata)
-
-
-__all__ = ["SQLiteSQLAModels", "get_sqlite_metadata", "get_sqlite_sqlalchemy_models"]
+__all__ = ["SQLiteSQLAModels", "get_sqlite_sqlalchemy_models"]
