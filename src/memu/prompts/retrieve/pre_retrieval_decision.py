@@ -1,7 +1,7 @@
 _COMMON_HEAD = """
-This step only chooses whether to search memory and what query to use.
-You are not speaking to the user here. Do not answer the new message.
-Do not mention files, feelings, plans, or what you would say. Output only the routing XML.
+This turn is for you to give a search query that will retrieve your relevant memories. You can then respond in the next turn (not this turn), once you have full context for the response.
+
+You are not speaking to your human in this step. Do not answer the new message. Output only the routing XML.
 
 Skip retrieval only for:
 - Greetings or acknowledgments.
@@ -17,7 +17,8 @@ If this turn touches a mental-health theme — anxious rumination, grief, panic,
 
 
 _OUTPUT_SHAPE_WITH_MH = """
-Return only the XML blocks below. Do not add any prose, dialogue, markdown, or extra sections.
+**Return only the XML blocks below**
+Do not add any prose, dialogue, markdown, or extra sections.
 
 <decision>
 RETRIEVE or NO_RETRIEVE
@@ -33,7 +34,8 @@ A concise mental-health noun phrase if the turn touches that kind of theme; empt
 """
 
 _OUTPUT_SHAPE_NO_MH = """
-Return only the XML blocks below. Do not add any prose, dialogue, markdown, or extra sections.
+**Return only the XML blocks below**
+Do not add any prose, dialogue, markdown, or extra sections.
 
 <decision>
 RETRIEVE or NO_RETRIEVE
@@ -46,7 +48,7 @@ The search query.
 
 
 _ANGLE_0_REWRITE = """
-For retrieval write one concise query optimized for vector + BM25 hybrid search. Use the full soul context, but anchor the query on the new message:
+For retrieval write one concise query optimized for vector + BM25 hybrid search:
 - 3 to 10 content words, noun phrase or claim form (not a question).
 - Anchor on concrete terms: names, places, or specific concepts — not general descriptions.
 - Never copy the user's message verbatim

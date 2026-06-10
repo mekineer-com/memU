@@ -56,7 +56,7 @@ def test_system_prompt_excludes_mental_health_block_when_disabled():
 
 def test_system_prompt_forbids_answering_user_in_route_step():
     prompt = system_prompt_for_angle(0, include_mental_health_query=True)
-    assert "You are not speaking to the user here" in prompt
+    assert "You are not speaking to your human in this step" in prompt
     assert "Do not answer the new message" in prompt
     assert "<active_query>" in prompt
     assert "<rewritten_query>" not in prompt
