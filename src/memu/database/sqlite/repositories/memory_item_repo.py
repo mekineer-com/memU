@@ -355,7 +355,6 @@ WHERE version = 1 AND model IN ({placeholders})
         embedding: list[float],
         user_data: dict[str, Any],
         extra: dict[str, Any] | None = None,
-        tool_record: dict[str, Any] | None = None,
         source_role: str | None = None,
         speaker_id: str | None = None,
         speaker_label: str | None = None,
@@ -378,7 +377,6 @@ WHERE version = 1 AND model IN ({placeholders})
                     embedding=embedding,
                     user_data=user_data,
                     extra=extra,
-                    tool_record=tool_record,
                     source_role=source_role,
                     speaker_id=speaker_id,
                     speaker_label=speaker_label,
@@ -395,16 +393,7 @@ WHERE version = 1 AND model IN ({placeholders})
                 session.commit()
                 return item
 
-        # Build extra dict with tool_record fields at top level.
         merged_extra: dict[str, Any] = dict(extra or {})
-        if tool_record:
-            if tool_record.get("when_to_use") is not None:
-                merged_extra["when_to_use"] = tool_record["when_to_use"]
-            if tool_record.get("metadata") is not None:
-                merged_extra["metadata"] = tool_record["metadata"]
-            if tool_record.get("tool_calls") is not None:
-                merged_extra["tool_calls"] = tool_record["tool_calls"]
-
         create_user_data = dict(user_data or {})
         create_user_data.pop("conversation_id", None)
         conv_id = self._resolve_conversation_id(conversation_id, user_data)
@@ -446,7 +435,6 @@ WHERE version = 1 AND model IN ({placeholders})
         summary: str | None = None,
         embedding: list[float] | None = None,
         extra: dict[str, Any] | None = None,
-        tool_record: dict[str, Any] | None = None,
         merged_into: str | None = None,
         unresolved: str | None = None,
         session: Any | None = None,
@@ -459,7 +447,6 @@ WHERE version = 1 AND model IN ({placeholders})
             summary: New summary text (optional).
             embedding: New embedding vector (optional).
             extra: Extra data to merge into existing extra dict (optional).
-            tool_record: Tool-related fields (when_to_use, metadata, tool_calls) to merge into extra.
 
         Returns:
             Updated MemoryItem object.
@@ -475,7 +462,6 @@ WHERE version = 1 AND model IN ({placeholders})
                     summary=summary,
                     embedding=embedding,
                     extra=extra,
-                    tool_record=tool_record,
                     merged_into=merged_into,
                     unresolved=unresolved,
                     session=managed_session,
@@ -501,16 +487,9 @@ WHERE version = 1 AND model IN ({placeholders})
         if unresolved is not None:
             row.unresolved = unresolved
 
-        # Merge extra and tool_record into existing extra dict
         current_extra = row.extra or {}
         if extra is not None:
             current_extra = {**current_extra, **extra}
-        if tool_record is not None:
-            # Merge tool_record fields at top level
-            for key in ("when_to_use", "metadata", "tool_calls"):
-                if tool_record.get(key) is not None:
-                    current_extra[key] = tool_record[key]
-        if extra is not None or tool_record is not None:
             row.extra = current_extra
 
         row.updated_at = self._now()
