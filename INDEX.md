@@ -30,6 +30,7 @@
 | `database/repositories/` | Backend-agnostic Protocol contracts: `memory_item.py`, `memory_category.py`, `resource.py`, `entity.py`, `triple.py`, `category_item.py` |
 | `llm/wrapper.py` | LLM client factory — dispatches to backends |
 | `llm/backends/` | Provider impls: `openai.py` (httpx-based, covers OpenAI-compatible APIs) |
+| `llm/claude_cli.py` | `ClaudeCLIClient` — Claude Code CLI adapter. Runs `claude -p --model ... --system-prompt-file ...` in a persistent workspace; unwraps the `{"type":"result","result":"...","usage":{}}` envelope from `--output-format json`; uses soul workspace for session/resume calls, neutral internal workspace for no-session calls (prevents persona bleed). |
 | `embedding/` | Embedding client factory + backends (same pattern as llm/) |
 | `workflow/` | DAG runner: `step.py` (unit), `pipeline.py` (graph), `runner.py` (executor) |
 | `blob/local_fs.py` | Local filesystem media storage |
