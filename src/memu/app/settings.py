@@ -132,11 +132,6 @@ class RetrieveCategoryConfig(BaseModel):
 class RetrieveItemConfig(BaseModel):
     enabled: bool = Field(default=True, description="Whether to enable item retrieval.")
     top_k: int = Field(default=5, description="Total number of items to retrieve.")
-    # Reference-aware retrieval
-    use_category_references: bool = Field(
-        default=False,
-        description="When category retrieval is insufficient, follow [ref:ITEM_ID] citations to fetch referenced items.",
-    )
     # Salience-aware retrieval settings
     ranking: Literal["similarity", "salience"] = Field(
         default="salience",
@@ -177,7 +172,6 @@ class RetrieveConfig(BaseModel):
     resource: RetrieveResourceConfig = Field(default=RetrieveResourceConfig())
     graph: RetrieveGraphConfig = Field(default=RetrieveGraphConfig())
     sufficiency_check_llm_profile: str = Field(default="default")
-    llm_ranking_llm_profile: str = Field(default="default")
 
 
 class MemorizeConfig(BaseModel):
@@ -257,10 +251,6 @@ class MemorizeConfig(BaseModel):
         default=0.89,
         description="Cosine similarity threshold for semantic dedupe auto-merge decisions.",
     )
-
-
-class PatchConfig(BaseModel):
-    pass
 
 
 class DefaultUserModel(BaseModel):

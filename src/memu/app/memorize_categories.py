@@ -525,7 +525,6 @@ async def _initialize_categories(
     if not category_configs:
         ctx.categories_ready = True
         ctx.category_scope_key = resolved_scope_key
-        ctx.category_init_scope_key = None
         return
     cat_texts = [category_embedding_text(cfg) for cfg in category_configs]
     cat_vecs = await get_embedding_client("embedding").embed(cat_texts)
@@ -544,7 +543,6 @@ async def _initialize_categories(
         ctx.category_name_to_id[name.lower()] = cat.id
     ctx.categories_ready = True
     ctx.category_scope_key = resolved_scope_key
-    ctx.category_init_scope_key = None
 
 
 def _category_embedding_text(cat: Any) -> str:

@@ -31,7 +31,6 @@ from memu.llm.wrapper import (
     LLMInterceptorHandle,
     LLMInterceptorRegistry,
 )
-from memu.workflow.interceptor import WorkflowInterceptorHandle, WorkflowInterceptorRegistry
 from memu.workflow.pipeline import PipelineManager
 from memu.workflow.runner import WorkflowRunner, resolve_workflow_runner
 from memu.workflow.step import WorkflowState, WorkflowStep
@@ -44,9 +43,7 @@ class Context:
     categories_ready: bool = False
     category_ids: list[str] = field(default_factory=list)
     category_name_to_id: dict[str, str] = field(default_factory=dict)
-    category_init_task: asyncio.Task | None = None
     category_scope_key: str | None = None
-    category_init_scope_key: str | None = None
     _init_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
 
@@ -104,7 +101,6 @@ class MemoryService(MemorizeMixin, RetrieveMixin):
         self._claude_cli_client: ClaudeCLIClient | None = None
         self._claude_cli_internal_client: ClaudeCLIClient | None = None
         self._llm_interceptors = LLMInterceptorRegistry()
-        self._workflow_interceptors = WorkflowInterceptorRegistry()
 
         self._workflow_runner = resolve_workflow_runner(workflow_runner)
 
@@ -237,11 +233,6 @@ class MemoryService(MemorizeMixin, RetrieveMixin):
     async def embed(self, texts: list[str], *, profile: str | None = None) -> Any:
         return await self._get_llm_client(profile).embed(texts)
 
-    @property
-    def workflow_runner(self) -> WorkflowRunner:
-        """Current workflow runner backend."""
-        return self._workflow_runner
-
     @staticmethod
     def _llm_profile_from_context(
         step_context: Mapping[str, Any] | None, task: Literal["chat", "embedding"] = "chat"
@@ -329,62 +320,11 @@ class MemoryService(MemorizeMixin, RetrieveMixin):
     ) -> LLMInterceptorHandle:
         return self._llm_interceptors.register_on_error(fn, name=name, priority=priority, where=where)
 
-    def intercept_before_workflow_step(
-        self,
-        fn: Callable[..., Any],
-        *,
-        name: str | None = None,
-    ) -> WorkflowInterceptorHandle:
-        """
-        Register an interceptor to be called before each workflow step.
-
-        The interceptor receives (step_context: WorkflowStepContext, state: WorkflowState).
-        """
-        return self._workflow_interceptors.register_before(fn, name=name)
-
-    def intercept_after_workflow_step(
-        self,
-        fn: Callable[..., Any],
-        *,
-        name: str | None = None,
-    ) -> WorkflowInterceptorHandle:
-        """
-        Register an interceptor to be called after each workflow step.
-
-        The interceptor receives (step_context: WorkflowStepContext, state: WorkflowState).
-        """
-        return self._workflow_interceptors.register_after(fn, name=name)
-
-    def intercept_on_error_workflow_step(
-        self,
-        fn: Callable[..., Any],
-        *,
-        name: str | None = None,
-    ) -> WorkflowInterceptorHandle:
-        """
-        Register an interceptor to be called when a workflow step raises an exception.
-
-        The interceptor receives (step_context: WorkflowStepContext, state: WorkflowState, error: Exception).
-        """
-        return self._workflow_interceptors.register_on_error(fn, name=name)
-
     def _get_context(self) -> Context:
         return self._context
 
     def _get_database(self) -> Database:
         return self.database
-
-    def _provider_summary(self) -> dict[str, Any]:
-        vector_provider = None
-        if self.database_config.vector_index:
-            vector_provider = self.database_config.vector_index.provider
-        return {
-            "llm_profiles": list(self.llm_profiles.profiles.keys()),
-            "storage": {
-                "metadata_store": self.database_config.metadata_store.provider,
-                "vector_index": vector_provider,
-            },
-        }
 
     def _register_pipelines(self) -> None:
         memo_workflow = self._build_memorize_workflow()
@@ -406,7 +346,6 @@ class MemoryService(MemorizeMixin, RetrieveMixin):
             steps,
             initial_state,
             runner_context,
-            interceptor_registry=self._workflow_interceptors,
         )
 
     @staticmethod
