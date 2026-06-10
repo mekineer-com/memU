@@ -144,17 +144,6 @@ class HTTPLLMClient:
         logger.debug("HTTP LLM chat response: %s", data)
         return self.backend.parse_summary_response(data), data
 
-    async def summarize(
-        self, text: str, max_tokens: int | None = None, system_prompt: str | None = None
-    ) -> tuple[str, dict[str, Any]]:
-        payload = self.backend.build_summary_payload(
-            text=text, system_prompt=system_prompt, chat_model=self.chat_model, max_tokens=max_tokens
-        )
-        self._last_payload_var.set(copy.deepcopy(payload))
-        data = await self._post_with_retry(self.summary_endpoint, payload)
-        logger.debug("HTTP LLM summarize response: %s", data)
-        return self.backend.parse_summary_response(data), data
-
     async def vision(
         self,
         prompt: str,

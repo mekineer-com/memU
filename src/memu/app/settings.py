@@ -91,10 +91,6 @@ class LLMConfig(BaseModel):
         default="text-embedding-3-large",
         description="Default embedding model used for vectorization.",
     )
-    embed_batch_size: int = Field(
-        default=1,
-        description="Maximum batch size for embedding API calls.",
-    )
     temperature: float | None = Field(
         default=None,
         description="Sampling temperature. None = provider default (usually 1.0).",

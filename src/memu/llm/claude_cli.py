@@ -106,20 +106,6 @@ class ClaudeCLIClient:
         self._last_call_monotonic = time.monotonic()
         return text, raw
 
-    async def summarize(
-        self,
-        text: str,
-        max_tokens: int | None = None,
-        system_prompt: str | None = None,
-    ) -> tuple[str, dict[str, Any]]:
-        return await self.chat(
-            text,
-            max_tokens=max_tokens,
-            system_prompt=system_prompt,
-            temperature=None,
-            response_format=None,
-        )
-
     def _run_claude(
         self,
         *,

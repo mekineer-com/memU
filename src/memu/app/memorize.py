@@ -2115,28 +2115,6 @@ class MemorizeMixin:
     def _extract_message_happened_at_map(self, raw_text: Any) -> dict[int, Any]:
         return parsing._extract_message_happened_at_map(raw_text)
 
-    def _build_speaker_roster(
-        self,
-        speaker_map: Mapping[int, tuple[str, str]] | None,
-    ) -> list[SpeakerRosterEntry]:
-        return speakers._build_speaker_roster(
-            speaker_map,
-            roster_entry_factory=lambda speaker_id, speaker_label, coarse_role: SpeakerRosterEntry(
-                speaker_id, speaker_label, coarse_role
-            ),
-        )
-
-    def _build_speaker_roster_if_ambiguous(
-        self,
-        speaker_map: Mapping[int, tuple[str, str]] | None,
-    ) -> list[SpeakerRosterEntry] | None:
-        return speakers._build_speaker_roster_if_ambiguous(
-            speaker_map,
-            roster_entry_factory=lambda speaker_id, speaker_label, coarse_role: SpeakerRosterEntry(
-                speaker_id, speaker_label, coarse_role
-            ),
-        )
-
     def _list_declared_relationship_roster(
         self,
         *,

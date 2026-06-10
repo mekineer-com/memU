@@ -245,33 +245,6 @@ class LLMClientWrapper:
     def __getattr__(self, name: str) -> Any:
         return getattr(self._client, name)
 
-    async def summarize(
-        self,
-        text: str,
-        *,
-        max_tokens: int | None = None,
-        system_prompt: str | None = None,
-    ) -> Any:
-        request_view = _build_text_request_view(
-            "summarize",
-            text,
-            metadata={
-                "system_prompt_chars": len(system_prompt or ""),
-                "max_tokens": max_tokens,
-            },
-        )
-
-        async def _call() -> Any:
-            return await self._client.summarize(text, max_tokens=max_tokens, system_prompt=system_prompt)
-
-        return await self._invoke(
-            kind="summarize",
-            call_fn=_call,
-            request_view=request_view,
-            model=self._chat_model,
-            response_builder=_build_text_response_view,
-        )
-
     async def chat(
         self,
         prompt: str,

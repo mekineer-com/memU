@@ -45,7 +45,6 @@ WorkflowRunnerSpec = WorkflowRunner | str | None
 
 _RUNNER_FACTORIES: dict[str, RunnerFactory] = {
     "local": LocalWorkflowRunner,
-    "sync": LocalWorkflowRunner,
 }
 
 
