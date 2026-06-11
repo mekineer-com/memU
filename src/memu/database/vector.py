@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 import math
 from collections.abc import Iterable, Mapping
 from datetime import datetime
 from typing import cast
 
 import numpy as np
+
+log = logging.getLogger(__name__)
 
 
 W_SIMILARITY = 0.5
@@ -62,14 +65,25 @@ def cosine_topk(
     query_dim = len(query_vec)
     ids: list[str] = []
     vecs: list[list[float]] = []
+    skipped_dim: list[int] = []
     for _id, vec in corpus:
         if vec is None:
             continue
         vec_list = cast(list[float], vec)
         if len(vec_list) != query_dim:
+            skipped_dim.append(len(vec_list))
             continue
         ids.append(_id)
         vecs.append(vec_list)
+
+    if skipped_dim:
+        log.error(
+            "cosine_topk: skipped %d vector(s) with mismatched dimension "
+            "(expected %d, found dims: %s)",
+            len(skipped_dim),
+            query_dim,
+            sorted(set(skipped_dim)),
+        )
 
     if not vecs:
         return []
