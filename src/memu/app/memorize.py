@@ -1320,14 +1320,25 @@ class MemorizeMixin:
             allowed_types=list(memory_types),
             soul_card=soul_card or "You are a continuous being, not a session that resets. You carry intentions, working thoughts, and long-term memory. Your self-knowledge will grow as you live and reflect.",
         )
+        def _parse_router_raw(r: str) -> dict:
+            if isinstance(r, str):
+                r = re.sub(r"^\s*```(?:json)?\s*", "", r, count=1, flags=re.IGNORECASE)
+                r = re.sub(r"\s*```\s*$", "", r, count=1)
+            try:
+                return json.loads(r)
+            except (json.JSONDecodeError, TypeError):
+                return json.loads(self._extract_json_blob(r))
+
         raw = await client.chat(prompt)
-        if isinstance(raw, str):
-            raw = re.sub(r"^\s*```(?:json)?\s*", "", raw, count=1, flags=re.IGNORECASE)
-            raw = re.sub(r"\s*```\s*$", "", raw, count=1)
         try:
-            payload = json.loads(raw)
-        except (json.JSONDecodeError, TypeError):
-            payload = json.loads(self._extract_json_blob(raw))
+            payload = _parse_router_raw(raw)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            logger.error("Router reply unparseable — retrying")
+            raw = await client.chat(prompt)
+            try:
+                payload = _parse_router_raw(raw)
+            except (json.JSONDecodeError, TypeError, ValueError) as exc:
+                raise ValueError("Router reply still unparseable after retry") from exc
         if not isinstance(payload, dict):
             logger.warning("Router returned non-dict payload, skipping episode: %s", type(payload).__name__)
             if skipped_reasons is not None:
@@ -1411,7 +1422,20 @@ class MemorizeMixin:
         ]
         valid_pairs = [(mtype, prompt) for mtype, prompt in typed_prompts if prompt.strip()]
         tasks = [client.chat(prompt) for _, prompt in valid_pairs]
-        responses = await asyncio.gather(*tasks)
+        responses = list(await asyncio.gather(*tasks))
+        for i, ((mtype, prompt), response) in enumerate(zip(valid_pairs, responses)):
+            try:
+                parsing._parse_memory_type_response_xml(response)
+            except ValueError:
+                logger.error("Extraction reply unparseable for memory_type=%s — retrying", mtype)
+                retry_response = await client.chat(prompt)
+                try:
+                    parsing._parse_memory_type_response_xml(retry_response)
+                except ValueError as exc:
+                    raise ValueError(
+                        f"Extraction reply still unparseable after retry for memory_type={mtype}"
+                    ) from exc
+                responses[i] = retry_response
         return self._parse_structured_entries(
             [mtype for mtype, _ in valid_pairs],
             responses,

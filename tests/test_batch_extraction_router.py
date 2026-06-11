@@ -109,9 +109,16 @@ def test_parse_structured_entries_requires_episode_ref_when_requested() -> None:
     assert kept[0].episode_ref == 2
 
 
-def test_parse_memory_type_response_xml_salvages_malformed_xml() -> None:
+def test_parse_memory_type_response_xml_raises_on_unsalvageable_xml() -> None:
+    # "<item><memory></item>" is malformed AND unsalvageable — both passes fail
     bad_xml = "<item><memory></item>"
-    result = parsing._parse_memory_type_response_xml(bad_xml)
+    with pytest.raises(ValueError, match="unparseable"):
+        parsing._parse_memory_type_response_xml(bad_xml)
+
+
+def test_parse_memory_type_response_xml_returns_empty_for_valid_xml_no_memories() -> None:
+    # Valid XML with <item> root but no <memory> elements is a legitimate zero-item reply
+    result = parsing._parse_memory_type_response_xml("<item></item>")
     assert result == []
 
 

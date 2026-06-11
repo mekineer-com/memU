@@ -257,6 +257,8 @@ def _parse_memory_element(memory_elem: Element) -> dict[str, Any] | None:
 
 
 def _parse_memory_type_response_xml(raw: str) -> list[dict[str, Any]]:
+    """Parse XML extraction reply.  Returns [] for a valid reply with no items.
+    Raises ValueError for an unparseable reply (caller should retry once)."""
     if not raw or not raw.strip():
         return []
     raw = raw.strip()
@@ -264,8 +266,7 @@ def _parse_memory_type_response_xml(raw: str) -> list[dict[str, Any]]:
     try:
         boundaries = _find_xml_boundaries(raw)
         if boundaries is None:
-            logger.warning("Could not find valid root tag in XML response")
-            return []
+            raise ValueError("Could not find valid root tag in XML response")
 
         start_idx, end_idx, end_tag = boundaries
         xml_content = raw[start_idx : end_idx + len(end_tag)]
@@ -290,10 +291,8 @@ def _parse_memory_type_response_xml(raw: str) -> list[dict[str, Any]]:
                     result.append(parsed)
             if result:
                 logger.info("Salvaged %d memories from malformed XML", len(result))
-                return result
+            return result
         except ET.ParseError:
-            pass
-        logger.error("Extraction XML salvage failed — no memories recovered")
-        return []
+            raise ValueError("Extraction XML salvage failed — reply is unparseable")
     else:
         return result
