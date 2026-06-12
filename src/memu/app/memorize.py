@@ -309,6 +309,7 @@ class MemorizeMixin:
         memory_retrieve_history: list[str] | None = None,
         memory_prior_context: list[str] | None = None,
         conversation_id: str | None = None,
+        on_extraction_progress: Callable[[int, int], None] | None = None,
     ) -> list[dict[str, Any]]:
         self._validate_memorize_scope(user)
         if modality != "conversation":
@@ -538,9 +539,8 @@ class MemorizeMixin:
                     routed_total,
                 )
 
-            for mtype in memory_types:
-                if type_counts.get(mtype, 0) < 1:
-                    continue
+            applicable_types = [mt for mt in memory_types if type_counts.get(mt, 0) >= 1]
+            for i, mtype in enumerate(applicable_types):
                 type_entries = await self._generate_entries_from_text(
                     resource_text=conversation_text,
                     store=store,
@@ -565,6 +565,8 @@ class MemorizeMixin:
                             entry.episode_ref,
                             len(prepared),
                         )
+                if on_extraction_progress:
+                    on_extraction_progress(i + 1, len(applicable_types))
 
         responses: list[dict[str, Any]] = []
         for ep in prepared:
