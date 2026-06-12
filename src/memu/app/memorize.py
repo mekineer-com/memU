@@ -203,9 +203,9 @@ class MemorizeMixin:
         raw_text: str | None,
         modality: str,
     ) -> list[dict[str, Any]]:
-        llm_client = self._get_llm_client(
-            self.memorize_config.preprocess_llm_profile,
-            step_context={"operation": "memorize", "step_id": "preprocess"},
+        llm_client = self._get_step_llm_client(
+            {"operation": "memorize", "step_id": "preprocess"},
+            profile=self.memorize_config.preprocess_llm_profile,
         )
         segment_episodes = await self._split_into_episodes(
             local_path=local_path,
@@ -227,9 +227,9 @@ class MemorizeMixin:
         template = PREPROCESS_PROMPTS.get("cross_conversation")
         if not template:
             return [{"text": raw_text, "caption": None}]
-        llm_client = self._get_llm_client(
-            self.memorize_config.preprocess_llm_profile,
-            step_context={"operation": "memorize", "step_id": "preprocess"},
+        llm_client = self._get_step_llm_client(
+            {"operation": "memorize", "step_id": "preprocess"},
+            profile=self.memorize_config.preprocess_llm_profile,
         )
         return await self._split_conversation_into_episodes(raw_text, template, llm_client=llm_client)
 
@@ -323,9 +323,9 @@ class MemorizeMixin:
         user_scope = self.user_model(**user).model_dump() if user is not None else None
         await self._ensure_categories_ready(ctx, store, user_scope)
 
-        extract_client = self._get_llm_client(
-            self.memorize_config.memory_extract_llm_profile,
-            step_context={"operation": "memorize", "step_id": "extract_items_batch"},
+        extract_client = self._get_step_llm_client(
+            {"operation": "memorize", "step_id": "extract_items_batch"},
+            profile=self.memorize_config.memory_extract_llm_profile,
         )
         extract_model = str(getattr(extract_client, "chat_model", "") or "").strip() or None
         memory_types = self._resolve_memory_types()
@@ -1291,7 +1291,7 @@ class MemorizeMixin:
     ) -> list[StructuredMemoryEntry]:
         if not memory_types or not text:
             return []
-        client = llm_client or self._get_llm_client()
+        client = llm_client or self._get_step_llm_client(None)
         return await self._generate_entries_from_text(
             resource_text=text,
             store=store,
@@ -1316,7 +1316,7 @@ class MemorizeMixin:
     ) -> tuple[list[MemoryType], str | None, list[dict[str, str]]]:
         if not memory_types:
             return [], None, []
-        client = llm_client or self._get_llm_client()
+        client = llm_client or self._get_step_llm_client(None)
         prompt = ROUTER_PROMPT.format(
             episode=episode_text,
             allowed_types=list(memory_types),
@@ -1414,7 +1414,7 @@ class MemorizeMixin:
     ) -> list[StructuredMemoryEntry]:
         if not memory_types:
             return []
-        client = llm_client or self._get_llm_client()
+        client = llm_client or self._get_step_llm_client(None)
         soul_context_str = self._format_soul_context_for_prompt(
             store,
             all_categories_summary=all_categories_summary,
@@ -2107,7 +2107,7 @@ class MemorizeMixin:
         llm_client: Any | None = None,
         user: dict[str, Any] | None = None,
     ) -> dict[str, str]:
-        client = llm_client or self._get_llm_client()
+        client = llm_client or self._get_step_llm_client(None)
         return await categories._update_category_summaries(
             updates,
             store=store,

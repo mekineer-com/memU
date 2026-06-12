@@ -252,15 +252,17 @@ class MemoryService(MemorizeMixin, RetrieveMixin):
             return profile.strip()
         return None
 
-    def _get_step_llm_client(self, step_context: Mapping[str, Any] | None) -> Any:
+    def _get_step_llm_client(
+        self, step_context: Mapping[str, Any] | None, *, profile: str | None = None
+    ) -> Any:
         if self._claude_code:
             return self._wrap_llm_client(
                 self._get_claude_cli_internal_client(),
                 profile="claude_code",
                 step_context=step_context,
             )
-        profile = self._llm_profile_from_context(step_context, task="chat") or "default"
-        return self._get_llm_client(profile, step_context=step_context)
+        resolved = self._llm_profile_from_context(step_context, task="chat") or profile or "default"
+        return self._get_llm_client(resolved, step_context=step_context)
 
     def _get_step_embedding_client(self, step_context: Mapping[str, Any] | None) -> Any:
         profile = self._llm_profile_from_context(step_context, task="embedding") or "embedding"

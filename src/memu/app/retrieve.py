@@ -590,7 +590,7 @@ class RetrieveMixin:
             0,
             include_mental_health_query=include_mental_health_query,
         )
-        client = llm_client or self._get_llm_client()
+        client = llm_client or self._get_step_llm_client(None)
         response = await client.chat(user_prompt, system_prompt=sys_prompt)
         decision = self._extract_decision(response)
         active_query = self._extract_active_query(response)
