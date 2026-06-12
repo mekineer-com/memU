@@ -1,4 +1,6 @@
 """Tests for retry-on-unparseable behavior in extraction and router paths."""
+import pathlib
+
 import pytest
 
 from memu.app.service import MemoryService
@@ -87,6 +89,39 @@ async def test_extraction_retry_raises_on_double_garbage(monkeypatch: pytest.Mon
             categories_prompt_str="communication",
             llm_client=stub,
         )
+
+
+@pytest.mark.asyncio
+async def test_extraction_double_garbage_dumps_files_and_snippet(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """garbage → garbage: dump files written, ValueError carries reply snippet."""
+    service = _service()
+    monkeypatch.setattr(service, "_format_soul_context_for_prompt", lambda *a, **kw: "")
+    monkeypatch.setattr(service.fs, "base", tmp_path)
+    stub = _ExtractionStub(first=_GARBAGE, second=_GARBAGE)
+
+    with pytest.raises(ValueError) as exc_info:
+        await service._generate_entries_from_text(
+            resource_text="[0] [user]: Something happened.",
+            store=None,  # type: ignore[arg-type]
+            memory_types=["social"],
+            categories_prompt_str="communication",
+            llm_client=stub,
+        )
+
+    dump_dir = tmp_path / "extraction_dumps"
+    dumps = sorted(dump_dir.iterdir())
+    assert len(dumps) == 2, f"expected 2 dump files, got {[d.name for d in dumps]}"
+    assert "attempt1" in dumps[0].name
+    assert "attempt2" in dumps[1].name
+    assert dumps[0].read_text() == _GARBAGE
+    assert dumps[1].read_text() == _GARBAGE
+
+    msg = str(exc_info.value)
+    assert "unparseable" in msg
+    # snippet: first 200 chars of the reply must appear (repr-escaped) in the message
+    assert repr(_GARBAGE[:200]) in msg
 
 
 @pytest.mark.asyncio

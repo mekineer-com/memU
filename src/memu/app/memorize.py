@@ -1388,6 +1388,15 @@ class MemorizeMixin:
             skipped_reasons.append(reason.strip())
         return routed_types, episode_summary, episode_items
 
+    def _dump_unparseable_reply(self, reply: str, memory_type: str, attempt: int) -> None:
+        import datetime
+        dump_dir = pathlib.Path(self.fs.base) / "extraction_dumps"
+        dump_dir.mkdir(parents=True, exist_ok=True)
+        ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%S")
+        dump_path = dump_dir / f"{ts}_{memory_type}_attempt{attempt}.txt"
+        dump_path.write_text(reply, encoding="utf-8")
+        logger.error("Unparseable extraction reply dumped to %s", dump_path)
+
     async def _generate_entries_from_text(
         self,
         *,
@@ -1429,13 +1438,16 @@ class MemorizeMixin:
             try:
                 parsing._parse_memory_type_response_xml(response)
             except ValueError:
+                self._dump_unparseable_reply(response, mtype, attempt=1)
                 logger.error("Extraction reply unparseable for memory_type=%s — retrying", mtype)
                 retry_response = await client.chat(prompt)
                 try:
                     parsing._parse_memory_type_response_xml(retry_response)
                 except ValueError as exc:
+                    self._dump_unparseable_reply(retry_response, mtype, attempt=2)
+                    snippet = repr(retry_response[:200])
                     raise ValueError(
-                        f"Extraction reply still unparseable after retry for memory_type={mtype}"
+                        f"Extraction reply still unparseable after retry for memory_type={mtype}: {snippet}"
                     ) from exc
                 responses[i] = retry_response
         return self._parse_structured_entries(
