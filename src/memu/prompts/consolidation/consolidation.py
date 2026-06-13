@@ -159,6 +159,6 @@ USER_PROMPT = """
 # Memories that surfaced this week
 {retrieved_memories}
 
-# Segment queue
+# Conversation excerpts and related memories
 {segments}
 """.strip()
