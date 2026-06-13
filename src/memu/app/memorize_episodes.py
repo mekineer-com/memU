@@ -8,7 +8,7 @@ import re
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from typing import Any
 
-from memu.utils.conversation import format_conversation_for_preprocess
+from memu.utils.conversation import format_conversation_for_preprocess, format_speaker_message
 from memu.utils.video import VideoFrameExtractor
 
 logger = logging.getLogger(__name__)
@@ -366,13 +366,17 @@ def _message_index_for_sort(message: Mapping[str, Any]) -> int:
         return -1
 
 
-def _format_episode_message_line(message: Mapping[str, Any]) -> str:
+def _format_episode_message_line(message: Mapping[str, Any], *, soul_name: str | None = None) -> str:
     idx = _message_index_for_sort(message)
-    role = str(message.get("name") or message.get("role") or "user").strip() or "user"
-    content = str(message.get("content") or "").strip()
     source = str(message.get("source_label") or "").strip()
     source_prefix = f"[{source}] " if source else ""
-    return f"[{max(0, idx)}] {source_prefix}[{role}]: {content}"
+    speaker_message = format_speaker_message(
+        message,
+        soul_name=soul_name,
+        default_role="user",
+        separator=": ",
+    )
+    return f"[{max(0, idx)}] {source_prefix}{speaker_message}"
 
 
 def _summary_row_lines(row: Mapping[str, Any]) -> list[str]:
@@ -393,11 +397,12 @@ async def _summarize_background_messages(
     messages: Sequence[Mapping[str, Any]],
     llm_client: Any | None,
     summarize_episode: Callable[..., Awaitable[str | None]],
+    soul_name: str | None = None,
 ) -> str | None:
     if not messages:
         return None
     rendered = "\n".join(
-        _format_episode_message_line(msg)
+        _format_episode_message_line(msg, soul_name=soul_name)
         for msg in sorted(messages, key=_message_index_for_sort)
     ).strip()
     if not rendered:
@@ -412,12 +417,13 @@ async def _summarize_background_rollup(
     messages: Sequence[Mapping[str, Any]],
     llm_client: Any | None,
     get_llm_client: Callable[..., Any],
+    soul_name: str | None = None,
 ) -> str:
     if not messages:
         msg = "background rollup requires at least one message"
         raise ValueError(msg)
     rendered = "\n".join(
-        _format_episode_message_line(msg)
+        _format_episode_message_line(msg, soul_name=soul_name)
         for msg in sorted(messages, key=_message_index_for_sort)
     ).strip()
     if not rendered:
@@ -456,6 +462,7 @@ async def _summarize_background_groups_batched(
     llm_client: Any | None,
     get_llm_client: Callable[..., Any],
     extract_json_blob: Callable[[str], str],
+    soul_name: str | None = None,
 ) -> dict[str, str]:
     batches: list[dict[str, Any]] = []
     for source_key in group_order:
@@ -464,7 +471,7 @@ async def _summarize_background_groups_batched(
             continue
         source_label = str(messages[0].get("source_label") or source_key).strip() or source_key
         rendered = "\n".join(
-            _format_episode_message_line(msg)
+            _format_episode_message_line(msg, soul_name=soul_name)
             for msg in sorted(messages, key=_message_index_for_sort)
         ).strip()
         if not rendered:
@@ -521,13 +528,14 @@ async def _render_episode_with_background_context(
     llm_client: Any | None,
     summarize_background_groups_batched: Callable[..., Awaitable[dict[str, str]]],
     memorize_config: Any,
+    soul_name: str | None = None,
 ) -> tuple[str, list[dict[str, Any]]]:
     prim = sorted(primary_messages, key=_message_index_for_sort)
     bg = sorted(background_messages, key=_message_index_for_sort)
     if not prim and not bg:
         return "", []
     if not bg:
-        return "\n".join(_format_episode_message_line(msg) for msg in prim).strip(), []
+        return "\n".join(_format_episode_message_line(msg, soul_name=soul_name) for msg in prim).strip(), []
 
     grouped: dict[str, list[Mapping[str, Any]]] = {}
     group_order: list[str] = []
@@ -548,6 +556,7 @@ async def _render_episode_with_background_context(
             grouped_messages=grouped,
             group_order=group_order,
             llm_client=llm_client,
+            soul_name=soul_name,
         )
 
     summary_rows: list[dict[str, Any]] = []
@@ -561,7 +570,7 @@ async def _render_episode_with_background_context(
             summary_lines = [f"[Background:{str(group_msgs[0].get('source_label') or source_key).strip() or source_key}] {summary}"]
         else:
             summary_lines = [
-                _format_episode_message_line(msg)
+                _format_episode_message_line(msg, soul_name=soul_name)
                 for msg in sorted(group_msgs, key=_message_index_for_sort)
             ]
             if not summary_lines:
@@ -592,7 +601,7 @@ async def _render_episode_with_background_context(
             if row.get("after_index") == pidx:
                 rendered_lines.extend(_summary_row_lines(row))
                 row["_emitted"] = True
-        rendered_lines.append(_format_episode_message_line(primary))
+        rendered_lines.append(_format_episode_message_line(primary, soul_name=soul_name))
 
     prefix_lines: list[str] = []
     for row in summary_rows:
@@ -611,6 +620,7 @@ def _render_episode_with_summary_rows(
     *,
     primary_messages: Sequence[Mapping[str, Any]],
     summary_rows: Sequence[Mapping[str, Any]],
+    soul_name: str | None = None,
 ) -> str:
     prim = sorted(primary_messages, key=_message_index_for_sort)
     rendered_lines: list[str] = []
@@ -623,7 +633,7 @@ def _render_episode_with_summary_rows(
             if row.get("after_index") == pidx:
                 rendered_lines.extend(_summary_row_lines(row))
                 row["_emitted"] = True
-        rendered_lines.append(_format_episode_message_line(primary))
+        rendered_lines.append(_format_episode_message_line(primary, soul_name=soul_name))
     prefix_lines: list[str] = []
     for row in mutable_rows:
         if row.get("_emitted"):

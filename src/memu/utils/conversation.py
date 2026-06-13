@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from typing import Any
 
 
@@ -60,12 +61,9 @@ def _extract_messages(payload: Any) -> list[dict[str, Any]] | None:
 def _format_messages(messages: list[dict[str, Any]]) -> str:
     out: list[str] = []
     for idx, msg in enumerate(messages):
-        role = str(msg.get("name") or "").strip()
-        if not role:
-            role_value = str(msg.get("role") or "user").strip().lower() or "user"
-            role = "soul" if role_value == "assistant" else role_value
+        role = display_speaker_label(msg, default_role="user")
         content = msg.get("content")
-        text = _extract_text_content(content)
+        text = extract_text_content(content, collapse_newlines=True)
         created_at = _extract_created_at(msg)
         created_part = f"{created_at} " if created_at else ""
         source = msg.get("source_label")
@@ -76,15 +74,46 @@ def _format_messages(messages: list[dict[str, Any]]) -> str:
     return "\n".join(out)
 
 
-def _extract_text_content(content: Any) -> str:
+def display_speaker_label(
+    message: Mapping[str, Any],
+    *,
+    soul_name: str | None = None,
+    default_role: str = "unknown",
+) -> str:
+    explicit = str(message.get("name") or message.get("speaker") or "").strip()
+    if explicit:
+        return explicit
+    role_value = str(message.get("role") or default_role).strip().lower() or default_role
+    if role_value == "assistant":
+        return str(soul_name or "").strip() or "soul"
+    return role_value or default_role
+
+
+def extract_text_content(content: Any, *, collapse_newlines: bool = False) -> str:
     if isinstance(content, dict):
         text = content.get("text", "")
     elif isinstance(content, str):
         text = content
     else:
         text = "" if content is None else str(content)
-    # Ensure single-line to keep indexing consistent
-    return " ".join(str(text).splitlines()).strip()
+    raw = str(text)
+    if collapse_newlines:
+        # Keep preprocessor inputs one-line so message index parsing stays stable.
+        raw = " ".join(raw.splitlines())
+    return raw.strip()
+
+
+def format_speaker_message(
+    message: Mapping[str, Any],
+    *,
+    soul_name: str | None = None,
+    default_role: str = "unknown",
+    separator: str = " ",
+    collapse_newlines: bool = False,
+) -> str:
+    label = display_speaker_label(message, soul_name=soul_name, default_role=default_role)
+    content = extract_text_content(message.get("content"), collapse_newlines=collapse_newlines)
+    return f"[{label}]{separator}{content}"
 
 
 def _extract_created_at(msg: dict[str, Any]) -> str | None:

@@ -321,6 +321,7 @@ class MemorizeMixin:
         ctx = self._get_context()
         store = self._get_database()
         user_scope = self.user_model(**user).model_dump() if user is not None else None
+        soul_name = str((user_scope or {}).get("soul_id") or "").strip() or None
         await self._ensure_categories_ready(ctx, store, user_scope)
 
         extract_client = self._get_step_llm_client(
@@ -411,18 +412,21 @@ class MemorizeMixin:
                         primary_messages=primary_messages,
                         background_messages=background_messages,
                         llm_client=extract_client,
+                        soul_name=soul_name,
                     )
                     seeded_rows.extend(tail_rows)
                 background_summaries = seeded_rows
                 rendered_text = self._render_episode_with_summary_rows(
                     primary_messages=primary_messages,
                     summary_rows=background_summaries,
+                    soul_name=soul_name,
                 )
             else:
                 rendered_text, background_summaries = await self._render_episode_with_background_context(
                     primary_messages=primary_messages,
                     background_messages=background_messages,
                     llm_client=extract_client,
+                    soul_name=soul_name,
                 )
             episode_text = rendered_text or (str(text).strip() if isinstance(text, str) else "")
             context_only = bool(episode_messages_all) and not primary_messages
@@ -1904,19 +1908,21 @@ class MemorizeMixin:
         return episode_helpers._message_index_for_sort(message)
 
     @staticmethod
-    def _format_episode_message_line(message: Mapping[str, Any]) -> str:
-        return episode_helpers._format_episode_message_line(message)
+    def _format_episode_message_line(message: Mapping[str, Any], *, soul_name: str | None = None) -> str:
+        return episode_helpers._format_episode_message_line(message, soul_name=soul_name)
 
     async def _summarize_background_messages(
         self,
         *,
         messages: Sequence[Mapping[str, Any]],
         llm_client: Any | None = None,
+        soul_name: str | None = None,
     ) -> str | None:
         return await episode_helpers._summarize_background_messages(
             messages=messages,
             llm_client=llm_client,
             summarize_episode=self._summarize_episode,
+            soul_name=soul_name,
         )
 
     async def summarize_background_chat_rollup(
@@ -1925,12 +1931,14 @@ class MemorizeMixin:
         prior_summary: str | None,
         messages: Sequence[Mapping[str, Any]],
         llm_client: Any | None = None,
+        soul_name: str | None = None,
     ) -> str:
         return await episode_helpers._summarize_background_rollup(
             prior_summary=prior_summary,
             messages=messages,
             llm_client=llm_client,
             get_llm_client=self._get_llm_client,
+            soul_name=soul_name,
         )
 
     async def _summarize_background_groups_batched(
@@ -1939,6 +1947,7 @@ class MemorizeMixin:
         grouped_messages: Mapping[str, Sequence[Mapping[str, Any]]],
         group_order: Sequence[str],
         llm_client: Any | None = None,
+        soul_name: str | None = None,
     ) -> dict[str, str]:
         return await episode_helpers._summarize_background_groups_batched(
             grouped_messages=grouped_messages,
@@ -1946,6 +1955,7 @@ class MemorizeMixin:
             llm_client=llm_client,
             get_llm_client=self._get_llm_client,
             extract_json_blob=self._extract_json_blob,
+            soul_name=soul_name,
         )
 
     async def _render_episode_with_background_context(
@@ -1954,6 +1964,7 @@ class MemorizeMixin:
         primary_messages: Sequence[Mapping[str, Any]],
         background_messages: Sequence[Mapping[str, Any]],
         llm_client: Any | None = None,
+        soul_name: str | None = None,
     ) -> tuple[str, list[dict[str, Any]]]:
         return await episode_helpers._render_episode_with_background_context(
             primary_messages=primary_messages,
@@ -1961,6 +1972,7 @@ class MemorizeMixin:
             llm_client=llm_client,
             summarize_background_groups_batched=self._summarize_background_groups_batched,
             memorize_config=self.memorize_config,
+            soul_name=soul_name,
         )
 
     def _render_episode_with_summary_rows(
@@ -1968,10 +1980,12 @@ class MemorizeMixin:
         *,
         primary_messages: Sequence[Mapping[str, Any]],
         summary_rows: Sequence[Mapping[str, Any]],
+        soul_name: str | None = None,
     ) -> str:
         return episode_helpers._render_episode_with_summary_rows(
             primary_messages=primary_messages,
             summary_rows=summary_rows,
+            soul_name=soul_name,
         )
 
     @staticmethod

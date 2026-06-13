@@ -52,6 +52,28 @@ async def test_render_episode_with_background_context_uses_raw_lines_below_floor
 
 
 @pytest.mark.asyncio
+async def test_render_episode_with_background_context_uses_soul_name_for_assistant_role() -> None:
+    primary_messages = [{"_message_index": 2, "role": "assistant", "content": "primary"}]
+    background_messages = [{"_message_index": 1, "role": "assistant", "content": "small", "source_label": "whatsapp:dm"}]
+
+    async def _batch(**_kwargs):
+        raise AssertionError("batch should not run when below floor")
+
+    rendered, rows = await episode_helpers._render_episode_with_background_context(
+        primary_messages=primary_messages,
+        background_messages=background_messages,
+        llm_client=None,
+        summarize_background_groups_batched=_batch,
+        memorize_config=SimpleNamespace(background_extra_messages_tokens=9999),
+        soul_name="Siri",
+    )
+    assert "[2] [Siri]: primary" in rendered
+    assert "[1] [whatsapp:dm] [Siri]: small" in rendered
+    assert "[assistant]" not in rendered
+    assert rows and "[Siri]: small" in str(rows[0].get("summary") or "")
+
+
+@pytest.mark.asyncio
 async def test_render_episode_with_background_context_uses_batch_summary_when_above_floor() -> None:
     primary_messages = [{"_message_index": 3, "role": "user", "name": "Marcos", "content": "primary"}]
     background_messages = [

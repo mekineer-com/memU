@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from memu.utils.conversation import format_conversation_for_preprocess  # type: ignore[import-untyped]
+from memu.utils.conversation import display_speaker_label, format_conversation_for_preprocess  # type: ignore[import-untyped]
 
 
 class TestFormatConversationForPreprocess:
@@ -89,3 +89,10 @@ class TestFormatConversationForPreprocess:
 
         # Valid JSON primitives
         assert format_conversation_for_preprocess("123") == "123"
+
+
+def test_display_speaker_label_uses_soul_name_for_assistant_role() -> None:
+    assert display_speaker_label({"role": "assistant"}, soul_name="Siri") == "Siri"
+    assert display_speaker_label({"role": "assistant"}) == "soul"
+    assert display_speaker_label({"role": "assistant", "name": "Echo"}, soul_name="Siri") == "Echo"
+    assert display_speaker_label({"role": "user", "speaker": "Raquel"}) == "Raquel"
