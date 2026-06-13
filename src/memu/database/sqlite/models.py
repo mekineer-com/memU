@@ -55,7 +55,7 @@ class SQLiteResourceModel(SQLiteBaseModelMixin, Resource):
     caption: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
     # Store embedding as JSON (SQLite stores it as TEXT under the hood)
     embedding: str | None = Field(default=None, sa_column=Column(Text, nullable=True))  # type: ignore[assignment]
-    episode_id: str | None = Field(default=None, sa_column=Column(String, nullable=True))
+    segment_id: str | None = Field(default=None, sa_column=Column(String, nullable=True))
     conversation_id: str | None = Field(default=None, sa_column=Column(String, nullable=True))
     memory_retrieve_history: list[str] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
     memory_prior_context: list[str] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
@@ -78,7 +78,7 @@ class SQLiteMemoryItemModel(SQLiteBaseModelMixin, MemoryItem):
     reflection_salience: float | None = Field(default=None, sa_column=Column(Float, nullable=True))
     emotional_intensity: float | None = Field(default=None, sa_column=Column(Float, nullable=True))
     conversation_id: str | None = Field(default=None, sa_column=Column(String, nullable=True))
-    episode_id: str | None = Field(default=None, sa_column=Column(String, nullable=True))
+    segment_id: str | None = Field(default=None, sa_column=Column(String, nullable=True))
     unresolved: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
     merged_into: str | None = Field(default=None, sa_column=Column(String, nullable=True))
     extra: dict[str, Any] = Field(default={}, sa_column=Column(JSON, nullable=True))

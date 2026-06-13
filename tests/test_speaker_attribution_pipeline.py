@@ -52,13 +52,13 @@ def test_attribution_pipeline_fills_user_and_soul_speakers_with_fallback_indices
     # Simulated episode. Note the display-name mismatch: message.name="MarcosDisplay"
     # is NOT case-equal to scope.user_id="marcos" — the bug was that this tripped
     # the old code into slugging the user as entity:marcosdisplay.
-    episode_messages = [
+    segment_messages = [
         {"_message_index": 0, "role": "user", "name": "MarcosDisplay", "content": "Hi"},
         {"_message_index": 1, "role": "assistant", "name": "Siri", "content": "Hello"},
         {"_message_index": 2, "role": "user", "name": "MarcosDisplay", "content": "Thanks"},
     ]
     message_indices = [0, 1, 2]
-    speaker_map = service._build_speaker_map(episode_messages, user_data)
+    speaker_map = service._build_speaker_map(segment_messages, user_data)
 
     # Post-55525ae: user-role messages always resolve to the scope user slug,
     # with the display name as the label.

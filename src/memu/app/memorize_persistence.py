@@ -94,7 +94,7 @@ async def _create_resource_with_caption(
     embed_client: Any | None,
     get_embedding_client: Callable[..., Any],
     user: Mapping[str, Any] | None,
-    episode_id: str | None,
+    segment_id: str | None,
     conversation_id: str | None,
     memory_retrieve_history: list[str] | None,
     memory_prior_context: list[str] | None,
@@ -115,8 +115,8 @@ async def _create_resource_with_caption(
         "embedding": caption_embedding,
         "user_data": dict(user or {}),
     }
-    if episode_id:
-        resource_kwargs["episode_id"] = episode_id
+    if segment_id:
+        resource_kwargs["segment_id"] = segment_id
     if conversation_id:
         resource_kwargs["conversation_id"] = conversation_id
     if memory_retrieve_history:
@@ -148,7 +148,7 @@ async def _persist_memory_items(
     get_llm_client: Callable[..., Any],
     user: Mapping[str, Any] | None,
     conversation_id: str | None,
-    episode_id: str | None,
+    segment_id: str | None,
     extract_model: str | None,
     message_happened_at_map: Mapping[int, Any] | None,
     session: Any | None,
@@ -204,7 +204,7 @@ async def _persist_memory_items(
             "reflection_salience": entry.reflection_salience,
             "emotional_intensity": entry.emotional_intensity,
             "conversation_id": conversation_id,
-            "episode_id": episode_id,
+            "segment_id": segment_id,
         }
         if normalized_extract_model is not None:
             item_kwargs["extra"] = {"model": normalized_extract_model}

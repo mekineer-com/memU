@@ -45,7 +45,7 @@ class Resource(BaseRecord):
     local_path: str
     caption: str | None = None
     embedding: list[float] | None = None
-    episode_id: str | None = None
+    segment_id: str | None = None
     conversation_id: str | None = None
     memory_retrieve_history: list[str] | None = None
     memory_prior_context: list[str] | None = None
@@ -69,7 +69,7 @@ class MemoryItem(BaseRecord):
     emotional_intensity: float | None = None
     # Conversation anchor.
     conversation_id: str | None = None
-    episode_id: str | None = None
+    segment_id: str | None = None
     unresolved: str | None = None
     # Soft-merge marker for conservative semantic dedupe.
     # When set, this item is treated as merged into another canonical item.

@@ -45,12 +45,12 @@ def test_unambiguous_episode_skips_roster(service: MemoryService) -> None:
         soul_context_str="## Relationships\nKnown context.",
         speaker_roster=roster,
     )
-    assert "Speaker Roster (ambiguous episode fallback)" not in prompt
-    assert "Allowed source_role schema for this episode" not in prompt
+    assert "Speaker Roster (ambiguous segment fallback)" not in prompt
+    assert "Allowed source_role schema for this segment" not in prompt
     assert "Only emit <speaker_ref>" not in prompt
 
 
-def test_ambiguous_episode_attaches_roster_and_accepts_valid_speaker_ref(service: MemoryService) -> None:
+def test_ambiguous_segment_attaches_roster_and_accepts_valid_speaker_ref(service: MemoryService) -> None:
     speaker_map = {
         10: ("entity:alice", "Alice"),
         11: ("entity:bob", "Bob"),
@@ -67,8 +67,8 @@ def test_ambiguous_episode_attaches_roster_and_accepts_valid_speaker_ref(service
         soul_context_str="## Relationships\nKnown context.",
         speaker_roster=roster,
     )
-    assert "Speaker Roster (ambiguous episode fallback)" in prompt
-    assert "Allowed source_role schema for this episode: <source_role>user|soul|peer|entity|environment</source_role>." in prompt
+    assert "Speaker Roster (ambiguous segment fallback)" in prompt
+    assert "Allowed source_role schema for this segment: <source_role>user|soul|peer|entity|environment</source_role>." in prompt
     assert "Only emit <speaker_ref> if the speaker is in this roster. Never invent a slug." in prompt
     assert "- entity:alice | label=Alice | role=entity" in prompt
     assert "- entity:bob | label=Bob | role=entity" in prompt
@@ -135,15 +135,15 @@ def test_parser_rejects_hallucinated_speaker_ref_and_leaves_speaker_null(service
     assert attributed.speaker_label is None
 
 
-def test_declared_entity_mention_triggers_roster_without_role_ambiguity(service: MemoryService) -> None:
+def test_declared_entity_mention_triggers_segment_roster_without_role_ambiguity(service: MemoryService) -> None:
     speaker_map = {
         30: ("user:marcos", "Marcos"),
         31: ("soul:siri", "Siri"),
     }
-    roster = service._build_speaker_roster_for_episode(
+    roster = service._build_speaker_roster_for_segment(
         speaker_map=speaker_map,
         declared_entities=[SpeakerRosterEntry("entity:brother", "Brother", "entity")],
-        episode_text="[30] [Marcos] My brother said he'll call tomorrow.",
+        segment_text="[30] [Marcos] My brother said he'll call tomorrow.",
     )
     assert roster is not None
     ids = {entry.speaker_id for entry in roster}

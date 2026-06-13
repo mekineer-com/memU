@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from memu.app import memorize_episodes as episode_helpers
+from memu.app import memorize_segments as segment_helpers
 
 
 class _StubClient:
@@ -21,7 +21,7 @@ async def test_summarize_background_groups_batched_parses_contract() -> None:
         "b": [{"_message_index": 1, "role": "user", "content": "hello from beta", "source_label": "sillytavern"}],
     }
     raw = '{"summaries":[{"source_key":"a","summary":"A summary"},{"source_key":"b","summary":"B summary"}]}'
-    out = await episode_helpers._summarize_background_groups_batched(
+    out = await segment_helpers._summarize_background_groups_batched(
         grouped_messages=grouped,
         group_order=["a", "b"],
         llm_client=_StubClient(raw),
@@ -39,7 +39,7 @@ async def test_render_episode_with_background_context_uses_raw_lines_below_floor
     async def _batch(**_kwargs):
         raise AssertionError("batch should not run when below floor")
 
-    rendered, rows = await episode_helpers._render_episode_with_background_context(
+    rendered, rows = await segment_helpers._render_episode_with_background_context(
         primary_messages=primary_messages,
         background_messages=background_messages,
         llm_client=None,
@@ -59,7 +59,7 @@ async def test_render_episode_with_background_context_uses_soul_name_for_assista
     async def _batch(**_kwargs):
         raise AssertionError("batch should not run when below floor")
 
-    rendered, rows = await episode_helpers._render_episode_with_background_context(
+    rendered, rows = await segment_helpers._render_episode_with_background_context(
         primary_messages=primary_messages,
         background_messages=background_messages,
         llm_client=None,
@@ -84,7 +84,7 @@ async def test_render_episode_with_background_context_uses_batch_summary_when_ab
     async def _batch(**_kwargs):
         return {"c1": "summary one", "c2": "summary two"}
 
-    rendered, rows = await episode_helpers._render_episode_with_background_context(
+    rendered, rows = await segment_helpers._render_episode_with_background_context(
         primary_messages=primary_messages,
         background_messages=background_messages,
         llm_client=None,
@@ -108,7 +108,7 @@ async def test_render_episode_with_background_context_raises_on_missing_batch_gr
         return {"c1": "summary one"}
 
     with pytest.raises(ValueError, match="missing background summary for source"):
-        await episode_helpers._render_episode_with_background_context(
+        await segment_helpers._render_episode_with_background_context(
             primary_messages=primary_messages,
             background_messages=background_messages,
             llm_client=None,

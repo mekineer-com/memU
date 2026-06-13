@@ -117,24 +117,24 @@ async def _dispatch_preprocessor(
     return [{"text": text, "caption": None}]
 
 
-async def _summarize_episode(
+async def _summarize_segment(
     *,
-    episode_text: str,
+    segment_text: str,
     llm_client: Any | None,
     get_llm_client: Callable[..., Any],
 ) -> str | None:
     system_prompt = (
-        "Summarize the given conversation episode in 1-2 concise sentences. "
+        "Summarize the given conversation segment in 1-2 concise sentences. "
         "Focus on the main topic or theme discussed."
     )
     try:
         client = llm_client or get_llm_client(
-            step_context={"operation": "memorize", "step_id": "episode_summary"},
+            step_context={"operation": "memorize", "step_id": "segment_summary"},
         )
-        response = await client.chat(episode_text, system_prompt=system_prompt)
+        response = await client.chat(segment_text, system_prompt=system_prompt)
         return response.strip() if response else None
     except Exception:
-        logger.exception("Failed to summarize episode")
+        logger.exception("Failed to summarize segment")
         return None
 
 
@@ -232,34 +232,34 @@ def _compute_batch_max_items(total_message_count: int) -> int:
 
 def _build_batch_extraction_text(
     *,
-    episodes: Sequence[Mapping[str, Any]],
-    parse_episode_ref: Callable[[Any], int | None],
+    segments: Sequence[Mapping[str, Any]],
+    parse_segment_ref: Callable[[Any], int | None],
     dedupe_message_indices: Callable[[Sequence[int | float | str]], list[int]],
 ) -> str:
     sections: list[str] = []
     summaries: list[str] = []
-    for episode in episodes:
-        episode_ref = parse_episode_ref(episode.get("episode_ref"))
-        if episode_ref is None:
+    for segment in segments:
+        segment_ref = parse_segment_ref(segment.get("segment_ref"))
+        if segment_ref is None:
             continue
-        episode_text = str(episode.get("text") or "").strip()
-        if not episode_text:
+        segment_text = str(segment.get("text") or "").strip()
+        if not segment_text:
             continue
-        message_indices = dedupe_message_indices(episode.get("message_indices"))
+        message_indices = dedupe_message_indices(segment.get("message_indices"))
         if message_indices:
-            heading = f"## Episode {episode_ref} (messages {message_indices[0]}-{message_indices[-1]})"
+            heading = f"## Segment {segment_ref} (messages {message_indices[0]}-{message_indices[-1]})"
         else:
-            heading = f"## Episode {episode_ref}"
+            heading = f"## Segment {segment_ref}"
         sections.append(heading)
-        sections.append(episode_text)
-        episode_summary = (
-            str(episode.get("episode_summary") or "").strip()
-            or str(episode.get("caption") or "").strip()
+        sections.append(segment_text)
+        segment_summary = (
+            str(segment.get("segment_summary") or "").strip()
+            or str(segment.get("caption") or "").strip()
         )
-        if episode_summary:
-            summaries.append(f"Episode {episode_ref}: {episode_summary}")
+        if segment_summary:
+            summaries.append(f"Segment {segment_ref}: {segment_summary}")
     if summaries:
-        sections.append("## Episode Summaries")
+        sections.append("## Segment Summaries")
         sections.extend(summaries)
     return "\n\n".join(section for section in sections if section).strip()
 
@@ -309,7 +309,7 @@ async def _summarize_background_messages(
     *,
     messages: Sequence[Mapping[str, Any]],
     llm_client: Any | None,
-    summarize_episode: Callable[..., Awaitable[str | None]],
+    summarize_segment: Callable[..., Awaitable[str | None]],
     soul_name: str | None = None,
 ) -> str | None:
     if not messages:
@@ -320,7 +320,7 @@ async def _summarize_background_messages(
     ).strip()
     if not rendered:
         return None
-    summary = await summarize_episode(rendered, llm_client=llm_client)
+    summary = await summarize_segment(rendered, llm_client=llm_client)
     return str(summary or "").strip() or None
 
 
@@ -571,19 +571,19 @@ def _prepare_episode(
         indices = dedupe_message_indices([
             value for value in message_indices if isinstance(value, (int, float, str))
         ])
-        episode_text = None
+        segment_text = None
         if isinstance(text, str) and text.strip():
-            episode_text = format_conversation_for_preprocess(text)
-            if not episode_text.strip():
-                episode_text = text.strip()
-        return episode_text, indices
+            segment_text = format_conversation_for_preprocess(text)
+            if not segment_text.strip():
+                segment_text = text.strip()
+        return segment_text, indices
     if not isinstance(text, str) or not text.strip():
         return None, []
-    episode_text = format_conversation_for_preprocess(text)
-    if not episode_text.strip():
-        episode_text = text.strip()
-    indices = extract_message_indices(episode_text)
-    return episode_text, indices
+    segment_text = format_conversation_for_preprocess(text)
+    if not segment_text.strip():
+        segment_text = text.strip()
+    indices = extract_message_indices(segment_text)
+    return segment_text, indices
 
 
 def _parse_multimodal_response(

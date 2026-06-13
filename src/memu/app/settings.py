@@ -190,7 +190,7 @@ class MemorizeConfig(BaseModel):
         default_factory=_default_memory_categories,
         description="Global memory category definitions embedded at service startup.",
     )
-    episodes_per_segment: int = Field(
+    episode_items_per_segment: int = Field(
         default=3,
         description="Maximum number of story items the extraction router can return for one conversation segment.",
     )

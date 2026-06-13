@@ -21,7 +21,7 @@ _VALID_XML = """
 
 _GARBAGE = "not xml at all %%% garbage"
 
-_VALID_ROUTER = '{"excluded_types": [], "episode_summary": "S", "episode_items": [{"title": "T", "summary": "S"}]}'
+_VALID_ROUTER = '{"excluded_types": [], "segment_summary": "S", "episode_items": [{"title": "T", "summary": "S"}]}'
 
 
 class _ExtractionStub:
@@ -132,7 +132,7 @@ async def test_router_retry_succeeds_and_logs_error(caplog: pytest.LogCaptureFix
 
     import logging
     with caplog.at_level(logging.ERROR):
-        routed, summary, items = await service._route_episode(
+        routed, summary, items = await service._route_segment(
             "episode text",
             ["knowledge"],
             llm_client=stub,
@@ -153,7 +153,7 @@ async def test_router_retry_raises_on_double_garbage() -> None:
     stub = _RouterStub([_GARBAGE, _GARBAGE])
 
     with pytest.raises(ValueError, match="unparseable"):
-        await service._route_episode(
+        await service._route_segment(
             "episode text",
             ["knowledge"],
             llm_client=stub,

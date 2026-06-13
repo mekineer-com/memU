@@ -20,13 +20,13 @@ class _RouterStub:
 
 
 @pytest.mark.asyncio
-async def test_route_episode_uses_excluded_types_model() -> None:
+async def test_route_segment_uses_excluded_types_model() -> None:
     service = _service()
     client = _RouterStub(
-        '{"excluded_types": ["knowledge", "social"], "episode_summary": "S", "episode_items": [{"title": "Story", "summary": "I"}]}'
+        '{"excluded_types": ["knowledge", "social"], "segment_summary": "S", "episode_items": [{"title": "Story", "summary": "I"}]}'
     )
 
-    routed, summary, items = await service._route_episode(
+    routed, summary, items = await service._route_segment(
         "episode text",
         ["profile", "knowledge", "behavior", "social"],
         llm_client=client,
@@ -38,19 +38,19 @@ async def test_route_episode_uses_excluded_types_model() -> None:
 
 
 @pytest.mark.asyncio
-async def test_route_episode_raises_on_unparseable_router_response() -> None:
+async def test_route_segment_raises_on_unparseable_router_response() -> None:
     service = _service()
     client = _RouterStub("not-json-and-no-json-blob")
 
     with pytest.raises(ValueError):
-        await service._route_episode(
+        await service._route_segment(
             "episode text",
             ["profile", "knowledge"],
             llm_client=client,
         )
 
 
-def test_parse_structured_entries_requires_episode_ref_when_requested() -> None:
+def test_parse_structured_entries_requires_segment_ref_when_requested() -> None:
     service = _service()
     missing_ref = """
 <item>
@@ -64,7 +64,7 @@ def test_parse_structured_entries_requires_episode_ref_when_requested() -> None:
     with_ref = """
 <item>
   <memory>
-    <episode_ref>2</episode_ref>
+    <segment_ref>2</segment_ref>
     <source_role>user</source_role>
     <content>Marcos values consistency in system behavior</content>
     <categories><category>Identity</category></categories>
@@ -75,17 +75,17 @@ def test_parse_structured_entries_requires_episode_ref_when_requested() -> None:
     dropped = service._parse_structured_entries(
         ["profile"],
         [missing_ref],
-        require_episode_ref=True,
+        require_segment_ref=True,
     )
     kept = service._parse_structured_entries(
         ["profile"],
         [with_ref],
-        require_episode_ref=True,
+        require_segment_ref=True,
     )
 
     assert dropped == []
     assert len(kept) == 1
-    assert kept[0].episode_ref == 2
+    assert kept[0].segment_ref == 2
 
 
 def test_parse_memory_type_response_xml_raises_on_unsalvageable_xml() -> None:
@@ -102,7 +102,7 @@ def test_parse_memory_type_response_xml_returns_empty_for_valid_xml_no_memories(
 
 
 @pytest.mark.asyncio
-async def test_memorize_episodes_batch_passes_merged_speaker_roster_with_declared_entities(
+async def test_memorize_segments_batch_passes_merged_speaker_roster_with_declared_entities(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     service = _service()
@@ -122,7 +122,7 @@ async def test_memorize_episodes_batch_passes_merged_speaker_roster_with_declare
         state.setdefault("items", [])
         state.setdefault("relations", [])
         state.setdefault("category_updates", {})
-        state.setdefault("pending_episode_ids", [])
+        state.setdefault("pending_segment_ids", [])
         return state
 
     def _stub_build_response(state, _step_context):
@@ -130,7 +130,7 @@ async def test_memorize_episodes_batch_passes_merged_speaker_roster_with_declare
             "items": [],
             "categories": [],
             "relations": [],
-            "pending_episode_ids": [],
+            "pending_segment_ids": [],
         }
         return state
 
@@ -143,7 +143,7 @@ async def test_memorize_episodes_batch_passes_merged_speaker_roster_with_declare
         return []
 
     monkeypatch.setattr(service, "_ensure_categories_ready", _noop_ensure_categories_ready)
-    monkeypatch.setattr(service, "_route_episode", _route_profile_only)
+    monkeypatch.setattr(service, "_route_segment", _route_profile_only)
     monkeypatch.setattr(service, "_memorize_categorize_items", _noop_categorize)
     monkeypatch.setattr(service, "_memorize_dedupe_merge", _noop_step)
     monkeypatch.setattr(service, "_memorize_persist_and_index", _noop_step)
@@ -151,41 +151,41 @@ async def test_memorize_episodes_batch_passes_merged_speaker_roster_with_declare
     monkeypatch.setattr(service, "_list_declared_relationship_roster", lambda **_kwargs: declared_roster)
     monkeypatch.setattr(service, "_generate_entries_from_text", _capture_generate_entries_from_text)
 
-    raw_text_episode_1 = json.dumps([
+    raw_text_segment_1 = json.dumps([
         {"role": "user", "name": "Marcos", "content": "Starting a new thread with Nicholas."},
         {"role": "group_member", "name": "Alice", "content": "Alice joins this discussion."},
     ])
-    raw_text_episode_2 = json.dumps([
+    raw_text_segment_2 = json.dumps([
         {"role": "system", "name": "context", "content": "ignored prelude"},
         {"role": "system", "name": "context", "content": "ignored prelude 2"},
         {"role": "assistant", "name": "Echo", "content": "Echo reflects on the day."},
         {"role": "group_member", "name": "Bob", "content": "Bob asks about Nicholas too."},
     ])
 
-    episodes = [
+    segments = [
         {
-            "resource_url": "mem://episode-1",
-            "raw_text": raw_text_episode_1,
-            "episode": {
+            "resource_url": "mem://segment-1",
+            "raw_text": raw_text_segment_1,
+            "segment": {
                 "text": "[0] Marcos: I talked with Nicholas about focus.\n[1] Alice: That sounds healthy.",
-                "caption": "Episode 1",
+                "caption": "Segment 1",
                 "message_indices": [0, 1],
             },
         },
         {
-            "resource_url": "mem://episode-2",
-            "raw_text": raw_text_episode_2,
-            "episode": {
+            "resource_url": "mem://segment-2",
+            "raw_text": raw_text_segment_2,
+            "segment": {
                 "text": "[2] Echo: Let's keep steady progress.\n[3] Bob: Nicholas inspired me too.",
-                "caption": "Episode 2",
+                "caption": "Segment 2",
                 "message_indices": [2, 3],
             },
         },
     ]
 
-    await service.memorize_episodes_batch(
+    await service.memorize_segments_batch(
         modality="conversation",
-        episodes=episodes,
+        segments=segments,
         user=user_scope,
         conversation_id="conv-1",
     )
@@ -200,5 +200,5 @@ async def test_memorize_episodes_batch_passes_merged_speaker_roster_with_declare
     assert "soul:echo" in speaker_ids
 
     resource_text = str(captured.get("resource_text") or "")
-    assert "Episode 1" in resource_text
-    assert "Episode 2" in resource_text
+    assert "Segment 1" in resource_text
+    assert "Segment 2" in resource_text

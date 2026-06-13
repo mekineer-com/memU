@@ -129,11 +129,11 @@ def _episode_mentions_roster_entry(episode_text: Any, entry: SpeakerLike) -> boo
     return False
 
 
-def _build_speaker_roster_for_episode(
+def _build_speaker_roster_for_segment(
     *,
     speaker_map: Mapping[int, tuple[str, str]] | None,
     declared_entities: Sequence[TEntry] | None,
-    episode_text: Any,
+    segment_text: Any,
     roster_entry_factory: Callable[[str, str, str], TEntry],
 ) -> list[TEntry] | None:
     map_roster = _build_speaker_roster(speaker_map, roster_entry_factory=roster_entry_factory)
@@ -141,7 +141,7 @@ def _build_speaker_roster_for_episode(
     mentioned_declared = [
         entry
         for entry in (declared_entities or [])
-        if _episode_mentions_roster_entry(episode_text, entry)
+        if _episode_mentions_roster_entry(segment_text, entry)
     ]
     if not map_has_ambiguity and not mentioned_declared:
         return None
@@ -167,8 +167,8 @@ def _format_speaker_roster_block_for_prompt(
     if not speaker_roster:
         return ""
     lines = [
-        "# Speaker Roster (ambiguous episode fallback)",
-        "Allowed source_role schema for this episode: <source_role>user|soul|peer|entity|environment</source_role>.",
+        "# Speaker Roster (ambiguous segment fallback)",
+        "Allowed source_role schema for this segment: <source_role>user|soul|peer|entity|environment</source_role>.",
         "Only emit <speaker_ref> if the speaker is in this roster. Never invent a slug.",
         "Use source_role for coarse role; use speaker_ref only to disambiguate when multiple speakers share that role.",
     ]

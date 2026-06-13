@@ -42,7 +42,7 @@ class MemoryItemRepo(Protocol):
         reflection_salience: float | None = None,
         emotional_intensity: float | None = None,
         conversation_id: str | None = None,
-        episode_id: str | None = None,
+        segment_id: str | None = None,
         unresolved: str | None = None,
     ) -> MemoryItem: ...
 

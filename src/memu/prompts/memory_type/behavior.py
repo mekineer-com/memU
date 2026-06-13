@@ -47,11 +47,11 @@ User memories (source_role=user): Write in THIRD PERSON using their name ("Alex 
 
 {speaker_roster_block}
 
-Return all memories wrapped in a single <item> element. Assign each value as a two-digit float (0.xx). Each memory must include <episode_ref> with the episode number (1, 2, 3...):
+Return all memories wrapped in a single <item> element. Assign each value as a two-digit float (0.xx). Each memory must include <segment_ref> with the segment number (1, 2, 3...):
 
 <item>
     <memory>
-        <episode_ref>1</episode_ref>
+        <segment_ref>1</segment_ref>
         <source_role>soul|user|peer|entity|environment</source_role>
         <content>The behavioral pattern</content>
         <confidence>0.xx</confidence>

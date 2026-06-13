@@ -141,7 +141,7 @@ class SQLiteResourceRepo(SQLiteRepoBase, ResourceRepo):
         caption: str | None,
         embedding: list[float] | None,
         user_data: dict[str, Any],
-        episode_id: str | None = None,
+        segment_id: str | None = None,
         conversation_id: str | None = None,
         memory_retrieve_history: list[str] | None = None,
         memory_prior_context: list[str] | None = None,
@@ -171,7 +171,7 @@ class SQLiteResourceRepo(SQLiteRepoBase, ResourceRepo):
                     caption=caption,
                     embedding=embedding,
                     user_data=user_data,
-                    episode_id=episode_id,
+                    segment_id=segment_id,
                     conversation_id=conversation_id,
                     memory_retrieve_history=memory_retrieve_history,
                     memory_prior_context=memory_prior_context,
@@ -192,8 +192,8 @@ class SQLiteResourceRepo(SQLiteRepoBase, ResourceRepo):
             existing.local_path = local_path
             if caption is not None:
                 existing.caption = caption
-            if episode_id is not None:
-                existing.episode_id = episode_id
+            if segment_id is not None:
+                existing.segment_id = segment_id
             if conversation_id is not None:
                 existing.conversation_id = conversation_id
             if memory_retrieve_history is not None:
@@ -214,7 +214,7 @@ class SQLiteResourceRepo(SQLiteRepoBase, ResourceRepo):
                 local_path=local_path,
                 caption=caption,
                 embedding=None,
-                episode_id=episode_id,
+                segment_id=segment_id,
                 conversation_id=conversation_id,
                 memory_retrieve_history=memory_retrieve_history,
                 memory_prior_context=memory_prior_context,
@@ -234,7 +234,7 @@ class SQLiteResourceRepo(SQLiteRepoBase, ResourceRepo):
             local_path=row.local_path,
             caption=row.caption,
             embedding=self._normalize_embedding(self._get_row_embedding(row)),
-            episode_id=getattr(row, "episode_id", None),
+            segment_id=getattr(row, "segment_id", None),
             conversation_id=getattr(row, "conversation_id", None),
             memory_retrieve_history=getattr(row, "memory_retrieve_history", None),
             memory_prior_context=getattr(row, "memory_prior_context", None),

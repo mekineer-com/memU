@@ -36,7 +36,7 @@ def _normalize_replaces_previous_fact(value: Any) -> str | None:
     return text or None
 
 
-def _parse_episode_ref(value: Any) -> int | None:
+def _parse_segment_ref(value: Any) -> int | None:
     try:
         parsed = int(str(value).strip())
     except (TypeError, ValueError):
@@ -207,11 +207,11 @@ def _parse_memory_element(memory_elem: Element) -> dict[str, Any] | None:
     if speaker_ref_elem is not None and speaker_ref_elem.text:
         memory_dict["speaker_ref"] = speaker_ref_elem.text.strip()
 
-    episode_ref_elem = memory_elem.find("episode_ref")
-    if episode_ref_elem is not None and episode_ref_elem.text:
-        episode_ref = _parse_episode_ref(episode_ref_elem.text)
-        if episode_ref is not None:
-            memory_dict["episode_ref"] = episode_ref
+    segment_ref_elem = memory_elem.find("segment_ref")
+    if segment_ref_elem is not None and segment_ref_elem.text:
+        segment_ref = _parse_segment_ref(segment_ref_elem.text)
+        if segment_ref is not None:
+            memory_dict["segment_ref"] = segment_ref
 
     confidence_elem = memory_elem.find("confidence")
     if confidence_elem is not None and confidence_elem.text:
