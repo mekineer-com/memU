@@ -122,7 +122,7 @@ src/memu/
 **Key prompt locations:**
 - Extraction: `prompts/memory_type/{profile,knowledge,behavior,social}.py`
 - Router: `prompts/router/router.py`
-- Preprocessor: `prompts/preprocess/conversation.py`
+- Non-chat preprocessors: `prompts/preprocess/{document,image,audio,video}.py`
 - Retrieval ranking: `prompts/retrieve/`
 - Consolidation: `prompts/consolidation/`
 

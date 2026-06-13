@@ -192,7 +192,7 @@ class MemorizeConfig(BaseModel):
     )
     episodes_per_segment: int = Field(
         default=3,
-        description="Maximum number of episodes the LLM preprocessor can create from one conversation segment.",
+        description="Maximum number of story items the extraction router can return for one conversation segment.",
     )
     background_extra_messages_tokens: int = Field(
         default=100,
@@ -247,6 +247,22 @@ class MemorizeConfig(BaseModel):
         default=0.89,
         description="Cosine similarity threshold for semantic dedupe auto-merge decisions.",
     )
+
+    @model_validator(mode="after")
+    def reject_removed_conversation_preprocess_prompts(self) -> "MemorizeConfig":
+        removed = {
+            str(key).strip().lower()
+            for key in self.multimodal_preprocess_prompts
+            if str(key).strip().lower() in {"conversation", "cross_conversation"}
+        }
+        if removed:
+            names = ", ".join(sorted(removed))
+            msg = (
+                f"Conversation preprocess prompt override(s) are no longer supported: {names}. "
+                "Conversation segments are passed whole to extraction."
+            )
+            raise ValueError(msg)
+        return self
 
 
 class DefaultUserModel(BaseModel):

@@ -137,9 +137,8 @@ class MemorizeMixin:
         """Memorize a single input unit.
 
         For `modality="conversation"`, this method treats the input as one
-        episode and delegates to `memorize_episode()`. Episode splitting is
-        orchestrated by callers (server path) via `split_segment_into_episodes()`
-        and repeated `memorize_episode()` calls.
+        episode and delegates to `memorize_episode()`. Server-selected
+        persisted segments are passed to batch extraction whole.
         """
         self._validate_memorize_scope(user)
         ctx = self._get_context()
@@ -195,43 +194,6 @@ class MemorizeMixin:
             msg = "Memorize workflow failed to produce a response"
             raise RuntimeError(msg)
         return response
-
-    async def split_segment_into_episodes(
-        self,
-        *,
-        local_path: str,
-        raw_text: str | None,
-        modality: str,
-    ) -> list[dict[str, Any]]:
-        llm_client = self._get_step_llm_client(
-            {"operation": "memorize", "step_id": "preprocess"},
-            profile=self.memorize_config.preprocess_llm_profile,
-        )
-        segment_episodes = await self._split_into_episodes(
-            local_path=local_path,
-            text=raw_text,
-            modality=modality,
-            llm_client=llm_client,
-        )
-        if not segment_episodes:
-            msg = "Preprocessor returned no episodes for segment"
-            raise RuntimeError(msg)
-        return segment_episodes
-
-    async def split_cross_conversation_into_episodes(
-        self,
-        *,
-        raw_text: str,
-    ) -> list[dict[str, Any]]:
-        """Split merged multi-source conversation into episodes grouped by storyline."""
-        template = PREPROCESS_PROMPTS.get("cross_conversation")
-        if not template:
-            return [{"text": raw_text, "caption": None}]
-        llm_client = self._get_step_llm_client(
-            {"operation": "memorize", "step_id": "preprocess"},
-            profile=self.memorize_config.preprocess_llm_profile,
-        )
-        return await self._split_conversation_into_episodes(raw_text, template, llm_client=llm_client)
 
     async def memorize_episode(
         self,
@@ -1763,27 +1725,10 @@ class MemorizeMixin:
             text=text,
             template=template,
             llm_client=llm_client,
-            split_conversation_into_episodes=self._split_conversation_into_episodes,
             preprocess_video=self._preprocess_video,
             preprocess_image=self._preprocess_image,
             preprocess_document=self._preprocess_document,
             preprocess_audio=self._preprocess_audio,
-        )
-
-    async def _split_conversation_into_episodes(
-        self, conversation_raw_text: str, template: str, llm_client: Any | None = None
-    ) -> list[dict[str, Any]]:
-        return await episode_helpers._split_conversation_into_episodes(
-            conversation_raw_text=conversation_raw_text,
-            template=template,
-            llm_client=llm_client,
-            memorize_config=self.memorize_config,
-            escape_prompt_value=self._escape_prompt_value,
-            get_llm_client=self._get_llm_client,
-            parse_conversation_preprocess_with_episodes=self._parse_conversation_preprocess_with_episodes,
-            extract_message_indices=self._extract_message_indices,
-            dedupe_message_indices=self._dedupe_message_indices,
-            summarize_episode=self._summarize_episode,
         )
 
     async def _summarize_episode(self, episode_text: str, llm_client: Any | None = None) -> str | None:
@@ -2257,33 +2202,6 @@ class MemorizeMixin:
             caption_tag,
             extract_tag_content=self._extract_tag_content,
         )
-
-    def _parse_conversation_preprocess_with_episodes(
-        self, raw: str, original_text: str
-    ) -> tuple[str | None, list[dict[str, Any]] | None]:
-        return episode_helpers._parse_conversation_preprocess_with_episodes(
-            raw,
-            original_text,
-            extract_tag_content=self._extract_tag_content,
-            extract_episodes_with_fallback=self._extract_episodes_with_fallback,
-        )
-
-    def _extract_episodes_with_fallback(self, raw: str) -> list[dict[str, Any]] | None:
-        return episode_helpers._extract_episodes_with_fallback(
-            raw,
-            extract_json_blob=self._extract_json_blob,
-            episodes_from_json_payload=self._episodes_from_json_payload,
-        )
-
-    def _episodes_from_json_payload(self, payload: str) -> list[dict[str, Any]] | None:
-        return episode_helpers._episodes_from_json_payload(
-            payload,
-            episodes_from_parsed_data=self._episodes_from_parsed_data,
-        )
-
-    @staticmethod
-    def _episodes_from_parsed_data(parsed: Any) -> list[dict[str, Any]] | None:
-        return episode_helpers._episodes_from_parsed_data(parsed)
 
     @staticmethod
     def _extract_tag_content(raw: str, tag: str) -> str | None:
