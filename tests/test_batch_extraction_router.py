@@ -50,44 +50,6 @@ async def test_route_segment_raises_on_unparseable_router_response() -> None:
         )
 
 
-def test_parse_structured_entries_requires_segment_ref_when_requested() -> None:
-    service = _service()
-    missing_ref = """
-<item>
-  <memory>
-    <source_role>user</source_role>
-    <content>Marcos values consistency in system behavior</content>
-    <categories><category>Identity</category></categories>
-  </memory>
-</item>
-""".strip()
-    with_ref = """
-<item>
-  <memory>
-    <segment_ref>2</segment_ref>
-    <source_role>user</source_role>
-    <content>Marcos values consistency in system behavior</content>
-    <categories><category>Identity</category></categories>
-  </memory>
-</item>
-""".strip()
-
-    dropped = service._parse_structured_entries(
-        ["profile"],
-        [missing_ref],
-        require_segment_ref=True,
-    )
-    kept = service._parse_structured_entries(
-        ["profile"],
-        [with_ref],
-        require_segment_ref=True,
-    )
-
-    assert dropped == []
-    assert len(kept) == 1
-    assert kept[0].segment_ref == 2
-
-
 def test_parse_memory_type_response_xml_raises_on_unsalvageable_xml() -> None:
     # "<item><memory></item>" is malformed AND unsalvageable — both passes fail
     bad_xml = "<item><memory></item>"
@@ -141,7 +103,6 @@ async def test_memorize_segments_batch_passes_segment_speaker_rosters_without_se
         captured.append({
             "speaker_roster": kwargs.get("speaker_roster"),
             "resource_text": kwargs.get("resource_text"),
-            "require_segment_ref": kwargs.get("require_segment_ref"),
         })
         return []
 
@@ -207,4 +168,3 @@ async def test_memorize_segments_batch_passes_segment_speaker_rosters_without_se
         assert "Segment 1" not in resource_text
         assert "Segment 2" not in resource_text
         assert "## Segment" not in resource_text
-        assert call.get("require_segment_ref") is False

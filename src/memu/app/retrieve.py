@@ -28,7 +28,7 @@ class RetrieveMixin:
         _get_context: Callable[[], Context]
         _get_database: Callable[[], Database]
         _ensure_categories_ready: Callable[[Context, Database], Awaitable[None]]
-        _get_step_llm_client: Callable[[Mapping[str, Any] | None], Any]
+        _get_step_llm_client: Callable[..., Any]
         _get_step_embedding_client: Callable[[Mapping[str, Any] | None], Any]
         _get_llm_client: Callable[..., Any]
         _model_dump_without_embeddings: Callable[[BaseModel], dict[str, Any]]

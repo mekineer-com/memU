@@ -125,6 +125,25 @@ async def test_extraction_double_garbage_dumps_files_and_snippet(
 
 
 @pytest.mark.asyncio
+async def test_extraction_dump_failure_does_not_mask_parse_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = _service()
+    monkeypatch.setattr(service, "_format_soul_context_for_prompt", lambda *a, **kw: "")
+    monkeypatch.setattr(service.fs, "base", None)
+    stub = _ExtractionStub(first=_GARBAGE, second=_GARBAGE)
+
+    with pytest.raises(ValueError, match="unparseable"):
+        await service._generate_entries_from_text(
+            resource_text="[Marcos] Something happened.",
+            store=None,  # type: ignore[arg-type]
+            memory_types=["social"],
+            categories_prompt_str="communication",
+            llm_client=stub,
+        )
+
+
+@pytest.mark.asyncio
 async def test_router_retry_succeeds_and_logs_error(caplog: pytest.LogCaptureFixture) -> None:
     """Router: garbage → valid JSON: retry succeeds, error logged."""
     service = _service()

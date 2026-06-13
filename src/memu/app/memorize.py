@@ -56,7 +56,6 @@ class StructuredMemoryEntry(NamedTuple):
     entities: list[dict[str, str]] | None = None
     speaker_id: str | None = None
     speaker_label: str | None = None
-    segment_ref: int | None = None
 
 
 class SpeakerRosterEntry(NamedTuple):
@@ -91,7 +90,7 @@ class MemorizeMixin:
         _run_workflow: Callable[..., Awaitable[WorkflowState]]
         _get_context: Callable[[], Context]
         _get_database: Callable[[], Database]
-        _get_step_llm_client: Callable[[Mapping[str, Any] | None], Any]
+        _get_step_llm_client: Callable[..., Any]
         _get_step_embedding_client: Callable[[Mapping[str, Any] | None], Any]
         _get_llm_client: Callable[..., Any]
         _model_dump_without_embeddings: Callable[[BaseModel], dict[str, Any]]
@@ -106,10 +105,6 @@ class MemorizeMixin:
     @staticmethod
     def _normalize_replaces_previous_fact(value: Any) -> str | None:
         return parsing._normalize_replaces_previous_fact(value)
-
-    @staticmethod
-    def _parse_segment_ref(value: Any) -> int | None:
-        return parsing._parse_segment_ref(value)
 
     @staticmethod
     def _hedge_summary_for_confidence(summary: str, confidence: float | None) -> str:
@@ -299,16 +294,16 @@ class MemorizeMixin:
 
         prepared: list[dict[str, Any]] = []
         routing_notes: list[str] = []
-        for segment_ref, segment_job in enumerate(segments, start=1):
+        for segment_number, segment_job in enumerate(segments, start=1):
             resource_url = str(segment_job.get("resource_url") or "").strip()
             if not resource_url:
-                msg = f"batch segment {segment_ref} missing resource_url"
+                msg = f"batch segment {segment_number} missing resource_url"
                 raise ValueError(msg)
 
             raw_text = segment_job.get("raw_text")
             segment_payload = segment_job.get("segment")
             if not isinstance(segment_payload, Mapping):
-                msg = f"batch segment {segment_ref} missing segment payload"
+                msg = f"batch segment {segment_number} missing segment payload"
                 raise ValueError(msg)
 
             text = segment_payload.get("text")
@@ -406,7 +401,7 @@ class MemorizeMixin:
                 if segment_summary:
                     episode_items = [{"title": "Story", "summary": segment_summary}]
                 if not segment_summary:
-                    routing_notes.append(f"segment {segment_ref}: context-only background, no summary generated")
+                    routing_notes.append(f"segment {segment_number}: context-only background, no summary generated")
             elif segment_text:
                 applicable_types, routed_summary, routed_items = await self._route_segment(
                     segment_text,
@@ -441,7 +436,6 @@ class MemorizeMixin:
                     segment_id = None
 
             prepared.append({
-                "segment_ref": segment_ref,
                 "resource_url": resource_url,
                 "local_path": str(segment_job.get("local_path") or resource_url),
                 "segment_raw_text": raw_text,
@@ -501,7 +495,6 @@ class MemorizeMixin:
                     default_source_message_ids=ep["message_indices"],
                     llm_client=extract_client,
                     target_items_by_type={mtype: target_per_segment},
-                    require_segment_ref=False,
                 )
                 ep["entries"].extend(type_entries)
                 if on_extraction_progress:
@@ -1325,12 +1318,15 @@ class MemorizeMixin:
 
     def _dump_unparseable_reply(self, reply: str, memory_type: str, attempt: int) -> None:
         import datetime
-        dump_dir = pathlib.Path(self.fs.base) / "extraction_dumps"
-        dump_dir.mkdir(parents=True, exist_ok=True)
-        ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%S")
-        dump_path = dump_dir / f"{ts}_{memory_type}_attempt{attempt}.txt"
-        dump_path.write_text(reply, encoding="utf-8")
-        logger.error("Unparseable extraction reply dumped to %s", dump_path)
+        try:
+            dump_dir = pathlib.Path(self.fs.base) / "extraction_dumps"
+            dump_dir.mkdir(parents=True, exist_ok=True)
+            ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%S")
+            dump_path = dump_dir / f"{ts}_{memory_type}_attempt{attempt}.txt"
+            dump_path.write_text(reply, encoding="utf-8")
+            logger.error("Unparseable extraction reply dumped to %s", dump_path)
+        except (OSError, TypeError, ValueError) as exc:
+            logger.error("Failed to dump unparseable extraction reply: %s", exc)
 
     async def _generate_entries_from_text(
         self,
@@ -1345,7 +1341,6 @@ class MemorizeMixin:
         default_source_message_ids: list[int] | None = None,
         llm_client: Any | None = None,
         target_items_by_type: Mapping[str, str] | None = None,
-        require_segment_ref: bool = False,
     ) -> list[StructuredMemoryEntry]:
         if not memory_types:
             return []
@@ -1390,7 +1385,6 @@ class MemorizeMixin:
             responses,
             default_source_message_ids=default_source_message_ids,
             speaker_roster=speaker_roster,
-            require_segment_ref=require_segment_ref,
         )
 
     @staticmethod
@@ -1410,7 +1404,6 @@ class MemorizeMixin:
         *,
         default_source_message_ids: list[int] | None = None,
         speaker_roster: Sequence[SpeakerRosterEntry] | None = None,
-        require_segment_ref: bool = False,
     ) -> list[StructuredMemoryEntry]:
         entries: list[StructuredMemoryEntry] = []
         for mtype, response in zip(memory_types, responses, strict=True):
@@ -1452,11 +1445,6 @@ class MemorizeMixin:
                 emotional_intensity = self._normalize_reflection_salience(entry.get("emotional_intensity"))
                 replaces_previous_fact = self._normalize_replaces_previous_fact(entry.get("replaces_previous_fact"))
                 entities = entry.get("entities")
-                segment_ref = self._parse_segment_ref(entry.get("segment_ref"))
-                if require_segment_ref and segment_ref is None:
-                    logger.warning("Dropped extracted item without valid segment_ref for memory_type=%s", mtype)
-                    continue
-
                 raw_cats = [c for c in (entry.get("categories", []) or []) if isinstance(c, str)]
                 cat_names = []
                 seen = set()
@@ -1479,7 +1467,6 @@ class MemorizeMixin:
                         entities,
                         parsed_speaker_id,
                         parsed_speaker_label,
-                        segment_ref,
                     )
                 )
         return self._prune_extracted_entry_duplicates(entries)
