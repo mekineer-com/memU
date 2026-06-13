@@ -7,7 +7,7 @@ import re
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from typing import Any
 
-from memu.utils.conversation import format_conversation_for_preprocess, format_speaker_message
+from memu.utils.conversation import conversation_message_indices, format_conversation_for_preprocess, format_speaker_message
 from memu.utils.video import VideoFrameExtractor
 
 logger = logging.getLogger(__name__)
@@ -230,40 +230,6 @@ def _compute_batch_max_items(total_message_count: int) -> int:
     return 6
 
 
-def _build_batch_extraction_text(
-    *,
-    segments: Sequence[Mapping[str, Any]],
-    parse_segment_ref: Callable[[Any], int | None],
-    dedupe_message_indices: Callable[[Sequence[int | float | str]], list[int]],
-) -> str:
-    sections: list[str] = []
-    summaries: list[str] = []
-    for segment in segments:
-        segment_ref = parse_segment_ref(segment.get("segment_ref"))
-        if segment_ref is None:
-            continue
-        segment_text = str(segment.get("text") or "").strip()
-        if not segment_text:
-            continue
-        message_indices = dedupe_message_indices(segment.get("message_indices"))
-        if message_indices:
-            heading = f"## Segment {segment_ref} (messages {message_indices[0]}-{message_indices[-1]})"
-        else:
-            heading = f"## Segment {segment_ref}"
-        sections.append(heading)
-        sections.append(segment_text)
-        segment_summary = (
-            str(segment.get("segment_summary") or "").strip()
-            or str(segment.get("caption") or "").strip()
-        )
-        if segment_summary:
-            summaries.append(f"Segment {segment_ref}: {segment_summary}")
-    if summaries:
-        sections.append("## Segment Summaries")
-        sections.extend(summaries)
-    return "\n\n".join(section for section in sections if section).strip()
-
-
 def _message_is_primary_for_memorize(message: Mapping[str, Any]) -> bool:
     flag = message.get("memorize_chat")
     if isinstance(flag, bool):
@@ -280,29 +246,21 @@ def _message_index_for_sort(message: Mapping[str, Any]) -> int:
 
 
 def _format_episode_message_line(message: Mapping[str, Any], *, soul_name: str | None = None) -> str:
-    idx = _message_index_for_sort(message)
-    source = str(message.get("source_label") or "").strip()
-    source_prefix = f"[{source}] " if source else ""
-    speaker_message = format_speaker_message(
+    return format_speaker_message(
         message,
         soul_name=soul_name,
         default_role="user",
-        separator=": ",
     )
-    return f"[{max(0, idx)}] {source_prefix}{speaker_message}"
 
 
 def _summary_row_lines(row: Mapping[str, Any]) -> list[str]:
-    label = str(row.get("source_label") or "background").strip() or "background"
     summary = str(row.get("summary") or "").strip()
     if not summary:
         return []
     if "\n" not in summary:
-        return [f"[Background:{label}] {summary}"]
+        return [summary]
     lines = [line.strip() for line in summary.splitlines() if line.strip()]
-    if not lines:
-        return [f"[Background:{label}]"]
-    return [f"[Background:{label}]", *lines]
+    return lines
 
 
 async def _summarize_background_messages(
@@ -480,7 +438,7 @@ async def _render_episode_with_background_context(
             if not summary:
                 msg = f"missing background summary for source '{source_key}'"
                 raise ValueError(msg)
-            summary_lines = [f"[Background:{str(group_msgs[0].get('source_label') or source_key).strip() or source_key}] {summary}"]
+            summary_lines = [summary]
         else:
             summary_lines = [
                 _format_episode_message_line(msg, soul_name=soul_name)
@@ -583,6 +541,8 @@ def _prepare_episode(
     if not segment_text.strip():
         segment_text = text.strip()
     indices = extract_message_indices(segment_text)
+    if not indices:
+        indices = conversation_message_indices(text)
     return segment_text, indices
 
 

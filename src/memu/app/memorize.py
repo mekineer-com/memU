@@ -467,69 +467,45 @@ class MemorizeMixin:
         ]
         routed_total = len(extractable)
         if extractable:
-            type_counts = {mtype: 0 for mtype in memory_types}
-            for ep in extractable:
-                routed = set(ep["applicable_types"])
-                for mtype in memory_types:
-                    if mtype in routed:
-                        type_counts[mtype] += 1
-
             total_messages = sum(len(ep["message_indices"]) for ep in extractable)
             max_items = self._compute_batch_max_items(total_messages)
-            target_by_type = {
-                mtype: f"up to {max(1, round(max_items * (type_counts[mtype] / routed_total)))}"
+            target_per_segment = f"up to {max(1, round(max_items / max(1, routed_total)))}"
+            extraction_jobs = [
+                (ep, mtype)
+                for ep in extractable
                 for mtype in memory_types
-                if type_counts[mtype] > 0
-            }
-
-            conversation_text = self._build_batch_extraction_text(extractable)
-
-            merged_speaker_map: dict[int, tuple[str, str]] = {}
-            for ep in extractable:
-                sm = ep.get("speaker_map")
-                if isinstance(sm, dict):
-                    merged_speaker_map.update(sm)
-            batch_speaker_roster = self._build_speaker_roster_for_segment(
-                speaker_map=merged_speaker_map,
-                declared_entities=declared_entity_roster,
-                segment_text=conversation_text,
-            )
-            estimated_tokens = self._estimate_text_tokens(conversation_text)
-            if estimated_tokens > 100000:
-                logger.warning(
-                    "batch extraction prompt estimated at %d tokens (>100000) for %d segments",
-                    estimated_tokens,
-                    routed_total,
+                if mtype in set(ep["applicable_types"])
+            ]
+            for i, (ep, mtype) in enumerate(extraction_jobs):
+                segment_text = str(ep.get("text") or "").strip()
+                speaker_map = ep.get("speaker_map") if isinstance(ep.get("speaker_map"), dict) else {}
+                speaker_roster = self._build_speaker_roster_for_segment(
+                    speaker_map=speaker_map,
+                    declared_entities=declared_entity_roster,
+                    segment_text=segment_text,
                 )
-
-            applicable_types = [mt for mt in memory_types if type_counts.get(mt, 0) >= 1]
-            for i, mtype in enumerate(applicable_types):
+                estimated_tokens = self._estimate_text_tokens(segment_text)
+                if estimated_tokens > 100000:
+                    logger.warning(
+                        "segment extraction prompt estimated at %d tokens (>100000)",
+                        estimated_tokens,
+                    )
                 type_entries = await self._generate_entries_from_text(
-                    resource_text=conversation_text,
+                    resource_text=segment_text,
                     store=store,
                     memory_types=[mtype],
                     categories_prompt_str=self._category_prompt_str,
                     all_categories_summary=(all_categories_summary or "").strip() or None,
                     soul_card=(soul_card or "").strip() or None,
-                    speaker_roster=batch_speaker_roster,
-                    default_source_message_ids=None,
+                    speaker_roster=speaker_roster,
+                    default_source_message_ids=ep["message_indices"],
                     llm_client=extract_client,
-                    target_items_by_type={mtype: target_by_type[mtype]},
-                    require_segment_ref=True,
+                    target_items_by_type={mtype: target_per_segment},
+                    require_segment_ref=False,
                 )
-                for entry in type_entries:
-                    if entry.segment_ref is None:
-                        continue
-                    if 1 <= entry.segment_ref <= len(prepared):
-                        prepared[entry.segment_ref - 1]["entries"].append(entry)
-                    else:
-                        logger.warning(
-                            "Dropped extracted item with out-of-range segment_ref=%s (max=%s)",
-                            entry.segment_ref,
-                            len(prepared),
-                        )
+                ep["entries"].extend(type_entries)
                 if on_extraction_progress:
-                    on_extraction_progress(i + 1, len(applicable_types))
+                    on_extraction_progress(i + 1, len(extraction_jobs))
 
         responses: list[dict[str, Any]] = []
         for ep in prepared:
@@ -1829,13 +1805,6 @@ class MemorizeMixin:
     @staticmethod
     def _compute_batch_max_items(total_message_count: int) -> int:
         return segment_helpers._compute_batch_max_items(total_message_count)
-
-    def _build_batch_extraction_text(self, segments: Sequence[Mapping[str, Any]]) -> str:
-        return segment_helpers._build_batch_extraction_text(
-            segments=segments,
-            parse_segment_ref=self._parse_segment_ref,
-            dedupe_message_indices=self._dedupe_message_indices,
-        )
 
     @staticmethod
     def _message_is_primary_for_memorize(message: Mapping[str, Any]) -> bool:

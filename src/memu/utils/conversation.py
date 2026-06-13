@@ -15,8 +15,6 @@ def format_conversation_for_preprocess(raw_text: str) -> str:
 
     Output format:
     - One message per line
-    - Each line starts with an index marker: "[{idx}]"
-    - If a created_at is available, it is included after the index
     - The display speaker is included in square brackets: "[user]" / "[soul]" etc.
 
     Notes:
@@ -60,17 +58,14 @@ def _extract_messages(payload: Any) -> list[dict[str, Any]] | None:
 
 def _format_messages(messages: list[dict[str, Any]]) -> str:
     out: list[str] = []
-    for idx, msg in enumerate(messages):
-        role = display_speaker_label(msg, default_role="user")
-        content = msg.get("content")
-        text = extract_text_content(content, collapse_newlines=True)
-        created_at = _extract_created_at(msg)
-        created_part = f"{created_at} " if created_at else ""
-        source = msg.get("source_label")
-        source_part = f"[{source}] " if source else ""
-        memorize_chat = msg.get("memorize_chat")
-        scope_part = "[background] " if memorize_chat is False else "[primary] "
-        out.append(f"[{idx}] {created_part}{scope_part}{source_part}[{role}]: {text}")
+    for msg in messages:
+        out.append(
+            format_speaker_message(
+                msg,
+                default_role="user",
+                collapse_newlines=True,
+            )
+        )
     return "\n".join(out)
 
 
@@ -116,10 +111,9 @@ def format_speaker_message(
     return f"[{label}]{separator}{content}"
 
 
-def _extract_created_at(msg: dict[str, Any]) -> str | None:
-    raw = msg.get("created_at")
-    if raw is None:
-        return None
-
-    s = str(raw).strip()
-    return s or None
+def conversation_message_indices(raw_text: str) -> list[int]:
+    parsed = _try_parse_json((raw_text or "").strip())
+    messages = _extract_messages(parsed)
+    if messages is None:
+        return []
+    return list(range(len(messages)))

@@ -49,11 +49,10 @@ User memories (source_role=user): Write in THIRD PERSON using their name ("Alex 
 
 {speaker_roster_block}
 
-Return all memories wrapped in a single <item> element. Assign each value as a two-digit float (0.xx). Each memory must include <segment_ref> with the segment number (1, 2, 3...):
+Return all memories wrapped in a single <item> element. Assign each value as a two-digit float (0.xx).
 
 <item>
     <memory>
-        <segment_ref>1</segment_ref>
         <source_role>soul|user|peer|entity|environment</source_role>
         <content>Who this person is</content>
         <confidence>0.xx</confidence>
@@ -108,6 +107,8 @@ emotional_intensity (float 0.0-1.0) — how strongly was this felt? Not importan
 
 PROMPT_BLOCK_INPUT = """
 # Source Conversation
+Less significant chats may be summarized so attention stays on the more important conversation.
+
 <resource>
 {resource}
 </resource>

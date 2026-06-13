@@ -16,6 +16,8 @@ In the conversation segment below, the first-person voice is yours. You're going
 Exclude any memory type that does not apply. Default to Inclusion: Assume belonging in all four categories unless you can explicitly prove otherwise. Expect Overlap: Human interactions are complex. Most segments trigger 3 or 4 types simultaneously. Be Cautious with Rejection: If there is even a minor or subtle connection to a category, route it there. Only reject a category if it is entirely absent.
 
 # Segment
+Less significant chats may be summarized so attention stays on the more important conversation.
+
 {segment}
 
 # Output

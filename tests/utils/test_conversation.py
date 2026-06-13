@@ -25,21 +25,21 @@ class TestFormatConversationForPreprocess:
                     {"role": "user", "content": "Hello world", "created_at": "2023-10-27T10:00:00"},
                     {"role": "assistant", "content": "Hello! How can I help?", "created_at": "2023-10-27T10:00:05"},
                 ]),
-                "[0] 2023-10-27T10:00:00 [primary] [user]: Hello world\n[1] 2023-10-27T10:00:05 [primary] [soul]: Hello! How can I help?",
+                "[user] Hello world\n[soul] Hello! How can I help?",
             ),
             # Happy Path: Dict wrapper with 'content' key
-            (json.dumps({"content": [{"role": "user", "content": "Wrapper test"}]}), "[0] [primary] [user]: Wrapper test"),
+            (json.dumps({"content": [{"role": "user", "content": "Wrapper test"}]}), "[user] Wrapper test"),
             # Happy Path: Missing optional fields (role defaults to user, created_at omitted)
-            (json.dumps([{"content": "Just text"}]), "[0] [primary] [user]: Just text"),
+            (json.dumps([{"content": "Just text"}]), "[user] Just text"),
             # Happy Path: Multiline content should be collapsed
             (
                 json.dumps([{"role": "system", "content": "Line 1\nLine 2\nLine 3"}]),
-                "[0] [primary] [system]: Line 1 Line 2 Line 3",
+                "[system] Line 1 Line 2 Line 3",
             ),
             # Happy Path: Content is None/Null
-            (json.dumps([{"role": "user", "content": None}]), "[0] [primary] [user]: "),
+            (json.dumps([{"role": "user", "content": None}]), "[user] "),
             # Happy Path: Content is a dict with 'text'
-            (json.dumps([{"role": "user", "content": {"text": "Rich content"}}]), "[0] [primary] [user]: Rich content"),
+            (json.dumps([{"role": "user", "content": {"text": "Rich content"}}]), "[user] Rich content"),
         ],
     )
     def test_happy_path_valid_formats(self, input_json: str, expected_output: str) -> None:

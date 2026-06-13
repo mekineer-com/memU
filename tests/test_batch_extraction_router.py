@@ -102,7 +102,7 @@ def test_parse_memory_type_response_xml_returns_empty_for_valid_xml_no_memories(
 
 
 @pytest.mark.asyncio
-async def test_memorize_segments_batch_passes_merged_speaker_roster_with_declared_entities(
+async def test_memorize_segments_batch_passes_segment_speaker_rosters_without_segment_headings(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     service = _service()
@@ -135,11 +135,14 @@ async def test_memorize_segments_batch_passes_merged_speaker_roster_with_declare
         return state
 
     declared_roster = [SpeakerRosterEntry("entity:nicholas", "Nicholas", "entity")]
-    captured: dict[str, object] = {}
+    captured: list[dict[str, object]] = []
 
     async def _capture_generate_entries_from_text(**kwargs):
-        captured["speaker_roster"] = kwargs.get("speaker_roster")
-        captured["resource_text"] = kwargs.get("resource_text")
+        captured.append({
+            "speaker_roster": kwargs.get("speaker_roster"),
+            "resource_text": kwargs.get("resource_text"),
+            "require_segment_ref": kwargs.get("require_segment_ref"),
+        })
         return []
 
     monkeypatch.setattr(service, "_ensure_categories_ready", _noop_ensure_categories_ready)
@@ -190,15 +193,18 @@ async def test_memorize_segments_batch_passes_merged_speaker_roster_with_declare
         conversation_id="conv-1",
     )
 
-    roster = captured.get("speaker_roster")
-    assert roster is not None
-    speaker_ids = {entry.speaker_id for entry in roster}
-    assert "entity:alice" in speaker_ids
-    assert "entity:bob" in speaker_ids
-    assert "entity:nicholas" in speaker_ids
-    assert "user:marcos" in speaker_ids
-    assert "soul:echo" in speaker_ids
-
-    resource_text = str(captured.get("resource_text") or "")
-    assert "Segment 1" in resource_text
-    assert "Segment 2" in resource_text
+    assert len(captured) == 2
+    first_roster = captured[0]["speaker_roster"]
+    second_roster = captured[1]["speaker_roster"]
+    assert first_roster is not None
+    assert second_roster is not None
+    first_speaker_ids = {entry.speaker_id for entry in first_roster}
+    second_speaker_ids = {entry.speaker_id for entry in second_roster}
+    assert {"entity:alice", "entity:nicholas", "user:marcos"} <= first_speaker_ids
+    assert {"entity:bob", "entity:nicholas", "soul:echo"} <= second_speaker_ids
+    for call in captured:
+        resource_text = str(call.get("resource_text") or "")
+        assert "Segment 1" not in resource_text
+        assert "Segment 2" not in resource_text
+        assert "## Segment" not in resource_text
+        assert call.get("require_segment_ref") is False
