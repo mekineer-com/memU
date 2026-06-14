@@ -359,6 +359,8 @@ class MemorizeMixin:
                             "after_index": after_index,
                             "summary": summary,
                             "source_label": str(row.get("source_label") or "background"),
+                            "source_conversation_id": str(row.get("source_conversation_id") or ""),
+                            "kind": str(row.get("kind") or "summary"),
                         }
                     )
 
@@ -370,6 +372,7 @@ class MemorizeMixin:
                         background_messages=background_messages,
                         llm_client=extract_client,
                         soul_name=soul_name,
+                        current_conversation_id=conversation_id or self._resolve_conversation_id(user),
                     )
                     seeded_rows.extend(tail_rows)
                 background_summaries = seeded_rows
@@ -377,6 +380,7 @@ class MemorizeMixin:
                     primary_messages=primary_messages,
                     summary_rows=background_summaries,
                     soul_name=soul_name,
+                    current_conversation_id=conversation_id or self._resolve_conversation_id(user),
                 )
             else:
                 rendered_text, background_summaries = await self._render_episode_with_background_context(
@@ -384,6 +388,7 @@ class MemorizeMixin:
                     background_messages=background_messages,
                     llm_client=extract_client,
                     soul_name=soul_name,
+                    current_conversation_id=conversation_id or self._resolve_conversation_id(user),
                 )
             segment_text = rendered_text or (str(text).strip() if isinstance(text, str) else "")
             context_only = bool(segment_messages_all) and not primary_messages
@@ -397,6 +402,8 @@ class MemorizeMixin:
                     segment_summary = await self._summarize_background_messages(
                         messages=background_messages or segment_messages_all,
                         llm_client=extract_client,
+                        soul_name=soul_name,
+                        current_conversation_id=conversation_id or self._resolve_conversation_id(user),
                     )
                 if segment_summary:
                     episode_items = [{"title": "Story", "summary": segment_summary}]
@@ -1801,22 +1808,20 @@ class MemorizeMixin:
     def _message_index_for_sort(message: Mapping[str, Any]) -> int:
         return segment_helpers._message_index_for_sort(message)
 
-    @staticmethod
-    def _format_episode_message_line(message: Mapping[str, Any], *, soul_name: str | None = None) -> str:
-        return segment_helpers._format_episode_message_line(message, soul_name=soul_name)
-
     async def _summarize_background_messages(
         self,
         *,
         messages: Sequence[Mapping[str, Any]],
         llm_client: Any | None = None,
         soul_name: str | None = None,
+        current_conversation_id: str | None = None,
     ) -> str | None:
         return await segment_helpers._summarize_background_messages(
             messages=messages,
             llm_client=llm_client,
             summarize_segment=self._summarize_segment,
             soul_name=soul_name,
+            current_conversation_id=current_conversation_id,
         )
 
     async def summarize_background_chat_rollup(
@@ -1826,6 +1831,7 @@ class MemorizeMixin:
         messages: Sequence[Mapping[str, Any]],
         llm_client: Any | None = None,
         soul_name: str | None = None,
+        current_conversation_id: str | None = None,
     ) -> str:
         return await segment_helpers._summarize_background_rollup(
             prior_summary=prior_summary,
@@ -1833,6 +1839,7 @@ class MemorizeMixin:
             llm_client=llm_client,
             get_llm_client=self._get_llm_client,
             soul_name=soul_name,
+            current_conversation_id=current_conversation_id,
         )
 
     async def _summarize_background_groups_batched(
@@ -1859,6 +1866,7 @@ class MemorizeMixin:
         background_messages: Sequence[Mapping[str, Any]],
         llm_client: Any | None = None,
         soul_name: str | None = None,
+        current_conversation_id: str | None = None,
     ) -> tuple[str, list[dict[str, Any]]]:
         return await segment_helpers._render_episode_with_background_context(
             primary_messages=primary_messages,
@@ -1867,6 +1875,7 @@ class MemorizeMixin:
             summarize_background_groups_batched=self._summarize_background_groups_batched,
             memorize_config=self.memorize_config,
             soul_name=soul_name,
+            current_conversation_id=current_conversation_id,
         )
 
     def _render_episode_with_summary_rows(
@@ -1875,11 +1884,13 @@ class MemorizeMixin:
         primary_messages: Sequence[Mapping[str, Any]],
         summary_rows: Sequence[Mapping[str, Any]],
         soul_name: str | None = None,
+        current_conversation_id: str | None = None,
     ) -> str:
         return segment_helpers._render_episode_with_summary_rows(
             primary_messages=primary_messages,
             summary_rows=summary_rows,
             soul_name=soul_name,
+            current_conversation_id=current_conversation_id,
         )
 
     @staticmethod

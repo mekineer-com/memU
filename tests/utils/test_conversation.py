@@ -2,7 +2,11 @@ import json
 
 import pytest
 
-from memu.utils.conversation import display_speaker_label, format_conversation_for_preprocess  # type: ignore[import-untyped]
+from memu.utils.conversation import (
+    display_speaker_label,
+    format_conversation_for_preprocess,
+    render_chat_messages,
+)  # type: ignore[import-untyped]
 
 
 class TestFormatConversationForPreprocess:
@@ -96,3 +100,23 @@ def test_display_speaker_label_uses_soul_name_for_assistant_role() -> None:
     assert display_speaker_label({"role": "assistant"}) == "soul"
     assert display_speaker_label({"role": "assistant", "name": "Echo"}, soul_name="Siri") == "Echo"
     assert display_speaker_label({"role": "user", "speaker": "Raquel"}) == "Raquel"
+
+
+def test_render_chat_messages_adds_time_labels_and_uses_space_separator() -> None:
+    rendered = render_chat_messages(
+        [
+            {"role": "user", "name": "Marcos", "content": "First", "ts": "today"},
+            {"role": "assistant", "content": "Second", "ts": "today"},
+            {"role": "user", "name": "Raquel", "content": "Third", "ts": "yesterday"},
+        ],
+        soul_name="Siri",
+        time_label_resolver=lambda row: str(row.get("ts") or ""),
+        blank_line_before_time_label=True,
+    )
+
+    assert "--- today ---" in rendered
+    assert "--- yesterday ---" in rendered
+    assert "[Marcos] First" in rendered
+    assert "[Siri] Second" in rendered
+    assert "[Raquel] Third" in rendered
+    assert "[Marcos]: First" not in rendered

@@ -34,7 +34,16 @@ async def test_summarize_background_groups_batched_parses_contract() -> None:
 @pytest.mark.asyncio
 async def test_render_episode_with_background_context_uses_raw_lines_below_floor() -> None:
     primary_messages = [{"_message_index": 2, "role": "user", "name": "Marcos", "content": "primary"}]
-    background_messages = [{"_message_index": 1, "role": "user", "name": "N", "content": "small", "source_label": "whatsapp:dm"}]
+    background_messages = [
+        {
+            "_message_index": 1,
+            "role": "user",
+            "name": "N",
+            "content": "small",
+            "source_label": "whatsapp:dm",
+            "source_conversation_id": "whatsapp:dm:n",
+        }
+    ]
 
     async def _batch(**_kwargs):
         raise AssertionError("batch should not run when below floor")
@@ -45,12 +54,18 @@ async def test_render_episode_with_background_context_uses_raw_lines_below_floor
         llm_client=None,
         summarize_background_groups_batched=_batch,
         memorize_config=SimpleNamespace(background_extra_messages_tokens=9999),
+        current_conversation_id="sillytavern:siri",
     )
+    assert "My SillyTavern Conversations:" in rendered
+    assert "[dm][siri] \u2190 current chat" in rendered
+    assert "Background chat (whatsapp:dm):" in rendered
+    assert "[dm][n]" in rendered
     assert "[Background:whatsapp:dm]" not in rendered
     assert "[whatsapp:dm]" not in rendered
     assert "[N] small" in rendered
     assert "[Marcos] primary" in rendered
     assert rows and "small" in str(rows[0].get("summary") or "")
+    assert rows[0].get("kind") == "chat"
 
 
 @pytest.mark.asyncio
@@ -68,12 +83,15 @@ async def test_render_episode_with_background_context_uses_soul_name_for_assista
         summarize_background_groups_batched=_batch,
         memorize_config=SimpleNamespace(background_extra_messages_tokens=9999),
         soul_name="Siri",
+        current_conversation_id="sillytavern:siri",
     )
+    assert "[dm][siri] \u2190 current chat" in rendered
     assert "[Siri] primary" in rendered
     assert "[Siri] small" in rendered
     assert "[whatsapp:dm]" not in rendered
     assert "[assistant]" not in rendered
     assert rows and "[Siri] small" in str(rows[0].get("summary") or "")
+    assert rows[0].get("kind") == "chat"
 
 
 @pytest.mark.asyncio
@@ -93,11 +111,14 @@ async def test_render_episode_with_background_context_uses_batch_summary_when_ab
         llm_client=None,
         summarize_background_groups_batched=_batch,
         memorize_config=SimpleNamespace(background_extra_messages_tokens=0),
+        current_conversation_id="sillytavern:siri",
     )
+    assert "Background summary (whatsapp:dm):" in rendered
     assert "summary one" in rendered
     assert "summary two" in rendered
     assert "[Background:" not in rendered
     assert len(rows) == 2
+    assert {row.get("kind") for row in rows} == {"summary"}
 
 
 @pytest.mark.asyncio
