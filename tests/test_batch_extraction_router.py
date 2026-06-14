@@ -1,4 +1,5 @@
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -35,6 +36,60 @@ async def test_route_segment_uses_excluded_types_model() -> None:
     assert routed == ["profile", "behavior"]
     assert summary == "S"
     assert items == [{"title": "Story", "summary": "I"}]
+
+
+@pytest.mark.asyncio
+async def test_persist_plan_uses_internal_segment_summary_for_episode_item_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = _service()
+    created_items: list[dict[str, object]] = []
+
+    async def _resource(**_kwargs):
+        return SimpleNamespace(id="res1", embedding=[0.1])
+
+    class _MemoryItemRepo:
+        def create_item(self, **kwargs):
+            created_items.append(kwargs)
+            return SimpleNamespace(id="episode1", summary=kwargs["summary"])
+
+    class _CategoryItemRepo:
+        def link_item_category(self, **_kwargs):
+            return SimpleNamespace()
+
+    monkeypatch.setattr(service, "_create_resource_with_caption", _resource)
+    monkeypatch.setattr(service, "_map_category_names_to_ids", lambda _names, _ctx: ["experiences"])
+
+    await service._process_plan(
+        {
+            "resource_url": "memory://episode",
+            "text": "conversation",
+            "caption": None,
+            "segment_summary": "Router summary",
+            "episode_items": [],
+            "entries": [],
+            "message_happened_at_map": {},
+            "segment_id": "chat:0-1",
+            "segment_messages": [],
+        },
+        modality="conversation",
+        local_path=None,
+        ctx=SimpleNamespace(),
+        store=SimpleNamespace(
+            memory_item_repo=_MemoryItemRepo(),
+            category_item_repo=_CategoryItemRepo(),
+        ),
+        embed_client=SimpleNamespace(),
+        user_scope={},
+        conversation_id="chat",
+        items=[],
+        relations=[],
+        category_updates={},
+        pending_segment_ids=[],
+    )
+
+    assert created_items
+    assert created_items[0]["summary"] == "Story: Router summary"
 
 
 @pytest.mark.asyncio

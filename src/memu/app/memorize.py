@@ -958,7 +958,7 @@ class MemorizeMixin:
             **kwargs,
         )
 
-        segment_summary_text = str(plan.get("episode_summary") or "").strip()
+        segment_summary_text = str(plan.get("segment_summary") or "").strip()
         raw_episode_items = plan.get("episode_items")
         episode_items: list[dict[str, str]] = []
         if isinstance(raw_episode_items, list):

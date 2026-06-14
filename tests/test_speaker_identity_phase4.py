@@ -67,8 +67,8 @@ def test_ambiguous_segment_attaches_roster_and_accepts_valid_speaker_ref(service
         soul_context_str="## Relationships\nKnown context.",
         speaker_roster=roster,
     )
-    assert "Speaker Roster (ambiguous segment fallback)" in prompt
-    assert "Allowed source_role schema for this segment: <source_role>user|soul|peer|entity|environment</source_role>." in prompt
+    assert "Speaker Roster (ambiguous episode fallback)" in prompt
+    assert "Allowed source_role schema for this episode: <source_role>user|soul|peer|entity|environment</source_role>." in prompt
     assert "Only emit <speaker_ref> if the speaker is in this roster. Never invent a slug." in prompt
     assert "- entity:alice | label=Alice | role=entity" in prompt
     assert "- entity:bob | label=Bob | role=entity" in prompt
