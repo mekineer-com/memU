@@ -346,17 +346,8 @@ class MemorizeMixin:
                     summary = str(row.get("summary") or "").strip()
                     if not summary:
                         continue
-                    after_raw = row.get("after_index")
-                    if after_raw is None:
-                        after_index = None
-                    else:
-                        try:
-                            after_index = int(after_raw)
-                        except (TypeError, ValueError):
-                            continue
                     preprocessor_rows.append(
                         {
-                            "after_index": after_index,
                             "summary": summary,
                             "source_label": str(row.get("source_label") or "background"),
                         }

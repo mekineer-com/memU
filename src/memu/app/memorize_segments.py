@@ -490,17 +490,8 @@ async def _render_episode_with_background_context(
             if not summary_lines:
                 continue
         source_label = str(group_msgs[0].get("source_label") or source_key).strip() or source_key
-        first_idx = _message_index_for_sort(group_msgs[0])
-        after_index = None
-        for primary in prim:
-            pidx = _message_index_for_sort(primary)
-            if pidx <= first_idx:
-                after_index = pidx
-            else:
-                break
         summary_rows.append(
             {
-                "after_index": after_index,
                 "summary": "\n".join(summary_lines),
                 "source_label": source_label,
             }
