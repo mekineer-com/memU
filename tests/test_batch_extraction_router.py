@@ -93,6 +93,53 @@ async def test_persist_plan_uses_internal_segment_summary_for_episode_item_fallb
 
 
 @pytest.mark.asyncio
+async def test_persist_plan_keeps_segment_local_path_without_flattened_copy(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    service = _service()
+    service.fs.base = tmp_path / "resources"
+    local_path = tmp_path / "st_chats" / "chat" / "segments" / "2026-01-01.json"
+    local_path.parent.mkdir(parents=True)
+    local_path.write_text("[]", encoding="utf-8")
+    captured: dict[str, object] = {}
+
+    async def _resource(**kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(id="res1", embedding=None)
+
+    monkeypatch.setattr(service, "_create_resource_with_caption", _resource)
+
+    await service._process_plan(
+        {
+            "resource_url": str(local_path),
+            "text": "conversation",
+            "caption": None,
+            "segment_summary": None,
+            "episode_items": [],
+            "entries": [],
+            "message_happened_at_map": {},
+            "segment_id": "chat:0-1",
+            "segment_messages": [{"role": "user", "content": "primary"}],
+        },
+        modality="conversation",
+        local_path=str(local_path),
+        ctx=SimpleNamespace(),
+        store=SimpleNamespace(),
+        embed_client=SimpleNamespace(),
+        user_scope={},
+        conversation_id="chat",
+        items=[],
+        relations=[],
+        category_updates={},
+        pending_segment_ids=[],
+    )
+
+    assert captured["local_path"] == str(local_path)
+    assert not (service.fs.base / "2026-01-01.jsonl").exists()
+
+
+@pytest.mark.asyncio
 async def test_route_segment_raises_on_unparseable_router_response() -> None:
     service = _service()
     client = _RouterStub("not-json-and-no-json-blob")

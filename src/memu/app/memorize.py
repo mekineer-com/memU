@@ -930,14 +930,9 @@ class MemorizeMixin:
         if session is not None:
             kwargs["session"] = session
 
-        episode_local_path = local_path
+        episode_local_path = local_path or str(plan["resource_url"])
         segment_messages = plan.get("segment_messages") or []
-        if segment_messages:
-            episode_file = pathlib.Path(self.fs.base) / f"{pathlib.Path(plan['resource_url']).stem}.jsonl"
-            lines = [json.dumps(msg, ensure_ascii=False) for msg in segment_messages]
-            episode_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
-            episode_local_path = str(episode_file)
-        elif isinstance(plan.get("text"), str) and plan["text"].strip():
+        if not segment_messages and isinstance(plan.get("text"), str) and plan["text"].strip():
             episode_file = pathlib.Path(self.fs.base) / f"{pathlib.Path(plan['resource_url']).stem}.txt"
             episode_file.write_text(plan["text"], encoding="utf-8")
             episode_local_path = str(episode_file)
