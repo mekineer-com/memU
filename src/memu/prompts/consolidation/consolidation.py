@@ -159,7 +159,6 @@ USER_PROMPT = """
 # Memories that surfaced this week
 {retrieved_memories}
 
-# My conversations
 {conversation_history}
 
 # Conversation and related memories
