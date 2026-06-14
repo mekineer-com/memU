@@ -264,6 +264,12 @@ class MemoryService(MemorizeMixin, RetrieveMixin):
         resolved = self._llm_profile_from_context(step_context, task="chat") or profile or "default"
         return self._get_llm_client(resolved, step_context=step_context)
 
+    def _with_llm_step(self, client: Any, *, operation: str, step_id: str) -> Any:
+        with_metadata = getattr(client, "with_metadata", None)
+        if callable(with_metadata):
+            return with_metadata(operation=operation, step_id=step_id)
+        return client
+
     def _get_step_embedding_client(self, step_context: Mapping[str, Any] | None) -> Any:
         profile = self._llm_profile_from_context(step_context, task="embedding") or "embedding"
         return self._get_llm_client(profile, step_context=step_context)

@@ -368,7 +368,11 @@ class MemorizeMixin:
                     _rendered_with_tail, tail_rows = await self._render_episode_with_background_context(
                         primary_messages=primary_messages,
                         background_messages=background_messages,
-                        llm_client=extract_client,
+                        llm_client=self._with_llm_step(
+                            extract_client,
+                            operation="memorize",
+                            step_id="background_summary",
+                        ),
                         soul_name=soul_name,
                     )
                     seeded_rows.extend(tail_rows)
@@ -382,7 +386,11 @@ class MemorizeMixin:
                 rendered_text, background_summaries = await self._render_episode_with_background_context(
                     primary_messages=primary_messages,
                     background_messages=background_messages,
-                    llm_client=extract_client,
+                    llm_client=self._with_llm_step(
+                        extract_client,
+                        operation="memorize",
+                        step_id="background_summary",
+                    ),
                     soul_name=soul_name,
                 )
             segment_text = rendered_text or (str(text).strip() if isinstance(text, str) else "")
@@ -396,7 +404,11 @@ class MemorizeMixin:
                 if not segment_summary:
                     segment_summary = await self._summarize_background_messages(
                         messages=background_messages or segment_messages_all,
-                        llm_client=extract_client,
+                        llm_client=self._with_llm_step(
+                            extract_client,
+                            operation="memorize",
+                            step_id="background_summary",
+                        ),
                     )
                 if segment_summary:
                     episode_items = [{"title": "Story", "summary": segment_summary}]
@@ -406,7 +418,11 @@ class MemorizeMixin:
                 applicable_types, routed_summary, routed_items = await self._route_segment(
                     segment_text,
                     memory_types,
-                    extract_client,
+                    self._with_llm_step(
+                        extract_client,
+                        operation="memorize",
+                        step_id="router",
+                    ),
                     soul_card=(soul_card or "").strip() or None,
                     skipped_reasons=routing_notes,
                 )
@@ -493,7 +509,11 @@ class MemorizeMixin:
                     soul_card=(soul_card or "").strip() or None,
                     speaker_roster=speaker_roster,
                     default_source_message_ids=ep["message_indices"],
-                    llm_client=extract_client,
+                    llm_client=self._with_llm_step(
+                        extract_client,
+                        operation="memorize",
+                        step_id=f"extract_{mtype}",
+                    ),
                     target_items_by_type={mtype: target_per_segment},
                 )
                 ep["entries"].extend(type_entries)
@@ -810,7 +830,10 @@ class MemorizeMixin:
                 step_context,
                 semantic_dedupe_enabled=self.memorize_config.semantic_dedupe_enabled,
                 semantic_dedupe_similarity_threshold=self.memorize_config.semantic_dedupe_similarity_threshold,
-                get_llm_client=self._get_llm_client,
+                get_llm_client=lambda profile=None: self._get_step_llm_client(
+                    {"operation": "memorize", "step_id": "dynamic_category_planner"},
+                    profile=profile,
+                ),
             ),
         )
 
@@ -1098,7 +1121,11 @@ class MemorizeMixin:
             state.get("category_updates", {}),
             ctx=state["ctx"],
             store=state["store"],
-            llm_client=llm_client,
+            llm_client=self._with_llm_step(
+                llm_client,
+                operation="memorize",
+                step_id="category_summary",
+            ),
             user=state.get("user"),
         )
         if self.memorize_config.enable_item_references:

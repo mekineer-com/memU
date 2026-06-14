@@ -245,6 +245,30 @@ class LLMClientWrapper:
     def __getattr__(self, name: str) -> Any:
         return getattr(self._client, name)
 
+    def with_metadata(
+        self,
+        *,
+        operation: str | None = None,
+        step_id: str | None = None,
+        trace_id: str | None = None,
+        tags: Mapping[str, Any] | None = None,
+    ) -> "LLMClientWrapper":
+        metadata = LLMCallMetadata(
+            profile=self._metadata.profile,
+            operation=operation if operation is not None else self._metadata.operation,
+            step_id=step_id if step_id is not None else self._metadata.step_id,
+            trace_id=trace_id if trace_id is not None else self._metadata.trace_id,
+            tags=tags if tags is not None else self._metadata.tags,
+        )
+        return LLMClientWrapper(
+            self._client,
+            registry=self._registry,
+            metadata=metadata,
+            provider=self._provider,
+            chat_model=self._chat_model,
+            embed_model=self._embed_model,
+        )
+
     async def chat(
         self,
         prompt: str,
