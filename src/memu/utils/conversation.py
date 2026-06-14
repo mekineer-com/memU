@@ -123,7 +123,7 @@ def normalize_whatsapp_identifier(value: str) -> str:
     return normalized
 
 
-def parse_shared_group_sender_prefix(content: str) -> tuple[str, str] | None:
+def _parse_shared_group_sender_prefix(content: str) -> tuple[str, str] | None:
     match = _SHARED_GROUP_PREFIX_RE.match(content)
     if not match:
         return None
@@ -134,7 +134,7 @@ def parse_shared_group_sender_prefix(content: str) -> tuple[str, str] | None:
     return sender, message
 
 
-def conversation_kind_and_key(conversation_id: str) -> tuple[str, str]:
+def _conversation_kind_and_key(conversation_id: str) -> tuple[str, str]:
     cid = str(conversation_id or "").strip()
     if cid.startswith("whatsapp:group:"):
         return ("whatsapp_group", cid[len("whatsapp:group:"):].strip())
@@ -151,7 +151,7 @@ def conversation_kind_and_key(conversation_id: str) -> tuple[str, str]:
     return ("sillytavern_dm", cid or "sillytavern")
 
 
-def lookup_whatsapp_name(key: str, names: Mapping[str, str]) -> str:
+def _lookup_whatsapp_name(key: str, names: Mapping[str, str]) -> str:
     key_norm = normalize_whatsapp_identifier(key)
     candidates: list[str] = []
     seen: set[str] = set()
@@ -181,7 +181,7 @@ def lookup_whatsapp_name(key: str, names: Mapping[str, str]) -> str:
     return min(candidates, key=_score)
 
 
-def conversation_heading(
+def _conversation_heading(
     kind: str,
     key: str,
     names: Mapping[str, str] | None = None,
@@ -189,10 +189,10 @@ def conversation_heading(
 ) -> str:
     names = names or {}
     if kind == "whatsapp_group":
-        pretty = lookup_whatsapp_name(key, names) or str(chat_name or "").strip() or key or "group"
+        pretty = _lookup_whatsapp_name(key, names) or str(chat_name or "").strip() or key or "group"
         return f"[group][{pretty}]"
     if kind == "whatsapp_dm":
-        pretty = lookup_whatsapp_name(key, names) or str(chat_name or "").strip() or key or "contact"
+        pretty = _lookup_whatsapp_name(key, names) or str(chat_name or "").strip() or key or "contact"
         return f"[dm][{pretty}]"
     if kind == "sillytavern_dm":
         pretty = (chat_name or "").strip() or key or "sillytavern"
@@ -200,7 +200,7 @@ def conversation_heading(
     return f"[dm][{key or 'sillytavern'}]"
 
 
-def conversation_section_title(kind: str) -> str:
+def _conversation_section_title(kind: str) -> str:
     if kind.startswith("sillytavern_"):
         return "My SillyTavern Conversations:"
     if kind.startswith("whatsapp_"):
@@ -256,8 +256,8 @@ def format_grouped_chat_history(
 
     sections: dict[str, list[tuple[str, str]]] = {}
     for cid, rows in by_conversation.items():
-        kind, key = conversation_kind_and_key(cid)
-        section_key = conversation_section_title(kind)
+        kind, key = _conversation_kind_and_key(cid)
+        section_key = _conversation_section_title(kind)
         entries = sections.setdefault(section_key, [])
         chat_name = ""
         for msg in reversed(rows):
@@ -266,7 +266,7 @@ def format_grouped_chat_history(
                 chat_name = candidate
                 break
         conv_lines: list[str] = [
-            conversation_heading(kind, key, whatsapp_names, chat_name or None)
+            _conversation_heading(kind, key, whatsapp_names, chat_name or None)
         ]
         rendered_rows: list[dict[str, Any]] = []
         newest_ts = ""
@@ -278,7 +278,7 @@ def format_grouped_chat_history(
             speaker = str(msg.get("speaker") or "").strip()
             content = str(msg.get("content") or "")
             if role == "user" and kind == "whatsapp_group":
-                parsed = parse_shared_group_sender_prefix(content)
+                parsed = _parse_shared_group_sender_prefix(content)
                 if parsed is not None:
                     speaker, content = parsed
             rendered_rows.append(
