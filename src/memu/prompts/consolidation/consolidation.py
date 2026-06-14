@@ -159,6 +159,9 @@ USER_PROMPT = """
 # Memories that surfaced this week
 {retrieved_memories}
 
+# My conversations
+{conversation_history}
+
 # Conversation excerpts and related memories
 {segments}
 """.strip()
