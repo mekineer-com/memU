@@ -14,7 +14,7 @@
 | `app/memorize_dedupe.py` | Dedupe/supersession seam for memorize: semantic dedupe scope/filtering, similarity scoring and re-embed fallback, merged-category-update filtering, and `replaces_previous_fact` supersede target resolution |
 | `app/memorize_categories.py` | Category seam for memorize: homeless-entry clustering, dynamic-category planning/creation, category init/scope mapping, and category-summary update rendering |
 | `app/memorize_persistence.py` | Persistence seam for memorize: resource creation, item/link/triple writes, item-reference backfill, and happened-at resolution |
-| `app/memorize_segments.py` | Segment/preprocess seam for memorize: non-chat modality preprocessing dispatch, background-context rendering, multimodal response parsing, episode payload normalization, batched background-tail summarization (single call keyed by source), rolling-summary merge helper for per-chat background rollups, and optional `on_extraction_progress(current, total)` callback fired after each memory-type extraction completes (used by server to update granular memorize progress) |
+| `app/memorize_segments.py` | Segment/preprocess seam for memorize: modality preprocessing dispatch, segment text preparation, background-context rendering, multimodal response parsing, segment payload normalization, batched background-tail summarization (single call keyed by source), rolling-summary merge helper for per-chat background rollups, and optional `on_extraction_progress(current, total)` callback fired after each memory-type extraction completes (used by server to update granular memorize progress) |
 | `app/retrieve.py` | Retrieve workflow: derive `active_query` from soul context → embed → rank → judge; server-provided context queries (identity, summaries, cache, intentions, recent history) are preserved across steps and rendered as plain text in soul context; optional `as_of` filters graph edges by `valid_from`/`valid_to`; serialized retrieved memory items explicitly carry `speaker_id` + `speaker_label` when present |
 | `app/settings.py` | Pydantic config models (MemorizeConfig, RetrieveConfig, LLMProfile, etc.) |
 | `database/models.py` | Backend-agnostic data models (MemoryItem, MemoryCategory, Resource, Entity, Triple) |
@@ -35,6 +35,7 @@
 | `workflow/` | DAG runner: `step.py` (unit), `pipeline.py` (graph), `runner.py` (executor) |
 | `blob/local_fs.py` | Local filesystem media storage |
 | `utils/` | Format converters (conversation, references, video) |
+| `utils/conversation.py` | Shared chat display utilities: `format_speaker_line()` and related helpers used by turn_contract, consolidation excerpts, and memorize background rendering. Single source of truth for `[Speaker] text` line format. |
 
 ## Prompts (`src/memu/prompts/`)
 
