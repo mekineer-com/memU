@@ -77,7 +77,7 @@ def display_speaker_label(
     return role_value or default_role
 
 
-def extract_text_content(content: Any, *, collapse_newlines: bool = False) -> str:
+def _extract_text_content(content: Any, *, collapse_newlines: bool = False) -> str:
     if isinstance(content, dict):
         text = content.get("text", "")
     elif isinstance(content, str):
@@ -100,7 +100,7 @@ def format_speaker_message(
     collapse_newlines: bool = False,
 ) -> str:
     label = display_speaker_label(message, soul_name=soul_name, default_role=default_role)
-    content = extract_text_content(message.get("content"), collapse_newlines=collapse_newlines)
+    content = _extract_text_content(message.get("content"), collapse_newlines=collapse_newlines)
     return f"[{label}]{separator}{content}"
 
 
