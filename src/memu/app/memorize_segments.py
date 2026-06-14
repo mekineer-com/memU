@@ -7,7 +7,7 @@ import re
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from typing import Any
 
-from memu.utils.conversation import conversation_message_indices, format_conversation_for_preprocess, format_speaker_message
+from memu.utils.conversation import conversation_message_indices, format_chat_messages, format_conversation_for_preprocess, format_speaker_message
 from memu.utils.video import VideoFrameExtractor
 
 logger = logging.getLogger(__name__)
@@ -245,14 +245,6 @@ def _message_index_for_sort(message: Mapping[str, Any]) -> int:
         return -1
 
 
-def _format_episode_message_line(message: Mapping[str, Any], *, soul_name: str | None = None) -> str:
-    return format_speaker_message(
-        message,
-        soul_name=soul_name,
-        default_role="user",
-    )
-
-
 def _summary_row_lines(row: Mapping[str, Any]) -> list[str]:
     summary = str(row.get("summary") or "").strip()
     if not summary:
@@ -272,10 +264,11 @@ async def _summarize_background_messages(
 ) -> str | None:
     if not messages:
         return None
-    rendered = "\n".join(
-        _format_episode_message_line(msg, soul_name=soul_name)
-        for msg in sorted(messages, key=_message_index_for_sort)
-    ).strip()
+    rendered = format_chat_messages(
+        sorted(messages, key=_message_index_for_sort),
+        soul_name=soul_name,
+        default_role="user",
+    )
     if not rendered:
         return None
     summary = await summarize_segment(rendered, llm_client=llm_client)
@@ -293,10 +286,11 @@ async def _summarize_background_rollup(
     if not messages:
         msg = "background rollup requires at least one message"
         raise ValueError(msg)
-    rendered = "\n".join(
-        _format_episode_message_line(msg, soul_name=soul_name)
-        for msg in sorted(messages, key=_message_index_for_sort)
-    ).strip()
+    rendered = format_chat_messages(
+        sorted(messages, key=_message_index_for_sort),
+        soul_name=soul_name,
+        default_role="user",
+    )
     if not rendered:
         msg = "background rollup rendered empty message payload"
         raise ValueError(msg)
@@ -341,10 +335,11 @@ async def _summarize_background_groups_batched(
         if not messages:
             continue
         source_label = str(messages[0].get("source_label") or source_key).strip() or source_key
-        rendered = "\n".join(
-            _format_episode_message_line(msg, soul_name=soul_name)
-            for msg in sorted(messages, key=_message_index_for_sort)
-        ).strip()
+        rendered = format_chat_messages(
+            sorted(messages, key=_message_index_for_sort),
+            soul_name=soul_name,
+            default_role="user",
+        )
         if not rendered:
             continue
         batches.append(
@@ -406,7 +401,7 @@ async def _render_episode_with_background_context(
     if not prim and not bg:
         return "", []
     if not bg:
-        return "\n".join(_format_episode_message_line(msg, soul_name=soul_name) for msg in prim).strip(), []
+        return format_chat_messages(prim, soul_name=soul_name, default_role="user"), []
 
     grouped: dict[str, list[Mapping[str, Any]]] = {}
     group_order: list[str] = []
@@ -440,10 +435,12 @@ async def _render_episode_with_background_context(
                 raise ValueError(msg)
             summary_lines = [summary]
         else:
-            summary_lines = [
-                _format_episode_message_line(msg, soul_name=soul_name)
-                for msg in sorted(group_msgs, key=_message_index_for_sort)
-            ]
+            rendered_group = format_chat_messages(
+                sorted(group_msgs, key=_message_index_for_sort),
+                soul_name=soul_name,
+                default_role="user",
+            )
+            summary_lines = rendered_group.splitlines()
             if not summary_lines:
                 continue
         source_label = str(group_msgs[0].get("source_label") or source_key).strip() or source_key
@@ -472,7 +469,9 @@ async def _render_episode_with_background_context(
             if row.get("after_index") == pidx:
                 rendered_lines.extend(_summary_row_lines(row))
                 row["_emitted"] = True
-        rendered_lines.append(_format_episode_message_line(primary, soul_name=soul_name))
+        rendered_lines.append(
+            format_speaker_message(primary, soul_name=soul_name, default_role="user")
+        )
 
     prefix_lines: list[str] = []
     for row in summary_rows:
@@ -504,7 +503,9 @@ def _render_episode_with_summary_rows(
             if row.get("after_index") == pidx:
                 rendered_lines.extend(_summary_row_lines(row))
                 row["_emitted"] = True
-        rendered_lines.append(_format_episode_message_line(primary, soul_name=soul_name))
+        rendered_lines.append(
+            format_speaker_message(primary, soul_name=soul_name, default_role="user")
+        )
     prefix_lines: list[str] = []
     for row in mutable_rows:
         if row.get("_emitted"):

@@ -1801,10 +1801,6 @@ class MemorizeMixin:
     def _message_index_for_sort(message: Mapping[str, Any]) -> int:
         return segment_helpers._message_index_for_sort(message)
 
-    @staticmethod
-    def _format_episode_message_line(message: Mapping[str, Any], *, soul_name: str | None = None) -> str:
-        return segment_helpers._format_episode_message_line(message, soul_name=soul_name)
-
     async def _summarize_background_messages(
         self,
         *,
