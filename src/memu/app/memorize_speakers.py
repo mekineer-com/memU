@@ -167,8 +167,8 @@ def _format_speaker_roster_block_for_prompt(
     if not speaker_roster:
         return ""
     lines = [
-        "# Speaker Roster (ambiguous segment fallback)",
-        "Allowed source_role schema for this segment: <source_role>user|soul|peer|entity|environment</source_role>.",
+        "# Speaker Roster (ambiguous episode fallback)",
+        "Allowed source_role schema for this episode: <source_role>user|soul|peer|entity|environment</source_role>.",
         "Only emit <speaker_ref> if the speaker is in this roster. Never invent a slug.",
         "Use source_role for coarse role; use speaker_ref only to disambiguate when multiple speakers share that role.",
     ]

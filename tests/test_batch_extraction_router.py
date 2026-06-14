@@ -23,7 +23,7 @@ class _RouterStub:
 async def test_route_segment_uses_excluded_types_model() -> None:
     service = _service()
     client = _RouterStub(
-        '{"excluded_types": ["knowledge", "social"], "segment_summary": "S", "episode_items": [{"title": "Story", "summary": "I"}]}'
+        '{"excluded_types": ["knowledge", "social"], "episode_summary": "S", "episode_items": [{"title": "Story", "summary": "I"}]}'
     )
 
     routed, summary, items = await service._route_segment(

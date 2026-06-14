@@ -21,7 +21,7 @@ _VALID_XML = """
 
 _GARBAGE = "not xml at all %%% garbage"
 
-_VALID_ROUTER = '{"excluded_types": [], "segment_summary": "S", "episode_items": [{"title": "T", "summary": "S"}]}'
+_VALID_ROUTER = '{"excluded_types": [], "episode_summary": "S", "episode_items": [{"title": "T", "summary": "S"}]}'
 
 
 class _ExtractionStub:

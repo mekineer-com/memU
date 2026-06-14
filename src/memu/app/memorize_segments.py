@@ -130,7 +130,7 @@ async def _summarize_segment(
     get_llm_client: Callable[..., Any],
 ) -> str | None:
     system_prompt = (
-        "Summarize the given conversation segment in 1-2 concise sentences. "
+        "Summarize the given conversational episode in 1-2 concise sentences. "
         "Focus on the main topic or theme discussed."
     )
     try:

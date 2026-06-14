@@ -745,7 +745,7 @@ class MemorizeMixin:
         extraction_text = text
         if segment_summary:
             extraction_text = (
-                f"Segment Summary:\n{segment_summary}\n\n"
+                f"Episode Summary:\n{segment_summary}\n\n"
                 f"{_SEGMENT_SUMMARY_EXTRACTION_GUIDANCE}\n\n"
                 f"---\n{text}"
             )
@@ -958,7 +958,7 @@ class MemorizeMixin:
             **kwargs,
         )
 
-        segment_summary_text = str(plan.get("segment_summary") or "").strip()
+        segment_summary_text = str(plan.get("episode_summary") or "").strip()
         raw_episode_items = plan.get("episode_items")
         episode_items: list[dict[str, str]] = []
         if isinstance(raw_episode_items, list):
@@ -1276,7 +1276,7 @@ class MemorizeMixin:
             return [], None, []
         excluded_types = payload.get("excluded_types")
         reason = payload.get("reason", "")
-        segment_summary = str(payload.get("segment_summary") or "").strip() or None
+        segment_summary = str(payload.get("episode_summary") or "").strip() or None
         episode_items: list[dict[str, str]] = []
         raw_episode_items = payload.get("episode_items")
         if isinstance(raw_episode_items, list):
