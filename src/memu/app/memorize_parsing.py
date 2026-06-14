@@ -158,6 +158,8 @@ def _extract_message_happened_at_map(raw_text: Any) -> dict[int, Any]:
         if happened_at is None:
             happened_at = _parse_message_happened_at(msg.get("timestamp"))
         if happened_at is None:
+            happened_at = _parse_message_happened_at(msg.get("received_at"))
+        if happened_at is None:
             happened_at = _parse_message_happened_at(msg.get("created_at"))
         if happened_at is not None:
             out[idx] = happened_at

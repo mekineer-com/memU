@@ -12,17 +12,20 @@ def test_extract_message_happened_at_map_prefers_ts_ms_and_falls_back() -> None:
     raw_text = json.dumps([
         {"role": "user", "content": "one", "ts_ms": 1737849600000},
         {"role": "assistant", "content": "two", "timestamp": "2025-01-26T03:40:49.205Z"},
-        {"role": "user", "content": "three", "created_at": "2025-01-27T01:02:03Z"},
+        {"role": "user", "content": "three", "received_at": "2025-01-27T01:02:03Z"},
+        {"role": "user", "content": "four", "created_at": "2025-01-28T01:02:03Z"},
     ])
 
     happened_at_map = service._extract_message_happened_at_map(raw_text)
 
-    assert sorted(happened_at_map) == [0, 1, 2]
+    assert sorted(happened_at_map) == [0, 1, 2, 3]
     assert happened_at_map[1] is not None
     assert happened_at_map[2] is not None
+    assert happened_at_map[3] is not None
     assert happened_at_map[0].to_iso8601_string() == "2025-01-26T00:00:00Z"
     assert happened_at_map[1].to_iso8601_string() == "2025-01-26T00:00:00Z"
     assert happened_at_map[2].to_iso8601_string() == "2025-01-27T00:00:00Z"
+    assert happened_at_map[3].to_iso8601_string() == "2025-01-28T00:00:00Z"
 
 
 def test_resolve_entry_happened_at_uses_source_message_ids_then_episode_fallback() -> None:
