@@ -934,6 +934,7 @@ class MemorizeMixin:
         segment_messages = plan.get("segment_messages") or []
         if not segment_messages and isinstance(plan.get("text"), str) and plan["text"].strip():
             episode_file = pathlib.Path(self.fs.base) / f"{pathlib.Path(plan['resource_url']).stem}.txt"
+            episode_file.parent.mkdir(parents=True, exist_ok=True)
             episode_file.write_text(plan["text"], encoding="utf-8")
             episode_local_path = str(episode_file)
 
