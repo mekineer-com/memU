@@ -283,6 +283,8 @@ def _decorate_entries_with_plan_context(
     decorated: list[Any] = []
     default_ids = parsing._dedupe_message_indices(message_indices)
     for entry in entries:
+        # Use the full episode/segment provenance set. Memory extraction is
+        # generalized and must not be narrowed to model-emitted message IDs.
         resolved_ids = parsing._resolve_source_message_ids(entry.source_message_ids, default_ids)
         resolved_salience = entry.reflection_salience
         decorated.append(entry._replace(source_message_ids=resolved_ids, reflection_salience=resolved_salience))

@@ -61,13 +61,12 @@ def _resolve_source_message_ids(
     values: Any,
     allowed_values: Any = None,
 ) -> list[int]:
-    parsed = _dedupe_message_indices(_coerce_to_iterable(values))
     allowed = _dedupe_message_indices(_coerce_to_iterable(allowed_values))
-    if not allowed:
-        return parsed
-    allowed_set = set(allowed)
-    filtered = [candidate for candidate in parsed if candidate in allowed_set]
-    return filtered if filtered else allowed
+    if allowed:
+        return allowed
+    # Extraction no longer asks the model to cite individual messages. If the
+    # caller has no episode/segment provenance, do not trust stale emitted IDs.
+    return []
 
 
 def _extract_message_indices(text: str | None) -> list[int]:

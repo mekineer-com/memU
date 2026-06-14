@@ -1446,9 +1446,9 @@ class MemorizeMixin:
                     if parsed_confidence is not None and 0.0 <= parsed_confidence <= 1.0:
                         confidence = parsed_confidence
 
-                # Prompts no longer request source_message_ids (02d8bde).
-                # The resolver treats None / [] / malformed input as "LLM emitted nothing"
-                # and falls back to the full segment range.
+                # Memory items are generalized from the episode, not based on
+                # individual messages. This stores code-owned provenance for the
+                # whole episode/segment; stale emitted IDs are ignored.
                 source_message_ids = self._resolve_source_message_ids(
                     entry.get("source_message_ids"),
                     default_source_message_ids,
@@ -2047,15 +2047,13 @@ class MemorizeMixin:
         values: Any,
         allowed_values: Any = None,
     ) -> list[int]:
-        """Resolve source IDs to the valid segment range, with code-owned fallback.
+        """Resolve DB provenance IDs to the full episode/segment range.
 
-        This is the single normalization boundary for anything the LLM might
-        emit under `source_message_ids`. Prompts stopped requesting the field
-        in 02d8bde, so `values` is usually None or empty, but callers may still
-        pass through raw extraction output. Non-iterable or malformed input is
-        treated as "LLM emitted nothing"; the resolver falls back to the full
-        allowed segment range so downstream provenance (speaker attribution,
-        happened_at, retrieve rendering) stays populated.
+        Memories are not based on individual messages. The persisted
+        `source_message_ids` column is provenance coverage for the generalized
+        episode/segment memory. Prompts stopped requesting the field in 02d8bde;
+        stale emitted IDs are ignored so the model cannot narrow a memory to one
+        line again.
         """
         return parsing._resolve_source_message_ids(values, allowed_values)
 

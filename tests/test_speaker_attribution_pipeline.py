@@ -4,11 +4,11 @@ Covers the chain that broke in the Phase 5 live smoke:
   _build_speaker_map → _attribute_memory → _decorate_entries_with_plan_context → _persist_memory_items → DB
 The LLM extraction step is skipped — we hand-construct StructuredMemoryEntry
 objects as if the LLM emitted them, then verify the pipeline fills
-speaker_id/speaker_label/source_message_ids correctly and the fields round-trip
+speaker_id/speaker_label/full episode provenance correctly and the fields round-trip
 through the sqlite reinforce-enabled write path.
 
 Three real bugs this guards against in combination:
-  - 30b8db2: _resolve_source_message_ids empty fallback
+  - 30b8db2: empty provenance fallback
   - 39511ef: sqlite reinforce branch dropping source_message_ids
   - 55525ae: role=user always resolves to scope user, not entity:<name>
 
@@ -65,8 +65,8 @@ def test_attribution_pipeline_fills_user_and_soul_speakers_with_fallback_indices
     assert speaker_map[0] == ("user:marcos", "MarcosDisplay")
     assert speaker_map[1] == ("soul:siri", "Siri")
 
-    # Simulate the LLM emitting two entries without source_message_ids (the
-    # field was removed from prompts in 02d8bde — prompts no longer request it).
+    # Simulate generalized memories. The prompt does not ask the model to tie
+    # each memory to individual messages.
     entries = [
         StructuredMemoryEntry(
             memory_type="behavior",
@@ -90,8 +90,7 @@ def test_attribution_pipeline_fills_user_and_soul_speakers_with_fallback_indices
         ),
     ]
 
-    # Post-30b8db2: decoration falls back to the full episode range when the
-    # LLM emitted nothing.
+    # Provenance covers the full episode range; it is not a per-message claim.
     decorated = service._decorate_entries_with_plan_context(entries, message_indices=message_indices)
     assert decorated[0].source_message_ids == [0, 1, 2]
     assert decorated[1].source_message_ids == [0, 1, 2]
@@ -105,7 +104,7 @@ def test_attribution_pipeline_fills_user_and_soul_speakers_with_fallback_indices
     assert attributed[1].speaker_label == "Siri"
 
     # Persist. reinforce=True by default (memorize_config). Post-39511ef:
-    # source_message_ids and reflection_salience survive the reinforce branch.
+    # persisted provenance and reflection_salience survive the reinforce branch.
     async def _persist():
         return await service._persist_memory_items(
             resource_id="res-1",

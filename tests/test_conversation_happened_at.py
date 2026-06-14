@@ -28,7 +28,7 @@ def test_extract_message_happened_at_map_prefers_ts_ms_and_falls_back() -> None:
     assert happened_at_map[3].to_iso8601_string() == "2025-01-28T00:00:00Z"
 
 
-def test_resolve_entry_happened_at_uses_source_message_ids_then_episode_fallback() -> None:
+def test_resolve_entry_happened_at_uses_episode_provenance_start() -> None:
     service = _service()
     raw_text = json.dumps([
         {"role": "user", "content": "zero", "ts_ms": 1737849600000},
@@ -46,27 +46,25 @@ def test_resolve_entry_happened_at_uses_source_message_ids_then_episode_fallback
     assert fallback.to_iso8601_string() == "2025-01-26T00:00:00Z"
 
 
-def test_resolve_source_message_ids_falls_back_to_episode_when_model_emits_nothing() -> None:
+def test_resolve_source_message_ids_always_uses_episode_provenance() -> None:
     service = _service()
     episode = [0, 1, 2, 3]
 
     assert service._resolve_source_message_ids(None, episode) == episode
     assert service._resolve_source_message_ids([], episode) == episode
-    assert service._resolve_source_message_ids([99], episode) == episode  # all out-of-range → fallback
-    assert service._resolve_source_message_ids([1, 2], episode) == [1, 2]  # valid subset kept
-    assert service._resolve_source_message_ids([1, 99], episode) == [1]  # keep valid, drop invalid
-    assert service._resolve_source_message_ids([1, 2], None) == [1, 2]  # no episode → pass through
+    assert service._resolve_source_message_ids([99], episode) == episode
+    assert service._resolve_source_message_ids([1, 2], episode) == episode
+    assert service._resolve_source_message_ids([1, 99], episode) == episode
+    assert service._resolve_source_message_ids([1, 2], None) == []
 
 
 def test_resolve_source_message_ids_handles_malformed_input_without_raising() -> None:
-    # The narrowing guard at memorize.py:1651 was removed; the resolver is
-    # now the single normalization boundary for anything the LLM might emit.
+    # The resolver is the boundary that prevents stale LLM output from turning
+    # generalized memories back into individual-message memories.
     service = _service()
     episode = [0, 1, 2]
 
-    # Strings, dicts, scalars, mixed garbage — all coerce to "empty emitted",
-    # falling back to the full episode range.
     assert service._resolve_source_message_ids("unexpected string", episode) == episode
     assert service._resolve_source_message_ids({"malformed": "dict"}, episode) == episode
-    assert service._resolve_source_message_ids(42, episode) == episode  # not iterable → parsed empty
-    assert service._resolve_source_message_ids([None, "x", 2.5, {"k": 1}], episode) == [2]
+    assert service._resolve_source_message_ids(42, episode) == episode
+    assert service._resolve_source_message_ids([None, "x", 2.5, {"k": 1}], episode) == episode

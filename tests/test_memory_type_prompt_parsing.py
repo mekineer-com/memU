@@ -24,7 +24,7 @@ def test_build_memory_type_prompt_injects_soul_context_for_activated_types(memor
 
 
 @pytest.mark.parametrize("memory_type", ["knowledge", "behavior"])
-def test_parse_structured_entries_keeps_salience_and_uses_default_source_ids(memory_type: MemoryType) -> None:
+def test_parse_structured_entries_ignores_stale_source_ids(memory_type: MemoryType) -> None:
     service = _service()
 
     response = """
