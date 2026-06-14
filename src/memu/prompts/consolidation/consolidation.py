@@ -162,6 +162,6 @@ USER_PROMPT = """
 # My conversations
 {conversation_history}
 
-# Conversation excerpts and related memories
+# Conversation and related memories
 {segments}
 """.strip()
