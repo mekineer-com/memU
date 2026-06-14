@@ -48,8 +48,8 @@ async def test_render_episode_with_background_context_uses_raw_lines_below_floor
     )
     assert "[Background:whatsapp:dm]" not in rendered
     assert "[whatsapp:dm]" not in rendered
-    assert "[N] small" in rendered
-    assert "[Marcos] primary" in rendered
+    assert "[N]: small" in rendered
+    assert "[Marcos]: primary" in rendered
     assert rows and "small" in str(rows[0].get("summary") or "")
 
 
@@ -69,11 +69,58 @@ async def test_render_episode_with_background_context_uses_soul_name_for_assista
         memorize_config=SimpleNamespace(background_extra_messages_tokens=9999),
         soul_name="Siri",
     )
-    assert "[Siri] primary" in rendered
-    assert "[Siri] small" in rendered
+    assert "[Siri]: primary" in rendered
+    assert "[Siri]: small" in rendered
     assert "[whatsapp:dm]" not in rendered
     assert "[assistant]" not in rendered
-    assert rows and "[Siri] small" in str(rows[0].get("summary") or "")
+    assert rows and "[Siri]: small" in str(rows[0].get("summary") or "")
+
+
+@pytest.mark.asyncio
+async def test_render_episode_with_background_context_groups_primary_cross_chats() -> None:
+    primary_messages = [
+        {
+            "_message_index": 1,
+            "role": "user",
+            "speaker": "Liz",
+            "content": "dm primary",
+            "source_conversation_id": "whatsapp:dm:liz",
+            "chat_name": "Liz Kalverda",
+            "received_at": "2026-06-12T10:00:00+00:00",
+            "memorize_chat": True,
+        },
+        {
+            "_message_index": 2,
+            "role": "user",
+            "speaker": "Marcos",
+            "content": "group primary",
+            "source_conversation_id": "whatsapp:group:familia",
+            "chat_name": "Familia",
+            "received_at": "2026-06-12T10:01:00+00:00",
+            "memorize_chat": True,
+        },
+    ]
+
+    async def _batch(**_kwargs):
+        raise AssertionError("batch should not run without background messages")
+
+    rendered, rows = await segment_helpers._render_episode_with_background_context(
+        primary_messages=primary_messages,
+        background_messages=[],
+        llm_client=None,
+        summarize_background_groups_batched=_batch,
+        memorize_config=SimpleNamespace(background_extra_messages_tokens=100),
+        soul_name="Siri",
+    )
+    assert rows == []
+    assert "My WhatsApp Conversations:" in rendered
+    assert "[dm][Liz Kalverda]" in rendered
+    assert "[group][Familia]" in rendered
+    assert "--- " in rendered
+    assert "[Liz]: dm primary" in rendered
+    assert "[Marcos]: group primary" in rendered
+    assert "[whatsapp:dm]" not in rendered
+    assert "[whatsapp:group]" not in rendered
 
 
 @pytest.mark.asyncio

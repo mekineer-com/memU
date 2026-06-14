@@ -7,7 +7,13 @@ import re
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from typing import Any
 
-from memu.utils.conversation import conversation_message_indices, format_chat_messages, format_conversation_for_preprocess, format_speaker_message
+from memu.utils.conversation import (
+    conversation_message_indices,
+    format_chat_messages,
+    format_conversation_for_preprocess,
+    format_grouped_chat_history,
+    format_relative_time_label,
+)
 from memu.utils.video import VideoFrameExtractor
 
 logger = logging.getLogger(__name__)
@@ -255,6 +261,50 @@ def _summary_row_lines(row: Mapping[str, Any]) -> list[str]:
     return lines
 
 
+def _grouped_chat_timestamp(message: Mapping[str, Any]) -> Any:
+    return message.get("received_at") or message.get("ts_ms") or message.get("created_at")
+
+
+def _prepare_grouped_chat_messages(messages: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    prepared: list[dict[str, Any]] = []
+    for message in sorted(messages, key=_message_index_for_sort):
+        row = dict(message)
+        conversation_id = str(row.get("source_conversation_id") or row.get("conversation_id") or "").strip()
+        if conversation_id:
+            row["conversation_id"] = conversation_id
+        timestamp = _grouped_chat_timestamp(row)
+        if timestamp and "received_at" not in row:
+            row["received_at"] = timestamp
+        prepared.append(row)
+    return prepared
+
+
+def _render_grouped_chat_messages(
+    messages: Sequence[Mapping[str, Any]],
+    *,
+    soul_name: str | None = None,
+) -> str:
+    return format_grouped_chat_history(
+        _prepare_grouped_chat_messages(messages),
+        time_label_resolver=format_relative_time_label,
+        soul_name=soul_name,
+    )
+
+
+def _render_with_summary_rows(
+    *,
+    primary_messages: Sequence[Mapping[str, Any]],
+    summary_rows: Sequence[Mapping[str, Any]],
+    soul_name: str | None = None,
+) -> str:
+    prefix_lines: list[str] = []
+    for row in summary_rows:
+        prefix_lines.extend(_summary_row_lines(row))
+    primary_rendered = _render_grouped_chat_messages(primary_messages, soul_name=soul_name)
+    parts = ["\n".join(prefix_lines).strip(), primary_rendered]
+    return "\n\n".join(part for part in parts if part).strip()
+
+
 async def _summarize_background_messages(
     *,
     messages: Sequence[Mapping[str, Any]],
@@ -401,7 +451,7 @@ async def _render_episode_with_background_context(
     if not prim and not bg:
         return "", []
     if not bg:
-        return format_chat_messages(prim, soul_name=soul_name, default_role="user"), []
+        return _render_grouped_chat_messages(prim, soul_name=soul_name), []
 
     grouped: dict[str, list[Mapping[str, Any]]] = {}
     group_order: list[str] = []
@@ -435,11 +485,7 @@ async def _render_episode_with_background_context(
                 raise ValueError(msg)
             summary_lines = [summary]
         else:
-            rendered_group = format_chat_messages(
-                sorted(group_msgs, key=_message_index_for_sort),
-                soul_name=soul_name,
-                default_role="user",
-            )
+            rendered_group = _render_grouped_chat_messages(group_msgs, soul_name=soul_name)
             summary_lines = rendered_group.splitlines()
             if not summary_lines:
                 continue
@@ -460,30 +506,11 @@ async def _render_episode_with_background_context(
             }
         )
 
-    rendered_lines: list[str] = []
-    for primary in prim:
-        pidx = _message_index_for_sort(primary)
-        for row in summary_rows:
-            if row.get("_emitted"):
-                continue
-            if row.get("after_index") == pidx:
-                rendered_lines.extend(_summary_row_lines(row))
-                row["_emitted"] = True
-        rendered_lines.append(
-            format_speaker_message(primary, soul_name=soul_name, default_role="user")
-        )
-
-    prefix_lines: list[str] = []
-    for row in summary_rows:
-        if row.get("_emitted"):
-            row.pop("_emitted", None)
-            continue
-        prefix_lines.extend(_summary_row_lines(row))
-        row.pop("_emitted", None)
-    if prefix_lines:
-        rendered_lines = [*prefix_lines, *rendered_lines]
-
-    return "\n".join(line for line in rendered_lines if line.strip()).strip(), summary_rows
+    return _render_with_summary_rows(
+        primary_messages=prim,
+        summary_rows=summary_rows,
+        soul_name=soul_name,
+    ), summary_rows
 
 
 def _render_episode_with_summary_rows(
@@ -492,28 +519,11 @@ def _render_episode_with_summary_rows(
     summary_rows: Sequence[Mapping[str, Any]],
     soul_name: str | None = None,
 ) -> str:
-    prim = sorted(primary_messages, key=_message_index_for_sort)
-    rendered_lines: list[str] = []
-    mutable_rows: list[dict[str, Any]] = [dict(row) for row in summary_rows if isinstance(row, Mapping)]
-    for primary in prim:
-        pidx = _message_index_for_sort(primary)
-        for row in mutable_rows:
-            if row.get("_emitted"):
-                continue
-            if row.get("after_index") == pidx:
-                rendered_lines.extend(_summary_row_lines(row))
-                row["_emitted"] = True
-        rendered_lines.append(
-            format_speaker_message(primary, soul_name=soul_name, default_role="user")
-        )
-    prefix_lines: list[str] = []
-    for row in mutable_rows:
-        if row.get("_emitted"):
-            continue
-        prefix_lines.extend(_summary_row_lines(row))
-    if prefix_lines:
-        rendered_lines = [*prefix_lines, *rendered_lines]
-    return "\n".join(line for line in rendered_lines if line.strip()).strip()
+    return _render_with_summary_rows(
+        primary_messages=sorted(primary_messages, key=_message_index_for_sort),
+        summary_rows=[dict(row) for row in summary_rows if isinstance(row, Mapping)],
+        soul_name=soul_name,
+    )
 
 
 def _prepare_episode(
