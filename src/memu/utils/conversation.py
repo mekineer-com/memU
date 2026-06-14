@@ -351,7 +351,7 @@ def format_grouped_chat_history(
     whatsapp_names: Mapping[str, str] | None = None,
     time_label_resolver: Callable[[Any], str | None] | None = None,
     soul_name: str | None = None,
-    speaker_separator: str = ": ",
+    speaker_separator: str = " ",
 ) -> str:
     by_conversation: dict[str, list[Mapping[str, Any]]] = {}
     for msg in messages:

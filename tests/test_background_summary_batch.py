@@ -48,8 +48,8 @@ async def test_render_episode_with_background_context_uses_raw_lines_below_floor
     )
     assert "[Background:whatsapp:dm]" not in rendered
     assert "[whatsapp:dm]" not in rendered
-    assert "[N]: small" in rendered
-    assert "[Marcos]: primary" in rendered
+    assert "[N] small" in rendered
+    assert "[Marcos] primary" in rendered
     assert rows and "small" in str(rows[0].get("summary") or "")
 
 
@@ -69,11 +69,11 @@ async def test_render_episode_with_background_context_uses_soul_name_for_assista
         memorize_config=SimpleNamespace(background_extra_messages_tokens=9999),
         soul_name="Siri",
     )
-    assert "[Siri]: primary" in rendered
-    assert "[Siri]: small" in rendered
+    assert "[Siri] primary" in rendered
+    assert "[Siri] small" in rendered
     assert "[whatsapp:dm]" not in rendered
     assert "[assistant]" not in rendered
-    assert rows and "[Siri]: small" in str(rows[0].get("summary") or "")
+    assert rows and "[Siri] small" in str(rows[0].get("summary") or "")
 
 
 @pytest.mark.asyncio
@@ -117,8 +117,8 @@ async def test_render_episode_with_background_context_groups_primary_cross_chats
     assert "[dm][Liz Kalverda]" in rendered
     assert "[group][Familia]" in rendered
     assert "--- " in rendered
-    assert "[Liz]: dm primary" in rendered
-    assert "[Marcos]: group primary" in rendered
+    assert "[Liz] dm primary" in rendered
+    assert "[Marcos] group primary" in rendered
     assert "[whatsapp:dm]" not in rendered
     assert "[whatsapp:group]" not in rendered
     assert "current chat" not in rendered
