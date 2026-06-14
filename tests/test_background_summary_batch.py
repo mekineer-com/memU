@@ -121,6 +121,7 @@ async def test_render_episode_with_background_context_groups_primary_cross_chats
     assert "[Marcos]: group primary" in rendered
     assert "[whatsapp:dm]" not in rendered
     assert "[whatsapp:group]" not in rendered
+    assert "current chat" not in rendered
 
 
 @pytest.mark.asyncio
