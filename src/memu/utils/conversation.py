@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping
 from typing import Any
 
 
@@ -109,136 +109,6 @@ def format_speaker_message(
     label = display_speaker_label(message, soul_name=soul_name, default_role=default_role)
     content = extract_text_content(message.get("content"), collapse_newlines=collapse_newlines)
     return f"[{label}]{separator}{content}"
-
-
-def render_chat_messages(
-    messages: Sequence[Mapping[str, Any]],
-    *,
-    soul_name: str | None = None,
-    default_role: str = "unknown",
-    separator: str = " ",
-    collapse_newlines: bool = False,
-    time_label_resolver: Callable[[Mapping[str, Any]], str | None] | None = None,
-    blank_line_before_time_label: bool = False,
-) -> str:
-    lines: list[str] = []
-    last_time_label: str | None = None
-    for message in messages:
-        if time_label_resolver is not None:
-            time_label = time_label_resolver(message)
-            if time_label and time_label != last_time_label:
-                if blank_line_before_time_label and lines:
-                    lines.append("")
-                lines.append(f"--- {time_label} ---")
-                last_time_label = time_label
-        lines.append(
-            format_speaker_message(
-                message,
-                soul_name=soul_name,
-                default_role=default_role,
-                separator=separator,
-                collapse_newlines=collapse_newlines,
-            )
-        )
-    return "\n".join(lines).strip()
-
-
-def _conversation_id(message: Mapping[str, Any], default_conversation_id: str | None) -> str:
-    for key in ("source_conversation_id", "conversation_id"):
-        value = str(message.get(key) or "").strip()
-        if value:
-            return value
-    return str(default_conversation_id or "").strip() or "conversation"
-
-
-def _conversation_kind_and_key(conversation_id: str, source_label: str) -> tuple[str, str]:
-    cid = str(conversation_id or "").strip()
-    label = str(source_label or "").strip()
-    if cid.startswith("whatsapp:group:"):
-        return "whatsapp_group", cid[len("whatsapp:group:"):].strip()
-    if cid.startswith("whatsapp:dm:"):
-        return "whatsapp_dm", cid[len("whatsapp:dm:"):].strip()
-    if label == "whatsapp:group":
-        return "whatsapp_group", cid
-    if label == "whatsapp:dm":
-        return "whatsapp_dm", cid
-    if cid.startswith("sillytavern:"):
-        return "sillytavern_dm", cid[len("sillytavern:"):].strip() or "sillytavern"
-    if cid.startswith(("integrity:", "chat:")) or cid == "sillytavern" or label == "sillytavern":
-        return "sillytavern_dm", cid or "sillytavern"
-    return "sillytavern_dm", cid or "sillytavern"
-
-
-def _section_title(kind: str) -> str:
-    if kind.startswith("whatsapp_"):
-        return "My WhatsApp Conversations:"
-    return "My SillyTavern Conversations:"
-
-
-def _chat_heading(kind: str, key: str, chat_name: str | None) -> str:
-    pretty = str(chat_name or "").strip() or str(key or "").strip()
-    if kind == "whatsapp_group":
-        return f"[group][{pretty or 'group'}]"
-    return f"[dm][{pretty or 'sillytavern'}]"
-
-
-def render_grouped_chat_messages(
-    messages: Sequence[Mapping[str, Any]],
-    *,
-    soul_name: str | None = None,
-    default_conversation_id: str | None = None,
-    current_conversation_id: str | None = None,
-    current_heading: str | None = None,
-    include_sections: bool = True,
-    current_marker: str = " \u2190 current chat",
-    time_label_resolver: Callable[[Mapping[str, Any]], str | None] | None = None,
-    blank_line_before_time_label: bool = False,
-    default_role: str = "unknown",
-    collapse_newlines: bool = False,
-) -> str:
-    by_conversation: dict[str, list[Mapping[str, Any]]] = {}
-    for message in messages:
-        cid = _conversation_id(message, default_conversation_id)
-        by_conversation.setdefault(cid, []).append(message)
-
-    current_id = str(current_conversation_id or default_conversation_id or "").strip()
-    sections: dict[str, list[str]] = {}
-    for cid, rows in by_conversation.items():
-        if not rows:
-            continue
-        first = rows[0]
-        source_label = str(first.get("source_label") or "").strip()
-        kind, key = _conversation_kind_and_key(cid, source_label)
-        section = _section_title(kind)
-        chat_name = ""
-        for row in reversed(rows):
-            candidate = str(row.get("chat_name") or "").strip()
-            if candidate:
-                chat_name = candidate
-                break
-        heading = current_heading if current_id and cid == current_id and current_heading else _chat_heading(kind, key, chat_name or None)
-        if current_id and cid == current_id and current_marker and not heading.endswith(current_marker):
-            heading = f"{heading}{current_marker}"
-        body = render_chat_messages(
-            rows,
-            soul_name=soul_name,
-            default_role=default_role,
-            collapse_newlines=collapse_newlines,
-            time_label_resolver=time_label_resolver,
-            blank_line_before_time_label=blank_line_before_time_label,
-        )
-        block = "\n".join(part for part in (heading, body) if part).strip()
-        if block:
-            sections.setdefault(section, []).append(block)
-
-    lines: list[str] = []
-    for section, blocks in sections.items():
-        if lines:
-            lines.append("")
-        if include_sections:
-            lines.extend([section, ""])
-        lines.append("\n\n".join(blocks))
-    return "\n".join(lines).strip()
 
 
 def conversation_message_indices(raw_text: str) -> list[int]:
