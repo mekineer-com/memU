@@ -270,3 +270,95 @@ async def test_memorize_segments_batch_passes_segment_speaker_rosters_without_se
         assert "Segment 1" not in resource_text
         assert "Segment 2" not in resource_text
         assert "## Segment" not in resource_text
+
+
+@pytest.mark.asyncio
+async def test_memorize_segment_direct_uses_grouped_chat_renderer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = _service()
+    user_scope = {"user_id": "Marcos", "soul_id": "Siri"}
+    captured: dict[str, str] = {}
+
+    raw_text = json.dumps(
+        [
+            {
+                "role": "user",
+                "speaker": "Marcos",
+                "content": "dm primary",
+                "source_conversation_id": "whatsapp:dm:liz",
+                "chat_name": "Liz Kalverda",
+                "received_at": "2026-06-12T10:00:00+00:00",
+                "memorize_chat": True,
+            },
+            {
+                "role": "assistant",
+                "content": "soul reply",
+                "source_conversation_id": "whatsapp:dm:liz",
+                "chat_name": "Liz Kalverda",
+                "received_at": "2026-06-12T10:01:00+00:00",
+                "memorize_chat": True,
+            },
+        ]
+    )
+
+    async def _route_profile_only(segment_text, *_args, **_kwargs):
+        captured["route_text"] = segment_text
+        return ["profile"], "Router summary", []
+
+    async def _capture_generate_entries_from_text(**kwargs):
+        captured["extract_text"] = kwargs["resource_text"]
+        return []
+
+    async def _noop_ensure_categories_ready(_ctx, _store, _user_scope=None) -> None:
+        return None
+
+    async def _noop_step(state, _step_context):
+        return state
+
+    async def _noop_categorize(state, _step_context):
+        state.setdefault("resources", [])
+        state.setdefault("items", [])
+        state.setdefault("relations", [])
+        state.setdefault("category_updates", {})
+        state.setdefault("pending_segment_ids", [])
+        return state
+
+    def _stub_build_response(state, _step_context):
+        state["response"] = {
+            "items": [],
+            "categories": [],
+            "relations": [],
+            "pending_segment_ids": [],
+        }
+        return state
+
+    monkeypatch.setattr(service, "_ensure_categories_ready", _noop_ensure_categories_ready)
+    monkeypatch.setattr(service, "_get_step_llm_client", lambda *_args, **_kwargs: SimpleNamespace(chat_model="test"))
+    monkeypatch.setattr(service, "_list_declared_relationship_roster", lambda **_kwargs: [])
+    monkeypatch.setattr(service, "_route_segment", _route_profile_only)
+    monkeypatch.setattr(service, "_generate_entries_from_text", _capture_generate_entries_from_text)
+    monkeypatch.setattr(service, "_memorize_categorize_items", _noop_categorize)
+    monkeypatch.setattr(service, "_memorize_dedupe_merge", _noop_step)
+    monkeypatch.setattr(service, "_memorize_persist_and_index", _noop_step)
+    monkeypatch.setattr(service, "_memorize_build_response", _stub_build_response)
+
+    out = await service.memorize_segment(
+        resource_url="memory://direct",
+        modality="conversation",
+        segment={"text": raw_text, "caption": None},
+        user=user_scope,
+        raw_text=raw_text,
+        conversation_id="whatsapp:dm:liz",
+    )
+
+    route_text = captured["route_text"]
+    extract_text = captured["extract_text"]
+    assert "My WhatsApp Conversations:" in route_text
+    assert "[dm][Liz Kalverda]" in route_text
+    assert "[Marcos] dm primary" in route_text
+    assert "[Siri] soul reply" in route_text
+    assert "[user]" not in route_text
+    assert '"role"' not in route_text
+    assert "My WhatsApp Conversations:" in extract_text
+    assert out["items"] == []

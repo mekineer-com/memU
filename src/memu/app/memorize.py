@@ -205,6 +205,33 @@ class MemorizeMixin:
         memory_prior_context: list[str] | None = None,
         conversation_id: str | None = None,
     ) -> dict[str, Any]:
+        if modality == "conversation":
+            batch_results = await self.memorize_segments_batch(
+                modality=modality,
+                segments=[
+                    {
+                        "resource_url": resource_url,
+                        "raw_text": raw_text,
+                        "local_path": local_path or resource_url,
+                        "segment": dict(segment),
+                    }
+                ],
+                user=user,
+                all_categories_summary=all_categories_summary,
+                soul_card=soul_card,
+                memory_retrieve_history=memory_retrieve_history,
+                memory_prior_context=memory_prior_context,
+                conversation_id=conversation_id,
+            )
+            if not batch_results:
+                return {
+                    "items": [],
+                    "categories": [],
+                    "relations": [],
+                    "pending_segment_ids": [],
+                }
+            return batch_results[0]
+
         self._validate_memorize_scope(user)
         ctx = self._get_context()
         store = self._get_database()
@@ -278,7 +305,8 @@ class MemorizeMixin:
         ctx = self._get_context()
         store = self._get_database()
         user_scope = self.user_model(**user).model_dump() if user is not None else None
-        soul_name = str((user_scope or {}).get("soul_id") or "").strip() or None
+        speaker_scope = dict(user) if isinstance(user, Mapping) else (user_scope or {})
+        soul_name = str(speaker_scope.get("soul_id") or "").strip() or None
         await self._ensure_categories_ready(ctx, store, user_scope)
 
         extract_client = self._get_step_llm_client(
@@ -427,7 +455,7 @@ class MemorizeMixin:
                 if self._message_index_for_sort(msg) >= 0
             ]
             selected_indices = self._dedupe_message_indices(primary_indices or message_indices)
-            speaker_map = self._build_speaker_map(primary_messages or segment_messages_all, user_scope)
+            speaker_map = self._build_speaker_map(primary_messages or segment_messages_all, speaker_scope)
 
             plan_message_happened_at_map = {
                 message_idx: message_happened_at_map[message_idx]
