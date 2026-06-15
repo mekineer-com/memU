@@ -310,7 +310,7 @@ class RetrieveMixin:
         needs_more, active_query, raw_response = await self._decide_if_retrieval_needed(
             state["new_message"],
             state["context_queries"],
-            retrieved_content=retrieved_content or "No content retrieved yet.",
+            retrieved_content=retrieved_content,
             include_mental_health_query=mental_health_enabled,
             llm_client=llm_client,
         )
@@ -577,13 +577,15 @@ class RetrieveMixin:
         llm_client: Any | None = None,
     ) -> tuple[bool, str, str]:
         history_text = self._format_query_context(context_queries)
-        content_text = retrieved_content or "No content retrieved yet."
+        retrieved_section = ""
+        if retrieved_content:
+            retrieved_section = f"\nRetrieved so far:\n{retrieved_content}\n"
 
         prompt = PRE_RETRIEVAL_USER_PROMPT
         user_prompt = prompt.format(
             new_message=self._escape_prompt_value(new_message),
             conversation_history=self._escape_prompt_value(history_text),
-            retrieved_content=self._escape_prompt_value(content_text),
+            retrieved_section=self._escape_prompt_value(retrieved_section),
         )
 
         sys_prompt = system_prompt or _system_prompt_for_angle(

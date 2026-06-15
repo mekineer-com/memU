@@ -92,12 +92,10 @@ SYSTEM_PROMPT = system_prompt_for_angle(0)
 
 USER_PROMPT = """
 # Input
-Soul context:
+My Soul:
 {conversation_history}
 
 New message:
 {new_message}
-
-Retrieved so far:
-{retrieved_content}
+{retrieved_section}
 """

@@ -64,6 +64,51 @@ def test_system_prompt_forbids_answering_user_in_route_step():
     assert "<rewritten_query>" not in prompt
 
 
+@pytest.mark.asyncio
+async def test_decide_if_retrieval_needed_omits_empty_retrieved_placeholder():
+    mixin = RetrieveMixin()
+    mixin._escape_prompt_value = lambda text: text
+    captured: dict[str, str] = {}
+
+    class Client:
+        async def chat(self, prompt, **_kwargs):  # type: ignore[no-untyped-def]
+            captured["prompt"] = prompt
+            return "<decision>NO_RETRIEVE</decision>"
+
+    await mixin._decide_if_retrieval_needed(
+        "new message",
+        [],
+        retrieved_content=None,
+        llm_client=Client(),
+    )
+
+    assert "My Soul:" in captured["prompt"]
+    assert "Soul context:" not in captured["prompt"]
+    assert "Retrieved so far:" not in captured["prompt"]
+    assert "No content retrieved yet." not in captured["prompt"]
+
+
+@pytest.mark.asyncio
+async def test_decide_if_retrieval_needed_preserves_actual_retrieved_content():
+    mixin = RetrieveMixin()
+    mixin._escape_prompt_value = lambda text: text
+    captured: dict[str, str] = {}
+
+    class Client:
+        async def chat(self, prompt, **_kwargs):  # type: ignore[no-untyped-def]
+            captured["prompt"] = prompt
+            return "<decision>NO_RETRIEVE</decision>"
+
+    await mixin._decide_if_retrieval_needed(
+        "new message",
+        [],
+        retrieved_content="[profile] Marcos likes careful prompts.",
+        llm_client=Client(),
+    )
+
+    assert "Retrieved so far:\n[profile] Marcos likes careful prompts." in captured["prompt"]
+
+
 def test_extract_decision_raises_on_empty_llm_response():
     mixin = RetrieveMixin()
     with pytest.raises(ValueError, match="sufficiency check returned empty response"):
