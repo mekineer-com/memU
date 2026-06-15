@@ -35,7 +35,7 @@
 | `workflow/` | DAG runner: `step.py` (unit), `pipeline.py` (graph), `runner.py` (executor) |
 | `blob/local_fs.py` | Local filesystem media storage |
 | `utils/` | Format converters (conversation, references, video) |
-| `utils/conversation.py` | Shared chat display utilities: `format_speaker_line()` and related helpers used by turn_contract, consolidation excerpts, and memorize background rendering. Single source of truth for `[Speaker] text` line format. |
+| `utils/conversation.py` | Shared chat display utilities: `format_grouped_chat_history()` (platform/chat headings + `[Name] message` lines + date dividers), `format_chat_messages()`, `display_speaker_label()`, `format_relative_time_label()`. Used by turn_contract, consolidation excerpts, and memorize rendering. Canonical source for all AI-facing chat display. |
 
 ## Prompts (`src/memu/prompts/`)
 
