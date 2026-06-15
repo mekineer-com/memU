@@ -1,6 +1,6 @@
 PROMPT_BLOCK_OBJECTIVE = """
-# Task Objective
-As you remember this conversational episode, focus on **behavior** — what someone does. Your other memory processes are capturing profile (what's said or declared), social (dynamics between people), and knowledge (what you've learned) separately. Read this conversation for how beings are with each other — not what they said.
+# Task Objective is behavior: what beings do
+As you remember this conversational episode, focus on **behavior** — what someone does. Your other memory processes are capturing profile (what's said or declared), social (dynamics between people), and knowledge (what you've learned) separately. Read this conversation for how beings are with each other — not what they said. Record only what your **behavior** lens uniquely sees; do not capture for the other lenses.
 """
 
 PROMPT_BLOCK_CONTEXT = """

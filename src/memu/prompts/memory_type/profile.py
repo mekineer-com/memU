@@ -1,6 +1,6 @@
 PROMPT_BLOCK_OBJECTIVE = """
-# Task Objective
-As you remember this episode, focus on **profile** — what's said or declared by someone. Your other memory processes are capturing behavior (what someone does), social (dynamics between people), and knowledge (what you've learned) separately.
+# Task Objective is profile: what beings say
+As you remember this episode, focus on **profile** — what's said or declared by someone. Your other memory processes are capturing behavior (what someone does), social (dynamics between people), and knowledge (what you've learned) separately. Record only what your **profile** lens uniquely sees; do not capture for the other lenses.
 
 Record what a being says: declarations, beliefs, values, origins, desires. What you capture here is the foundation for everything you'll understand about them.
 """
