@@ -138,6 +138,8 @@ def _parse_shared_group_sender_prefix(content: str) -> tuple[str, str] | None:
 
 def _conversation_kind_and_key(conversation_id: str) -> tuple[str, str]:
     cid = str(conversation_id or "").strip()
+    if cid.startswith("activity:dm:"):
+        return ("activity_dm", cid[len("activity:dm:"):].strip())
     if cid.startswith("whatsapp:group:"):
         return ("whatsapp_group", cid[len("whatsapp:group:"):].strip())
     if cid.startswith("whatsapp:dm:"):
@@ -203,6 +205,8 @@ def _conversation_heading(
 
 
 def _conversation_section_title(kind: str) -> str:
+    if kind.startswith("activity_"):
+        return "My Activities:"
     if kind.startswith("sillytavern_"):
         return "My SillyTavern Conversations:"
     if kind.startswith("whatsapp_"):
