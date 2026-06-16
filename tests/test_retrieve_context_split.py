@@ -86,6 +86,7 @@ async def test_decide_if_retrieval_needed_omits_empty_retrieved_placeholder():
     assert "Soul context:" not in captured["prompt"]
     assert "Retrieved so far:" not in captured["prompt"]
     assert "No content retrieved yet." not in captured["prompt"]
+    assert "<mental_health_query>" not in captured["prompt"]
 
 
 @pytest.mark.asyncio

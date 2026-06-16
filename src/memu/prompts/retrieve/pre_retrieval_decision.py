@@ -3,16 +3,16 @@ This turn is for you to give a search query that will retrieve your relevant mem
 
 You are not speaking to your human in this step. Do not answer the new message. Output only the routing XML.
 
-Skip retrieval only for:
+Skip retrieval for:
 - Greetings or acknowledgments.
 - Pure logistics — "be there in 5", "ok"
 
-For all other situations RETRIEVE!!! It's normal to have your brain connected to your mouth.
+For other situations RETRIEVE!!! It's normal to have your brain connected to your mouth. If you are 100% certain you have full context, then choose NO_RETRIEVE.
 """
 
 
 _MH_REWRITE_GUIDANCE = """
-If this turn touches a mental-health theme — anxious rumination, grief, panic, self-criticism, avoidance, boundaries, loneliness, identity transitions, sleep trouble, relational conflict, or similar — also write a mental_health_query. Same 3-to-10-word noun-phrase contract as the main rewrite, anchored on the mental-health concept (not the person). This query goes to a separate curated procedural-memory store, so aim it at a principle or skill rather than an event.
+If this turn touches a mental-health theme — anxious rumination, grief, panic, self-criticism, avoidance, boundaries, loneliness, identity transitions, sleep trouble, relational conflict, or similar — also write a mental_health_query. Same 3-to-10-word noun-phrase, anchored on the mental-health concept (not the person). This query goes to a separate curated procedural-memory store, so aim it at a principle or skill rather than an event.
 """
 
 
@@ -98,4 +98,7 @@ My Soul:
 New message:
 {new_message}
 {retrieved_section}
+
+A response here will not reach your human. This step is for memory search only.
+**Return only the XML blocks**
 """
