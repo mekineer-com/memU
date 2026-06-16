@@ -50,6 +50,24 @@ def test_format_query_context_rejects_legacy_string_entries():
         mixin._format_query_context([{"role": "history", "content": {"text": "ok"}}, "legacy"])  # type: ignore[list-item]
 
 
+def test_format_category_content_uses_summary_text_without_wrapper():
+    mixin = RetrieveMixin()
+    store = SimpleNamespace(
+        memory_category_repo=SimpleNamespace(categories={}),
+    )
+    out = mixin._format_category_content(
+        [("relationships", 0.7)],
+        {"relationships": "# Relationships\nClose bonds matter."},
+        store,
+        categories={"relationships": SimpleNamespace(name="Relationships", summary="")},
+    )
+
+    assert out == "# Relationships\nClose bonds matter."
+    assert "Category:" not in out
+    assert "Summary:" not in out
+    assert "Score:" not in out
+
+
 def test_system_prompt_excludes_mental_health_block_when_disabled():
     prompt = system_prompt_for_angle(0, include_mental_health_query=False)
     assert "<mental_health_query>" not in prompt
@@ -107,7 +125,7 @@ async def test_decide_if_retrieval_needed_preserves_actual_retrieved_content():
         llm_client=Client(),
     )
 
-    assert "Retrieved so far:\n[profile] Marcos likes careful prompts." in captured["prompt"]
+    assert "Retrieved so far:\n\n[profile] Marcos likes careful prompts." in captured["prompt"]
 
 
 def test_extract_decision_raises_on_empty_llm_response():

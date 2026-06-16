@@ -579,7 +579,7 @@ class RetrieveMixin:
         history_text = self._format_query_context(context_queries)
         retrieved_section = ""
         if retrieved_content:
-            retrieved_section = f"\nRetrieved so far:\n{retrieved_content}\n"
+            retrieved_section = f"\nRetrieved so far:\n\n{retrieved_content}\n"
 
         prompt = PRE_RETRIEVAL_USER_PROMPT
         user_prompt = prompt.format(
@@ -733,7 +733,10 @@ class RetrieveMixin:
             if not cat:
                 continue
             summary = summaries.get(cid) or cat.summary or ""
-            lines.append(f"Category: {cat.name}\nSummary: {summary}\nScore: {score:.3f}")
+            text = str(summary or "").strip()
+            if not text:
+                text = f"# {cat.name}"
+            lines.append(text)
         return "\n\n".join(lines).strip()
 
     def _resource_caption_corpus(
