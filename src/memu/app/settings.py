@@ -194,6 +194,10 @@ class MemorizeConfig(BaseModel):
         default=3,
         description="Maximum number of story items the extraction router can return for one conversation segment.",
     )
+    min_chunk_tokens: int = Field(
+        default=4000,
+        description="Configured memorize chunk size used to set per-memory-type extraction targets.",
+    )
     background_extra_messages_tokens: int = Field(
         default=100,
         description=(

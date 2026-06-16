@@ -228,14 +228,6 @@ def _estimate_text_tokens(text: str) -> int:
     return int(words / 0.75)
 
 
-def _compute_batch_max_items(total_message_count: int) -> int:
-    if total_message_count >= 80:
-        return 12
-    if total_message_count >= 40:
-        return 8
-    return 6
-
-
 def _message_is_primary_for_memorize(message: Mapping[str, Any]) -> bool:
     flag = message.get("memorize_chat")
     if isinstance(flag, bool):

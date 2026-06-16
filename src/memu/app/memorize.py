@@ -494,11 +494,8 @@ class MemorizeMixin:
             ep for ep in prepared
             if ep["applicable_types"] and isinstance(ep.get("text"), str) and str(ep.get("text") or "").strip()
         ]
-        routed_total = len(extractable)
         if extractable:
-            total_messages = sum(len(ep["message_indices"]) for ep in extractable)
-            max_items = self._compute_batch_max_items(total_messages)
-            target_per_segment = f"up to {max(1, round(max_items / max(1, routed_total)))}"
+            target_per_memory_type = self._memory_type_target_items()
             extraction_jobs = [
                 (ep, mtype)
                 for ep in extractable
@@ -533,7 +530,7 @@ class MemorizeMixin:
                         operation="memorize",
                         step_id=f"extract_{mtype}",
                     ),
-                    target_items_by_type={mtype: target_per_segment},
+                    target_items_by_type={mtype: target_per_memory_type},
                 )
                 ep["entries"].extend(type_entries)
                 if on_extraction_progress:
@@ -1831,9 +1828,13 @@ class MemorizeMixin:
     def _estimate_text_tokens(text: str) -> int:
         return segment_helpers._estimate_text_tokens(text)
 
-    @staticmethod
-    def _compute_batch_max_items(total_message_count: int) -> int:
-        return segment_helpers._compute_batch_max_items(total_message_count)
+    def _memory_type_target_items(self) -> str:
+        try:
+            min_chunk_tokens = int(getattr(self.memorize_config, "min_chunk_tokens", 4000) or 4000)
+        except (TypeError, ValueError, OverflowError):
+            min_chunk_tokens = 4000
+        target = max(1, math.ceil(1.5 * (max(0, min_chunk_tokens) / 1000)))
+        return f"up to {target}"
 
     @staticmethod
     def _message_is_primary_for_memorize(message: Mapping[str, Any]) -> bool:

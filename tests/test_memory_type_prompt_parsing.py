@@ -23,6 +23,26 @@ def test_build_memory_type_prompt_injects_soul_context_for_activated_types(memor
     assert "{soul_context}" not in prompt
 
 
+def test_memory_type_target_items_uses_min_chunk_tokens() -> None:
+    service = MemoryService(
+        database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
+        memorize_config={"min_chunk_tokens": 4000},
+    )
+    assert service._memory_type_target_items() == "up to 6"
+
+    service = MemoryService(
+        database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
+        memorize_config={"min_chunk_tokens": 8000},
+    )
+    assert service._memory_type_target_items() == "up to 12"
+
+    service = MemoryService(
+        database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
+        memorize_config={"min_chunk_tokens": 3000},
+    )
+    assert service._memory_type_target_items() == "up to 5"
+
+
 @pytest.mark.parametrize("memory_type", ["knowledge", "behavior"])
 def test_parse_structured_entries_ignores_stale_source_ids(memory_type: MemoryType) -> None:
     service = _service()
