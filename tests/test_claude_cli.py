@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import subprocess
+import time
 from pathlib import Path
 
 import memu.llm.claude_cli as claude_cli
@@ -33,6 +35,33 @@ def test_claude_cli_uses_workspace_and_cleans_prompt_file(monkeypatch, tmp_path:
     assert seen["system_prompt"] == "system"
     assert not seen["prompt_file"].exists()
     assert list((tmp_path / ".prompts").iterdir()) == []
+
+
+@pytest.mark.asyncio
+async def test_claude_cli_payload_logging_is_request_local(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(claude_cli.shutil, "which", lambda _binary: "/bin/claude")
+
+    def fake_run(cmd, *, cwd, input, text, capture_output, timeout, check):
+        if input == "slow":
+            time.sleep(0.05)
+        return subprocess.CompletedProcess(cmd, 0, stdout=f"reply:{input}", stderr="")
+
+    monkeypatch.setattr(claude_cli.subprocess, "run", fake_run)
+    client = ClaudeCLIClient(model="claude-opus-4-7", workspace=tmp_path)
+
+    async def call(prompt: str) -> dict[str, object] | None:
+        await client.chat(prompt, system_prompt=f"system:{prompt}")
+        return client.get_last_payload()
+
+    slow_task = asyncio.create_task(call("slow"))
+    await asyncio.sleep(0.01)
+    fast_payload = await call("fast")
+    slow_payload = await slow_task
+
+    assert fast_payload is not None
+    assert slow_payload is not None
+    assert fast_payload["messages"][1]["content"] == "fast"
+    assert slow_payload["messages"][1]["content"] == "slow"
 
 
 def test_claude_cli_passes_permission_mode(monkeypatch, tmp_path: Path) -> None:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import contextvars
 import json
 import shutil
 import subprocess
@@ -54,7 +55,10 @@ class ClaudeCLIClient:
         self._prompt_dir = self._workspace / ".prompts"
         self._prompt_dir.mkdir(parents=True, exist_ok=True)
         self._last_call_monotonic = 0.0
-        self._last_payload: dict[str, Any] | None = None
+        self._last_payload_var: contextvars.ContextVar[dict[str, Any] | None] = contextvars.ContextVar(
+            "memu_claude_cli_last_payload",
+            default=None,
+        )
 
     async def _throttle(self) -> None:
         if self._min_call_gap_seconds <= 0:
@@ -93,7 +97,7 @@ class ClaudeCLIClient:
             "session_id": session_id_clean,
             "resume_session_id": resume_session_id_clean,
         }
-        self._last_payload = copy.deepcopy(payload)
+        self._last_payload_var.set(copy.deepcopy(payload))
 
         text, raw = await asyncio.to_thread(
             self._run_claude,
@@ -202,6 +206,7 @@ class ClaudeCLIClient:
         raise NotImplementedError("claude_code backend has no audio transcription")
 
     def get_last_payload(self) -> dict[str, Any] | None:
-        if not isinstance(self._last_payload, dict):
+        payload = self._last_payload_var.get()
+        if not isinstance(payload, dict):
             return None
-        return copy.deepcopy(self._last_payload)
+        return copy.deepcopy(payload)
