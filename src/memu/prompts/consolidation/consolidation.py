@@ -156,12 +156,12 @@ USER_PROMPT = """
 # Intention activity since your last reflection
 {intention_activity}
 
-# Memories I brought to my own attention this week
+# Memories surfaced from my subconscious
 {retrieved_memories}
 
 {conversation_history}
 
-# Related memories for connections
+# Memories from this week
 {segments}
 
 **remember stable narrative_self; no rewrite**
