@@ -1,8 +1,6 @@
 _COMMON_HEAD = """
 This turn is for you to give a search query that will retrieve your relevant memories. You can then respond in the next turn (not this turn), once you have full context for the response.
 
-You are not speaking to your human in this step. Do not answer the new message. Output only the routing XML.
-
 Skip retrieval for:
 - Greetings or acknowledgments.
 - Pure logistics — "be there in 5", "ok"
