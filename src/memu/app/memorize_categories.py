@@ -26,6 +26,11 @@ def _dynamic_category_cluster_min_size(dynamic_category_cluster_size: Any) -> in
     return max(2, cluster_size)
 
 
+def _step_label(value: Any) -> str:
+    label = re.sub(r"[^A-Za-z0-9_-]+", "_", str(value or "").strip()).strip("_")
+    return label or "unknown"
+
+
 def _cluster_homeless_entries(
     *,
     filtered_entries: list[Any],
@@ -271,7 +276,10 @@ Decide which clusters/candidates should map into existing categories, and which 
         return bool(re.fullmatch(r"[A-Za-z ]+", raw))
 
     try:
-        planner = get_llm_client(planner_profile)
+        planner = get_llm_client(
+            planner_profile,
+            step_context={"operation": "memorize", "step_id": "dynamic_category_planner"},
+        )
         resp = await planner.chat(user_prompt, system_prompt=system_prompt)
     except Exception:
         logger.warning("dynamic-category planner LLM call failed", exc_info=True)
@@ -659,7 +667,11 @@ async def _update_category_summaries(
         if not cat or not memories:
             continue
         prompt = build_category_summary_prompt(cat, memories, user)
-        tasks.append(llm_client.chat(prompt))
+        chat_client = llm_client
+        with_metadata = getattr(chat_client, "with_metadata", None)
+        if callable(with_metadata):
+            chat_client = with_metadata(step_id=f"category_summary.{_step_label(getattr(cat, 'name', None) or cid)}")
+        tasks.append(chat_client.chat(prompt))
         target_ids.append(cid)
     if not tasks:
         return updated_summaries
