@@ -847,7 +847,7 @@ class MemorizeMixin:
                 semantic_dedupe_enabled=self.memorize_config.semantic_dedupe_enabled,
                 semantic_dedupe_similarity_threshold=self.memorize_config.semantic_dedupe_similarity_threshold,
                 get_llm_client=lambda profile=None: self._get_step_llm_client(
-                    {"operation": "memorize", "step_id": "dynamic_category_planner"},
+                    {"operation": "memorize", "step_id": "semantic_dedupe_reembed"},
                     profile=profile,
                 ),
             ),

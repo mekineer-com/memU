@@ -167,7 +167,7 @@ async def test_route_intention_disables_mental_health_query_extraction():
 
 
 @pytest.mark.asyncio
-async def test_route_intention_force_retrieve_skips_llm_and_uses_new_message_as_search_fallback():
+async def test_route_intention_force_retrieve_skips_first_llm_without_mental_health_query():
     mixin = RetrieveMixin()
 
     async def _should_not_run(*_args, **_kwargs):  # type: ignore[no-untyped-def]
@@ -185,8 +185,33 @@ async def test_route_intention_force_retrieve_skips_llm_and_uses_new_message_as_
     out = await mixin._rag_route_intention(state, step_context=None)
 
     assert out["needs_retrieval"] is True
-    assert out["active_query"] == "topic statement text"
-    assert out["mental_health_query"] == "topic statement text"
+    assert out["active_query"] == ""
+    assert out["mental_health_query"] is None
+
+
+@pytest.mark.asyncio
+async def test_force_retrieve_skips_category_summary_search():
+    mixin = RetrieveMixin()
+
+    class EmbedClient:
+        async def embed(self, *_args, **_kwargs):  # type: ignore[no-untyped-def]
+            raise AssertionError("force retrieve should not embed message for category search")
+
+    mixin._get_step_embedding_client = lambda _ctx: EmbedClient()
+    state = {
+        "needs_retrieval": True,
+        "active_query": "",
+        "ctx": object(),
+        "store": object(),
+        "where": {},
+        "force_retrieve": True,
+    }
+
+    out = await mixin._rag_route_category(state, step_context=None)
+
+    assert out["category_hits"] == []
+    assert out["category_summary_lookup"] == {}
+    assert out["query_vector"] is None
 
 
 @pytest.mark.asyncio
@@ -226,6 +251,70 @@ async def test_category_sufficiency_uses_second_step_mental_health_query():
     assert out["mental_health_query"] == "second step query"
     assert out["active_query"] == "second-step-rewrite"
     assert out["proceed_to_items"] is False
+
+
+@pytest.mark.asyncio
+async def test_force_retrieve_uses_sufficiency_ai_query_for_items():
+    mixin = RetrieveMixin()
+    mixin._get_step_llm_client = lambda _ctx: object()
+
+    class EmbedClient:
+        async def embed(self, values):  # type: ignore[no-untyped-def]
+            assert values == ["ai-written item query"]
+            return [[0.1, 0.2]]
+
+    mixin._get_step_embedding_client = lambda _ctx: EmbedClient()
+    state = {
+        "needs_retrieval": True,
+        "new_message": "raw current message",
+        "active_query": "",
+        "context_queries": [],
+        "category_pool": {},
+        "category_hits": [],
+        "store": object(),
+        "where": {},
+        "mental_health_enabled": True,
+        "force_retrieve": True,
+    }
+
+    async def _fake_decide(*_args, **_kwargs):  # type: ignore[no-untyped-def]
+        return False, "ai-written item query", "<mental_health_query>sleep boundaries</mental_health_query>"
+
+    mixin._decide_if_retrieval_needed = _fake_decide  # type: ignore[method-assign]
+
+    out = await mixin._rag_category_sufficiency(state, step_context=None)
+
+    assert out["active_query"] == "ai-written item query"
+    assert out["mental_health_query"] == "sleep boundaries"
+    assert out["proceed_to_items"] is True
+    assert out["query_vector"] == [0.1, 0.2]
+
+
+@pytest.mark.asyncio
+async def test_category_sufficiency_clears_mental_health_when_second_step_omits_it():
+    mixin = RetrieveMixin()
+    mixin._get_step_llm_client = lambda _ctx: object()
+    state = {
+        "needs_retrieval": True,
+        "new_message": "original",
+        "active_query": "original",
+        "context_queries": [],
+        "category_pool": {"c1": object()},
+        "category_hits": [],
+        "store": object(),
+        "where": {},
+        "mental_health_enabled": True,
+        "mental_health_query": "first-step-query",
+    }
+
+    async def _fake_decide(*_args, **_kwargs):  # type: ignore[no-untyped-def]
+        return False, "second-step-rewrite", "<decision>NO_RETRIEVE</decision><active_query></active_query>"
+
+    mixin._decide_if_retrieval_needed = _fake_decide  # type: ignore[method-assign]
+
+    out = await mixin._rag_category_sufficiency(state, step_context=None)
+
+    assert out["mental_health_query"] is None
 
 
 @pytest.mark.asyncio

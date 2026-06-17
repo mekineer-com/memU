@@ -220,12 +220,10 @@ class RetrieveMixin:
 
     async def _rag_route_intention(self, state: WorkflowState, step_context: Any) -> WorkflowState:
         if bool(state.get("force_retrieve")):
-            new_message = str(state.get("new_message") or "")
-            mental_health_enabled = bool(state.get("mental_health_enabled", True))
             state.update({
                 "needs_retrieval": True,
-                "active_query": new_message,
-                "mental_health_query": new_message if mental_health_enabled else None,
+                "active_query": "",
+                "mental_health_query": None,
                 "proceed_to_items": False,
                 "proceed_to_resources": False,
             })
@@ -262,6 +260,12 @@ class RetrieveMixin:
             state["category_summary_lookup"] = {}
             state["query_vector"] = None
             return state
+        if bool(state.get("force_retrieve")):
+            state["category_hits"] = []
+            state["category_summary_lookup"] = {}
+            state["category_pool"] = {}
+            state["query_vector"] = None
+            return state
 
         embed_client = self._get_step_embedding_client(step_context)
         store = state["store"]
@@ -293,11 +297,11 @@ class RetrieveMixin:
             return state
 
         retrieved_content = ""
-        store = state["store"]
-        where_filters = state["where"]
-        category_pool = state.get("category_pool") or store.memory_category_repo.list_categories(where_filters)
-        hits = state.get("category_hits") or []
+        hits = [] if bool(state.get("force_retrieve")) else (state.get("category_hits") or [])
         if hits:
+            store = state["store"]
+            where_filters = state["where"]
+            category_pool = state.get("category_pool") or store.memory_category_repo.list_categories(where_filters)
             retrieved_content = self._format_category_content(
                 hits,
                 state.get("category_summary_lookup", {}),
@@ -315,12 +319,14 @@ class RetrieveMixin:
             llm_client=llm_client,
         )
         if mental_health_enabled:
-            mental_health_query = self._extract_mental_health_query(raw_response)
-            if mental_health_query:
-                state["mental_health_query"] = mental_health_query
+            state["mental_health_query"] = self._extract_mental_health_query(raw_response)
         state["active_query"] = active_query
-        state["proceed_to_items"] = needs_more
-        if needs_more:
+        force_retrieve = bool(state.get("force_retrieve"))
+        proceed_to_items = True if force_retrieve else needs_more
+        state["proceed_to_items"] = proceed_to_items
+        if force_retrieve and not active_query:
+            raise ValueError("forced retrieve missing active_query")
+        if proceed_to_items:
             embed_client = self._get_step_embedding_client(step_context)
             state["query_vector"] = (await embed_client.embed([state["active_query"]]))[0]
         return state
