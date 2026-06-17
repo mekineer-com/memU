@@ -355,7 +355,6 @@ def format_grouped_chat_history(
     whatsapp_names: Mapping[str, str] | None = None,
     time_label_resolver: Callable[[Any], str | None] | None = None,
     soul_name: str | None = None,
-    speaker_separator: str = " ",
 ) -> str:
     by_conversation: dict[str, list[Mapping[str, Any]]] = {}
     for msg in messages:
@@ -401,7 +400,6 @@ def format_grouped_chat_history(
             rendered_rows,
             soul_name=soul_name,
             default_role="unknown",
-            separator=speaker_separator,
             time_label_resolver=(
                 (lambda item: time_label_resolver(item.get("received_at")))
                 if time_label_resolver is not None
