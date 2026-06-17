@@ -413,7 +413,12 @@ def format_grouped_chat_history(
         entries.append((newest_ts, "\n".join(conv_lines)))
 
     lines: list[str] = []
-    for section_title, entries in sections.items():
+    section_titles = sorted(
+        sections,
+        key=lambda title: (0 if title == "My Activities:" else 1),
+    )
+    for section_title in section_titles:
+        entries = sections[section_title]
         if not entries:
             continue
         entries.sort(key=lambda e: e[0])

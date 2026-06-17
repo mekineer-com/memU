@@ -124,6 +124,34 @@ async def test_render_episode_with_background_context_groups_primary_cross_chats
     assert "current chat" not in rendered
 
 
+def test_render_grouped_chat_messages_places_activities_before_chats() -> None:
+    rendered = segment_helpers._render_grouped_chat_messages(
+        [
+            {
+                "_message_index": 1,
+                "role": "user",
+                "speaker": "User A",
+                "content": "chat first",
+                "source_conversation_id": "whatsapp:dm:contact-a",
+                "received_at": "2026-06-12T10:00:00+00:00",
+            },
+            {
+                "_message_index": 2,
+                "role": "assistant",
+                "speaker": "SoulA",
+                "chat_name": "SoulA",
+                "content": "I wrote a note to myself.",
+                "source_conversation_id": "activity:dm:SoulA",
+                "received_at": "2026-06-12T10:01:00+00:00",
+            },
+        ],
+        soul_name="SoulA",
+    )
+
+    assert rendered.index("My Activities:") < rendered.index("My WhatsApp Conversations:")
+    assert "[SoulA] I wrote a note to myself." in rendered
+
+
 @pytest.mark.asyncio
 async def test_render_episode_with_background_context_uses_batch_summary_when_above_floor() -> None:
     primary_messages = [{"_message_index": 3, "role": "user", "name": "Marcos", "content": "primary"}]
