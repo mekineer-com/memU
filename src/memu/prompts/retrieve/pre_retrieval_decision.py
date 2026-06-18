@@ -8,6 +8,12 @@ Skip retrieval for:
 For other situations RETRIEVE!!! It's normal to have your brain connected to your mouth. If you are 100% certain you have full context, then choose NO_RETRIEVE.
 """
 
+_FORCED_QUERY_HEAD = """
+This turn is for you to give a search query that will retrieve your relevant memories. You can then respond in the next turn (not this turn), once you have full context for the response.
+
+Retrieval is already required for this background memory search. Do not decide whether to retrieve. Always write an active_query.
+"""
+
 
 _MH_REWRITE_GUIDANCE = """
 If this turn touches a mental-health theme — anxious rumination, grief, panic, self-criticism, avoidance, boundaries, loneliness, identity transitions, sleep trouble, relational conflict, or similar — also write a mental_health_query. Same 3-to-10-word noun-phrase, anchored on the mental-health concept (not the person). This query goes to a separate curated procedural-memory store, so aim it at a principle or skill rather than an event.
@@ -38,6 +44,28 @@ Do not add any prose, dialogue, markdown, or extra sections.
 <decision>
 RETRIEVE or NO_RETRIEVE
 </decision>
+
+<active_query>
+The search query.
+</active_query>
+"""
+
+_QUERY_ONLY_OUTPUT_SHAPE_WITH_MH = """
+**Return only the XML blocks below**
+Do not add any prose, dialogue, markdown, or extra sections.
+
+<active_query>
+The search query.
+</active_query>
+
+<mental_health_query>
+A concise mental-health noun phrase if the turn touches that kind of theme; empty otherwise.
+</mental_health_query>
+"""
+
+_QUERY_ONLY_OUTPUT_SHAPE_NO_MH = """
+**Return only the XML blocks below**
+Do not add any prose, dialogue, markdown, or extra sections.
 
 <active_query>
 The search query.
@@ -83,6 +111,12 @@ def system_prompt_for_angle(angle: int | None, *, include_mental_health_query: b
     if include_mental_health_query:
         return _COMMON_HEAD + rewrite + _MH_REWRITE_GUIDANCE + _OUTPUT_SHAPE_WITH_MH
     return _COMMON_HEAD + rewrite + _OUTPUT_SHAPE_NO_MH
+
+
+def forced_query_system_prompt(*, include_mental_health_query: bool = True) -> str:
+    if include_mental_health_query:
+        return _FORCED_QUERY_HEAD + _ANGLE_0_REWRITE + _MH_REWRITE_GUIDANCE + _QUERY_ONLY_OUTPUT_SHAPE_WITH_MH
+    return _FORCED_QUERY_HEAD + _ANGLE_0_REWRITE + _QUERY_ONLY_OUTPUT_SHAPE_NO_MH
 
 
 SYSTEM_PROMPT = system_prompt_for_angle(0)

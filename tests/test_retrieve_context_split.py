@@ -257,6 +257,7 @@ async def test_category_sufficiency_uses_second_step_mental_health_query():
 async def test_force_retrieve_uses_sufficiency_ai_query_for_items():
     mixin = RetrieveMixin()
     mixin._get_step_llm_client = lambda _ctx: object()
+    captured: dict[str, object] = {}
 
     class EmbedClient:
         async def embed(self, values):  # type: ignore[no-untyped-def]
@@ -277,13 +278,20 @@ async def test_force_retrieve_uses_sufficiency_ai_query_for_items():
         "force_retrieve": True,
     }
 
-    async def _fake_decide(*_args, **_kwargs):  # type: ignore[no-untyped-def]
-        return False, "ai-written item query", "<mental_health_query>sleep boundaries</mental_health_query>"
+    async def _fake_decide(*_args, **kwargs):  # type: ignore[no-untyped-def]
+        captured.update(kwargs)
+        return True, "ai-written item query", (
+            "<active_query>ai-written item query</active_query>"
+            "<mental_health_query>sleep boundaries</mental_health_query>"
+        )
 
     mixin._decide_if_retrieval_needed = _fake_decide  # type: ignore[method-assign]
 
     out = await mixin._rag_category_sufficiency(state, step_context=None)
 
+    assert captured["require_decision"] is False
+    assert "<decision>" not in str(captured["system_prompt"])
+    assert "Always write an active_query" in str(captured["system_prompt"])
     assert out["active_query"] == "ai-written item query"
     assert out["mental_health_query"] == "sleep boundaries"
     assert out["proceed_to_items"] is True
@@ -332,6 +340,45 @@ async def test_decide_if_retrieval_needed_requires_active_query_when_retrieving(
             "new message",
             [],
             llm_client=Client(),
+        )
+
+
+@pytest.mark.asyncio
+async def test_query_only_retrieve_requires_active_query_without_decision():
+    mixin = RetrieveMixin()
+    mixin._escape_prompt_value = lambda text: text
+
+    class Client:
+        async def chat(self, *_args, **_kwargs):  # type: ignore[no-untyped-def]
+            return "<active_query>Marcos Mexico travel re-entry</active_query>"
+
+    needs_retrieval, active_query, raw = await mixin._decide_if_retrieval_needed(
+        "raw current message",
+        [],
+        llm_client=Client(),
+        require_decision=False,
+    )
+
+    assert needs_retrieval is True
+    assert active_query == "Marcos Mexico travel re-entry"
+    assert "<decision>" not in raw
+
+
+@pytest.mark.asyncio
+async def test_query_only_retrieve_rejects_missing_active_query():
+    mixin = RetrieveMixin()
+    mixin._escape_prompt_value = lambda text: text
+
+    class Client:
+        async def chat(self, *_args, **_kwargs):  # type: ignore[no-untyped-def]
+            return "<mental_health_query></mental_health_query>"
+
+    with pytest.raises(ValueError, match="missing active_query"):
+        await mixin._decide_if_retrieval_needed(
+            "raw current message",
+            [],
+            llm_client=Client(),
+            require_decision=False,
         )
 
 

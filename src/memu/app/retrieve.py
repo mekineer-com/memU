@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from memu.database.vector import cosine_topk
 from memu.prompts.retrieve.pre_retrieval_decision import USER_PROMPT as PRE_RETRIEVAL_USER_PROMPT
+from memu.prompts.retrieve.pre_retrieval_decision import forced_query_system_prompt as _forced_query_system_prompt
 from memu.prompts.retrieve.pre_retrieval_decision import system_prompt_for_angle as _system_prompt_for_angle
 from memu.workflow.step import WorkflowState, WorkflowStep
 
@@ -311,21 +312,30 @@ class RetrieveMixin:
 
         llm_client = self._get_step_llm_client(step_context)
         mental_health_enabled = bool(state.get("mental_health_enabled", True))
-        needs_more, active_query, raw_response = await self._decide_if_retrieval_needed(
-            state["new_message"],
-            state["context_queries"],
-            retrieved_content=retrieved_content,
-            include_mental_health_query=mental_health_enabled,
-            llm_client=llm_client,
-        )
+        force_retrieve = bool(state.get("force_retrieve"))
+        if force_retrieve:
+            needs_more, active_query, raw_response = await self._decide_if_retrieval_needed(
+                state["new_message"],
+                state["context_queries"],
+                retrieved_content=retrieved_content,
+                system_prompt=_forced_query_system_prompt(include_mental_health_query=mental_health_enabled),
+                include_mental_health_query=mental_health_enabled,
+                llm_client=llm_client,
+                require_decision=False,
+            )
+        else:
+            needs_more, active_query, raw_response = await self._decide_if_retrieval_needed(
+                state["new_message"],
+                state["context_queries"],
+                retrieved_content=retrieved_content,
+                include_mental_health_query=mental_health_enabled,
+                llm_client=llm_client,
+            )
         if mental_health_enabled:
             state["mental_health_query"] = self._extract_mental_health_query(raw_response)
         state["active_query"] = active_query
-        force_retrieve = bool(state.get("force_retrieve"))
         proceed_to_items = True if force_retrieve else needs_more
         state["proceed_to_items"] = proceed_to_items
-        if force_retrieve and not active_query:
-            raise ValueError("forced retrieve missing active_query")
         if proceed_to_items:
             embed_client = self._get_step_embedding_client(step_context)
             state["query_vector"] = (await embed_client.embed([state["active_query"]]))[0]
@@ -581,6 +591,7 @@ class RetrieveMixin:
         system_prompt: str | None = None,
         include_mental_health_query: bool = True,
         llm_client: Any | None = None,
+        require_decision: bool = True,
     ) -> tuple[bool, str, str]:
         history_text = self._format_query_context(context_queries)
         retrieved_section = ""
@@ -600,8 +611,13 @@ class RetrieveMixin:
         )
         client = llm_client or self._get_step_llm_client(None)
         response = await client.chat(user_prompt, system_prompt=sys_prompt)
-        decision = self._extract_decision(response)
         active_query = self._extract_active_query(response)
+        if not require_decision:
+            if not active_query:
+                raise ValueError("retrieval query missing active_query")
+            return True, active_query, response
+
+        decision = self._extract_decision(response)
         if decision == "RETRIEVE" and not active_query:
             raise ValueError("retrieval decision missing active_query")
 
