@@ -154,12 +154,12 @@ USER_PROMPT = """
 {intention_activity}
 
 # Memories surfaced from my subconscious
-{retrieved_memories}
+{prior_context_memory_items}
 
 {conversation_history}
 
 # Memories from this week
-{segments}
+{segment_memory_items}
 
 **remember stable narrative_self; no rewrite**
 """.strip()
