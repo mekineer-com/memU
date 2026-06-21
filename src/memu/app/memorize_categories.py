@@ -633,7 +633,7 @@ def _build_category_summary_prompt(
         or user_scope.get("character_name")
         or user_scope.get("soul_id")
     )
-    agent_name = str(raw_agent).strip() if raw_agent else "the assistant"
+    agent_name = str(raw_agent).strip() if raw_agent else "the soul"
     if " - " in agent_name:
         agent_name = agent_name.split(" - ", 1)[0].strip() or agent_name
 
