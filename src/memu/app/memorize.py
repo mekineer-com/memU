@@ -1873,11 +1873,17 @@ class MemorizeMixin:
         llm_client: Any | None = None,
         soul_name: str | None = None,
     ) -> str:
+        def get_step_client(profile: str | None = None, step_context: Mapping[str, Any] | None = None) -> Any:
+            return self._get_step_llm_client(
+                step_context or {"operation": "memorize", "step_id": "background_rollup"},
+                profile=profile,
+            )
+
         return await segment_helpers._summarize_background_rollup(
             prior_summary=prior_summary,
             messages=messages,
             llm_client=llm_client,
-            get_llm_client=self._get_llm_client,
+            get_llm_client=get_step_client,
             soul_name=soul_name,
         )
 

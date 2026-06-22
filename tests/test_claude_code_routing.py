@@ -196,3 +196,26 @@ def test_get_step_llm_client_with_explicit_profile_uses_claude_in_claude_code_mo
     )
     assert isinstance(chat_client_plain, LLMClientWrapper)
     assert isinstance(chat_client_plain._client, HTTPLLMClient)
+
+
+@pytest.mark.asyncio
+async def test_background_rollup_uses_claude_code_step_client(monkeypatch) -> None:
+    monkeypatch.setattr(service_module, "ClaudeCLIClient", _FakeClaudeCLIClient)
+    service = _service(claude_code=True, claude_code_model="claude-opus-4-7")
+
+    out = await service.summarize_background_chat_rollup(
+        prior_summary=None,
+        messages=[
+            {
+                "role": "user",
+                "speaker": "Marcos",
+                "content": "This should route through Claude Code.",
+                "source_conversation_index": 1,
+            }
+        ],
+        soul_name="Siri",
+    )
+
+    assert "This should route through Claude Code." in out
+    assert isinstance(service._claude_cli_internal_client, _FakeClaudeCLIClient)
+    assert service._claude_cli_internal_client.chat_model == "claude-opus-4-7"
