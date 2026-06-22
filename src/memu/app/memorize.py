@@ -1012,8 +1012,6 @@ class MemorizeMixin:
             for episode_item in episode_items:
                 title = str(episode_item.get("title") or "").strip() or "Story"
                 summary = str(episode_item.get("summary") or "").strip()
-                if not summary:
-                    continue
                 full_summary = f"{title}: {summary}"
                 episode_summaries.append((title, summary, full_summary))
             episode_embeddings = await embed_client.embed([full_summary for _, _, full_summary in episode_summaries])
@@ -1895,11 +1893,17 @@ class MemorizeMixin:
         llm_client: Any | None = None,
         soul_name: str | None = None,
     ) -> dict[str, str]:
+        def get_step_client(profile: str | None = None, step_context: Mapping[str, Any] | None = None) -> Any:
+            return self._get_step_llm_client(
+                step_context or {"operation": "memorize", "step_id": "background_batch_summary"},
+                profile=profile,
+            )
+
         return await segment_helpers._summarize_background_groups_batched(
             grouped_messages=grouped_messages,
             group_order=group_order,
             llm_client=llm_client,
-            get_llm_client=self._get_llm_client,
+            get_llm_client=get_step_client,
             extract_json_blob=self._extract_json_blob,
             soul_name=soul_name,
         )

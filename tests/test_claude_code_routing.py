@@ -35,6 +35,15 @@ class _FakeClaudeCLIClient:
         return prompt, {"provider": self.provider}
 
 
+class _FakeClaudeJSONClient(_FakeClaudeCLIClient):
+    async def chat(self, prompt: str, **kwargs: object):
+        self.last_chat_kwargs = dict(kwargs)
+        return (
+            '{"summaries":[{"source_key":"whatsapp:dm:a",'
+            '"summary":"This batch should route through Claude Code."}]}'
+        )
+
+
 def _service(**kwargs) -> MemoryService:
     return MemoryService(
         database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
@@ -218,4 +227,30 @@ async def test_background_rollup_uses_claude_code_step_client(monkeypatch) -> No
 
     assert "This should route through Claude Code." in out
     assert isinstance(service._claude_cli_internal_client, _FakeClaudeCLIClient)
+    assert service._claude_cli_internal_client.chat_model == "claude-opus-4-7"
+
+
+@pytest.mark.asyncio
+async def test_background_batch_summary_uses_claude_code_step_client(monkeypatch) -> None:
+    monkeypatch.setattr(service_module, "ClaudeCLIClient", _FakeClaudeJSONClient)
+    service = _service(claude_code=True, claude_code_model="claude-opus-4-7")
+
+    out = await service._summarize_background_groups_batched(
+        grouped_messages={
+            "whatsapp:dm:a": [
+                {
+                    "role": "user",
+                    "speaker": "Marcos",
+                    "content": "This batch should route through Claude Code.",
+                    "source_label": "whatsapp:dm",
+                    "source_conversation_index": 1,
+                }
+            ]
+        },
+        group_order=["whatsapp:dm:a"],
+        soul_name="Siri",
+    )
+
+    assert out == {"whatsapp:dm:a": "This batch should route through Claude Code."}
+    assert isinstance(service._claude_cli_internal_client, _FakeClaudeJSONClient)
     assert service._claude_cli_internal_client.chat_model == "claude-opus-4-7"
