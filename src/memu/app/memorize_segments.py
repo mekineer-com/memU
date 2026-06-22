@@ -347,9 +347,9 @@ async def _summarize_background_rollup(
     prompt = "\n".join(prompt_parts).strip()
     system_prompt = (
         "You maintain a rolling summary for one background chat. "
-        "Return one concise paragraph that merges prior summary + new tail. "
-        "Preserve names, concrete facts, quoted phrases, and references. "
-        "Drop pleasantries and filler. No bullets. No markdown."
+        "Return one succinct paragraph under 100 words that merges prior summary + new tail. "
+        "Preserve only durable facts, decisions, boundaries, and unresolved issues. "
+        "Drop play-by-play, greetings, pleasantries and filler. No bullets. No markdown."
     )
     client = llm_client or get_llm_client(
         step_context={"operation": "memorize", "step_id": "background_rollup"},
