@@ -1007,12 +1007,19 @@ class MemorizeMixin:
                 episode_items.append({"title": title or "Story", "summary": summary})
         if not episode_items and segment_summary_text:
             episode_items = [{"title": "Story", "summary": segment_summary_text}]
-        if episode_items and res.embedding is not None:
+        if episode_items:
+            episode_summaries: list[tuple[str, str, str]] = []
             for episode_item in episode_items:
                 title = str(episode_item.get("title") or "").strip() or "Story"
                 summary = str(episode_item.get("summary") or "").strip()
                 if not summary:
                     continue
+                full_summary = f"{title}: {summary}"
+                episode_summaries.append((title, summary, full_summary))
+            episode_embeddings = await embed_client.embed([full_summary for _, _, full_summary in episode_summaries])
+            for (title, _summary, full_summary), episode_embedding in zip(
+                episode_summaries, episode_embeddings, strict=True
+            ):
                 extra_payload: dict[str, Any] = {"episode_item_title": title}
                 if segment_id:
                     extra_payload["segment_id"] = segment_id
@@ -1022,8 +1029,8 @@ class MemorizeMixin:
                     resource_id=res.id,
                     memory_type="episode",
                     source_role="environment",
-                    summary=f"{title}: {summary}",
-                    embedding=res.embedding,
+                    summary=full_summary,
+                    embedding=episode_embedding,
                     user_data=dict(user_scope or {}),
                     conversation_id=conversation_id,
                     segment_id=segment_id,

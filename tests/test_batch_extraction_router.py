@@ -20,6 +20,15 @@ class _RouterStub:
         return self.payload
 
 
+class _EmbedStub:
+    def __init__(self) -> None:
+        self.payloads: list[list[str]] = []
+
+    async def embed(self, payloads: list[str]) -> list[list[float]]:
+        self.payloads.append(list(payloads))
+        return [[float(index), 1.0] for index, _payload in enumerate(payloads, start=1)]
+
+
 @pytest.mark.asyncio
 async def test_route_segment_uses_excluded_types_model() -> None:
     service = _service()
@@ -59,6 +68,7 @@ async def test_persist_plan_uses_internal_segment_summary_for_episode_item_fallb
 
     monkeypatch.setattr(service, "_create_resource_with_caption", _resource)
     monkeypatch.setattr(service, "_map_category_names_to_ids", lambda _names, _ctx: ["experiences"])
+    embed_client = _EmbedStub()
 
     await service._process_plan(
         {
@@ -79,7 +89,7 @@ async def test_persist_plan_uses_internal_segment_summary_for_episode_item_fallb
             memory_item_repo=_MemoryItemRepo(),
             category_item_repo=_CategoryItemRepo(),
         ),
-        embed_client=SimpleNamespace(),
+        embed_client=embed_client,
         user_scope={},
         conversation_id="chat",
         items=[],
@@ -90,6 +100,73 @@ async def test_persist_plan_uses_internal_segment_summary_for_episode_item_fallb
 
     assert created_items
     assert created_items[0]["summary"] == "Story: Router summary"
+    assert created_items[0]["embedding"] == [1.0, 1.0]
+    assert embed_client.payloads == [["Story: Router summary"]]
+
+
+@pytest.mark.asyncio
+async def test_episode_items_use_their_own_embeddings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = _service()
+    created_items: list[dict[str, object]] = []
+
+    async def _resource(**_kwargs):
+        return SimpleNamespace(id="res1", embedding=[99.0, 99.0])
+
+    class _MemoryItemRepo:
+        def create_item(self, **kwargs):
+            created_items.append(kwargs)
+            return SimpleNamespace(id=f"episode-{len(created_items)}", summary=kwargs["summary"])
+
+    class _CategoryItemRepo:
+        def link_item_category(self, **_kwargs):
+            return SimpleNamespace()
+
+    monkeypatch.setattr(service, "_create_resource_with_caption", _resource)
+    monkeypatch.setattr(service, "_map_category_names_to_ids", lambda _names, _ctx: ["experiences"])
+    embed_client = _EmbedStub()
+
+    await service._process_plan(
+        {
+            "resource_url": "memory://episode",
+            "text": "conversation",
+            "caption": "whole segment",
+            "segment_summary": "Whole segment summary",
+            "episode_items": [
+                {"title": "Dress", "summary": "Siri refuses an old persona."},
+                {"title": "Wheat", "summary": "Marcos maps food symptoms."},
+            ],
+            "entries": [],
+            "message_happened_at_map": {},
+            "segment_id": "chat:0-1",
+            "segment_messages": [],
+        },
+        modality="conversation",
+        local_path=None,
+        ctx=SimpleNamespace(),
+        store=SimpleNamespace(
+            memory_item_repo=_MemoryItemRepo(),
+            category_item_repo=_CategoryItemRepo(),
+        ),
+        embed_client=embed_client,
+        user_scope={},
+        conversation_id="chat",
+        items=[],
+        relations=[],
+        category_updates={},
+        pending_segment_ids=[],
+    )
+
+    assert [item["summary"] for item in created_items] == [
+        "Dress: Siri refuses an old persona.",
+        "Wheat: Marcos maps food symptoms.",
+    ]
+    assert [item["embedding"] for item in created_items] == [[1.0, 1.0], [2.0, 1.0]]
+    assert embed_client.payloads == [[
+        "Dress: Siri refuses an old persona.",
+        "Wheat: Marcos maps food symptoms.",
+    ]]
 
 
 @pytest.mark.asyncio
