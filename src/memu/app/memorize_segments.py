@@ -75,8 +75,6 @@ async def _prepare_audio_text(
 
     if file_ext in audio_extensions:
         try:
-            if llm_client is None:
-                raise ValueError("audio transcription requires llm_client")
             transcribed = await llm_client.transcribe(local_path)
         except Exception:
             logger.exception("Audio transcription failed for %s", local_path)
@@ -133,8 +131,6 @@ async def _summarize_segment(
         "Focus on the main topic or theme discussed."
     )
     try:
-        if llm_client is None:
-            raise ValueError("segment summary requires llm_client")
         response = await llm_client.chat(segment_text, system_prompt=system_prompt)
         return response.strip() if response else None
     except Exception:
@@ -157,8 +153,6 @@ async def _preprocess_video(
         frame_path = VideoFrameExtractor.extract_middle_frame(local_path)
 
         try:
-            if llm_client is None:
-                raise ValueError("video preprocessing requires llm_client")
             processed = await llm_client.vision(prompt=template, image_path=frame_path, system_prompt=None)
             description, caption = parse_multimodal_response(processed, "detailed_description", "caption")
             return [{"text": description, "caption": caption}]
@@ -180,8 +174,6 @@ async def _preprocess_image(
     llm_client: Any | None,
     parse_multimodal_response: Callable[[str, str, str], tuple[str | None, str | None]],
 ) -> list[dict[str, str | None]]:
-    if llm_client is None:
-        raise ValueError("image preprocessing requires llm_client")
     processed = await llm_client.vision(prompt=template, image_path=local_path, system_prompt=None)
     description, caption = parse_multimodal_response(processed, "detailed_description", "caption")
     return [{"text": description, "caption": caption}]
@@ -196,8 +188,6 @@ async def _preprocess_document(
     parse_multimodal_response: Callable[[str, str, str], tuple[str | None, str | None]],
 ) -> list[dict[str, str | None]]:
     prompt = template.format(document_text=escape_prompt_value(text))
-    if llm_client is None:
-        raise ValueError("document preprocessing requires llm_client")
     processed = await llm_client.chat(prompt)
     processed_content, caption = parse_multimodal_response(processed, "processed_content", "caption")
     return [{"text": processed_content or text, "caption": caption}]
@@ -212,8 +202,6 @@ async def _preprocess_audio(
     parse_multimodal_response: Callable[[str, str, str], tuple[str | None, str | None]],
 ) -> list[dict[str, str | None]]:
     prompt = template.format(transcription=escape_prompt_value(text))
-    if llm_client is None:
-        raise ValueError("audio preprocessing requires llm_client")
     processed = await llm_client.chat(prompt)
     processed_content, caption = parse_multimodal_response(processed, "processed_content", "caption")
     return [{"text": processed_content or text, "caption": caption}]
@@ -348,8 +336,6 @@ async def _summarize_background_rollup(
         "Preserve only durable facts, decisions, boundaries, and unresolved issues. "
         "Drop play-by-play, greetings, pleasantries and filler. No bullets. No markdown."
     )
-    if llm_client is None:
-        raise ValueError("background rollup requires llm_client")
     response = await llm_client.chat(prompt, system_prompt=system_prompt)
     summary = str(response or "").strip()
     if not summary:
@@ -395,8 +381,6 @@ async def _summarize_background_groups_batched(
         "Each summary must be 1-2 concise sentences preserving names, facts, references, and quoted phrases. "
         "Drop filler and pleasantries."
     )
-    if llm_client is None:
-        raise ValueError("background batch summary requires llm_client")
     raw = await llm_client.chat(prompt, system_prompt=system_prompt)
     try:
         payload = json.loads(str(raw or ""))
