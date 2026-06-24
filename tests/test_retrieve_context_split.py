@@ -307,7 +307,7 @@ async def test_force_retrieve_uses_sufficiency_ai_query_for_items():
 
 
 @pytest.mark.asyncio
-async def test_category_sufficiency_clears_mental_health_when_second_step_omits_it():
+async def test_category_sufficiency_preserves_mental_health_when_second_step_omits_it():
     mixin = RetrieveMixin()
     mixin._get_step_llm_client = lambda _ctx: object()
     state = {
@@ -330,7 +330,7 @@ async def test_category_sufficiency_clears_mental_health_when_second_step_omits_
 
     out = await mixin._rag_category_sufficiency(state, step_context=None)
 
-    assert out["mental_health_query"] is None
+    assert out["mental_health_query"] == "first-step-query"
 
 
 @pytest.mark.asyncio

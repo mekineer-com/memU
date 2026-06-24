@@ -332,7 +332,9 @@ class RetrieveMixin:
                 llm_client=llm_client,
             )
         if mental_health_enabled:
-            state["mental_health_query"] = self._extract_mental_health_query(raw_response)
+            mental_health_query = self._extract_mental_health_query(raw_response)
+            if mental_health_query:
+                state["mental_health_query"] = mental_health_query
         state["active_query"] = active_query
         proceed_to_items = True if force_retrieve else needs_more
         state["proceed_to_items"] = proceed_to_items
