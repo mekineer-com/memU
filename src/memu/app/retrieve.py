@@ -29,9 +29,8 @@ class RetrieveMixin:
         _get_context: Callable[[], Context]
         _get_database: Callable[[], Database]
         _ensure_categories_ready: Callable[[Context, Database], Awaitable[None]]
-        _get_step_llm_client: Callable[..., Any]
-        _get_step_embedding_client: Callable[[Mapping[str, Any] | None], Any]
-        _get_llm_client: Callable[..., Any]
+        _select_chat_client: Callable[..., Any]
+        _select_embedding_client: Callable[[Mapping[str, Any] | None], Any]
         _model_dump_without_embeddings: Callable[[BaseModel], dict[str, Any]]
         _extract_json_blob: Callable[[str], str]
         _escape_prompt_value: Callable[[str], str]
@@ -230,7 +229,7 @@ class RetrieveMixin:
             })
             return state
 
-        llm_client = self._get_step_llm_client(step_context)
+        llm_client = self._select_chat_client(step_context)
         mental_health_enabled = bool(state.get("mental_health_enabled", True))
         angle_prompt = _system_prompt_for_angle(
             state.get("rewrite_angle"),
@@ -268,7 +267,7 @@ class RetrieveMixin:
             state["query_vector"] = None
             return state
 
-        embed_client = self._get_step_embedding_client(step_context)
+        embed_client = self._select_embedding_client(step_context)
         store = state["store"]
         where_filters = state["where"]
         category_pool = store.memory_category_repo.list_categories(where_filters)
@@ -310,7 +309,7 @@ class RetrieveMixin:
                 categories=category_pool,
             )
 
-        llm_client = self._get_step_llm_client(step_context)
+        llm_client = self._select_chat_client(step_context)
         mental_health_enabled = bool(state.get("mental_health_enabled", True))
         force_retrieve = bool(state.get("force_retrieve"))
         if force_retrieve:
@@ -339,7 +338,7 @@ class RetrieveMixin:
         proceed_to_items = True if force_retrieve else needs_more
         state["proceed_to_items"] = proceed_to_items
         if proceed_to_items:
-            embed_client = self._get_step_embedding_client(step_context)
+            embed_client = self._select_embedding_client(step_context)
             state["query_vector"] = (await embed_client.embed([state["active_query"]]))[0]
         return state
 
@@ -391,7 +390,7 @@ class RetrieveMixin:
         items_pool = store.memory_item_repo.list_items(where_filters, include_superseded=include_superseded)
         qvec = state.get("query_vector")
         if qvec is None:
-            embed_client = self._get_step_embedding_client(step_context)
+            embed_client = self._select_embedding_client(step_context)
             qvec = (await embed_client.embed([state["active_query"]]))[0]
             state["query_vector"] = qvec
         item_cfg = self.retrieve_config.item
@@ -486,7 +485,7 @@ class RetrieveMixin:
 
         qvec = state.get("query_vector")
         if qvec is None:
-            embed_client = self._get_step_embedding_client(step_context)
+            embed_client = self._select_embedding_client(step_context)
             qvec = (await embed_client.embed([state["active_query"]]))[0]
             state["query_vector"] = qvec
         state["resource_hits"] = cosine_topk(qvec, corpus, k=self.retrieve_config.resource.top_k)
@@ -575,7 +574,9 @@ class RetrieveMixin:
                 missing_entries.append((cid, summary))
 
         if missing_entries:
-            client = embed_client or self._get_llm_client()
+            client = embed_client or self._select_embedding_client(
+                {"operation": "retrieve", "step_id": "category_summary_embedding"}
+            )
             missing_embeddings = await client.embed([summary for _, summary in missing_entries])
             for (cid, summary), emb in zip(missing_entries, missing_embeddings, strict=True):
                 cache[cid] = (summary, emb)
@@ -611,7 +612,7 @@ class RetrieveMixin:
             0,
             include_mental_health_query=include_mental_health_query,
         )
-        client = llm_client or self._get_step_llm_client(None)
+        client = llm_client or self._select_chat_client(None)
         response = await client.chat(user_prompt, system_prompt=sys_prompt)
         active_query = self._extract_active_query(response)
         if not require_decision:

@@ -90,9 +90,8 @@ class MemorizeMixin:
         _run_workflow: Callable[..., Awaitable[WorkflowState]]
         _get_context: Callable[[], Context]
         _get_database: Callable[[], Database]
-        _get_step_llm_client: Callable[..., Any]
-        _get_step_embedding_client: Callable[[Mapping[str, Any] | None], Any]
-        _get_llm_client: Callable[..., Any]
+        _select_chat_client: Callable[..., Any]
+        _select_embedding_client: Callable[[Mapping[str, Any] | None], Any]
         _model_dump_without_embeddings: Callable[[BaseModel], dict[str, Any]]
         _extract_json_blob: Callable[[str], str]
         _escape_prompt_value: Callable[[str], str]
@@ -309,7 +308,7 @@ class MemorizeMixin:
         soul_name = str(speaker_scope.get("soul_id") or "").strip() or None
         await self._ensure_categories_ready(ctx, store, user_scope)
 
-        extract_client = self._get_step_llm_client(
+        extract_client = self._select_chat_client(
             {"operation": "memorize", "step_id": "extract_items_batch"},
             profile=self.memorize_config.memory_extract_llm_profile,
         )
@@ -708,7 +707,7 @@ class MemorizeMixin:
         return state
 
     async def _memorize_split_episodes(self, state: WorkflowState, step_context: Any) -> WorkflowState:
-        llm_client = self._get_step_llm_client(step_context)
+        llm_client = self._select_chat_client(step_context)
         preprocessed = await self._split_into_episodes(
             local_path=state["local_path"],
             text=state.get("raw_text"),
@@ -721,7 +720,7 @@ class MemorizeMixin:
         return state
 
     async def _memorize_extract_items(self, state: WorkflowState, step_context: Any) -> WorkflowState:
-        llm_client = self._get_step_llm_client(step_context)
+        llm_client = self._select_chat_client(step_context)
         extract_model = str(getattr(llm_client, "chat_model", "") or "").strip() or None
         episodes = state.get("episodes", [])
         segment_plans: list[dict[str, Any]] = []
@@ -846,9 +845,8 @@ class MemorizeMixin:
                 step_context,
                 semantic_dedupe_enabled=self.memorize_config.semantic_dedupe_enabled,
                 semantic_dedupe_similarity_threshold=self.memorize_config.semantic_dedupe_similarity_threshold,
-                get_llm_client=lambda profile=None: self._get_step_llm_client(
-                    {"operation": "memorize", "step_id": "semantic_dedupe_reembed"},
-                    profile=profile,
+                embed_client=self._select_embedding_client(
+                    {"operation": "memorize", "step_id": "semantic_dedupe_reembed"}
                 ),
             ),
         )
@@ -925,8 +923,10 @@ class MemorizeMixin:
                 policy=policy,
                 default_desc=default_desc,
                 fallback_category_configs=self.memorize_config.memory_categories or [],
-                get_llm_client=self._get_llm_client,
-                planner_profile=getattr(self.memorize_config, "category_update_llm_profile", "default"),
+                llm_client=self._select_chat_client(
+                    {"operation": "memorize", "step_id": "dynamic_category_planner"},
+                    profile=getattr(self.memorize_config, "category_update_llm_profile", "default"),
+                ),
                 normalize_category_name=self._normalize_category_name,
                 dynamic_category_cluster_min_size=categories._dynamic_category_cluster_min_size(
                     getattr(self.memorize_config, "dynamic_category_cluster_size", 3),
@@ -1077,7 +1077,7 @@ class MemorizeMixin:
         return [res], homeless_delta
 
     async def _memorize_categorize_items(self, state: WorkflowState, step_context: Any) -> WorkflowState:
-        embed_client = self._get_step_embedding_client(step_context)
+        embed_client = self._select_embedding_client(step_context)
         ctx = state["ctx"]
         store = state["store"]
         modality = state["modality"]
@@ -1133,7 +1133,7 @@ class MemorizeMixin:
         return state
 
     async def _memorize_persist_and_index(self, state: WorkflowState, step_context: Any) -> WorkflowState:
-        llm_client = self._get_step_llm_client(step_context)
+        llm_client = self._select_chat_client(step_context)
         updated_summaries = await self._update_category_summaries(
             state.get("category_updates", {}),
             ctx=state["ctx"],
@@ -1214,8 +1214,9 @@ class MemorizeMixin:
                 local_path=local_path,
                 caption=caption,
                 store=store,
-                embed_client=embed_client,
-                get_embedding_client=self._get_llm_client,
+                embed_client=embed_client or self._select_embedding_client(
+                    {"operation": "memorize", "step_id": "resource_caption_embedding"}
+                ),
                 user=user,
                 segment_id=segment_id,
                 conversation_id=conversation_id,
@@ -1263,7 +1264,7 @@ class MemorizeMixin:
     ) -> list[StructuredMemoryEntry]:
         if not memory_types or not text:
             return []
-        client = llm_client or self._get_step_llm_client(None)
+        client = llm_client or self._select_chat_client(None)
         return await self._generate_entries_from_text(
             resource_text=text,
             store=store,
@@ -1288,7 +1289,7 @@ class MemorizeMixin:
     ) -> tuple[list[MemoryType], str | None, list[dict[str, str]]]:
         if not memory_types:
             return [], None, []
-        client = llm_client or self._get_step_llm_client(None)
+        client = llm_client or self._select_chat_client(None)
         prompt = ROUTER_PROMPT.format(
             segment=segment_text,
             allowed_types=list(memory_types),
@@ -1388,7 +1389,7 @@ class MemorizeMixin:
     ) -> list[StructuredMemoryEntry]:
         if not memory_types:
             return []
-        client = llm_client or self._get_step_llm_client(None)
+        client = llm_client or self._select_chat_client(None)
         soul_context_str = self._format_soul_context_for_prompt(
             store,
             all_categories_summary=all_categories_summary,
@@ -1564,7 +1565,12 @@ class MemorizeMixin:
                 embed_client=embed_client,
                 user=user,
                 session=session,
-                ensure_categories_ready=self._ensure_categories_ready,
+                ensure_categories_ready=lambda ctx_arg, store_arg, user_arg: self._ensure_categories_ready(
+                    ctx_arg,
+                    store_arg,
+                    user_arg,
+                    embedding_client=embed_client,
+                ),
                 normalize_category_name=self._normalize_category_name,
                 cluster_homeless_entries=self._cluster_homeless_entries,
                 plan_dynamic_categories=self._plan_dynamic_categories,
@@ -1595,8 +1601,9 @@ class MemorizeMixin:
             structured_entries=cast(list[Any], structured_entries),
             ctx=ctx,
             store=store,
-            embed_client=embed_client,
-            get_llm_client=self._get_llm_client,
+            embed_client=embed_client or self._select_embedding_client(
+                {"operation": "memorize", "step_id": "persist_memory_items"}
+            ),
             user=user,
             conversation_id=conversation_id,
             segment_id=segment_id,
@@ -1647,14 +1654,25 @@ class MemorizeMixin:
         return categories._category_scope_key(user_scope)
 
     async def _ensure_categories_ready(
-        self, ctx: Context, store: Database, user_scope: Mapping[str, Any] | None = None
+        self,
+        ctx: Context,
+        store: Database,
+        user_scope: Mapping[str, Any] | None = None,
+        *,
+        embedding_client: Any | None = None,
     ) -> None:
         await categories._ensure_categories_ready(
             ctx,
             store,
             user_scope,
             category_scope_key=self._category_scope_key,
-            initialize_categories=self._initialize_categories,
+            initialize_categories=lambda ctx_arg, store_arg, user_arg, scope_key=None: self._initialize_categories(
+                ctx_arg,
+                store_arg,
+                user_arg,
+                scope_key=scope_key,
+                embedding_client=embedding_client,
+            ),
         )
 
     async def _initialize_categories(
@@ -1664,6 +1682,7 @@ class MemorizeMixin:
         user: Mapping[str, Any] | None = None,
         *,
         scope_key: str | None = None,
+        embedding_client: Any | None = None,
     ) -> None:
         await categories._initialize_categories(
             ctx,
@@ -1672,7 +1691,9 @@ class MemorizeMixin:
             scope_key=scope_key,
             category_scope_key=self._category_scope_key,
             category_configs=self.category_configs,
-            get_embedding_client=self._get_llm_client,
+            embedding_client=embedding_client or self._select_embedding_client(
+                {"operation": "memorize", "step_id": "initialize_categories"}
+            ),
             category_embedding_text=self._category_embedding_text,
         )
 
@@ -1703,8 +1724,9 @@ class MemorizeMixin:
         return await segment_helpers._prepare_audio_text(
             local_path,
             text,
-            llm_client=llm_client,
-            get_llm_client=self._get_llm_client,
+            llm_client=llm_client or self._select_chat_client(
+                {"operation": "memorize", "step_id": "audio_transcription"}
+            ),
         )
 
     def _modality_requires_text(self, modality: str) -> bool:
@@ -1734,8 +1756,9 @@ class MemorizeMixin:
     async def _summarize_segment(self, segment_text: str, llm_client: Any | None = None) -> str | None:
         return await segment_helpers._summarize_segment(
             segment_text=segment_text,
-            llm_client=llm_client,
-            get_llm_client=self._get_llm_client,
+            llm_client=llm_client or self._select_chat_client(
+                {"operation": "memorize", "step_id": "segment_summary"}
+            ),
         )
 
     async def _preprocess_video(
@@ -1744,8 +1767,9 @@ class MemorizeMixin:
         return await segment_helpers._preprocess_video(
             local_path=local_path,
             template=template,
-            llm_client=llm_client,
-            get_llm_client=self._get_llm_client,
+            llm_client=llm_client or self._select_chat_client(
+                {"operation": "memorize", "step_id": "video_preprocess"}
+            ),
             parse_multimodal_response=self._parse_multimodal_response,
         )
 
@@ -1755,8 +1779,9 @@ class MemorizeMixin:
         return await segment_helpers._preprocess_image(
             local_path=local_path,
             template=template,
-            llm_client=llm_client,
-            get_llm_client=self._get_llm_client,
+            llm_client=llm_client or self._select_chat_client(
+                {"operation": "memorize", "step_id": "image_preprocess"}
+            ),
             parse_multimodal_response=self._parse_multimodal_response,
         )
 
@@ -1766,8 +1791,9 @@ class MemorizeMixin:
         return await segment_helpers._preprocess_document(
             text=text,
             template=template,
-            llm_client=llm_client,
-            get_llm_client=self._get_llm_client,
+            llm_client=llm_client or self._select_chat_client(
+                {"operation": "memorize", "step_id": "document_preprocess"}
+            ),
             escape_prompt_value=self._escape_prompt_value,
             parse_multimodal_response=self._parse_multimodal_response,
         )
@@ -1778,8 +1804,9 @@ class MemorizeMixin:
         return await segment_helpers._preprocess_audio(
             text=text,
             template=template,
-            llm_client=llm_client,
-            get_llm_client=self._get_llm_client,
+            llm_client=llm_client or self._select_chat_client(
+                {"operation": "memorize", "step_id": "audio_preprocess"}
+            ),
             escape_prompt_value=self._escape_prompt_value,
             parse_multimodal_response=self._parse_multimodal_response,
         )
@@ -1871,17 +1898,12 @@ class MemorizeMixin:
         llm_client: Any | None = None,
         soul_name: str | None = None,
     ) -> str:
-        def get_step_client(profile: str | None = None, step_context: Mapping[str, Any] | None = None) -> Any:
-            return self._get_step_llm_client(
-                step_context or {"operation": "memorize", "step_id": "background_rollup"},
-                profile=profile,
-            )
-
         return await segment_helpers._summarize_background_rollup(
             prior_summary=prior_summary,
             messages=messages,
-            llm_client=llm_client,
-            get_llm_client=get_step_client,
+            llm_client=llm_client or self._select_chat_client(
+                {"operation": "memorize", "step_id": "background_rollup"}
+            ),
             soul_name=soul_name,
         )
 
@@ -1893,17 +1915,12 @@ class MemorizeMixin:
         llm_client: Any | None = None,
         soul_name: str | None = None,
     ) -> dict[str, str]:
-        def get_step_client(profile: str | None = None, step_context: Mapping[str, Any] | None = None) -> Any:
-            return self._get_step_llm_client(
-                step_context or {"operation": "memorize", "step_id": "background_batch_summary"},
-                profile=profile,
-            )
-
         return await segment_helpers._summarize_background_groups_batched(
             grouped_messages=grouped_messages,
             group_order=group_order,
-            llm_client=llm_client,
-            get_llm_client=get_step_client,
+            llm_client=llm_client or self._select_chat_client(
+                {"operation": "memorize", "step_id": "background_batch_summary"}
+            ),
             extract_json_blob=self._extract_json_blob,
             soul_name=soul_name,
         )
@@ -2071,7 +2088,7 @@ class MemorizeMixin:
         llm_client: Any | None = None,
         user: dict[str, Any] | None = None,
     ) -> dict[str, str]:
-        client = llm_client or self._get_step_llm_client(None)
+        client = llm_client or self._select_chat_client(None)
         return await categories._update_category_summaries(
             updates,
             store=store,

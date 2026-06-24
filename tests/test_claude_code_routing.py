@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 import memu.app.service as service_module
@@ -60,8 +62,8 @@ def test_claude_code_routes_chat_workflow_steps_to_neutral_workspace(monkeypatch
         claude_code_workspace="/tmp/siri-workspace",
     )
 
-    retrieve_client = service._get_step_llm_client({"workflow_name": "retrieve_rag", "step_id": "route_intention"})
-    memorize_client = service._get_step_llm_client({"workflow_name": "memorize", "step_id": "memory_extract"})
+    retrieve_client = service._select_chat_client({"workflow_name": "retrieve_rag", "step_id": "route_intention"})
+    memorize_client = service._select_chat_client({"workflow_name": "memorize", "step_id": "memory_extract"})
 
     assert isinstance(retrieve_client._client, _FakeClaudeCLIClient)
     assert isinstance(memorize_client._client, _FakeClaudeCLIClient)
@@ -73,7 +75,7 @@ def test_claude_code_does_not_change_embedding_client(monkeypatch) -> None:
     monkeypatch.setattr(service_module, "ClaudeCLIClient", _FakeClaudeCLIClient)
     service = _service(claude_code=True, claude_code_model="claude-opus-4-7")
 
-    embedding_client = service._get_step_embedding_client(
+    embedding_client = service._select_embedding_client(
         {"workflow_name": "retrieve_rag", "step_id": "route_category", "step_config": {"embed_llm_profile": "default"}}
     )
 
@@ -176,14 +178,14 @@ def test_claude_code_passes_timeout_seconds(monkeypatch) -> None:
     assert client.timeout_seconds == 3600
 
 
-def test_get_step_llm_client_with_explicit_profile_uses_claude_in_claude_code_mode(monkeypatch) -> None:
-    """_get_step_llm_client with a profile override must still return the Claude CLI client
+def test_select_chat_client_with_explicit_profile_uses_claude_in_claude_code_mode(monkeypatch) -> None:
+    """_select_chat_client with a profile override must still return the Claude CLI client
     when claude_code=True, and must return the profile's HTTP client otherwise."""
     monkeypatch.setattr(service_module, "ClaudeCLIClient", _FakeClaudeCLIClient)
 
     # claude_code=True: profile arg must be ignored in favour of Claude CLI
     svc_claude = _service(claude_code=True, claude_code_model="claude-opus-4-7")
-    chat_client = svc_claude._get_step_llm_client(
+    chat_client = svc_claude._select_chat_client(
         {"operation": "memorize", "step_id": "extract_items_batch"},
         profile="some_profile",
     )
@@ -191,7 +193,7 @@ def test_get_step_llm_client_with_explicit_profile_uses_claude_in_claude_code_mo
     assert isinstance(chat_client._client, _FakeClaudeCLIClient)
 
     # Embedding acquisition must NOT use Claude CLI even when claude_code=True
-    embed_client = svc_claude._get_step_embedding_client(
+    embed_client = svc_claude._select_embedding_client(
         {"operation": "memorize", "step_id": "embed", "step_config": {"embed_llm_profile": "default"}}
     )
     assert isinstance(embed_client, LLMClientWrapper)
@@ -199,12 +201,43 @@ def test_get_step_llm_client_with_explicit_profile_uses_claude_in_claude_code_mo
 
     # claude_code=False: profile arg selects the HTTP client (falls back to "default" profile)
     svc_plain = _service(claude_code=False)
-    chat_client_plain = svc_plain._get_step_llm_client(
+    chat_client_plain = svc_plain._select_chat_client(
         {"operation": "memorize", "step_id": "extract_items_batch"},
         profile="default",
     )
     assert isinstance(chat_client_plain, LLMClientWrapper)
     assert isinstance(chat_client_plain._client, HTTPLLMClient)
+
+
+def test_select_chat_client_without_context_uses_default_profile(monkeypatch) -> None:
+    monkeypatch.setattr(service_module, "ClaudeCLIClient", _FakeClaudeCLIClient)
+    service = _service(claude_code=False)
+
+    client = service._select_chat_client(None)
+
+    assert isinstance(client, LLMClientWrapper)
+    assert isinstance(client._client, HTTPLLMClient)
+
+
+@pytest.mark.asyncio
+async def test_dynamic_category_planner_uses_claude_code_selector(monkeypatch) -> None:
+    monkeypatch.setattr(service_module, "ClaudeCLIClient", _FakeClaudeJSONClient)
+    service = _service(claude_code=True, claude_code_model="claude-opus-4-7")
+
+    out = await service._plan_dynamic_categories(
+        ctx=SimpleNamespace(category_ids=[]),
+        store=SimpleNamespace(memory_category_repo=SimpleNamespace(categories={})),
+        strong_clusters=[],
+        ungrouped_unknown_counts={},
+        ungrouped_unknown_examples={},
+        min_mentions=2,
+        policy="",
+        default_desc="",
+    )
+
+    assert out == ({}, {}, {})
+    assert isinstance(service._claude_cli_internal_client, _FakeClaudeJSONClient)
+    assert service._claude_cli_internal_client.chat_model == "claude-opus-4-7"
 
 
 @pytest.mark.asyncio

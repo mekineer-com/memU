@@ -92,7 +92,6 @@ async def _create_resource_with_caption(
     caption: str | None,
     store: Any,
     embed_client: Any | None,
-    get_embedding_client: Callable[..., Any],
     user: Mapping[str, Any] | None,
     segment_id: str | None,
     conversation_id: str | None,
@@ -102,8 +101,9 @@ async def _create_resource_with_caption(
 ) -> Any:
     caption_text = caption.strip() if caption else None
     if caption_text:
-        client = embed_client or get_embedding_client("embedding")
-        caption_embedding = (await client.embed([caption_text]))[0]
+        if embed_client is None:
+            raise ValueError("resource caption embedding requires embed_client")
+        caption_embedding = (await embed_client.embed([caption_text]))[0]
     else:
         caption_embedding = None
 
@@ -144,8 +144,7 @@ async def _persist_memory_items(
     structured_entries: list[Any],
     ctx: Any,
     store: Any,
-    embed_client: Any | None,
-    get_llm_client: Callable[..., Any],
+    embed_client: Any,
     user: Mapping[str, Any] | None,
     conversation_id: str | None,
     segment_id: str | None,
@@ -161,8 +160,7 @@ async def _persist_memory_items(
     map_category_names_to_ids: Callable[[list[str], Any], list[str]],
 ) -> tuple[list[Any], list[Any], dict[str, list[tuple[str, str]]], int]:
     summary_payloads = [entry.content for entry in structured_entries]
-    client = embed_client or get_llm_client()
-    item_embeddings = await client.embed(summary_payloads) if summary_payloads else []
+    item_embeddings = await embed_client.embed(summary_payloads) if summary_payloads else []
     items: list[Any] = []
     rels: list[Any] = []
     category_memory_updates: dict[str, list[tuple[str, str]]] = {}
@@ -173,7 +171,7 @@ async def _persist_memory_items(
         item_embeddings=item_embeddings,
         ctx=ctx,
         store=store,
-        embed_client=client,
+        embed_client=embed_client,
         user=user,
         session=session,
     )
@@ -183,7 +181,7 @@ async def _persist_memory_items(
     supersede_targets = await find_supersede_targets(
         structured_entries=structured_entries,
         store=store,
-        embed_client=client,
+        embed_client=embed_client,
         user=user,
     )
     normalized_extract_model = str(extract_model or "").strip() or None

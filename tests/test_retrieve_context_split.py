@@ -147,7 +147,7 @@ async def test_route_intention_disables_mental_health_query_extraction():
     mixin = RetrieveMixin()
     captured: dict[str, object] = {}
 
-    mixin._get_step_llm_client = lambda _ctx: object()
+    mixin._select_chat_client = lambda _ctx: object()
 
     async def _fake_decide(  # type: ignore[no-untyped-def]
         new_message,
@@ -205,7 +205,7 @@ async def test_force_retrieve_skips_category_summary_search():
         async def embed(self, *_args, **_kwargs):  # type: ignore[no-untyped-def]
             raise AssertionError("force retrieve should not embed message for category search")
 
-    mixin._get_step_embedding_client = lambda _ctx: EmbedClient()
+    mixin._select_embedding_client = lambda _ctx: EmbedClient()
     state = {
         "needs_retrieval": True,
         "active_query": "",
@@ -225,7 +225,7 @@ async def test_force_retrieve_skips_category_summary_search():
 @pytest.mark.asyncio
 async def test_category_sufficiency_uses_second_step_mental_health_query():
     mixin = RetrieveMixin()
-    mixin._get_step_llm_client = lambda _ctx: object()
+    mixin._select_chat_client = lambda _ctx: object()
     captured: dict[str, str] = {}
     state = {
         "needs_retrieval": True,
@@ -264,7 +264,7 @@ async def test_category_sufficiency_uses_second_step_mental_health_query():
 @pytest.mark.asyncio
 async def test_force_retrieve_uses_sufficiency_ai_query_for_items():
     mixin = RetrieveMixin()
-    mixin._get_step_llm_client = lambda _ctx: object()
+    mixin._select_chat_client = lambda _ctx: object()
     captured: dict[str, object] = {}
 
     class EmbedClient:
@@ -272,7 +272,7 @@ async def test_force_retrieve_uses_sufficiency_ai_query_for_items():
             assert values == ["ai-written item query"]
             return [[0.1, 0.2]]
 
-    mixin._get_step_embedding_client = lambda _ctx: EmbedClient()
+    mixin._select_embedding_client = lambda _ctx: EmbedClient()
     state = {
         "needs_retrieval": True,
         "new_message": "raw current message",
@@ -309,7 +309,7 @@ async def test_force_retrieve_uses_sufficiency_ai_query_for_items():
 @pytest.mark.asyncio
 async def test_category_sufficiency_preserves_mental_health_when_second_step_omits_it():
     mixin = RetrieveMixin()
-    mixin._get_step_llm_client = lambda _ctx: object()
+    mixin._select_chat_client = lambda _ctx: object()
     state = {
         "needs_retrieval": True,
         "new_message": "original",

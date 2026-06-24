@@ -206,8 +206,7 @@ async def _plan_dynamic_categories(
     policy: str,
     default_desc: str,
     fallback_category_configs: Sequence[Any],
-    get_llm_client: Callable[..., Any],
-    planner_profile: str,
+    llm_client: Any,
     normalize_category_name: Callable[[str], str | None],
     dynamic_category_cluster_min_size: int,
 ) -> tuple[dict[str, str], dict[str, str], dict[str, str]]:
@@ -276,11 +275,7 @@ Decide which clusters/candidates should map into existing categories, and which 
         return bool(re.fullmatch(r"[A-Za-z ]+", raw))
 
     try:
-        planner = get_llm_client(
-            planner_profile,
-            step_context={"operation": "memorize", "step_id": "dynamic_category_planner"},
-        )
-        resp = await planner.chat(user_prompt, system_prompt=system_prompt)
+        resp = await llm_client.chat(user_prompt, system_prompt=system_prompt)
     except Exception:
         logger.warning("dynamic-category planner LLM call failed", exc_info=True)
         raise
@@ -524,7 +519,7 @@ async def _initialize_categories(
     scope_key: str | None,
     category_scope_key: Callable[[Mapping[str, Any] | None], str],
     category_configs: Sequence[Any],
-    get_embedding_client: Callable[..., Any],
+    embedding_client: Any,
     category_embedding_text: Callable[[Any], str],
 ) -> None:
     resolved_scope_key = scope_key or category_scope_key(user)
@@ -535,7 +530,7 @@ async def _initialize_categories(
         ctx.category_scope_key = resolved_scope_key
         return
     cat_texts = [category_embedding_text(cfg) for cfg in category_configs]
-    cat_vecs = await get_embedding_client("embedding").embed(cat_texts)
+    cat_vecs = await embedding_client.embed(cat_texts)
     ctx.category_ids = []
     ctx.category_name_to_id = {}
     for cfg, vec in zip(category_configs, cat_vecs, strict=True):

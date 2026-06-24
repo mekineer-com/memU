@@ -25,7 +25,6 @@ async def test_summarize_background_groups_batched_parses_contract() -> None:
         grouped_messages=grouped,
         group_order=["a", "b"],
         llm_client=_StubClient(raw),
-        get_llm_client=lambda **_kwargs: _StubClient(raw),
         extract_json_blob=lambda text: text,
     )
     assert out == {"a": "A summary", "b": "B summary"}

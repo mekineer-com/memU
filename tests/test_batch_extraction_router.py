@@ -411,7 +411,7 @@ async def test_memorize_segment_direct_uses_grouped_chat_renderer(
         return state
 
     monkeypatch.setattr(service, "_ensure_categories_ready", _noop_ensure_categories_ready)
-    monkeypatch.setattr(service, "_get_step_llm_client", lambda *_args, **_kwargs: SimpleNamespace(chat_model="test"))
+    monkeypatch.setattr(service, "_select_chat_client", lambda *_args, **_kwargs: SimpleNamespace(chat_model="test"))
     monkeypatch.setattr(service, "_list_declared_relationship_roster", lambda **_kwargs: [])
     monkeypatch.setattr(service, "_route_segment", _route_profile_only)
     monkeypatch.setattr(service, "_generate_entries_from_text", _capture_generate_entries_from_text)

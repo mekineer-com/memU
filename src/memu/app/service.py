@@ -252,7 +252,7 @@ class MemoryService(MemorizeMixin, RetrieveMixin):
             return profile.strip()
         return None
 
-    def _get_step_llm_client(
+    def _select_chat_client(
         self, step_context: Mapping[str, Any] | None, *, profile: str | None = None
     ) -> Any:
         if self._claude_code:
@@ -270,8 +270,10 @@ class MemoryService(MemorizeMixin, RetrieveMixin):
             return with_metadata(operation=operation, step_id=step_id)
         return client
 
-    def _get_step_embedding_client(self, step_context: Mapping[str, Any] | None) -> Any:
-        profile = self._llm_profile_from_context(step_context, task="embedding") or "embedding"
+    def _select_embedding_client(
+        self, step_context: Mapping[str, Any] | None, *, profile: str | None = None
+    ) -> Any:
+        profile = self._llm_profile_from_context(step_context, task="embedding") or profile or "embedding"
         return self._get_llm_client(profile, step_context=step_context)
 
     def _get_claude_cli_client(self) -> ClaudeCLIClient:
