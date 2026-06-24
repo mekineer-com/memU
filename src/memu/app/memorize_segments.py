@@ -434,10 +434,10 @@ async def _render_episode_with_background_context(
 
     total_bg_tokens = sum(_estimate_text_tokens(str(msg.get("content") or "")) for msg in bg)
     raw_floor = int(getattr(memorize_config, "background_extra_messages_tokens", 100) or 100)
-    summarize_background = total_bg_tokens >= max(0, raw_floor)
+    summarize_extra_messages_tail = total_bg_tokens >= max(0, raw_floor)
 
     batched_summaries: dict[str, str] = {}
-    if summarize_background:
+    if summarize_extra_messages_tail:
         batched_summaries = await summarize_background_groups_batched(
             grouped_messages=grouped,
             group_order=group_order,
@@ -448,7 +448,7 @@ async def _render_episode_with_background_context(
     summary_rows: list[dict[str, Any]] = []
     for source_key in group_order:
         group_msgs = grouped[source_key]
-        if summarize_background:
+        if summarize_extra_messages_tail:
             summary = str(batched_summaries.get(source_key) or "").strip()
             if not summary:
                 msg = f"missing background summary for source '{source_key}'"

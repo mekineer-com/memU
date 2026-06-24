@@ -364,7 +364,7 @@ class MemorizeMixin:
                 if not self._message_is_primary_for_memorize(msg)
             ]
 
-            preprocessor_rows_raw = segment_payload.get("background_summaries")
+            preprocessor_rows_raw = segment_payload.get("segment_background_context_rows")
             preprocessor_rows: list[dict[str, Any]] = []
             if isinstance(preprocessor_rows_raw, list):
                 for row in preprocessor_rows_raw:
@@ -389,25 +389,25 @@ class MemorizeMixin:
                         llm_client=self._with_llm_step(
                             extract_client,
                             operation="memorize",
-                            step_id="background_summary",
+                            step_id="background_extra_messages",
                         ),
                         soul_name=soul_name,
                     )
                     seeded_rows.extend(tail_rows)
-                background_summaries = seeded_rows
+                segment_background_context_rows = seeded_rows
                 rendered_text = self._render_episode_with_summary_rows(
                     primary_messages=primary_messages,
-                    summary_rows=background_summaries,
+                    summary_rows=segment_background_context_rows,
                     soul_name=soul_name,
                 )
             else:
-                rendered_text, background_summaries = await self._render_episode_with_background_context(
+                rendered_text, segment_background_context_rows = await self._render_episode_with_background_context(
                     primary_messages=primary_messages,
                     background_messages=background_messages,
                     llm_client=self._with_llm_step(
                         extract_client,
                         operation="memorize",
-                        step_id="background_summary",
+                        step_id="background_extra_messages",
                     ),
                     soul_name=soul_name,
                 )
@@ -425,7 +425,7 @@ class MemorizeMixin:
                         llm_client=self._with_llm_step(
                             extract_client,
                             operation="memorize",
-                            step_id="background_summary",
+                            step_id="background_extra_messages",
                         ),
                     )
                 if segment_summary:
@@ -480,7 +480,7 @@ class MemorizeMixin:
                 "message_indices": selected_indices,
                 "message_happened_at_map": plan_message_happened_at_map,
                 "segment_messages": primary_messages,
-                "background_summaries": background_summaries,
+                "segment_background_context_rows": segment_background_context_rows,
                 "context_only": context_only,
                 "speaker_map": speaker_map,
                 "applicable_types": applicable_types,
