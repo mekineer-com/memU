@@ -845,9 +845,7 @@ class MemorizeMixin:
                 step_context,
                 semantic_dedupe_enabled=self.memorize_config.semantic_dedupe_enabled,
                 semantic_dedupe_similarity_threshold=self.memorize_config.semantic_dedupe_similarity_threshold,
-                embed_client=self._select_embedding_client(
-                    {"operation": "memorize", "step_id": "semantic_dedupe_reembed"}
-                ),
+                select_embedding_client=self._select_embedding_client,
             ),
         )
 
@@ -1214,9 +1212,8 @@ class MemorizeMixin:
                 local_path=local_path,
                 caption=caption,
                 store=store,
-                embed_client=embed_client or self._select_embedding_client(
-                    {"operation": "memorize", "step_id": "resource_caption_embedding"}
-                ),
+                embed_client=embed_client,
+                select_embedding_client=self._select_embedding_client,
                 user=user,
                 segment_id=segment_id,
                 conversation_id=conversation_id,
@@ -1691,9 +1688,8 @@ class MemorizeMixin:
             scope_key=scope_key,
             category_scope_key=self._category_scope_key,
             category_configs=self.category_configs,
-            embedding_client=embedding_client or self._select_embedding_client(
-                {"operation": "memorize", "step_id": "initialize_categories"}
-            ),
+            embedding_client=embedding_client,
+            select_embedding_client=self._select_embedding_client,
             category_embedding_text=self._category_embedding_text,
         )
 

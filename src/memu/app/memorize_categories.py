@@ -519,7 +519,8 @@ async def _initialize_categories(
     scope_key: str | None,
     category_scope_key: Callable[[Mapping[str, Any] | None], str],
     category_configs: Sequence[Any],
-    embedding_client: Any,
+    embedding_client: Any | None,
+    select_embedding_client: Callable[..., Any],
     category_embedding_text: Callable[[Any], str],
 ) -> None:
     resolved_scope_key = scope_key or category_scope_key(user)
@@ -530,7 +531,10 @@ async def _initialize_categories(
         ctx.category_scope_key = resolved_scope_key
         return
     cat_texts = [category_embedding_text(cfg) for cfg in category_configs]
-    cat_vecs = await embedding_client.embed(cat_texts)
+    client = embedding_client or select_embedding_client(
+        {"operation": "memorize", "step_id": "initialize_categories"}
+    )
+    cat_vecs = await client.embed(cat_texts)
     ctx.category_ids = []
     ctx.category_name_to_id = {}
     for cfg, vec in zip(category_configs, cat_vecs, strict=True):

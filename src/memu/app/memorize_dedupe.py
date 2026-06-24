@@ -297,7 +297,7 @@ async def _memorize_dedupe_merge(
     *,
     semantic_dedupe_enabled: bool,
     semantic_dedupe_similarity_threshold: float,
-    embed_client: Any,
+    select_embedding_client: Callable[..., Any],
 ) -> dict[str, Any]:
     items = list(state.get("items") or [])
     state["items"] = items
@@ -377,7 +377,9 @@ async def _memorize_dedupe_merge(
 
             if candidate_embedding is None or len(anchor_embedding) != len(candidate_embedding):
                 if dedupe_embed_client is None:
-                    dedupe_embed_client = embed_client
+                    dedupe_embed_client = select_embedding_client(
+                        {"operation": "memorize", "step_id": "semantic_dedupe_reembed"}
+                    )
                 compare_anchor = await _dedupe_reembed_for_similarity(
                     item=anchor,
                     embed_client=dedupe_embed_client,

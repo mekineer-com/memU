@@ -92,6 +92,7 @@ async def _create_resource_with_caption(
     caption: str | None,
     store: Any,
     embed_client: Any | None,
+    select_embedding_client: Callable[..., Any],
     user: Mapping[str, Any] | None,
     segment_id: str | None,
     conversation_id: str | None,
@@ -101,9 +102,10 @@ async def _create_resource_with_caption(
 ) -> Any:
     caption_text = caption.strip() if caption else None
     if caption_text:
-        if embed_client is None:
-            raise ValueError("resource caption embedding requires embed_client")
-        caption_embedding = (await embed_client.embed([caption_text]))[0]
+        client = embed_client or select_embedding_client(
+            {"operation": "memorize", "step_id": "resource_caption_embedding"}
+        )
+        caption_embedding = (await client.embed([caption_text]))[0]
     else:
         caption_embedding = None
 
