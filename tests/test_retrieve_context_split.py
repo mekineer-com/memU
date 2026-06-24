@@ -96,12 +96,19 @@ async def test_decide_if_retrieval_needed_omits_empty_retrieved_placeholder():
 
     await mixin._decide_if_retrieval_needed(
         "new message",
-        [],
+        [
+            {
+                "role": "identity_context",
+                "content": {"text": "Today is Thursday, June 18, 2026 17:34 -05.\n\nYou are Siri,"},
+            }
+        ],
         retrieved_content=None,
         llm_client=Client(),
     )
 
-    assert "My Soul:" in captured["prompt"]
+    assert not captured["prompt"].lstrip().startswith("# Input")
+    assert "My Soul:" not in captured["prompt"]
+    assert captured["prompt"].lstrip().startswith("Today is Thursday, June 18, 2026 17:34 -05.\n\nYou are Siri,")
     assert "Soul context:" not in captured["prompt"]
     assert "Retrieved so far:" not in captured["prompt"]
     assert "No content retrieved yet." not in captured["prompt"]

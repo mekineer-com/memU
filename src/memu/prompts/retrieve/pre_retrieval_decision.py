@@ -123,8 +123,6 @@ SYSTEM_PROMPT = system_prompt_for_angle(0)
 
 
 USER_PROMPT = """
-# Input
-My Soul:
 {conversation_history}
 
 New message:
