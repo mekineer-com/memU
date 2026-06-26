@@ -45,7 +45,7 @@
 | `memory_type/__init__.py` | — | PROMPTS dict, DEFAULT_MEMORY_TYPES list |
 | `preprocess/` | `document.py`, `image.py`, `audio.py`, `video.py` | Input normalization for non-chat modalities |
 | `router/router.py` | — | Route input by excluded memory types and produce `segment_summary` plus 1..N titled `episode_items` story distillations (no memorable/not-memorable gate) |
-| `retrieve/` | `llm_category_ranker.py`, `llm_item_ranker.py`, `llm_resource_ranker.py`, `judger.py`, `pre_retrieval_decision.py` | Retrieval ranking & judgment |
+| `retrieve/` | `pre_retrieval_decision.py` | Retrieve/no-retrieve and active-query prompt; item ranking is code/config in `app/retrieve.py` + `RetrieveItemConfig` |
 | `category_summary/` | `category.py`, `category_with_refs.py` | Category synthesis; both prompts treat `[reinforced Nx]` markers as frequency signals — instruct LLM to use "often", "frequently", "tends to" rather than treating as a one-off fact |
 | `consolidation/` | `consolidation.py` | Consolidation prompt: narrative_self, life_goals, intentions, edges, companion_memory. Weekly reflection cycle. |
 
@@ -57,7 +57,7 @@
 | Tune extraction | `prompts/memory_type/{type}.py` | Edit PROMPT / CUSTOM_PROMPT in that file |
 | Tune routing | `prompts/router/router.py` | Edit routing prompt directly |
 | Change categories | `app/settings.py` (CategoryConfig), `prompts/category_summary/` | Target prompt file + settings. **Seed defaults live in `mcp-memu-server/config.json` `categories.defaults[]`** — engine settings.py defaults are overridden by the server. |
-| Modify retrieval | `app/retrieve.py`, `prompts/retrieve/` | Ranker prompts or retrieve.py logic |
+| Modify retrieval | `app/retrieve.py`, `app/settings.py`, `prompts/retrieve/pre_retrieval_decision.py` | Retrieval logic/config or the pre-retrieval query prompt |
 | Add LLM provider | `llm/backends/base.py`, any existing backend | New `llm/backends/{provider}.py`, register in `llm/wrapper.py` |
 | Add embedding provider | `embedding/backends/base.py` | New `embedding/backends/{provider}.py`, register in `embedding/http_client.py` |
 | Change DB schema | `database/models.py`, `database/sqlite/schema.py` | Both files (sqlite only in current codebase) |

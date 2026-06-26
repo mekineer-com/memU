@@ -123,7 +123,7 @@ src/memu/
 - Extraction: `prompts/memory_type/{profile,knowledge,behavior,social}.py`
 - Router: `prompts/router/router.py`
 - Non-chat preprocessors: `prompts/preprocess/{document,image,audio,video}.py`
-- Retrieval ranking: `prompts/retrieve/`
+- Retrieval query decision: `prompts/retrieve/pre_retrieval_decision.py` (ranking lives in `app/retrieve.py` + `RetrieveItemConfig`)
 - Consolidation: `prompts/consolidation/`
 
 ---

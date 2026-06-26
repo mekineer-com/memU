@@ -751,7 +751,7 @@ class RetrieveMixin:
     ) -> str:
         category_pool = categories if categories is not None else store.memory_category_repo.categories
         lines = []
-        for cid, score in hits:
+        for cid, _score in hits:
             cat = category_pool.get(cid)
             if not cat:
                 continue

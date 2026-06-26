@@ -8,7 +8,6 @@ from collections.abc import Mapping
 from datetime import datetime
 from typing import Any
 
-import pendulum
 from sqlmodel import delete, select
 
 from memu.database.models import MemoryItem, MemoryType
