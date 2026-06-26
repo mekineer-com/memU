@@ -59,7 +59,6 @@ class RetrieveMixin:
         workflow_name = "retrieve_rag"
 
         state: WorkflowState = {
-            "method": self.retrieve_config.method,
             "new_message": new_message,
             "context_queries": list(context_queries),
             "rewrite_angle": int(rewrite_angle) if rewrite_angle is not None else 0,
@@ -207,7 +206,6 @@ class RetrieveMixin:
 
     def _list_retrieve_initial_keys(self) -> set[str]:
         return {
-            "method",
             "new_message",
             "context_queries",
             "ctx",

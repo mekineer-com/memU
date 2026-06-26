@@ -66,7 +66,6 @@ async def main():
         ]
 
         # RAG-based retrieval
-        service.retrieve_config.method = "rag"
         result_rag = await service.retrieve(queries=queries, where={"user_id": "123"})
         _print_results("RAG", result_rag)
 

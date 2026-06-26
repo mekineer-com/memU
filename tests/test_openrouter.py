@@ -66,7 +66,6 @@ async def _test_memorize(service, file_path, output_data):
 async def _test_retrieve(service, queries, method, test_num, output_data):
     """Test retrieval with specified method."""
     print(f"\n[OPENROUTER] Test {test_num}: {method.upper()}-based retrieval...")
-    service.retrieve_config.method = method
     result = await service.retrieve(queries=queries, where={"user_id": "openrouter_test_user"})
 
     categories_retrieved = len(result.get("categories", []))
