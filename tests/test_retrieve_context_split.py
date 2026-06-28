@@ -352,6 +352,29 @@ async def test_decide_if_retrieval_needed_requires_active_query_when_retrieving(
 
 
 @pytest.mark.asyncio
+async def test_decide_if_retrieval_needed_accepts_mistyped_active_query_close_tag():
+    mixin = RetrieveMixin()
+    mixin._escape_prompt_value = lambda text: text
+
+    class Client:
+        async def chat(self, *_args, **_kwargs):  # type: ignore[no-untyped-def]
+            return (
+                "<decision>RETRIEVE</decision>"
+                "<active_query>Annie Gottlieb relationship history</active_health_query>"
+                "<mental_health_query></mental_health_query>"
+            )
+
+    needs_retrieval, active_query, _raw = await mixin._decide_if_retrieval_needed(
+        "raw current message",
+        [],
+        llm_client=Client(),
+    )
+
+    assert needs_retrieval is True
+    assert active_query == "Annie Gottlieb relationship history"
+
+
+@pytest.mark.asyncio
 async def test_query_only_retrieve_requires_active_query_without_decision():
     mixin = RetrieveMixin()
     mixin._escape_prompt_value = lambda text: text

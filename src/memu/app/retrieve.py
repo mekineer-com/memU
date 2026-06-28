@@ -719,6 +719,9 @@ class RetrieveMixin:
         match = re.search(r"<active_query>(.*?)</active_query>", raw, re.IGNORECASE | re.DOTALL)
         if match:
             return match.group(1).strip()
+        match = re.search(r"<active_query>(.*?)(?:</[^>]*query>|<mental_health_query>|$)", raw, re.IGNORECASE | re.DOTALL)
+        if match:
+            return match.group(1).strip()
         return None
 
     def _extract_mental_health_query(self, raw: str) -> str | None:
