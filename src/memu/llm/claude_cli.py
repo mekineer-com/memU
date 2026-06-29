@@ -125,6 +125,7 @@ class ClaudeCLIClient:
             cmd = [
                 self._claude_binary,
                 "-p",
+                "--safe-mode",
                 "--model",
                 self.chat_model,
                 "--system-prompt-file",

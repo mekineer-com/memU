@@ -108,6 +108,23 @@ def test_claude_cli_passes_settings(monkeypatch, tmp_path: Path) -> None:
     assert seen["cmd"][seen["cmd"].index("--settings") + 1] == str(tmp_path / "siri-settings.json")
 
 
+def test_claude_cli_uses_safe_mode(monkeypatch, tmp_path: Path) -> None:
+    seen: dict[str, object] = {}
+
+    monkeypatch.setattr(claude_cli.shutil, "which", lambda _binary: "/bin/claude")
+
+    def fake_run(cmd, *, cwd, input, text, capture_output, timeout, check):
+        seen["cmd"] = cmd
+        return subprocess.CompletedProcess(cmd, 0, stdout="reply", stderr="")
+
+    monkeypatch.setattr(claude_cli.subprocess, "run", fake_run)
+    client = ClaudeCLIClient(model="claude-opus-4-7", workspace=tmp_path)
+
+    client._run_claude(prompt="hello", system_prompt="system")
+
+    assert "--safe-mode" in seen["cmd"]
+
+
 def test_claude_cli_passes_session_id(monkeypatch, tmp_path: Path) -> None:
     seen: dict[str, object] = {}
 
