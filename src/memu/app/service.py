@@ -8,6 +8,7 @@ from typing import Any, Literal, TypeVar
 
 from pydantic import BaseModel
 
+from memu.app.graph import GraphMixin
 from memu.app.memorize import MemorizeMixin
 from memu.app.retrieve import RetrieveMixin
 from memu.app.settings import (
@@ -47,7 +48,7 @@ class Context:
     _init_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
 
-class MemoryService(MemorizeMixin, RetrieveMixin):
+class MemoryService(GraphMixin, MemorizeMixin, RetrieveMixin):
     def __init__(
         self,
         *,

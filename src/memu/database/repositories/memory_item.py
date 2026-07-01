@@ -22,6 +22,22 @@ class MemoryItemRepo(Protocol):
         include_superseded: bool = False,
     ) -> dict[str, MemoryItem]: ...
 
+    def list_recent_items(
+        self,
+        where: Mapping[str, Any] | None = None,
+        *,
+        limit: int,
+        include_superseded: bool = False,
+    ) -> dict[str, MemoryItem]: ...
+
+    def list_items_by_ids(
+        self,
+        item_ids: set[str],
+        where: Mapping[str, Any] | None = None,
+        *,
+        include_superseded: bool = False,
+    ) -> dict[str, MemoryItem]: ...
+
     def clear_items(self, where: Mapping[str, Any] | None = None) -> dict[str, MemoryItem]: ...
 
     def create_item(

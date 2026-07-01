@@ -8,6 +8,7 @@ from collections.abc import Mapping
 from datetime import datetime
 from typing import Any
 
+from sqlalchemy import func
 from sqlmodel import delete, select
 
 from memu.database.models import MemoryItem, MemoryType
@@ -305,6 +306,46 @@ WHERE version = 1 AND model IN ({placeholders})
             result[row.id] = item
 
         return result
+
+    def _list_graph_items(self, stmt: Any, where: Mapping[str, Any] | None, include_superseded: bool) -> dict[str, MemoryItem]:
+        filters = self._build_filters(self._memory_item_model, where)
+        active_filter = self._active_item_filter(
+            self._memory_item_model, include_superseded=include_superseded
+        )
+        if active_filter is not None:
+            filters.append(active_filter)
+        if filters:
+            stmt = stmt.where(*filters)
+        with self._sessions.session() as session:
+            rows = session.exec(stmt).all()
+        return {row.id: self._to_memory_item(row, embedding=[]) for row in rows}
+
+    def list_recent_items(
+        self,
+        where: Mapping[str, Any] | None = None,
+        *,
+        limit: int,
+        include_superseded: bool = False,
+    ) -> dict[str, MemoryItem]:
+        when = func.coalesce(self._memory_item_model.happened_at, self._memory_item_model.created_at)
+        stmt = (
+            select(self._memory_item_model)
+            .order_by(when.desc(), self._memory_item_model.id.desc())
+            .limit(max(1, int(limit)))
+        )
+        return self._list_graph_items(stmt, where, include_superseded)
+
+    def list_items_by_ids(
+        self,
+        item_ids: set[str],
+        where: Mapping[str, Any] | None = None,
+        *,
+        include_superseded: bool = False,
+    ) -> dict[str, MemoryItem]:
+        if not item_ids:
+            return {}
+        stmt = select(self._memory_item_model).where(self._memory_item_model.id.in_(item_ids))
+        return self._list_graph_items(stmt, where, include_superseded)
 
     def clear_items(self, where: Mapping[str, Any] | None = None) -> dict[str, MemoryItem]:
         """Clear items matching the where clause.
