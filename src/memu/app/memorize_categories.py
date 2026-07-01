@@ -7,6 +7,7 @@ import re
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from typing import Any
 
+from memu.app.category_summary_journal import update_category_summary_with_journal
 from memu.prompts.category_summary import (
     CUSTOM_PROMPT as CATEGORY_SUMMARY_CUSTOM_PROMPT,
 )
@@ -689,9 +690,13 @@ async def _update_category_summaries(
                 cleaned_summary,
             )
 
-        store.memory_category_repo.update_category(
+        scope = {key: user[key] for key in ("user_id", "soul_id") if isinstance(user, dict) and user.get(key)}
+        update_category_summary_with_journal(
+            store,
             category_id=cid,
             summary=cleaned_summary,
+            where=scope or None,
+            edited_by="pipeline",
         )
         updated_summaries[cid] = cleaned_summary
     return updated_summaries

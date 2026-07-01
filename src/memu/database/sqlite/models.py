@@ -92,6 +92,7 @@ class SQLiteMemoryCategoryModel(SQLiteBaseModelMixin, MemoryCategory):
     # Store embedding as JSON (SQLite stores it as TEXT under the hood)
     embedding: str | None = Field(default=None, sa_column=Column(Text, nullable=True))  # type: ignore[assignment]
     summary: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    previous_summary: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
 
 
 class SQLiteCategoryItemModel(SQLiteBaseModelMixin, CategoryItem):

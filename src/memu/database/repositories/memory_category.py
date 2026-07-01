@@ -34,5 +34,5 @@ class MemoryCategoryRepo(Protocol):
         description: str | None = None,
         embedding: list[float] | None = None,
         summary: str | None = None,
+        previous_summary: str | None = None,
     ) -> MemoryCategory: ...
-

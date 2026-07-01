@@ -86,6 +86,7 @@ class MemoryCategory(BaseRecord):
     description: str
     embedding: list[float] | None = None
     summary: str | None = None
+    previous_summary: str | None = None
 
 
 class CategoryItem(BaseRecord):

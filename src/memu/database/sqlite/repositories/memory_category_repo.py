@@ -73,6 +73,7 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
                 description=row.description,
                 embedding=self._normalize_embedding(self._get_row_embedding(row)),
                 summary=row.summary,
+                previous_summary=row.previous_summary,
                 created_at=row.created_at,
                 updated_at=row.updated_at,
             )
@@ -106,9 +107,10 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
                     description=row.description,
                     embedding=self._normalize_embedding(self._get_row_embedding(row)),
                     summary=row.summary,
+                    previous_summary=row.previous_summary,
                     created_at=row.created_at,
                     updated_at=row.updated_at,
-                    )
+                )
                 deleted[row.id] = cat
 
             if not deleted:
@@ -175,6 +177,7 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
                     description=existing.description,
                     embedding=self._normalize_embedding(self._get_row_embedding(existing)),
                     summary=existing.summary,
+                    previous_summary=existing.previous_summary,
                     created_at=existing.created_at,
                     updated_at=existing.updated_at,
                 )
@@ -208,6 +211,7 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
                     description=existing.description,
                     embedding=self._normalize_embedding(self._get_row_embedding(existing)),
                     summary=existing.summary,
+                    previous_summary=existing.previous_summary,
                     created_at=existing.created_at,
                     updated_at=existing.updated_at,
                 )
@@ -220,6 +224,7 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
             description=row.description,
             embedding=self._normalize_embedding(self._get_row_embedding(row)),
             summary=None,
+            previous_summary=None,
             created_at=row.created_at,
             updated_at=row.updated_at,
             **user_data,
@@ -235,6 +240,7 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
         description: str | None = None,
         embedding: list[float] | None = None,
         summary: str | None = None,
+        previous_summary: str | None = None,
     ) -> MemoryCategory:
         """Update an existing category.
 
@@ -267,6 +273,8 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
                 self._set_row_embedding(row, embedding)
             if summary is not None:
                 row.summary = summary
+            if previous_summary is not None:
+                row.previous_summary = previous_summary
             row.updated_at = self._now()
 
             session.add(row)
@@ -279,6 +287,7 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
             description=row.description,
             embedding=self._normalize_embedding(self._get_row_embedding(row)),
             summary=row.summary,
+            previous_summary=row.previous_summary,
             created_at=row.created_at,
             updated_at=row.updated_at,
         )

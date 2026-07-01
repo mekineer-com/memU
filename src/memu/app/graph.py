@@ -4,6 +4,8 @@ from collections.abc import Mapping
 from datetime import datetime
 from typing import Any
 
+from memu.app.category_summary_journal import update_category_summary_with_journal
+
 SEMANTIC_PREDICATES = ["caused_by", "evokes", "conflicts_with", "parallels", "shaped_by"]
 
 
@@ -78,6 +80,30 @@ class GraphMixin:
             edited_by=edited_by,
         )
         return self.graph_memory(f"memory:{raw_id}", where=where)
+
+    async def graph_update_category_summary(
+        self,
+        item_id: str,
+        *,
+        summary: str,
+        where: Mapping[str, Any] | None = None,
+        edited_by: str | None = None,
+    ) -> dict[str, Any] | None:
+        store = self._get_database()
+        kind, _, raw_id = str(item_id or "").partition(":")
+        if not raw_id:
+            kind, raw_id = "category", kind
+        if kind != "category" or not raw_id:
+            raise ValueError("only category summaries are editable")
+
+        update_category_summary_with_journal(
+            store,
+            category_id=raw_id,
+            summary=summary,
+            where=where,
+            edited_by=edited_by,
+        )
+        return self.graph_memory(f"category:{raw_id}", where=where)
 
     def graph_recent(
         self,
@@ -208,6 +234,7 @@ class GraphMixin:
             "category_id": category.id,
             "label": category.name,
             "summary": category.summary or category.description,
+            "previous_summary": getattr(category, "previous_summary", None),
             "created_at": _iso(category.created_at),
             "updated_at": _iso(category.updated_at),
             "category_names": [],

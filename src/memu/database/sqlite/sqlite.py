@@ -214,10 +214,17 @@ ON memory_item_edit_history(memory_item_id, edited_at)
 """
             )
 
+    def _ensure_category_previous_summary_column(self) -> None:
+        with self._sessions.engine.begin() as conn:
+            columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(categories)").fetchall()}
+            if "previous_summary" not in columns:
+                conn.exec_driver_sql("ALTER TABLE categories ADD COLUMN previous_summary TEXT")
+
     def _create_tables(self) -> None:
         """Create SQLite tables if they don't exist."""
         SQLModel.metadata.create_all(self._sessions.engine)
         self._sqla_models.Base.metadata.create_all(self._sessions.engine)
+        self._ensure_category_previous_summary_column()
         self._ensure_fts_table()
         self._ensure_model_score_calibration_table()
         self._ensure_memory_item_edit_history_table()
