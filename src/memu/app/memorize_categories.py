@@ -689,6 +689,8 @@ async def _update_category_summaries(
                 r"\1" + user_name,
                 cleaned_summary,
             )
+        if not cleaned_summary:
+            continue
 
         scope = {key: user[key] for key in ("user_id", "soul_id") if isinstance(user, dict) and user.get(key)}
         update_category_summary_with_journal(
