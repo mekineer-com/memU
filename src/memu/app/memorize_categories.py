@@ -692,7 +692,7 @@ async def _update_category_summaries(
         if not cleaned_summary:
             continue
 
-        scope = {key: user[key] for key in ("user_id", "soul_id") if isinstance(user, dict) and user.get(key)}
+        scope = {key: user[key] for key in ("user_id", "soul_id") if isinstance(user, Mapping) and user.get(key)}
         update_category_summary_with_journal(
             store,
             category_id=cid,
