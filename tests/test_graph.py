@@ -212,3 +212,31 @@ def test_graph_update_memory_summary_embed_failure_leaves_memory_unchanged():
     with store._sessions.engine.connect() as conn:
         count = conn.exec_driver_sql("SELECT COUNT(*) FROM memory_item_edit_history").scalar()
     assert count == 0
+
+
+def test_graph_update_memory_summary_stripped_noop_skips_embed_and_history():
+    service = MemoryService(
+        database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
+        user_config={"model": GraphScope},
+    )
+    store = service._get_database()
+    scope = {"user_id": "graph_edit_noop", "soul_id": "s"}
+    item = store.memory_item_repo.create_item(
+        memory_type="episode",
+        summary="same summary ",
+        embedding=[0.1],
+        user_data=scope,
+    )
+
+    class _Embedder:
+        async def embed(self, texts):
+            raise AssertionError("noop edit should not embed")
+
+    service._select_embedding_client = lambda _ctx: _Embedder()  # type: ignore[method-assign]
+
+    updated = asyncio.run(service.graph_update_memory_summary(item.id, summary="same summary", where=scope))
+
+    assert updated["summary"] == "same summary "
+    with store._sessions.engine.connect() as conn:
+        count = conn.exec_driver_sql("SELECT COUNT(*) FROM memory_item_edit_history").scalar()
+    assert count == 0

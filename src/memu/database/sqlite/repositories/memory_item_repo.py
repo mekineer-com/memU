@@ -555,6 +555,7 @@ WHERE version = 1 AND model IN ({placeholders})
         where: Mapping[str, Any] | None = None,
         edited_by: str | None = None,
     ) -> MemoryItem:
+        """Insert edit history and update the item in one transaction."""
         with self._sessions.session() as session:
             filters = [self._memory_item_model.id == item_id, *self._build_filters(self._memory_item_model, where)]
             active_filter = self._active_item_filter(self._memory_item_model, include_superseded=False)

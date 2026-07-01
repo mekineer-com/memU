@@ -66,7 +66,7 @@ class GraphMixin:
         current = store.memory_item_repo.list_items_by_ids({raw_id}, where=where).get(raw_id)
         if current is None:
             return None
-        if current.summary == summary:
+        if current.summary.strip() == summary:
             return self.graph_memory(f"memory:{raw_id}", where=where)
 
         embedding = (await self._select_embedding_client(None).embed([summary]))[0]
