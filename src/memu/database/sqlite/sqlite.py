@@ -191,12 +191,36 @@ CREATE TABLE IF NOT EXISTS model_score_calibration (
 """
             )
 
+    def _ensure_memory_item_edit_history_table(self) -> None:
+        with self._sessions.engine.begin() as conn:
+            conn.exec_driver_sql(
+                """
+CREATE TABLE IF NOT EXISTS memory_item_edit_history (
+    id TEXT PRIMARY KEY,
+    memory_item_id TEXT NOT NULL,
+    summary_before TEXT NOT NULL,
+    summary_after TEXT NOT NULL,
+    embedding_before TEXT,
+    edited_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    edited_by TEXT,
+    scope_json TEXT NOT NULL
+)
+"""
+            )
+            conn.exec_driver_sql(
+                """
+CREATE INDEX IF NOT EXISTS idx_memory_item_edit_history_item
+ON memory_item_edit_history(memory_item_id, edited_at)
+"""
+            )
+
     def _create_tables(self) -> None:
         """Create SQLite tables if they don't exist."""
         SQLModel.metadata.create_all(self._sessions.engine)
         self._sqla_models.Base.metadata.create_all(self._sessions.engine)
         self._ensure_fts_table()
         self._ensure_model_score_calibration_table()
+        self._ensure_memory_item_edit_history_table()
         logger.debug("SQLite tables created/verified")
 
     def close(self) -> None:

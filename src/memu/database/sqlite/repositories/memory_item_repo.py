@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 from collections.abc import Mapping
 from datetime import datetime
 from typing import Any
@@ -544,6 +545,46 @@ WHERE version = 1 AND model IN ({placeholders})
             self._fts_upsert(session, item_id, row.summary, row.memory_type)
 
         return self._to_memory_item(row)
+
+    def update_summary_with_history(
+        self,
+        *,
+        item_id: str,
+        summary: str,
+        embedding: list[float],
+        where: Mapping[str, Any] | None = None,
+        edited_by: str | None = None,
+    ) -> MemoryItem:
+        with self._sessions.session() as session:
+            filters = [self._memory_item_model.id == item_id, *self._build_filters(self._memory_item_model, where)]
+            active_filter = self._active_item_filter(self._memory_item_model, include_superseded=False)
+            if active_filter is not None:
+                filters.append(active_filter)
+            row = session.exec(select(self._memory_item_model).where(*filters)).first()
+            if row is None:
+                msg = f"Item with id {item_id} not found"
+                raise KeyError(msg)
+
+            conn = session.connection()
+            conn.exec_driver_sql(
+                """
+INSERT INTO memory_item_edit_history
+    (id, memory_item_id, summary_before, summary_after, embedding_before, edited_by, scope_json)
+VALUES (?, ?, ?, ?, ?, ?, ?)
+""",
+                (
+                    str(uuid.uuid4()),
+                    item_id,
+                    row.summary,
+                    summary,
+                    self._get_row_embedding(row),
+                    edited_by,
+                    json.dumps(dict(where or {}), sort_keys=True),
+                ),
+            )
+            item = self.update_item(item_id=item_id, summary=summary, embedding=embedding, session=session)
+            session.commit()
+            return item
 
     # ── FTS5 helpers ──────────────────────────────────────────────────
 

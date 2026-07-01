@@ -75,6 +75,16 @@ class MemoryItemRepo(Protocol):
         session: Any | None = None,
     ) -> MemoryItem: ...
 
+    def update_summary_with_history(
+        self,
+        *,
+        item_id: str,
+        summary: str,
+        embedding: list[float],
+        where: Mapping[str, Any] | None = None,
+        edited_by: str | None = None,
+    ) -> MemoryItem: ...
+
     def vector_search_items(
         self,
         query_vec: list[float],

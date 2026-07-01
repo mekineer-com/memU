@@ -44,6 +44,41 @@ class GraphMixin:
         ]
         return self._memory_node(item, category_names=category_names)
 
+    async def graph_update_memory_summary(
+        self,
+        item_id: str,
+        *,
+        summary: str,
+        where: Mapping[str, Any] | None = None,
+        edited_by: str | None = None,
+    ) -> dict[str, Any] | None:
+        store = self._get_database()
+        kind, _, raw_id = str(item_id or "").partition(":")
+        if not raw_id:
+            kind, raw_id = "memory", kind
+        if kind != "memory" or not raw_id:
+            raise ValueError("only memory summaries are editable")
+
+        summary = str(summary or "").strip()
+        if not summary:
+            raise ValueError("summary is required")
+
+        current = store.memory_item_repo.list_items_by_ids({raw_id}, where=where).get(raw_id)
+        if current is None:
+            return None
+        if current.summary == summary:
+            return self.graph_memory(f"memory:{raw_id}", where=where)
+
+        embedding = (await self._select_embedding_client(None).embed([summary]))[0]
+        store.memory_item_repo.update_summary_with_history(
+            item_id=raw_id,
+            summary=summary,
+            embedding=embedding,
+            where=where,
+            edited_by=edited_by,
+        )
+        return self.graph_memory(f"memory:{raw_id}", where=where)
+
     def graph_recent(
         self,
         *,

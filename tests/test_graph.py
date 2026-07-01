@@ -1,6 +1,8 @@
+import asyncio
 from types import SimpleNamespace
 from datetime import datetime, UTC, timedelta
 
+import pytest
 from memu.app.graph import GraphMixin
 from memu.app.service import MemoryService
 from memu.database.models import Triple
@@ -143,3 +145,70 @@ def test_graph_recent_uses_real_bounded_sqlite_reads():
 
     edge_ids = {edge["id"] for edge in graph["edges"]}
     assert f"semantic:{older.id}:caused_by:{newer.id}" in edge_ids
+
+
+def test_graph_update_memory_summary_embeds_before_history_update():
+    service = MemoryService(
+        database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
+        user_config={"model": GraphScope},
+    )
+    store = service._get_database()
+    scope = {"user_id": "graph_edit", "soul_id": "s"}
+    item = store.memory_item_repo.create_item(
+        memory_type="episode",
+        summary="old summary",
+        embedding=[0.1],
+        user_data=scope,
+    )
+
+    class _Embedder:
+        async def embed(self, texts):
+            assert texts == ["new summary"]
+            return [[0.9, 0.8]]
+
+    service._select_embedding_client = lambda _ctx: _Embedder()  # type: ignore[method-assign]
+
+    updated = asyncio.run(
+        service.graph_update_memory_summary(f"memory:{item.id}", summary=" new summary ", where=scope)
+    )
+
+    saved = store.memory_item_repo.get_item(item.id)
+    assert updated["summary"] == "new summary"
+    assert saved.summary == "new summary"
+    assert saved.embedding == [0.9, 0.8]
+    with store._sessions.engine.connect() as conn:
+        row = conn.exec_driver_sql(
+            "SELECT summary_before, summary_after, scope_json FROM memory_item_edit_history"
+        ).fetchone()
+    assert row == ("old summary", "new summary", '{"soul_id": "s", "user_id": "graph_edit"}')
+
+
+def test_graph_update_memory_summary_embed_failure_leaves_memory_unchanged():
+    service = MemoryService(
+        database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
+        user_config={"model": GraphScope},
+    )
+    store = service._get_database()
+    scope = {"user_id": "graph_edit_fail", "soul_id": "s"}
+    item = store.memory_item_repo.create_item(
+        memory_type="episode",
+        summary="old summary",
+        embedding=[0.1],
+        user_data=scope,
+    )
+
+    class _Embedder:
+        async def embed(self, texts):
+            raise RuntimeError("embed failed")
+
+    service._select_embedding_client = lambda _ctx: _Embedder()  # type: ignore[method-assign]
+
+    with pytest.raises(RuntimeError):
+        asyncio.run(service.graph_update_memory_summary(item.id, summary="new summary", where=scope))
+
+    saved = store.memory_item_repo.get_item(item.id)
+    assert saved.summary == "old summary"
+    assert saved.embedding == [0.1]
+    with store._sessions.engine.connect() as conn:
+        count = conn.exec_driver_sql("SELECT COUNT(*) FROM memory_item_edit_history").scalar()
+    assert count == 0
