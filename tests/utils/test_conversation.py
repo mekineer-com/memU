@@ -2,7 +2,11 @@ import json
 
 import pytest
 
-from memu.utils.conversation import display_speaker_label, format_conversation_for_preprocess  # type: ignore[import-untyped]
+from memu.utils.conversation import (  # type: ignore[import-untyped]
+    display_speaker_label,
+    format_conversation_for_preprocess,
+    format_grouped_chat_history,
+)
 
 
 class TestFormatConversationForPreprocess:
@@ -96,3 +100,11 @@ def test_display_speaker_label_uses_soul_name_for_assistant_role() -> None:
     assert display_speaker_label({"role": "assistant"}) == "soul"
     assert display_speaker_label({"role": "assistant", "name": "Echo"}, soul_name="Siri") == "Echo"
     assert display_speaker_label({"role": "user", "speaker": "Raquel"}) == "Raquel"
+
+
+def test_atomic_chat_history_has_atomic_section() -> None:
+    rendered = format_grouped_chat_history([
+        {"conversation_id": "chat:atomic-abc", "role": "user", "content": "hello", "chat_name": "Atomic"},
+    ])
+    assert "My Atomic Conversations:" in rendered
+    assert "My SillyTavern Conversations:" not in rendered
