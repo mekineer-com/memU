@@ -388,6 +388,10 @@ def test_graph_pending_excludes_superseded_memories():
 
     pending_ids = {node["memory_id"] for node in service.graph_list_pending(where=scope)["items"]}
     assert old.id not in pending_ids
+    assert service.graph_approve_memory(old.id, where=scope) is None
+    assert service.graph_delete_memory(old.id, where=scope) is None
+    assert store.memory_item_repo.get_item(old.id, include_superseded=True) is not None
+    assert store.triple_repo.get_edges_from(old.id, predicate="evolved_into", where=scope)
 
 
 def test_graph_delete_memory_removes_dependents():

@@ -392,6 +392,9 @@ WHERE version = 1 AND model IN ({placeholders})
     def approve_item(self, item_id: str, where: Mapping[str, Any] | None = None) -> MemoryItem:
         with self._sessions.session() as session:
             filters = [self._memory_item_model.id == item_id, *self._build_filters(self._memory_item_model, where)]
+            active_filter = self._active_item_filter(self._memory_item_model, include_superseded=False)
+            if active_filter is not None:
+                filters.append(active_filter)
             row = session.exec(select(self._memory_item_model).where(*filters)).first()
             if row is None:
                 msg = f"Item with id {item_id} not found"
@@ -408,6 +411,9 @@ WHERE version = 1 AND model IN ({placeholders})
         triple_model = self._sqla_models.Triple
         with self._sessions.session() as session:
             filters = [self._memory_item_model.id == item_id, *self._build_filters(self._memory_item_model, where)]
+            active_filter = self._active_item_filter(self._memory_item_model, include_superseded=False)
+            if active_filter is not None:
+                filters.append(active_filter)
             row = session.exec(select(self._memory_item_model).where(*filters)).first()
             if row is None:
                 msg = f"Item with id {item_id} not found"
