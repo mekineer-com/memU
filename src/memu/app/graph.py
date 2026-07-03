@@ -146,6 +146,8 @@ class GraphMixin:
 
         query_vec = (await self._select_embedding_client(None).embed([query]))[0]
         for item_id, score in cosine_topk(query_vec, ((item.id, item.embedding) for item in pool.values()), k=limit):
+            if score <= 0:
+                continue
             scores[item_id] = max(scores.get(item_id, 0.0), float(score))
 
         categories = store.memory_category_repo.list_categories(where)

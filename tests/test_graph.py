@@ -203,6 +203,29 @@ def test_graph_search_requires_query():
         asyncio.run(service.graph_search(" ", where={"user_id": "u", "soul_id": "s"}))
 
 
+def test_graph_search_drops_unrelated_vector_only_hits():
+    service = MemoryService(
+        database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
+        user_config={"model": GraphScope},
+    )
+    scope = {"user_id": "graph_search", "soul_id": "s"}
+    service._get_database().memory_item_repo.create_item(
+        memory_type="episode",
+        summary="totally unrelated",
+        embedding=[-1.0, 0.0],
+        user_data=scope,
+    )
+
+    class _Embedder:
+        async def embed(self, texts):
+            return [[1.0, 0.0]]
+
+    service._select_embedding_client = lambda _ctx: _Embedder()  # type: ignore[method-assign]
+
+    out = asyncio.run(service.graph_search("sushi", where=scope, limit=5))
+    assert out["nodes"] == []
+
+
 def test_graph_update_memory_summary_embeds_before_history_update(monkeypatch, tmp_path):
     monkeypatch.setattr(category_summary_journal, "JOURNAL_DIR", tmp_path)
     service = MemoryService(
