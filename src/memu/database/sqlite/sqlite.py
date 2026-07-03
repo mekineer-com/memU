@@ -220,11 +220,24 @@ ON memory_item_edit_history(memory_item_id, edited_at)
             if "previous_summary" not in columns:
                 conn.exec_driver_sql("ALTER TABLE categories ADD COLUMN previous_summary TEXT")
 
+    def _ensure_approval_columns(self) -> None:
+        with self._sessions.engine.begin() as conn:
+            memory_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(memory_items)").fetchall()}
+            if "approved_at" not in memory_columns:
+                conn.exec_driver_sql("ALTER TABLE memory_items ADD COLUMN approved_at DATETIME")
+                conn.exec_driver_sql("UPDATE memory_items SET approved_at = CURRENT_TIMESTAMP")
+
+            category_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(categories)").fetchall()}
+            if "approved_summary" not in category_columns:
+                conn.exec_driver_sql("ALTER TABLE categories ADD COLUMN approved_summary TEXT")
+                conn.exec_driver_sql("UPDATE categories SET approved_summary = summary WHERE summary IS NOT NULL")
+
     def _create_tables(self) -> None:
         """Create SQLite tables if they don't exist."""
         SQLModel.metadata.create_all(self._sessions.engine)
         self._sqla_models.Base.metadata.create_all(self._sessions.engine)
         self._ensure_category_previous_summary_column()
+        self._ensure_approval_columns()
         self._ensure_fts_table()
         self._ensure_model_score_calibration_table()
         self._ensure_memory_item_edit_history_table()

@@ -1,5 +1,6 @@
 import asyncio
 import json
+import sqlite3
 from types import SimpleNamespace
 from datetime import datetime, UTC, timedelta
 
@@ -323,6 +324,182 @@ def test_graph_update_memory_summary_stripped_noop_skips_embed_and_history():
     assert count == 0
 
 
+def test_graph_pending_and_memory_approval_semantics():
+    service = MemoryService(
+        database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
+        user_config={"model": GraphScope},
+    )
+    store = service._get_database()
+    scope = {"user_id": "pending_memory", "soul_id": "s"}
+    item = store.memory_item_repo.create_item(
+        memory_type="episode",
+        summary="approved memory",
+        embedding=[0.1],
+        user_data=scope,
+    )
+    store.memory_item_repo.approve_item(item.id, where=scope)
+
+    assert service.graph_list_pending(where=scope)["items"] == []
+
+    class _Embedder:
+        async def embed(self, texts):
+            return [[0.2]]
+
+    service._select_embedding_client = lambda _ctx: _Embedder()  # type: ignore[method-assign]
+    asyncio.run(service.graph_update_memory_summary(item.id, summary="siri edit", where=scope))
+    pending = service.graph_list_pending(where=scope)["items"]
+
+    assert [node["memory_id"] for node in pending] == [item.id]
+    assert pending[0]["approved_at"] is None
+
+    service.graph_approve_memory(item.id, where=scope)
+    assert service.graph_list_pending(where=scope)["items"] == []
+
+
+def test_graph_pending_excludes_superseded_memories():
+    service = MemoryService(
+        database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
+        user_config={"model": GraphScope},
+    )
+    store = service._get_database()
+    scope = {"user_id": "pending_superseded", "soul_id": "s"}
+    old = store.memory_item_repo.create_item(
+        memory_type="episode",
+        summary="old pending",
+        embedding=[0.1],
+        user_data=scope,
+    )
+    new = store.memory_item_repo.create_item(
+        memory_type="episode",
+        summary="replacement",
+        embedding=[0.2],
+        user_data=scope,
+    )
+    store.triple_repo.add(
+        Triple(
+            subject_id=old.id,
+            subject_kind="memory",
+            predicate="evolved_into",
+            object_id=new.id,
+            object_kind="memory",
+        ),
+        user_data=scope,
+    )
+
+    pending_ids = {node["memory_id"] for node in service.graph_list_pending(where=scope)["items"]}
+    assert old.id not in pending_ids
+
+
+def test_graph_delete_memory_removes_dependents():
+    service = MemoryService(
+        database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
+        user_config={"model": GraphScope},
+    )
+    store = service._get_database()
+    scope = {"user_id": "delete_memory", "soul_id": "s"}
+    item = store.memory_item_repo.create_item(
+        memory_type="episode",
+        summary="delete me",
+        embedding=[0.1],
+        user_data=scope,
+    )
+    category = store.memory_category_repo.get_or_create_category(
+        name="People",
+        description="",
+        embedding=[0.1],
+        user_data=scope,
+    )
+    store.category_item_repo.link_item_category(item.id, category.id, scope)
+    store.triple_repo.add(
+        Triple(
+            subject_id=item.id,
+            subject_kind="memory",
+            predicate="mentions",
+            object_id="entity1",
+            object_kind="entity",
+            source_memory_id=item.id,
+        ),
+        user_data=scope,
+    )
+
+    class _Embedder:
+        async def embed(self, texts):
+            return [[0.2]]
+
+    service._select_embedding_client = lambda _ctx: _Embedder()  # type: ignore[method-assign]
+    asyncio.run(service.graph_update_memory_summary(item.id, summary="updated delete me", where=scope))
+
+    deleted = service.graph_delete_memory(item.id, where=scope)
+
+    assert deleted["memory_id"] == item.id
+    assert store.memory_item_repo.get_item(item.id) is None
+    with store._sessions.engine.connect() as conn:
+        assert conn.exec_driver_sql("SELECT COUNT(*) FROM memory_items_fts WHERE item_id = ?", (item.id,)).scalar() == 0
+        assert conn.exec_driver_sql("SELECT COUNT(*) FROM memory_item_edit_history WHERE memory_item_id = ?", (item.id,)).scalar() == 0
+        assert conn.exec_driver_sql("SELECT COUNT(*) FROM category_items WHERE item_id = ?", (item.id,)).scalar() == 0
+        assert conn.exec_driver_sql(
+            "SELECT COUNT(*) FROM triples WHERE subject_id = ? OR object_id = ? OR source_memory_id = ?",
+            (item.id, item.id, item.id),
+        ).scalar() == 0
+
+
+def test_sqlite_approval_backfill_runs_only_when_column_is_added(tmp_path):
+    db_path = tmp_path / "old.db"
+    conn = sqlite3.connect(db_path)
+    conn.executescript(
+        """
+CREATE TABLE memory_items (
+  id TEXT PRIMARY KEY,
+  created_at DATETIME,
+  updated_at DATETIME,
+  resource_id TEXT,
+  memory_type TEXT NOT NULL,
+  summary TEXT NOT NULL,
+  embedding TEXT,
+  happened_at DATETIME,
+  source_role TEXT,
+  speaker_id TEXT,
+  speaker_label TEXT,
+  confidence FLOAT,
+  source_message_ids JSON,
+  reflection_salience FLOAT,
+  emotional_intensity FLOAT,
+  conversation_id TEXT,
+  segment_id TEXT,
+  unresolved TEXT,
+  merged_into TEXT,
+  extra JSON,
+  user_id TEXT,
+  soul_id TEXT
+);
+INSERT INTO memory_items (id, created_at, updated_at, memory_type, summary, embedding, extra, user_id, soul_id)
+VALUES ('old', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'episode', 'old approved', '[0.1]', '{}', 'backfill', 's');
+"""
+    )
+    conn.close()
+    dsn = f"sqlite:///{db_path}"
+    service = MemoryService(
+        database_config={"metadata_store": {"provider": "sqlite", "dsn": dsn}},
+        user_config={"model": GraphScope},
+    )
+    scope = {"user_id": "backfill", "soul_id": "s"}
+    old = service._get_database().memory_item_repo.get_item("old")
+    assert old.approved_at is not None
+
+    new = service._get_database().memory_item_repo.create_item(
+        memory_type="episode",
+        summary="new pending",
+        embedding=[0.2],
+        user_data=scope,
+    )
+    service = MemoryService(
+        database_config={"metadata_store": {"provider": "sqlite", "dsn": dsn}},
+        user_config={"model": GraphScope},
+    )
+    pending_ids = {node["memory_id"] for node in service.graph_list_pending(where=scope)["items"]}
+    assert pending_ids == {new.id}
+
+
 def test_graph_update_category_summary_journals_before_db_update(monkeypatch, tmp_path):
     monkeypatch.setattr(category_summary_journal, "JOURNAL_DIR", tmp_path)
     service = MemoryService(
@@ -360,6 +537,37 @@ def test_graph_update_category_summary_journals_before_db_update(monkeypatch, tm
     assert entry["summary_after"] == "new category summary"
     assert entry["edited_by"] == "surfer"
     assert entry["scope"] == scope
+
+
+def test_graph_update_category_summary_approved_noop_blesses_without_journal(monkeypatch, tmp_path):
+    monkeypatch.setattr(category_summary_journal, "JOURNAL_DIR", tmp_path)
+    service = MemoryService(
+        database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
+        user_config={"model": GraphScope},
+    )
+    store = service._get_database()
+    scope = {"user_id": "graph_cat_noop_approve", "soul_id": "s"}
+    category = store.memory_category_repo.get_or_create_category(
+        name="People",
+        description="",
+        embedding=[0.1],
+        user_data=scope,
+    )
+    store.memory_category_repo.update_category(category_id=category.id, summary="same")
+
+    updated = asyncio.run(
+        service.graph_update_category_summary(
+            category.id,
+            summary=" same ",
+            where=scope,
+            approved=True,
+        )
+    )
+
+    saved = store.memory_category_repo.list_categories(scope)[category.id]
+    assert updated["approved_summary"] == "same"
+    assert saved.approved_summary == "same"
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_graph_update_category_summary_out_of_scope_does_not_journal(monkeypatch, tmp_path):

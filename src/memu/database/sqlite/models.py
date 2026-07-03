@@ -81,6 +81,7 @@ class SQLiteMemoryItemModel(SQLiteBaseModelMixin, MemoryItem):
     segment_id: str | None = Field(default=None, sa_column=Column(String, nullable=True))
     unresolved: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
     merged_into: str | None = Field(default=None, sa_column=Column(String, nullable=True))
+    approved_at: datetime | None = Field(default=None, sa_column=Column(DateTime, nullable=True))
     extra: dict[str, Any] = Field(default={}, sa_column=Column(JSON, nullable=True))
 
 
@@ -93,6 +94,7 @@ class SQLiteMemoryCategoryModel(SQLiteBaseModelMixin, MemoryCategory):
     embedding: str | None = Field(default=None, sa_column=Column(Text, nullable=True))  # type: ignore[assignment]
     summary: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
     previous_summary: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    approved_summary: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
 
 
 class SQLiteCategoryItemModel(SQLiteBaseModelMixin, CategoryItem):

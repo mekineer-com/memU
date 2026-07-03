@@ -74,6 +74,7 @@ class MemoryItem(BaseRecord):
     # Soft-merge marker for conservative semantic dedupe.
     # When set, this item is treated as merged into another canonical item.
     merged_into: str | None = None
+    approved_at: datetime | None = None
     extra: dict[str, Any] = {}
     # # Tool memory fields
     # - when_to_use: str - Hint for when this memory should be retrieved
@@ -87,6 +88,7 @@ class MemoryCategory(BaseRecord):
     embedding: list[float] | None = None
     summary: str | None = None
     previous_summary: str | None = None
+    approved_summary: str | None = None
 
 
 class CategoryItem(BaseRecord):

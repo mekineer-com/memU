@@ -49,6 +49,19 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
         self._memory_category_model = memory_category_model
         self.categories = self._state.categories
 
+    def _to_category(self, row: Any) -> MemoryCategory:
+        return MemoryCategory(
+            id=row.id,
+            name=row.name,
+            description=row.description,
+            embedding=self._normalize_embedding(self._get_row_embedding(row)),
+            summary=row.summary,
+            previous_summary=row.previous_summary,
+            approved_summary=getattr(row, "approved_summary", None),
+            created_at=row.created_at,
+            updated_at=row.updated_at,
+        )
+
     def list_categories(self, where: Mapping[str, Any] | None = None) -> dict[str, MemoryCategory]:
         """List categories matching the where clause.
 
@@ -67,16 +80,7 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
 
         result: dict[str, MemoryCategory] = {}
         for row in rows:
-            cat = MemoryCategory(
-                id=row.id,
-                name=row.name,
-                description=row.description,
-                embedding=self._normalize_embedding(self._get_row_embedding(row)),
-                summary=row.summary,
-                previous_summary=row.previous_summary,
-                created_at=row.created_at,
-                updated_at=row.updated_at,
-            )
+            cat = self._to_category(row)
             result[row.id] = cat
             self.categories[row.id] = cat
 
@@ -101,16 +105,7 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
 
             deleted: dict[str, MemoryCategory] = {}
             for row in rows:
-                cat = MemoryCategory(
-                    id=row.id,
-                    name=row.name,
-                    description=row.description,
-                    embedding=self._normalize_embedding(self._get_row_embedding(row)),
-                    summary=row.summary,
-                    previous_summary=row.previous_summary,
-                    created_at=row.created_at,
-                    updated_at=row.updated_at,
-                )
+                cat = self._to_category(row)
                 deleted[row.id] = cat
 
             if not deleted:
@@ -171,16 +166,7 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
             existing = session.exec(stmt).first()
 
             if existing:
-                cat = MemoryCategory(
-                    id=existing.id,
-                    name=existing.name,
-                    description=existing.description,
-                    embedding=self._normalize_embedding(self._get_row_embedding(existing)),
-                    summary=existing.summary,
-                    previous_summary=existing.previous_summary,
-                    created_at=existing.created_at,
-                    updated_at=existing.updated_at,
-                )
+                cat = self._to_category(existing)
                 self.categories[existing.id] = cat
                 return cat
 
@@ -205,30 +191,31 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
                 existing = session.exec(stmt).first()
                 if existing is None:
                     raise
-                cat = MemoryCategory(
-                    id=existing.id,
-                    name=existing.name,
-                    description=existing.description,
-                    embedding=self._normalize_embedding(self._get_row_embedding(existing)),
-                    summary=existing.summary,
-                    previous_summary=existing.previous_summary,
-                    created_at=existing.created_at,
-                    updated_at=existing.updated_at,
-                )
+                cat = self._to_category(existing)
                 self.categories[existing.id] = cat
                 return cat
 
-        cat = MemoryCategory(
-            id=row.id,
-            name=row.name,
-            description=row.description,
-            embedding=self._normalize_embedding(self._get_row_embedding(row)),
-            summary=None,
-            previous_summary=None,
-            created_at=row.created_at,
-            updated_at=row.updated_at,
-            **user_data,
-        )
+        cat = self._to_category(row)
+        self.categories[row.id] = cat
+        return cat
+
+    def approve_category_summary(
+        self,
+        category_id: str,
+        where: Mapping[str, Any] | None = None,
+    ) -> MemoryCategory:
+        with self._sessions.session() as session:
+            filters = [self._memory_category_model.id == category_id, *self._build_filters(self._memory_category_model, where)]
+            row = session.exec(select(self._memory_category_model).where(*filters)).first()
+            if row is None:
+                msg = f"Category with id {category_id} not found"
+                raise KeyError(msg)
+            row.approved_summary = row.summary
+            row.updated_at = self._now()
+            session.add(row)
+            session.commit()
+            session.refresh(row)
+        cat = self._to_category(row)
         self.categories[row.id] = cat
         return cat
 
@@ -281,16 +268,7 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
             session.commit()
             session.refresh(row)
 
-        cat = MemoryCategory(
-            id=row.id,
-            name=row.name,
-            description=row.description,
-            embedding=self._normalize_embedding(self._get_row_embedding(row)),
-            summary=row.summary,
-            previous_summary=row.previous_summary,
-            created_at=row.created_at,
-            updated_at=row.updated_at,
-        )
+        cat = self._to_category(row)
         self.categories[row.id] = cat
         return cat
 

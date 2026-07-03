@@ -40,6 +40,10 @@ class MemoryItemRepo(Protocol):
 
     def clear_items(self, where: Mapping[str, Any] | None = None) -> dict[str, MemoryItem]: ...
 
+    def approve_item(self, item_id: str, where: Mapping[str, Any] | None = None) -> MemoryItem: ...
+
+    def hard_delete_item(self, item_id: str, where: Mapping[str, Any] | None = None) -> MemoryItem: ...
+
     def create_item(
         self,
         *,
@@ -83,6 +87,7 @@ class MemoryItemRepo(Protocol):
         embedding: list[float],
         where: Mapping[str, Any] | None = None,
         edited_by: str | None = None,
+        approved: bool = False,
     ) -> MemoryItem: ...
 
     def vector_search_items(

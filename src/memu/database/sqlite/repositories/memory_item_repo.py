@@ -10,6 +10,7 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import func
+from sqlalchemy import or_
 from sqlmodel import delete, select
 
 from memu.database.models import MemoryItem, MemoryType
@@ -242,6 +243,7 @@ WHERE version = 1 AND model IN ({placeholders})
             segment_id=getattr(row, "segment_id", None),
             unresolved=getattr(row, "unresolved", None),
             merged_into=getattr(row, "merged_into", None),
+            approved_at=getattr(row, "approved_at", None),
             extra=getattr(row, "extra", {}) or {},
             created_at=row.created_at,
             updated_at=row.updated_at,
@@ -385,6 +387,52 @@ WHERE version = 1 AND model IN ({placeholders})
             session.exec(del_stmt)
             session.commit()
 
+        return deleted
+
+    def approve_item(self, item_id: str, where: Mapping[str, Any] | None = None) -> MemoryItem:
+        with self._sessions.session() as session:
+            filters = [self._memory_item_model.id == item_id, *self._build_filters(self._memory_item_model, where)]
+            row = session.exec(select(self._memory_item_model).where(*filters)).first()
+            if row is None:
+                msg = f"Item with id {item_id} not found"
+                raise KeyError(msg)
+            row.approved_at = self._now()
+            row.updated_at = self._now()
+            session.add(row)
+            session.commit()
+            session.refresh(row)
+            return self._to_memory_item(row)
+
+    def hard_delete_item(self, item_id: str, where: Mapping[str, Any] | None = None) -> MemoryItem:
+        category_item_model = self._sqla_models.CategoryItem
+        triple_model = self._sqla_models.Triple
+        with self._sessions.session() as session:
+            filters = [self._memory_item_model.id == item_id, *self._build_filters(self._memory_item_model, where)]
+            row = session.exec(select(self._memory_item_model).where(*filters)).first()
+            if row is None:
+                msg = f"Item with id {item_id} not found"
+                raise KeyError(msg)
+            deleted = self._to_memory_item(row)
+            scope_filters = self._build_filters(category_item_model, where)
+            session.exec(delete(category_item_model).where(category_item_model.item_id == item_id, *scope_filters))
+            triple_scope_filters = self._build_filters(triple_model, where)
+            session.exec(
+                delete(triple_model).where(
+                    or_(
+                        (triple_model.subject_kind == "memory") & (triple_model.subject_id == item_id),
+                        (triple_model.object_kind == "memory") & (triple_model.object_id == item_id),
+                        triple_model.source_memory_id == item_id,
+                    ),
+                    *triple_scope_filters,
+                )
+            )
+            conn = session.connection()
+            conn.exec_driver_sql("DELETE FROM memory_item_edit_history WHERE memory_item_id = ?", (item_id,))
+            self._fts_delete(session, item_id)
+            session.delete(row)
+            session.commit()
+
+        self._state.relations[:] = [rel for rel in self._state.relations if rel.item_id != item_id]
         return deleted
 
     def create_item(
@@ -554,6 +602,7 @@ WHERE version = 1 AND model IN ({placeholders})
         embedding: list[float],
         where: Mapping[str, Any] | None = None,
         edited_by: str | None = None,
+        approved: bool = False,
     ) -> MemoryItem:
         """Insert edit history and update the item in one transaction."""
         with self._sessions.session() as session:
@@ -583,7 +632,15 @@ VALUES (?, ?, ?, ?, ?, ?, ?)
                     json.dumps(dict(where or {}), sort_keys=True),
                 ),
             )
-            item = self.update_item(item_id=item_id, summary=summary, embedding=embedding, session=session)
+            row.summary = summary
+            self._set_row_embedding(row, embedding)
+            row.approved_at = self._now() if approved else None
+            row.updated_at = self._now()
+            session.add(row)
+            session.flush()
+            session.refresh(row)
+            self._fts_upsert(session, item_id, row.summary, row.memory_type)
+            item = self._to_memory_item(row)
             session.commit()
             return item
 

@@ -36,3 +36,9 @@ class MemoryCategoryRepo(Protocol):
         summary: str | None = None,
         previous_summary: str | None = None,
     ) -> MemoryCategory: ...
+
+    def approve_category_summary(
+        self,
+        category_id: str,
+        where: Mapping[str, Any] | None = None,
+    ) -> MemoryCategory: ...

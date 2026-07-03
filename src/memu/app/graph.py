@@ -60,6 +60,7 @@ class GraphMixin:
         summary: str,
         where: Mapping[str, Any] | None = None,
         edited_by: str | None = None,
+        approved: bool = False,
     ) -> dict[str, Any] | None:
         store = self._get_database()
         kind, _, raw_id = str(item_id or "").partition(":")
@@ -76,6 +77,8 @@ class GraphMixin:
         if current is None:
             return None
         if current.summary.strip() == summary:
+            if approved:
+                store.memory_item_repo.approve_item(raw_id, where=where)
             return self.graph_memory(f"memory:{raw_id}", where=where)
 
         embedding = (await self._select_embedding_client(None).embed([summary]))[0]
@@ -85,6 +88,7 @@ class GraphMixin:
             embedding=embedding,
             where=where,
             edited_by=edited_by,
+            approved=approved,
         )
         return self.graph_memory(f"memory:{raw_id}", where=where)
 
@@ -95,6 +99,7 @@ class GraphMixin:
         summary: str,
         where: Mapping[str, Any] | None = None,
         edited_by: str | None = None,
+        approved: bool = False,
     ) -> dict[str, Any] | None:
         store = self._get_database()
         kind, _, raw_id = str(item_id or "").partition(":")
@@ -103,14 +108,95 @@ class GraphMixin:
         if kind != "category" or not raw_id:
             raise ValueError("only category summaries are editable")
 
+        clean = str(summary or "").strip()
+        if not clean:
+            raise ValueError("summary is required")
+        current = store.memory_category_repo.list_categories(where).get(raw_id)
+        if current is None:
+            msg = f"Category with id {raw_id} not found"
+            raise KeyError(msg)
+        if str(current.summary or "").strip() == clean:
+            if approved:
+                store.memory_category_repo.approve_category_summary(raw_id, where=where)
+            return self.graph_memory(f"category:{raw_id}", where=where)
+
         update_category_summary_with_journal(
             store,
             category_id=raw_id,
-            summary=summary,
+            summary=clean,
             where=where,
             edited_by=edited_by,
         )
+        if approved:
+            store.memory_category_repo.approve_category_summary(raw_id, where=where)
         return self.graph_memory(f"category:{raw_id}", where=where)
+
+    def graph_list_pending(self, *, where: Mapping[str, Any] | None = None) -> dict[str, Any]:
+        store = self._get_database()
+        items = store.memory_item_repo.list_items(where)
+        categories = store.memory_category_repo.list_categories(where)
+        relations = store.category_item_repo.list_relations(where)
+        category_names_by_item: dict[str, list[str]] = {}
+        for rel in relations:
+            category = categories.get(rel.category_id)
+            if category is not None:
+                category_names_by_item.setdefault(rel.item_id, []).append(category.name)
+
+        pending_items = [
+            self._memory_node(item, category_names=category_names_by_item.get(item.id, []))
+            for item in items.values()
+            if getattr(item, "approved_at", None) is None
+        ]
+        pending_categories = [
+            self._category_node(category)
+            for category in categories.values()
+            if category.summary is not None and category.summary != getattr(category, "approved_summary", None)
+        ]
+        return {"items": pending_items, "categories": pending_categories}
+
+    def graph_approve_memory(self, item_id: str, *, where: Mapping[str, Any] | None = None) -> dict[str, Any] | None:
+        kind, _, raw_id = str(item_id or "").partition(":")
+        if not raw_id:
+            kind, raw_id = "memory", kind
+        if kind != "memory" or not raw_id:
+            raise ValueError("only memory approvals are supported")
+        try:
+            self._get_database().memory_item_repo.approve_item(raw_id, where=where)
+        except KeyError:
+            return None
+        return self.graph_memory(f"memory:{raw_id}", where=where)
+
+    def graph_approve_category(self, item_id: str, *, where: Mapping[str, Any] | None = None) -> dict[str, Any] | None:
+        kind, _, raw_id = str(item_id or "").partition(":")
+        if not raw_id:
+            kind, raw_id = "category", kind
+        if kind != "category" or not raw_id:
+            raise ValueError("only category approvals are supported")
+        try:
+            self._get_database().memory_category_repo.approve_category_summary(raw_id, where=where)
+        except KeyError:
+            return None
+        return self.graph_memory(f"category:{raw_id}", where=where)
+
+    def graph_delete_memory(self, item_id: str, *, where: Mapping[str, Any] | None = None) -> dict[str, Any] | None:
+        kind, _, raw_id = str(item_id or "").partition(":")
+        if not raw_id:
+            kind, raw_id = "memory", kind
+        if kind != "memory" or not raw_id:
+            raise ValueError("only memory deletion is supported")
+        store = self._get_database()
+        categories = store.memory_category_repo.list_categories(where)
+        relations = store.category_item_repo.list_relations(where)
+        try:
+            deleted = store.memory_item_repo.hard_delete_item(raw_id, where=where)
+        except KeyError:
+            return None
+        category_names = [
+            categories[rel.category_id].name
+            for rel in relations
+            if rel.item_id == deleted.id and rel.category_id in categories
+        ]
+        return self._memory_node(deleted, category_names=category_names)
 
     async def graph_search(
         self,
@@ -281,6 +367,7 @@ class GraphMixin:
             "happened_at": _iso(item.happened_at),
             "created_at": _iso(item.created_at),
             "updated_at": _iso(item.updated_at),
+            "approved_at": _iso(getattr(item, "approved_at", None)),
             "salience": salience,
             "category_names": sorted(set(category_names)),
         }
@@ -294,6 +381,7 @@ class GraphMixin:
             "label": category.name,
             "summary": category.summary or category.description,
             "previous_summary": getattr(category, "previous_summary", None),
+            "approved_summary": getattr(category, "approved_summary", None),
             "created_at": _iso(category.created_at),
             "updated_at": _iso(category.updated_at),
             "category_names": [],
