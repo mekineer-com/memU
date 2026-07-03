@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from memu.app.category_summary_journal import update_category_summary_with_journal
+from memu.database.vector import cosine_topk
 
 SEMANTIC_PREDICATES = ["caused_by", "evokes", "conflicts_with", "parallels", "shaped_by"]
 
@@ -16,6 +17,12 @@ def _iso(value: Any) -> str | None:
 def _label(text: str, limit: int = 80) -> str:
     clean = " ".join(str(text or "").split())
     return clean[: limit - 1] + "..." if len(clean) > limit else clean
+
+
+def _utc(value: Any) -> datetime | None:
+    if not isinstance(value, datetime):
+        return None
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
 
 
 class GraphMixin:
@@ -104,6 +111,56 @@ class GraphMixin:
             edited_by=edited_by,
         )
         return self.graph_memory(f"category:{raw_id}", where=where)
+
+    async def graph_search(
+        self,
+        query: str,
+        *,
+        where: Mapping[str, Any] | None = None,
+        limit: int = 5,
+        since_days: int | None = None,
+    ) -> dict[str, Any]:
+        query = str(query or "").strip()
+        if not query:
+            raise ValueError("query is required")
+        store = self._get_database()
+        limit = max(1, min(int(limit or 5), 20))
+
+        pool = store.memory_item_repo.list_items(where)
+        if since_days is not None:
+            cutoff = datetime.now(UTC) - timedelta(days=max(1, int(since_days)))
+            pool = {
+                item_id: item
+                for item_id, item in pool.items()
+                if (when := _utc(item.happened_at or item.created_at)) is not None and when >= cutoff
+            }
+        if not pool:
+            return {"nodes": [], "limit": limit, "count": 0}
+
+        scores: dict[str, float] = {}
+        for rank, (item_id, _score) in enumerate(
+            store.memory_item_repo.fts_search_items(query, limit, pool_ids=set(pool)),
+            start=1,
+        ):
+            scores[item_id] = max(scores.get(item_id, 0.0), 1.0 / rank)
+
+        query_vec = (await self._select_embedding_client(None).embed([query]))[0]
+        for item_id, score in cosine_topk(query_vec, ((item.id, item.embedding) for item in pool.values()), k=limit):
+            scores[item_id] = max(scores.get(item_id, 0.0), float(score))
+
+        categories = store.memory_category_repo.list_categories(where)
+        relations = store.category_item_repo.list_relations(where)
+        category_names_by_item: dict[str, list[str]] = {item_id: [] for item_id in scores}
+        for rel in relations:
+            if rel.item_id in category_names_by_item and rel.category_id in categories:
+                category_names_by_item[rel.item_id].append(categories[rel.category_id].name)
+
+        nodes = []
+        for item_id, score in sorted(scores.items(), key=lambda pair: pair[1], reverse=True)[:limit]:
+            node = self._memory_node(pool[item_id], category_names=category_names_by_item.get(item_id, []))
+            node["score"] = score
+            nodes.append(node)
+        return {"nodes": nodes, "limit": limit, "count": len(nodes)}
 
     def graph_recent(
         self,

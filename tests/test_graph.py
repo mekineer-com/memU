@@ -150,6 +150,59 @@ def test_graph_recent_uses_real_bounded_sqlite_reads():
     assert f"semantic:{older.id}:caused_by:{newer.id}" in edge_ids
 
 
+def test_graph_search_is_scoped_and_honors_since_days():
+    service = MemoryService(
+        database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
+        user_config={"model": GraphScope},
+    )
+    store = service._get_database()
+    scope = {"user_id": "graph_search", "soul_id": "s"}
+    store.memory_item_repo.create_item(
+        memory_type="episode",
+        summary="recent sushi memory",
+        embedding=[1.0, 0.0],
+        happened_at=datetime.now(UTC) - timedelta(days=1),
+        user_data=scope,
+    )
+    old = store.memory_item_repo.create_item(
+        memory_type="episode",
+        summary="old sushi memory",
+        embedding=[1.0, 0.0],
+        happened_at=datetime.now(UTC) - timedelta(days=30),
+        user_data=scope,
+    )
+    other = store.memory_item_repo.create_item(
+        memory_type="episode",
+        summary="other soul sushi memory",
+        embedding=[1.0, 0.0],
+        user_data={"user_id": "graph_search", "soul_id": "other"},
+    )
+
+    class _Embedder:
+        async def embed(self, texts):
+            assert texts == ["sushi"]
+            return [[1.0, 0.0]]
+
+    service._select_embedding_client = lambda _ctx: _Embedder()  # type: ignore[method-assign]
+
+    out = asyncio.run(service.graph_search("sushi", where=scope, limit=10, since_days=7))
+    ids = {node["memory_id"] for node in out["nodes"]}
+
+    assert old.id not in ids
+    assert other.id not in ids
+    assert len(ids) == 1
+
+
+def test_graph_search_requires_query():
+    service = MemoryService(
+        database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
+        user_config={"model": GraphScope},
+    )
+
+    with pytest.raises(ValueError, match="query is required"):
+        asyncio.run(service.graph_search(" ", where={"user_id": "u", "soul_id": "s"}))
+
+
 def test_graph_update_memory_summary_embeds_before_history_update(monkeypatch, tmp_path):
     monkeypatch.setattr(category_summary_journal, "JOURNAL_DIR", tmp_path)
     service = MemoryService(
