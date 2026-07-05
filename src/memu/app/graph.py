@@ -4,6 +4,8 @@ from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import numpy as np
+
 from memu.app.category_summary_journal import update_category_summary_with_journal
 from memu.database.vector import cosine_topk
 
@@ -23,6 +25,49 @@ def _utc(value: Any) -> datetime | None:
     if not isinstance(value, datetime):
         return None
     return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
+
+def _atomic_similarity_edges(atoms: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    by_size: dict[int, list[tuple[str, list[float]]]] = {}
+    for atom in atoms:
+        embedding = atom.get("embedding") or []
+        if embedding:
+            by_size.setdefault(len(embedding), []).append((str(atom["id"]), embedding))
+
+    scored: list[tuple[str, str, float]] = []
+    for group in by_size.values():
+        ids = [atom_id for atom_id, _embedding in group]
+        matrix = np.asarray([embedding for _atom_id, embedding in group], dtype=np.float32)
+        norms = np.linalg.norm(matrix, axis=1)
+        valid = norms > 0
+        if valid.sum() < 2:
+            continue
+        ids = [atom_id for atom_id, keep in zip(ids, valid, strict=True) if keep]
+        matrix = matrix[valid]
+        norms = norms[valid]
+        scores = matrix @ matrix.T / (norms[:, None] * norms[None, :])
+        for left in range(len(ids)):
+            for right in range(left + 1, len(ids)):
+                score = float(scores[left, right])
+                if score >= 0.5:
+                    scored.append((ids[left], ids[right], score))
+
+    scored.sort(key=lambda edge: edge[2], reverse=True)
+    per_atom: dict[str, int] = {}
+    edges: list[dict[str, Any]] = []
+    for source, target, weight in scored:
+        if per_atom.get(source, 0) >= 3 or per_atom.get(target, 0) >= 3:
+            continue
+        per_atom[source] = per_atom.get(source, 0) + 1
+        per_atom[target] = per_atom.get(target, 0) + 1
+        edges.append({
+            "source": source,
+            "target": target,
+            "weight": weight,
+            "kind": "similarity",
+            "predicate": "similarity",
+        })
+    return edges
 
 
 class GraphMixin:
@@ -194,6 +239,9 @@ class GraphMixin:
             atom["entity_names"] = [name for _entity_id, name in pairs]
 
         edges: dict[str, dict[str, Any]] = {}
+        for edge in _atomic_similarity_edges(page):
+            edges[f"similarity:{edge['source']}:{edge['target']}"] = edge
+
         for memory_id in memory_ids:
             for predicate in SEMANTIC_PREDICATES:
                 triples = store.triple_repo.get_edges_from(memory_id, predicate=predicate, where=where)

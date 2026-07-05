@@ -225,13 +225,65 @@ def test_graph_atomic_canvas_source_includes_embeddings_and_category_tags():
     assert atoms["category:c1"]["embedding"] == [0.0, 1.0]
     assert atoms["category:c1"]["entity_ids"] == []
     assert atoms["category:c1"]["entity_names"] == []
-    assert out["edges"] == [{
-        "source": "memory:m2",
-        "target": "memory:m1",
-        "weight": 0.7,
-        "kind": "triple",
-        "predicate": "caused_by",
-    }]
+    edges = {(edge["source"], edge["target"], edge["predicate"]): edge for edge in out["edges"]}
+    assert edges[("memory:m2", "memory:m1", "caused_by")]["weight"] == 0.7
+    assert edges[("memory:m2", "memory:m1", "similarity")]["weight"] == pytest.approx(0.9938837)
+
+
+def test_graph_atomic_canvas_source_includes_category_similarity_edges():
+    now = datetime(2026, 7, 1, tzinfo=UTC)
+    db = SimpleNamespace(
+        memory_item_repo=_Repo({"m1": _item("m1", "First memory", now)}),
+        memory_category_repo=_Repo({
+            "c1": SimpleNamespace(
+                id="c1",
+                name="Core",
+                description="",
+                summary="Core summary",
+                embedding=[0.99, 0.01],
+                created_at=now,
+                updated_at=now,
+            ),
+        }),
+        category_item_repo=_Repo([]),
+        entity_repo=_Repo([]),
+        triple_repo=_Triples(),
+    )
+    db.memory_item_repo.value["m1"].embedding = [1.0, 0.0]
+
+    out = _Service(db).graph_atomic_canvas_source(limit=10)
+
+    assert any(
+        {edge["source"], edge["target"]} == {"memory:m1", "category:c1"}
+        and edge["predicate"] == "similarity"
+        for edge in out["edges"]
+    )
+
+
+def test_graph_atomic_canvas_source_caps_similarity_edges_per_atom():
+    now = datetime(2026, 7, 1, tzinfo=UTC)
+    db = SimpleNamespace(
+        memory_item_repo=_Repo({
+            f"m{i}": _item(f"m{i}", f"Memory {i}", now)
+            for i in range(5)
+        }),
+        memory_category_repo=_Repo({}),
+        category_item_repo=_Repo([]),
+        entity_repo=_Repo([]),
+        triple_repo=_Triples(),
+    )
+    for i, item in enumerate(db.memory_item_repo.value.values()):
+        item.embedding = [1.0, i / 100.0]
+
+    out = _Service(db).graph_atomic_canvas_source(limit=10)
+
+    counts: dict[str, int] = {}
+    for edge in out["edges"]:
+        if edge["predicate"] != "similarity":
+            continue
+        counts[edge["source"]] = counts.get(edge["source"], 0) + 1
+        counts[edge["target"]] = counts.get(edge["target"], 0) + 1
+    assert max(counts.values()) <= 3
 
 
 def test_graph_atomic_neighborhood_is_seeded_by_memory():
