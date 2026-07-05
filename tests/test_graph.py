@@ -225,7 +225,13 @@ def test_graph_atomic_canvas_source_includes_embeddings_and_category_tags():
     assert atoms["category:c1"]["embedding"] == [0.0, 1.0]
     assert atoms["category:c1"]["entity_ids"] == []
     assert atoms["category:c1"]["entity_names"] == []
-    assert out["edges"] == [{"source": "memory:m2", "target": "memory:m1", "weight": 0.7}]
+    assert out["edges"] == [{
+        "source": "memory:m2",
+        "target": "memory:m1",
+        "weight": 0.7,
+        "kind": "triple",
+        "predicate": "caused_by",
+    }]
 
 
 def test_graph_atomic_neighborhood_is_seeded_by_memory():

@@ -204,10 +204,13 @@ class GraphMixin:
                     if triple.subject_id not in memory_ids or triple.object_id not in memory_ids:
                         continue
                     edge_id = f"semantic:{triple.subject_id}:{triple.predicate}:{triple.object_id}"
+                    confidence = getattr(triple, "confidence", None)
                     edges[edge_id] = {
                         "source": f"memory:{triple.subject_id}",
                         "target": f"memory:{triple.object_id}",
-                        "weight": 0.7,
+                        "weight": float(confidence) if confidence is not None else 0.7,
+                        "kind": "triple",
+                        "predicate": triple.predicate,
                     }
         return {"atoms": page, "edges": list(edges.values()), "count": len(page), "total_count": len(atoms)}
 
