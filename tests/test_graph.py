@@ -204,6 +204,26 @@ def test_graph_atomic_canvas_source_includes_embeddings_and_category_tags():
     assert atoms["category:c1"]["embedding"] == [0.0, 1.0]
 
 
+def test_graph_atomic_neighborhood_is_seeded_by_memory():
+    now = datetime(2026, 7, 1, tzinfo=UTC)
+    db = SimpleNamespace(
+        memory_item_repo=_Repo({
+            "m1": _item("m1", "First memory", now),
+            "m2": _item("m2", "Linked memory", now),
+        }),
+        memory_category_repo=_Repo({}),
+        category_item_repo=_Repo([]),
+        triple_repo=_Triples(),
+    )
+
+    graph = _Service(db).graph_atomic_neighborhood("memory:m1")
+
+    assert graph is not None
+    assert {node["id"] for node in graph["nodes"]} == {"memory:m1", "memory:m2"}
+    assert graph["center_atom_id"] == "memory:m1"
+    assert graph["edges"][0]["edge_type"] == "semantic"
+
+
 def test_graph_search_is_scoped_and_honors_since_days():
     service = MemoryService(
         database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},

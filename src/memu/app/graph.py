@@ -175,6 +175,52 @@ class GraphMixin:
         atoms.sort(key=lambda atom: (atom.get("updated_at") or "", atom["id"]), reverse=True)
         return {"atoms": atoms[:limit], "count": min(len(atoms), limit), "total_count": len(atoms)}
 
+    def graph_atomic_neighborhood(
+        self,
+        item_id: str,
+        *,
+        where: Mapping[str, Any] | None = None,
+        depth: int = 1,
+        min_similarity: float = 0.5,
+    ) -> dict[str, Any] | None:
+        store = self._get_database()
+        center = self.graph_memory(item_id, where=where)
+        if center is None:
+            return None
+        depth = max(0, int(depth or 1))
+        if center["kind"] != "memory":
+            return {"center_atom_id": center["id"], "nodes": [center | {"depth": 0}], "edges": []}
+        if depth == 0:
+            return {"center_atom_id": center["id"], "nodes": [center | {"depth": 0}], "edges": []}
+
+        center_id = center["memory_id"]
+        neighbor_ids: set[str] = set()
+        edges: list[dict[str, Any]] = []
+        for predicate in SEMANTIC_PREDICATES:
+            triples = store.triple_repo.get_edges_from(center_id, predicate=predicate, where=where)
+            triples += store.triple_repo.get_edges_to(center_id, predicate=predicate, where=where)
+            for triple in triples:
+                if triple.subject_kind != "memory" or triple.object_kind != "memory":
+                    continue
+                if triple.subject_id == triple.object_id:
+                    continue
+                neighbor_ids.update({triple.subject_id, triple.object_id} - {center_id})
+                edges.append({
+                    "source_id": f"memory:{triple.subject_id}",
+                    "target_id": f"memory:{triple.object_id}",
+                    "edge_type": "semantic",
+                    "strength": 0.7,
+                    "shared_tag_count": 0,
+                    "similarity_score": None,
+                })
+
+        nodes = [center | {"depth": 0}]
+        for raw_id in sorted(neighbor_ids):
+            node = self.graph_memory(f"memory:{raw_id}", where=where)
+            if node is not None:
+                nodes.append(node | {"depth": 1})
+        return {"center_atom_id": center["id"], "nodes": nodes, "edges": edges}
+
     async def graph_update_memory_summary(
         self,
         item_id: str,
