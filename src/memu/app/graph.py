@@ -51,7 +51,72 @@ class GraphMixin:
             for rel in relations
             if rel.item_id == item.id and rel.category_id in categories
         ]
-        return self._memory_node(item, category_names=category_names)
+        category_ids = [
+            rel.category_id
+            for rel in relations
+            if rel.item_id == item.id and rel.category_id in categories
+        ]
+        return self._memory_node(item, category_names=category_names, category_ids=category_ids)
+
+    def graph_atomic_atoms(
+        self,
+        *,
+        where: Mapping[str, Any] | None = None,
+        limit: int = 50,
+        offset: int = 0,
+        category_id: str | None = None,
+    ) -> dict[str, Any]:
+        store = self._get_database()
+        limit = max(1, min(int(limit or 50), 200))
+        offset = max(0, int(offset or 0))
+        categories = store.memory_category_repo.list_categories(where)
+        relations = store.category_item_repo.list_relations(where)
+        raw_category_id = str(category_id or "").removeprefix("category:")
+        item_category_ids: dict[str, list[str]] = {}
+        for rel in relations:
+            if rel.category_id in categories:
+                item_category_ids.setdefault(rel.item_id, []).append(rel.category_id)
+
+        items = list(store.memory_item_repo.list_items(where).values())
+        if raw_category_id:
+            items = [item for item in items if raw_category_id in item_category_ids.get(item.id, [])]
+        item_nodes = [
+            self._memory_node(
+                item,
+                category_names=[categories[cat_id].name for cat_id in item_category_ids.get(item.id, [])],
+                category_ids=item_category_ids.get(item.id, []),
+            )
+            for item in items
+        ]
+        category_nodes = [
+            self._category_node(category)
+            for category in categories.values()
+            if not raw_category_id or category.id == raw_category_id
+        ]
+        nodes = sorted(item_nodes + category_nodes, key=lambda node: (node.get("updated_at") or node.get("created_at") or "", node["id"]), reverse=True)
+        page = nodes[offset : offset + limit]
+        return {
+            "atoms": [self._atomic_atom(node) for node in page],
+            "total_count": len(nodes),
+            "limit": limit,
+            "offset": offset,
+            "next_cursor": None,
+            "next_cursor_id": None,
+        }
+
+    def graph_atomic_tags(self, *, where: Mapping[str, Any] | None = None, min_count: int = 0) -> list[dict[str, Any]]:
+        store = self._get_database()
+        min_count = max(0, int(min_count or 0))
+        categories = store.memory_category_repo.list_categories(where)
+        counts = dict.fromkeys(categories, 0)
+        for rel in store.category_item_repo.list_relations(where):
+            if rel.category_id in counts:
+                counts[rel.category_id] += 1
+        return [
+            self._atomic_tag(category, counts[category.id])
+            for category in sorted(categories.values(), key=lambda category: category.name.lower())
+            if counts[category.id] >= min_count
+        ]
 
     async def graph_update_memory_summary(
         self,
@@ -137,13 +202,19 @@ class GraphMixin:
         categories = store.memory_category_repo.list_categories(where)
         relations = store.category_item_repo.list_relations(where)
         category_names_by_item: dict[str, list[str]] = {}
+        category_ids_by_item: dict[str, list[str]] = {}
         for rel in relations:
             category = categories.get(rel.category_id)
             if category is not None:
                 category_names_by_item.setdefault(rel.item_id, []).append(category.name)
+                category_ids_by_item.setdefault(rel.item_id, []).append(rel.category_id)
 
         pending_items = [
-            self._memory_node(item, category_names=category_names_by_item.get(item.id, []))
+            self._memory_node(
+                item,
+                category_names=category_names_by_item.get(item.id, []),
+                category_ids=category_ids_by_item.get(item.id, []),
+            )
             for item in items.values()
             if getattr(item, "approved_at", None) is None
         ]
@@ -196,7 +267,12 @@ class GraphMixin:
             for rel in relations
             if rel.item_id == deleted.id and rel.category_id in categories
         ]
-        return self._memory_node(deleted, category_names=category_names)
+        category_ids = [
+            rel.category_id
+            for rel in relations
+            if rel.item_id == deleted.id and rel.category_id in categories
+        ]
+        return self._memory_node(deleted, category_names=category_names, category_ids=category_ids)
 
     async def graph_search(
         self,
@@ -220,34 +296,47 @@ class GraphMixin:
                 for item_id, item in pool.items()
                 if (when := _utc(item.happened_at or item.created_at)) is not None and when >= cutoff
             }
-        if not pool:
-            return {"nodes": [], "limit": limit, "count": 0}
-
         scores: dict[str, float] = {}
-        for rank, (item_id, _score) in enumerate(
-            store.memory_item_repo.fts_search_items(query, limit, pool_ids=set(pool)),
-            start=1,
-        ):
-            scores[item_id] = max(scores.get(item_id, 0.0), 1.0 / rank)
+        if pool:
+            for rank, (item_id, _score) in enumerate(
+                store.memory_item_repo.fts_search_items(query, limit, pool_ids=set(pool)),
+                start=1,
+            ):
+                scores[item_id] = max(scores.get(item_id, 0.0), 1.0 / rank)
 
-        query_vec = (await self._select_embedding_client(None).embed([query]))[0]
-        for item_id, score in cosine_topk(query_vec, ((item.id, item.embedding) for item in pool.values()), k=limit):
-            if score <= 0:
-                continue
-            scores[item_id] = max(scores.get(item_id, 0.0), float(score))
+            query_vec = (await self._select_embedding_client(None).embed([query]))[0]
+            for item_id, score in cosine_topk(query_vec, ((item.id, item.embedding) for item in pool.values()), k=limit):
+                if score <= 0:
+                    continue
+                scores[item_id] = max(scores.get(item_id, 0.0), float(score))
 
         categories = store.memory_category_repo.list_categories(where)
         relations = store.category_item_repo.list_relations(where)
         category_names_by_item: dict[str, list[str]] = {item_id: [] for item_id in scores}
+        category_ids_by_item: dict[str, list[str]] = {item_id: [] for item_id in scores}
         for rel in relations:
             if rel.item_id in category_names_by_item and rel.category_id in categories:
                 category_names_by_item[rel.item_id].append(categories[rel.category_id].name)
+                category_ids_by_item[rel.item_id].append(rel.category_id)
 
         nodes = []
         for item_id, score in sorted(scores.items(), key=lambda pair: pair[1], reverse=True)[:limit]:
-            node = self._memory_node(pool[item_id], category_names=category_names_by_item.get(item_id, []))
+            node = self._memory_node(
+                pool[item_id],
+                category_names=category_names_by_item.get(item_id, []),
+                category_ids=category_ids_by_item.get(item_id, []),
+            )
             node["score"] = score
             nodes.append(node)
+        query_lower = query.lower()
+        for category in categories.values():
+            text = " ".join([category.name or "", category.summary or "", category.description or ""]).lower()
+            if query_lower in text:
+                node = self._category_node(category)
+                node["score"] = 1.0
+                nodes.append(node)
+        nodes.sort(key=lambda node: node.get("score", 0.0), reverse=True)
+        nodes = nodes[:limit]
         return {"nodes": nodes, "limit": limit, "count": len(nodes)}
 
     def graph_recent(
@@ -341,7 +430,15 @@ class GraphMixin:
                 }
 
         nodes = [
-            self._memory_node(all_items[item_id], category_names=category_names_by_item.get(item_id, []))
+            self._memory_node(
+                all_items[item_id],
+                category_names=category_names_by_item.get(item_id, []),
+                category_ids=[
+                    rel.category_id
+                    for rel in relations
+                    if rel.item_id == item_id and rel.category_id in categories
+                ],
+            )
             for item_id in selected_ids
             if item_id in all_items
         ]
@@ -352,11 +449,12 @@ class GraphMixin:
         return {"nodes": nodes, "edges": list(edges.values()), "limit": limit, "count": len(nodes)}
 
     @staticmethod
-    def _memory_node(item: Any, *, category_names: list[str]) -> dict[str, Any]:
+    def _memory_node(item: Any, *, category_names: list[str], category_ids: list[str] | None = None) -> dict[str, Any]:
         salience = max(
             [v for v in (item.reflection_salience, item.emotional_intensity) if isinstance(v, int | float)],
             default=None,
         )
+        category_pairs = sorted(set(zip(category_ids or [], category_names, strict=False)), key=lambda pair: pair[1].lower())
         return {
             "id": f"memory:{item.id}",
             "kind": "memory",
@@ -369,7 +467,8 @@ class GraphMixin:
             "updated_at": _iso(item.updated_at),
             "approved_at": _iso(getattr(item, "approved_at", None)),
             "salience": salience,
-            "category_names": sorted(set(category_names)),
+            "category_ids": [pair[0] for pair in category_pairs],
+            "category_names": [pair[1] for pair in category_pairs],
         }
 
     @staticmethod
@@ -385,6 +484,51 @@ class GraphMixin:
             "created_at": _iso(category.created_at),
             "updated_at": _iso(category.updated_at),
             "category_names": [],
+        }
+
+    @staticmethod
+    def _atomic_atom(node: dict[str, Any]) -> dict[str, Any]:
+        text = str(node.get("summary") or "")
+        timestamp = node.get("updated_at") or node.get("happened_at") or node.get("created_at") or datetime.now(UTC).isoformat()
+        tags = [
+            {
+                "id": f"category:{cat_id}",
+                "name": name,
+                "parent_id": None,
+                "created_at": "1970-01-01T00:00:00Z",
+                "is_autotag_target": False,
+                "autotag_description": "",
+            }
+            for cat_id, name in zip(node.get("category_ids", []), node.get("category_names", []), strict=False)
+        ]
+        return {
+            "id": node["id"],
+            "title": node.get("label") or node["id"],
+            "snippet": text,
+            "source_url": None,
+            "source": node.get("memory_type") or node.get("kind"),
+            "published_at": node.get("happened_at"),
+            "created_at": node.get("created_at") or timestamp,
+            "updated_at": timestamp,
+            "embedding_status": "complete",
+            "tagging_status": "skipped",
+            "embedding_error": None,
+            "tagging_error": None,
+            "tags": tags,
+        }
+
+    @staticmethod
+    def _atomic_tag(category: Any, count: int) -> dict[str, Any]:
+        return {
+            "id": f"category:{category.id}",
+            "name": category.name,
+            "parent_id": None,
+            "created_at": _iso(category.created_at) or "1970-01-01T00:00:00Z",
+            "is_autotag_target": False,
+            "autotag_description": "",
+            "atom_count": count,
+            "children_total": 0,
+            "children": [],
         }
 
     @staticmethod
