@@ -151,6 +151,32 @@ def test_graph_recent_uses_real_bounded_sqlite_reads():
     assert f"semantic:{older.id}:caused_by:{newer.id}" in edge_ids
 
 
+def test_graph_atomic_atoms_pages_with_cursor():
+    now = datetime(2026, 7, 1, tzinfo=UTC)
+    db = SimpleNamespace(
+        memory_item_repo=_Repo({
+            "m1": _item("m1", "First memory", now),
+            "m2": _item("m2", "Second memory", now - timedelta(minutes=1)),
+            "m3": _item("m3", "Third memory", now - timedelta(minutes=2)),
+        }),
+        memory_category_repo=_Repo({}),
+        category_item_repo=_Repo([]),
+    )
+    service = _Service(db)
+
+    page1 = service.graph_atomic_atoms(limit=2)
+    page2 = service.graph_atomic_atoms(
+        limit=2,
+        cursor=page1["next_cursor"],
+        cursor_id=page1["next_cursor_id"],
+    )
+
+    assert [atom["id"] for atom in page1["atoms"]] == ["memory:m1", "memory:m2"]
+    assert page1["next_cursor_id"] == "memory:m2"
+    assert [atom["id"] for atom in page2["atoms"]] == ["memory:m3"]
+    assert page2["next_cursor"] is None
+
+
 def test_graph_search_is_scoped_and_honors_since_days():
     service = MemoryService(
         database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},

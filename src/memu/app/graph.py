@@ -65,6 +65,8 @@ class GraphMixin:
         limit: int = 50,
         offset: int = 0,
         category_id: str | None = None,
+        cursor: str | None = None,
+        cursor_id: str | None = None,
     ) -> dict[str, Any]:
         store = self._get_database()
         limit = max(1, min(int(limit or 50), 200))
@@ -94,14 +96,25 @@ class GraphMixin:
             if not raw_category_id or category.id == raw_category_id
         ]
         nodes = sorted(item_nodes + category_nodes, key=lambda node: (node.get("updated_at") or node.get("created_at") or "", node["id"]), reverse=True)
-        page = nodes[offset : offset + limit]
+        start = offset
+        if cursor and cursor_id:
+            for idx, node in enumerate(nodes):
+                node_cursor = node.get("updated_at") or node.get("created_at") or ""
+                if node_cursor == cursor and node["id"] == cursor_id:
+                    start = idx + 1
+                    break
+        page = nodes[start : start + limit]
+        next_node = page[-1] if start + limit < len(nodes) and page else None
+        next_cursor = None
+        if next_node:
+            next_cursor = next_node.get("updated_at") or next_node.get("created_at") or ""
         return {
             "atoms": [self._atomic_atom(node) for node in page],
             "total_count": len(nodes),
             "limit": limit,
-            "offset": offset,
-            "next_cursor": None,
-            "next_cursor_id": None,
+            "offset": start,
+            "next_cursor": next_cursor,
+            "next_cursor_id": next_node["id"] if next_node else None,
         }
 
     def graph_atomic_tags(self, *, where: Mapping[str, Any] | None = None, min_count: int = 0) -> list[dict[str, Any]]:
