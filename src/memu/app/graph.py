@@ -212,7 +212,7 @@ class GraphMixin:
                 "id": f"category:{category.id}",
                 "title": category.name,
                 "embedding": category.embedding,
-                "primary_tag": "Category",
+                "primary_tag": category.name,
                 "tag_count": 0,
                 "tag_ids": [],
                 "source_url": None,
