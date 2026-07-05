@@ -177,6 +177,22 @@ class GraphMixin:
         atoms.sort(key=lambda atom: (atom.get("updated_at") or "", atom["id"]), reverse=True)
         page = atoms[:limit]
         memory_ids = {str(atom["id"]).removeprefix("memory:") for atom in page if str(atom["id"]).startswith("memory:")}
+        entities = {entity.id: entity for entity in store.entity_repo.list_all(where)}
+        entities_by_memory: dict[str, list[tuple[str, str]]] = {}
+        for memory_id in memory_ids:
+            pairs = []
+            for triple in store.triple_repo.get_edges_from(memory_id, predicate="mentions", where=where):
+                if triple.object_kind != "entity" or triple.object_id not in entities:
+                    continue
+                entity = entities[triple.object_id]
+                pairs.append((f"entity:{entity.id}", entity.name))
+            entities_by_memory[memory_id] = sorted(set(pairs), key=lambda pair: pair[1].lower())
+        for atom in page:
+            memory_id = str(atom["id"]).removeprefix("memory:")
+            pairs = entities_by_memory.get(memory_id, [])
+            atom["entity_ids"] = [entity_id for entity_id, _name in pairs]
+            atom["entity_names"] = [name for _entity_id, name in pairs]
+
         edges: dict[str, dict[str, Any]] = {}
         for memory_id in memory_ids:
             for predicate in SEMANTIC_PREDICATES:
