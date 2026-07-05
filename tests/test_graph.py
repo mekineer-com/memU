@@ -350,6 +350,43 @@ def test_graph_search_mode_controls_keyword_vs_semantic():
     assert semantic["nodes"] == []
 
 
+def test_graph_search_semantic_includes_categories():
+    now = datetime(2026, 7, 1, tzinfo=UTC)
+
+    class _MemoryRepo(_Repo):
+        def fts_search_items(self, query, limit, pool_ids=None):
+            return []
+
+    service = _Service(
+        SimpleNamespace(
+            memory_item_repo=_MemoryRepo({}),
+            memory_category_repo=_Repo({
+                "c1": SimpleNamespace(
+                    id="c1",
+                    name="Sushi",
+                    description="",
+                    summary="fish rice",
+                    embedding=[1.0, 0.0],
+                    approved_summary="fish rice",
+                    created_at=now,
+                    updated_at=now,
+                )
+            }),
+            category_item_repo=_Repo([]),
+        )
+    )
+
+    class _Embedder:
+        async def embed(self, texts):
+            assert texts == ["sushi"]
+            return [[1.0, 0.0]]
+
+    service._select_embedding_client = lambda _ctx: _Embedder()  # type: ignore[method-assign]
+
+    out = asyncio.run(service.graph_search("sushi", mode="semantic"))
+    assert [node["id"] for node in out["nodes"]] == ["category:c1"]
+
+
 def test_graph_update_memory_summary_embeds_before_history_update(monkeypatch, tmp_path):
     monkeypatch.setattr(category_summary_journal, "JOURNAL_DIR", tmp_path)
     service = MemoryService(

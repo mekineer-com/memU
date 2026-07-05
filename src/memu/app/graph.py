@@ -416,6 +416,7 @@ class GraphMixin:
         limit = max(1, min(int(limit or 5), 20))
 
         pool = store.memory_item_repo.list_items(where)
+        categories = store.memory_category_repo.list_categories(where)
         if since_days is not None:
             cutoff = datetime.now(UTC) - timedelta(days=max(1, int(since_days)))
             pool = {
@@ -424,22 +425,29 @@ class GraphMixin:
                 if (when := _utc(item.happened_at or item.created_at)) is not None and when >= cutoff
             }
         scores: dict[str, float] = {}
-        if pool:
-            if mode in {"keyword", "hybrid"}:
-                for rank, (item_id, _score) in enumerate(
-                    store.memory_item_repo.fts_search_items(query, limit, pool_ids=set(pool)),
-                    start=1,
-                ):
-                    scores[item_id] = max(scores.get(item_id, 0.0), 1.0 / rank)
+        category_scores: dict[str, float] = {}
+        if mode in {"keyword", "hybrid"}:
+            for rank, (item_id, _score) in enumerate(
+                store.memory_item_repo.fts_search_items(query, limit, pool_ids=set(pool)),
+                start=1,
+            ):
+                scores[item_id] = max(scores.get(item_id, 0.0), 1.0 / rank)
 
-            if mode in {"semantic", "hybrid"}:
-                query_vec = (await self._select_embedding_client(None).embed([query]))[0]
-                for item_id, score in cosine_topk(query_vec, ((item.id, item.embedding) for item in pool.values()), k=limit):
-                    if score <= 0:
-                        continue
-                    scores[item_id] = max(scores.get(item_id, 0.0), float(score))
+        if mode in {"semantic", "hybrid"}:
+            query_vec = (await self._select_embedding_client(None).embed([query]))[0]
+            for item_id, score in cosine_topk(query_vec, ((item.id, item.embedding) for item in pool.values()), k=limit):
+                if score <= 0:
+                    continue
+                scores[item_id] = max(scores.get(item_id, 0.0), float(score))
+            for category_id, score in cosine_topk(
+                query_vec,
+                ((category.id, category.embedding) for category in categories.values()),
+                k=limit,
+            ):
+                if score <= 0:
+                    continue
+                category_scores[category_id] = max(category_scores.get(category_id, 0.0), float(score))
 
-        categories = store.memory_category_repo.list_categories(where)
         relations = store.category_item_repo.list_relations(where)
         category_names_by_item: dict[str, list[str]] = {item_id: [] for item_id in scores}
         category_ids_by_item: dict[str, list[str]] = {item_id: [] for item_id in scores}
@@ -462,9 +470,12 @@ class GraphMixin:
             for category in categories.values():
                 text = " ".join([category.name or "", category.summary or "", category.description or ""]).lower()
                 if query_lower in text:
-                    node = self._category_node(category)
-                    node["score"] = 1.0
-                    nodes.append(node)
+                    category_scores[category.id] = max(category_scores.get(category.id, 0.0), 1.0)
+        for category_id, score in category_scores.items():
+            if category_id in categories:
+                node = self._category_node(categories[category_id])
+                node["score"] = score
+                nodes.append(node)
         nodes.sort(key=lambda node: node.get("score", 0.0), reverse=True)
         nodes = nodes[:limit]
         return {"nodes": nodes, "limit": limit, "count": len(nodes)}
