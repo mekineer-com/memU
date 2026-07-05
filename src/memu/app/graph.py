@@ -145,15 +145,17 @@ class GraphMixin:
         for item in store.memory_item_repo.list_items(where).values():
             if not item.embedding:
                 continue
-            category_ids = item_category_ids.get(item.id, [])
-            category_names = [categories[cat_id].name for cat_id in category_ids]
+            category_pairs = sorted(
+                ((cat_id, categories[cat_id].name) for cat_id in item_category_ids.get(item.id, [])),
+                key=lambda pair: pair[1].lower(),
+            )
             atoms.append({
                 "id": f"memory:{item.id}",
                 "title": _label(item.summary),
                 "embedding": item.embedding,
-                "primary_tag": category_names[0] if category_names else None,
-                "tag_count": len(category_ids),
-                "tag_ids": [f"category:{cat_id}" for cat_id in category_ids],
+                "primary_tag": category_pairs[0][1] if category_pairs else None,
+                "tag_count": len(category_pairs),
+                "tag_ids": [f"category:{cat_id}" for cat_id, _name in category_pairs],
                 "source_url": None,
                 "updated_at": _iso(item.updated_at),
             })
@@ -173,7 +175,25 @@ class GraphMixin:
             })
 
         atoms.sort(key=lambda atom: (atom.get("updated_at") or "", atom["id"]), reverse=True)
-        return {"atoms": atoms[:limit], "count": min(len(atoms), limit), "total_count": len(atoms)}
+        page = atoms[:limit]
+        memory_ids = {str(atom["id"]).removeprefix("memory:") for atom in page if str(atom["id"]).startswith("memory:")}
+        edges: dict[str, dict[str, Any]] = {}
+        for memory_id in memory_ids:
+            for predicate in SEMANTIC_PREDICATES:
+                triples = store.triple_repo.get_edges_from(memory_id, predicate=predicate, where=where)
+                triples += store.triple_repo.get_edges_to(memory_id, predicate=predicate, where=where)
+                for triple in triples:
+                    if triple.subject_kind != "memory" or triple.object_kind != "memory":
+                        continue
+                    if triple.subject_id not in memory_ids or triple.object_id not in memory_ids:
+                        continue
+                    edge_id = f"semantic:{triple.subject_id}:{triple.predicate}:{triple.object_id}"
+                    edges[edge_id] = {
+                        "source": f"memory:{triple.subject_id}",
+                        "target": f"memory:{triple.object_id}",
+                        "weight": 0.7,
+                    }
+        return {"atoms": page, "edges": list(edges.values()), "count": len(page), "total_count": len(atoms)}
 
     def graph_atomic_neighborhood(
         self,
@@ -383,11 +403,15 @@ class GraphMixin:
         *,
         where: Mapping[str, Any] | None = None,
         limit: int = 5,
+        mode: str = "hybrid",
         since_days: int | None = None,
     ) -> dict[str, Any]:
         query = str(query or "").strip()
         if not query:
             raise ValueError("query is required")
+        mode = str(mode or "hybrid").strip().lower()
+        if mode not in {"keyword", "semantic", "hybrid"}:
+            raise ValueError("mode must be keyword, semantic, or hybrid")
         store = self._get_database()
         limit = max(1, min(int(limit or 5), 20))
 
@@ -401,17 +425,19 @@ class GraphMixin:
             }
         scores: dict[str, float] = {}
         if pool:
-            for rank, (item_id, _score) in enumerate(
-                store.memory_item_repo.fts_search_items(query, limit, pool_ids=set(pool)),
-                start=1,
-            ):
-                scores[item_id] = max(scores.get(item_id, 0.0), 1.0 / rank)
+            if mode in {"keyword", "hybrid"}:
+                for rank, (item_id, _score) in enumerate(
+                    store.memory_item_repo.fts_search_items(query, limit, pool_ids=set(pool)),
+                    start=1,
+                ):
+                    scores[item_id] = max(scores.get(item_id, 0.0), 1.0 / rank)
 
-            query_vec = (await self._select_embedding_client(None).embed([query]))[0]
-            for item_id, score in cosine_topk(query_vec, ((item.id, item.embedding) for item in pool.values()), k=limit):
-                if score <= 0:
-                    continue
-                scores[item_id] = max(scores.get(item_id, 0.0), float(score))
+            if mode in {"semantic", "hybrid"}:
+                query_vec = (await self._select_embedding_client(None).embed([query]))[0]
+                for item_id, score in cosine_topk(query_vec, ((item.id, item.embedding) for item in pool.values()), k=limit):
+                    if score <= 0:
+                        continue
+                    scores[item_id] = max(scores.get(item_id, 0.0), float(score))
 
         categories = store.memory_category_repo.list_categories(where)
         relations = store.category_item_repo.list_relations(where)
@@ -431,13 +457,14 @@ class GraphMixin:
             )
             node["score"] = score
             nodes.append(node)
-        query_lower = query.lower()
-        for category in categories.values():
-            text = " ".join([category.name or "", category.summary or "", category.description or ""]).lower()
-            if query_lower in text:
-                node = self._category_node(category)
-                node["score"] = 1.0
-                nodes.append(node)
+        if mode in {"keyword", "hybrid"}:
+            query_lower = query.lower()
+            for category in categories.values():
+                text = " ".join([category.name or "", category.summary or "", category.description or ""]).lower()
+                if query_lower in text:
+                    node = self._category_node(category)
+                    node["score"] = 1.0
+                    nodes.append(node)
         nodes.sort(key=lambda node: node.get("score", 0.0), reverse=True)
         nodes = nodes[:limit]
         return {"nodes": nodes, "limit": limit, "count": len(nodes)}

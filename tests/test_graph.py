@@ -180,7 +180,10 @@ def test_graph_atomic_atoms_pages_with_cursor():
 def test_graph_atomic_canvas_source_includes_embeddings_and_category_tags():
     now = datetime(2026, 7, 1, tzinfo=UTC)
     db = SimpleNamespace(
-        memory_item_repo=_Repo({"m1": _item("m1", "First memory", now)}),
+        memory_item_repo=_Repo({
+            "m1": _item("m1", "First memory", now),
+            "m2": _item("m2", "Linked memory", now),
+        }),
         memory_category_repo=_Repo({
             "c1": SimpleNamespace(
                 id="c1",
@@ -190,18 +193,34 @@ def test_graph_atomic_canvas_source_includes_embeddings_and_category_tags():
                 embedding=[0.0, 1.0],
                 created_at=now,
                 updated_at=now,
-            )
+            ),
+            "c2": SimpleNamespace(
+                id="c2",
+                name="Alpha",
+                description="",
+                summary="Alpha summary",
+                embedding=None,
+                created_at=now,
+                updated_at=now,
+            ),
         }),
-        category_item_repo=_Repo([SimpleNamespace(item_id="m1", category_id="c1")]),
+        category_item_repo=_Repo([
+            SimpleNamespace(item_id="m1", category_id="c1"),
+            SimpleNamespace(item_id="m1", category_id="c2"),
+        ]),
+        triple_repo=_Triples(),
     )
     db.memory_item_repo.value["m1"].embedding = [1.0, 0.0]
+    db.memory_item_repo.value["m2"].embedding = [0.9, 0.1]
 
     out = _Service(db).graph_atomic_canvas_source(limit=10)
 
     atoms = {atom["id"]: atom for atom in out["atoms"]}
-    assert atoms["memory:m1"]["tag_ids"] == ["category:c1"]
+    assert atoms["memory:m1"]["primary_tag"] == "Alpha"
+    assert atoms["memory:m1"]["tag_ids"] == ["category:c2", "category:c1"]
     assert atoms["memory:m1"]["embedding"] == [1.0, 0.0]
     assert atoms["category:c1"]["embedding"] == [0.0, 1.0]
+    assert out["edges"] == [{"source": "memory:m2", "target": "memory:m1", "weight": 0.7}]
 
 
 def test_graph_atomic_neighborhood_is_seeded_by_memory():
@@ -298,6 +317,37 @@ def test_graph_search_drops_unrelated_vector_only_hits():
 
     out = asyncio.run(service.graph_search("sushi", where=scope, limit=5))
     assert out["nodes"] == []
+
+
+def test_graph_search_mode_controls_keyword_vs_semantic():
+    now = datetime(2026, 7, 1, tzinfo=UTC)
+    item = _item("m1", "sushi keyword", now)
+    item.embedding = [-1.0, 0.0]
+
+    class _MemoryRepo(_Repo):
+        def fts_search_items(self, query, limit, pool_ids=None):
+            return [("m1", 1.0)]
+
+    service = _Service(
+        SimpleNamespace(
+            memory_item_repo=_MemoryRepo({"m1": item}),
+            memory_category_repo=_Repo({}),
+            category_item_repo=_Repo([]),
+        )
+    )
+
+    class _Embedder:
+        async def embed(self, texts):
+            assert texts == ["sushi"]
+            return [[1.0, 0.0]]
+
+    service._select_embedding_client = lambda _ctx: _Embedder()  # type: ignore[method-assign]
+
+    keyword = asyncio.run(service.graph_search("sushi", mode="keyword"))
+    semantic = asyncio.run(service.graph_search("sushi", mode="semantic"))
+
+    assert [node["summary"] for node in keyword["nodes"]] == ["sushi keyword"]
+    assert semantic["nodes"] == []
 
 
 def test_graph_update_memory_summary_embeds_before_history_update(monkeypatch, tmp_path):
