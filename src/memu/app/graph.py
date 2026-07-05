@@ -131,6 +131,50 @@ class GraphMixin:
             if counts[category.id] >= min_count
         ]
 
+    def graph_atomic_canvas_source(self, *, where: Mapping[str, Any] | None = None, limit: int = 500) -> dict[str, Any]:
+        store = self._get_database()
+        limit = max(1, min(int(limit or 500), 1000))
+        categories = store.memory_category_repo.list_categories(where)
+        relations = store.category_item_repo.list_relations(where)
+        item_category_ids: dict[str, list[str]] = {}
+        for rel in relations:
+            if rel.category_id in categories:
+                item_category_ids.setdefault(rel.item_id, []).append(rel.category_id)
+
+        atoms: list[dict[str, Any]] = []
+        for item in store.memory_item_repo.list_items(where).values():
+            if not item.embedding:
+                continue
+            category_ids = item_category_ids.get(item.id, [])
+            category_names = [categories[cat_id].name for cat_id in category_ids]
+            atoms.append({
+                "id": f"memory:{item.id}",
+                "title": _label(item.summary),
+                "embedding": item.embedding,
+                "primary_tag": category_names[0] if category_names else None,
+                "tag_count": len(category_ids),
+                "tag_ids": [f"category:{cat_id}" for cat_id in category_ids],
+                "source_url": None,
+                "updated_at": _iso(item.updated_at),
+            })
+
+        for category in categories.values():
+            if not category.embedding:
+                continue
+            atoms.append({
+                "id": f"category:{category.id}",
+                "title": category.name,
+                "embedding": category.embedding,
+                "primary_tag": "Category",
+                "tag_count": 0,
+                "tag_ids": [],
+                "source_url": None,
+                "updated_at": _iso(category.updated_at),
+            })
+
+        atoms.sort(key=lambda atom: (atom.get("updated_at") or "", atom["id"]), reverse=True)
+        return {"atoms": atoms[:limit], "count": min(len(atoms), limit), "total_count": len(atoms)}
+
     async def graph_update_memory_summary(
         self,
         item_id: str,

@@ -177,6 +177,33 @@ def test_graph_atomic_atoms_pages_with_cursor():
     assert page2["next_cursor"] is None
 
 
+def test_graph_atomic_canvas_source_includes_embeddings_and_category_tags():
+    now = datetime(2026, 7, 1, tzinfo=UTC)
+    db = SimpleNamespace(
+        memory_item_repo=_Repo({"m1": _item("m1", "First memory", now)}),
+        memory_category_repo=_Repo({
+            "c1": SimpleNamespace(
+                id="c1",
+                name="Core",
+                description="",
+                summary="Core summary",
+                embedding=[0.0, 1.0],
+                created_at=now,
+                updated_at=now,
+            )
+        }),
+        category_item_repo=_Repo([SimpleNamespace(item_id="m1", category_id="c1")]),
+    )
+    db.memory_item_repo.value["m1"].embedding = [1.0, 0.0]
+
+    out = _Service(db).graph_atomic_canvas_source(limit=10)
+
+    atoms = {atom["id"]: atom for atom in out["atoms"]}
+    assert atoms["memory:m1"]["tag_ids"] == ["category:c1"]
+    assert atoms["memory:m1"]["embedding"] == [1.0, 0.0]
+    assert atoms["category:c1"]["embedding"] == [0.0, 1.0]
+
+
 def test_graph_search_is_scoped_and_honors_since_days():
     service = MemoryService(
         database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
