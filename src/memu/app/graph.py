@@ -215,7 +215,7 @@ class GraphMixin:
                 "embedding": category.embedding,
                 "primary_tag": category.name,
                 "tag_count": 0,
-                "tag_ids": [],
+                "tag_ids": [f"category:{category.id}"],
                 "source_url": None,
                 "updated_at": _iso(category.updated_at),
             })
