@@ -228,7 +228,7 @@ def test_graph_atomic_canvas_source_includes_embeddings_and_category_tags():
     assert atoms["category:c1"]["entity_names"] == []
     edges = {(edge["source"], edge["target"], edge["predicate"]): edge for edge in out["edges"]}
     assert edges[("memory:m2", "memory:m1", "caused_by")]["weight"] == 0.7
-    assert edges[("memory:m2", "memory:m1", "similarity")]["weight"] == pytest.approx(0.9938837)
+    assert edges[("memory:m1", "memory:m2", "similarity")]["weight"] == pytest.approx(0.9938837)
 
 
 def test_graph_atomic_canvas_source_includes_category_similarity_edges():

@@ -56,6 +56,7 @@ def _atomic_similarity_edges(atoms: list[dict[str, Any]]) -> list[dict[str, Any]
     per_atom: dict[str, int] = {}
     edges: list[dict[str, Any]] = []
     for source, target, weight in scored:
+        source, target = sorted((source, target))
         if per_atom.get(source, 0) >= 3 or per_atom.get(target, 0) >= 3:
             continue
         per_atom[source] = per_atom.get(source, 0) + 1
