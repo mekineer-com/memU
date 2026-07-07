@@ -36,6 +36,7 @@ class MemoryItemRepo(Protocol):
         where: Mapping[str, Any] | None = None,
         *,
         include_superseded: bool = False,
+        include_embeddings: bool = False,
     ) -> dict[str, MemoryItem]: ...
 
     def clear_items(self, where: Mapping[str, Any] | None = None) -> dict[str, MemoryItem]: ...

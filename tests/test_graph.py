@@ -21,14 +21,18 @@ class GraphScope(BaseModel):
 class _Repo:
     def __init__(self, value):
         self.value = value
+        self.list_items_calls = 0
+        self.list_items_by_ids_calls = 0
 
-    def list_items(self, where=None):
+    def list_items(self, where=None, *, include_superseded=False):
+        self.list_items_calls += 1
         return self.value
 
     def list_recent_items(self, where=None, *, limit, include_superseded=False):
         return dict(list(self.value.items())[:limit])
 
-    def list_items_by_ids(self, item_ids, where=None, *, include_superseded=False):
+    def list_items_by_ids(self, item_ids, where=None, *, include_superseded=False, include_embeddings=False):
+        self.list_items_by_ids_calls += 1
         return {item_id: self.value[item_id] for item_id in item_ids if item_id in self.value}
 
     def list_categories(self, where=None):
@@ -286,6 +290,53 @@ def test_graph_atomic_canvas_source_caps_similarity_edges_per_atom():
         counts[edge["source"]] = counts.get(edge["source"], 0) + 1
         counts[edge["target"]] = counts.get(edge["target"], 0) + 1
     assert max(counts.values()) <= 3
+
+
+def test_graph_atomic_canvas_source_filters_before_item_scan():
+    now = datetime(2026, 7, 1, tzinfo=UTC)
+    db = SimpleNamespace(
+        memory_item_repo=_Repo({
+            "m1": _item("m1", "Visible memory", now),
+            "m2": _item("m2", "Hidden memory", now),
+        }),
+        memory_category_repo=_Repo({
+            "c1": SimpleNamespace(
+                id="c1",
+                name="Health",
+                description="",
+                summary="Health summary",
+                embedding=[0.0, 1.0],
+                created_at=now,
+                updated_at=now,
+            ),
+            "c2": SimpleNamespace(
+                id="c2",
+                name="Hidden",
+                description="",
+                summary="Hidden summary",
+                embedding=[1.0, 0.0],
+                created_at=now,
+                updated_at=now,
+            ),
+        }),
+        category_item_repo=_Repo([
+            SimpleNamespace(item_id="m1", category_id="c1"),
+            SimpleNamespace(item_id="m2", category_id="c2"),
+        ]),
+        entity_repo=_Repo([]),
+        triple_repo=_Triples(),
+    )
+    db.memory_item_repo.value["m1"].embedding = [1.0, 0.0]
+    db.memory_item_repo.value["m2"].embedding = [0.9, 0.1]
+
+    out = _Service(db).graph_atomic_canvas_source(
+        limit=10,
+        atom_ids={"memory:m1", "category:c1", "memory:missing"},
+    )
+
+    assert {atom["id"] for atom in out["atoms"]} == {"memory:m1", "category:c1"}
+    assert db.memory_item_repo.list_items_calls == 0
+    assert db.memory_item_repo.list_items_by_ids_calls == 1
 
 
 def test_graph_atomic_neighborhood_is_seeded_by_memory():

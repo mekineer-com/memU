@@ -186,15 +186,35 @@ class GraphMixin:
     ) -> dict[str, Any]:
         store = self._get_database()
         limit = max(1, min(int(limit or 500), 1000))
+        requested_memory_ids: set[str] | None = None
+        requested_category_ids: set[str] | None = None
+        if atom_ids is not None:
+            requested_memory_ids = {
+                atom_id.removeprefix("memory:")
+                for atom_id in atom_ids
+                if atom_id.startswith("memory:")
+            }
+            requested_category_ids = {
+                atom_id.removeprefix("category:")
+                for atom_id in atom_ids
+                if atom_id.startswith("category:")
+            }
         categories = store.memory_category_repo.list_categories(where)
         relations = store.category_item_repo.list_relations(where)
         item_category_ids: dict[str, list[str]] = {}
         for rel in relations:
+            if requested_memory_ids is not None and rel.item_id not in requested_memory_ids:
+                continue
             if rel.category_id in categories:
                 item_category_ids.setdefault(rel.item_id, []).append(rel.category_id)
 
         atoms: list[dict[str, Any]] = []
-        for item in store.memory_item_repo.list_items(where).values():
+        items = (
+            store.memory_item_repo.list_items_by_ids(requested_memory_ids, where, include_embeddings=True)
+            if requested_memory_ids is not None
+            else store.memory_item_repo.list_items(where)
+        )
+        for item in items.values():
             if not item.embedding:
                 continue
             category_pairs = sorted(
@@ -212,7 +232,12 @@ class GraphMixin:
                 "updated_at": _iso(item.updated_at),
             })
 
-        for category in categories.values():
+        category_values = (
+            (categories[category_id] for category_id in requested_category_ids if category_id in categories)
+            if requested_category_ids is not None
+            else categories.values()
+        )
+        for category in category_values:
             if not category.embedding:
                 continue
             atoms.append({
@@ -226,8 +251,6 @@ class GraphMixin:
                 "updated_at": _iso(category.updated_at),
             })
 
-        if atom_ids is not None:
-            atoms = [atom for atom in atoms if str(atom["id"]) in atom_ids]
         atoms.sort(key=lambda atom: (atom.get("updated_at") or "", atom["id"]), reverse=True)
         page = atoms[:limit]
         memory_ids = {str(atom["id"]).removeprefix("memory:") for atom in page if str(atom["id"]).startswith("memory:")}

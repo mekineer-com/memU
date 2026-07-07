@@ -310,7 +310,14 @@ WHERE version = 1 AND model IN ({placeholders})
 
         return result
 
-    def _list_graph_items(self, stmt: Any, where: Mapping[str, Any] | None, include_superseded: bool) -> dict[str, MemoryItem]:
+    def _list_graph_items(
+        self,
+        stmt: Any,
+        where: Mapping[str, Any] | None,
+        include_superseded: bool,
+        *,
+        include_embeddings: bool = False,
+    ) -> dict[str, MemoryItem]:
         filters = self._build_filters(self._memory_item_model, where)
         active_filter = self._active_item_filter(
             self._memory_item_model, include_superseded=include_superseded
@@ -321,7 +328,8 @@ WHERE version = 1 AND model IN ({placeholders})
             stmt = stmt.where(*filters)
         with self._sessions.session() as session:
             rows = session.exec(stmt).all()
-        return {row.id: self._to_memory_item(row, embedding=[]) for row in rows}
+        embedding = None if include_embeddings else []
+        return {row.id: self._to_memory_item(row, embedding=embedding) for row in rows}
 
     def list_recent_items(
         self,
@@ -344,11 +352,12 @@ WHERE version = 1 AND model IN ({placeholders})
         where: Mapping[str, Any] | None = None,
         *,
         include_superseded: bool = False,
+        include_embeddings: bool = False,
     ) -> dict[str, MemoryItem]:
         if not item_ids:
             return {}
         stmt = select(self._memory_item_model).where(self._memory_item_model.id.in_(item_ids))
-        return self._list_graph_items(stmt, where, include_superseded)
+        return self._list_graph_items(stmt, where, include_superseded, include_embeddings=include_embeddings)
 
     def clear_items(self, where: Mapping[str, Any] | None = None) -> dict[str, MemoryItem]:
         """Clear items matching the where clause.
