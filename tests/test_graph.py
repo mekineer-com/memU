@@ -713,9 +713,13 @@ def test_graph_pending_and_memory_approval_semantics():
         embedding=[0.1],
         user_data=scope,
     )
+    original_updated_at = item.updated_at
     store.memory_item_repo.approve_item(item.id, where=scope)
 
     assert service.graph_list_pending(where=scope)["items"] == []
+    approved = store.memory_item_repo.list_items_by_ids({item.id}, scope)[item.id]
+    assert approved.approved_at is not None
+    assert approved.updated_at == original_updated_at
 
     class _Embedder:
         async def embed(self, texts):

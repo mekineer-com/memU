@@ -408,7 +408,6 @@ WHERE version = 1 AND model IN ({placeholders})
                 msg = f"Item with id {item_id} not found"
                 raise KeyError(msg)
             row.approved_at = self._now()
-            row.updated_at = self._now()
             session.add(row)
             session.commit()
             session.refresh(row)
