@@ -503,6 +503,41 @@ def test_graph_atomic_similar_is_pure_similarity():
     assert nodes[0]["similarity_score"] == pytest.approx(0.9938837)
 
 
+def test_graph_atomic_similar_threads_scope_to_item_repo():
+    now = datetime(2026, 7, 1, tzinfo=UTC)
+
+    class _ScopedRepo(_Repo):
+        def list_items(self, where=None, *, include_superseded=False):
+            self.list_items_calls += 1
+            return {
+                item_id: item
+                for item_id, item in self.value.items()
+                if item.user_id == where["user_id"] and item.soul_id == where["soul_id"]
+            }
+
+    items = {
+        "m1": _item("m1", "Center memory", now),
+        "m2": _item("m2", "In scope similar", now),
+        "m3": _item("m3", "Out of scope similar", now),
+    }
+    for item in items.values():
+        item.embedding = [1.0, 0.0]
+        item.user_id = "u1"
+        item.soul_id = "s1"
+    items["m3"].user_id = "u2"
+    db = SimpleNamespace(
+        memory_item_repo=_ScopedRepo(items),
+        memory_category_repo=_Repo({}),
+        category_item_repo=_Repo([]),
+        triple_repo=_Triples(),
+    )
+
+    nodes = _Service(db).graph_atomic_similar("memory:m1", where={"user_id": "u1", "soul_id": "s1"})
+
+    assert nodes is not None
+    assert [node["id"] for node in nodes] == ["memory:m2"]
+
+
 def test_graph_atomic_similar_handles_non_memory_and_missing():
     now = datetime(2026, 7, 1, tzinfo=UTC)
     db = SimpleNamespace(
@@ -513,6 +548,7 @@ def test_graph_atomic_similar_handles_non_memory_and_missing():
     )
 
     assert _Service(db).graph_atomic_similar("category:c1") == []
+    assert _Service(db).graph_atomic_similar("entity:e1") == []
     assert _Service(db).graph_atomic_similar("memory:missing") is None
 
 
