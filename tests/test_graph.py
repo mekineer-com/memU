@@ -402,6 +402,8 @@ def test_graph_atomic_neighborhood_is_seeded_by_memory():
     assert {node["id"] for node in graph["nodes"]} == {"memory:m1", "memory:m2"}
     assert graph["center_atom_id"] == "memory:m1"
     assert graph["edges"][0]["edge_type"] == "semantic"
+    assert db.memory_item_repo.list_items_calls == 1
+    assert db.memory_item_repo.list_items_by_ids_calls == 0
 
 
 def test_graph_atomic_neighborhood_includes_similarity_neighbors():
@@ -432,6 +434,8 @@ def test_graph_atomic_neighborhood_includes_similarity_neighbors():
         "shared_tag_count": 0,
         "similarity_score": pytest.approx(0.9938837),
     }]
+    assert db.memory_item_repo.list_items_calls == 1
+    assert db.memory_item_repo.list_items_by_ids_calls == 0
 
 
 def test_graph_search_is_scoped_and_honors_since_days():

@@ -313,16 +313,45 @@ class GraphMixin:
         min_similarity: float = 0.5,
     ) -> dict[str, Any] | None:
         store = self._get_database()
-        center = self.graph_memory(item_id, where=where)
-        if center is None:
-            return None
-        depth = max(0, int(depth or 1))
-        if center["kind"] != "memory":
-            return {"center_atom_id": center["id"], "nodes": [center | {"depth": 0}], "edges": []}
-        if depth == 0:
+        kind, _, raw_id = str(item_id or "").partition(":")
+        if not raw_id:
+            kind, raw_id = "memory", kind
+        if kind != "memory":
+            center = self.graph_memory(item_id, where=where)
+            if center is None:
+                return None
             return {"center_atom_id": center["id"], "nodes": [center | {"depth": 0}], "edges": []}
 
-        center_id = center["memory_id"]
+        depth = max(0, int(depth or 1))
+        center_id = raw_id
+        items = store.memory_item_repo.list_items(where)
+        center_item = items.get(center_id)
+        if center_item is None:
+            return None
+
+        categories = store.memory_category_repo.list_categories(where)
+        item_category_ids: dict[str, list[str]] = {}
+        for rel in store.category_item_repo.list_relations(where):
+            if rel.category_id in categories:
+                item_category_ids.setdefault(rel.item_id, []).append(rel.category_id)
+
+        def memory_node(memory_id: str, node_depth: int) -> dict[str, Any] | None:
+            item = items.get(memory_id)
+            if item is None:
+                return None
+            category_ids = item_category_ids.get(memory_id, [])
+            return self._memory_node(
+                item,
+                category_names=[categories[cat_id].name for cat_id in category_ids],
+                category_ids=category_ids,
+            ) | {"depth": node_depth}
+
+        center = memory_node(center_id, 0)
+        if center is None:
+            return None
+        if depth == 0:
+            return {"center_atom_id": center["id"], "nodes": [center], "edges": []}
+
         neighbor_ids: set[str] = set()
         edges: list[dict[str, Any]] = []
         for predicate in SEMANTIC_PREDICATES:
@@ -343,35 +372,29 @@ class GraphMixin:
                     "similarity_score": None,
                 })
 
-        nodes = [center | {"depth": 0}]
+        nodes = [center]
         for raw_id in sorted(neighbor_ids):
-            node = self.graph_memory(f"memory:{raw_id}", where=where)
+            node = memory_node(raw_id, 1)
             if node is not None:
-                nodes.append(node | {"depth": 1})
-        center_item = store.memory_item_repo.list_items_by_ids(
-            {center_id},
-            where,
-            include_embeddings=True,
-        ).get(center_id)
+                nodes.append(node)
         center_embedding = getattr(center_item, "embedding", None)
         if center_embedding:
             seen = {node["id"] for node in nodes}
-            candidates = store.memory_item_repo.list_items(where)
             for raw_id, score in cosine_topk(
                 center_embedding,
                 (
                     (item.id, getattr(item, "embedding", None))
-                    for item in candidates.values()
+                    for item in items.values()
                     if item.id != center_id
                 ),
                 k=5,
             ):
                 if score < min_similarity:
                     continue
-                node = self.graph_memory(f"memory:{raw_id}", where=where)
+                node = memory_node(raw_id, 1)
                 if node is None or node["id"] in seen:
                     continue
-                nodes.append(node | {"depth": 1})
+                nodes.append(node)
                 seen.add(node["id"])
                 edges.append({
                     "source_id": center["id"],
