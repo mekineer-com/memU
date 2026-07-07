@@ -307,6 +307,7 @@ def test_graph_atomic_canvas_source_filters_before_item_scan():
         memory_item_repo=_Repo({
             "m1": _item("m1", "Visible memory", now),
             "m2": _item("m2", "Hidden memory", now),
+            "m3": _item("m3", "Second visible memory", now),
         }),
         memory_category_repo=_Repo({
             "c1": SimpleNamespace(
@@ -331,12 +332,14 @@ def test_graph_atomic_canvas_source_filters_before_item_scan():
         category_item_repo=_Repo([
             SimpleNamespace(item_id="m1", category_id="c1"),
             SimpleNamespace(item_id="m2", category_id="c2"),
+            SimpleNamespace(item_id="m3", category_id="c1"),
         ]),
         entity_repo=_Repo([]),
         triple_repo=_Triples(),
     )
     db.memory_item_repo.value["m1"].embedding = [1.0, 0.0]
     db.memory_item_repo.value["m2"].embedding = [0.9, 0.1]
+    db.memory_item_repo.value["m3"].embedding = [0.95, 0.05]
     db.triple_repo.get_edges_from = lambda subject_id, predicate=None, where=None: [  # type: ignore[method-assign]
         SimpleNamespace(object_kind="entity", object_id="e1")
     ] if subject_id == "m1" and predicate == "mentions" else []
@@ -344,15 +347,41 @@ def test_graph_atomic_canvas_source_filters_before_item_scan():
 
     out = _Service(db).graph_atomic_canvas_source(
         limit=10,
-        atom_ids={"memory:m1", "category:c1", "memory:missing"},
+        atom_ids={"memory:m1", "memory:m3", "category:c1", "memory:missing"},
     )
 
-    assert {atom["id"] for atom in out["atoms"]} == {"memory:m1", "category:c1"}
+    assert {atom["id"] for atom in out["atoms"]} == {"memory:m1", "memory:m3", "category:c1"}
+    assert all("memory:m2" not in {edge["source"], edge["target"]} for edge in out["edges"])
+    assert any({edge["source"], edge["target"]} == {"memory:m1", "memory:m3"} for edge in out["edges"])
     assert db.memory_item_repo.list_items_calls == 0
     assert db.memory_item_repo.list_items_by_ids_calls == 1
     assert db.entity_repo.list_all_calls == 0
     assert db.entity_repo.list_by_ids_calls == 1
     assert next(atom for atom in out["atoms"] if atom["id"] == "memory:m1")["entity_names"] == ["Visible entity"]
+
+
+def test_graph_atomic_canvas_source_rejects_cross_scope_atom_ids():
+    service = MemoryService(
+        database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
+        user_config={"model": GraphScope},
+    )
+    store = service._get_database()
+    own_scope = {"user_id": "canvas_scope_owner", "soul_id": "s"}
+    other_scope = {"user_id": "canvas_scope_other", "soul_id": "s"}
+    other = store.memory_item_repo.create_item(
+        memory_type="episode",
+        summary="other scope memory",
+        embedding=[1.0, 0.0],
+        user_data=other_scope,
+    )
+
+    out = service.graph_atomic_canvas_source(
+        where=own_scope,
+        atom_ids={f"memory:{other.id}"},
+    )
+
+    assert out["atoms"] == []
+    assert out["edges"] == []
 
 
 def test_graph_atomic_neighborhood_is_seeded_by_memory():
