@@ -85,13 +85,14 @@ class GraphMixin:
             entity = next((entity for entity in store.entity_repo.list_all(where) if entity.id == raw_id), None)
             return self._entity_node(entity) if entity is not None else None
 
-        items = store.memory_item_repo.list_items(where)
-        item = items.get(raw_id)
+        item = store.memory_item_repo.list_items_by_ids({raw_id}, where).get(raw_id)
         if item is None:
             return None
 
         categories = store.memory_category_repo.list_categories(where)
-        relations = store.category_item_repo.list_relations(where)
+        relation_scope = dict(where or {})
+        relation_scope["item_id"] = item.id
+        relations = store.category_item_repo.list_relations(relation_scope)
         category_names = [
             categories[rel.category_id].name
             for rel in relations

@@ -406,6 +406,27 @@ def test_graph_atomic_neighborhood_is_seeded_by_memory():
     assert db.memory_item_repo.list_items_by_ids_calls == 0
 
 
+def test_graph_memory_fetches_single_memory_by_id():
+    now = datetime(2026, 7, 1, tzinfo=UTC)
+    db = SimpleNamespace(
+        memory_item_repo=_Repo({"m1": _item("m1", "First memory", now)}),
+        memory_category_repo=_Repo({
+            "c1": SimpleNamespace(id="c1", name="Core", description="", summary=None, created_at=now, updated_at=now),
+        }),
+        category_item_repo=_Repo([SimpleNamespace(item_id="m1", category_id="c1")]),
+        entity_repo=_Repo([]),
+        triple_repo=_Triples(),
+    )
+
+    node = _Service(db).graph_memory("memory:m1", where={"user_id": "u", "soul_id": "s"})
+
+    assert node is not None
+    assert node["id"] == "memory:m1"
+    assert node["category_names"] == ["Core"]
+    assert db.memory_item_repo.list_items_calls == 0
+    assert db.memory_item_repo.list_items_by_ids_calls == 1
+
+
 def test_graph_atomic_neighborhood_includes_similarity_neighbors():
     now = datetime(2026, 7, 1, tzinfo=UTC)
     db = SimpleNamespace(
