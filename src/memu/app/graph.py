@@ -177,7 +177,13 @@ class GraphMixin:
             if counts[category.id] >= min_count
         ]
 
-    def graph_atomic_canvas_source(self, *, where: Mapping[str, Any] | None = None, limit: int = 500) -> dict[str, Any]:
+    def graph_atomic_canvas_source(
+        self,
+        *,
+        where: Mapping[str, Any] | None = None,
+        limit: int = 500,
+        atom_ids: set[str] | None = None,
+    ) -> dict[str, Any]:
         store = self._get_database()
         limit = max(1, min(int(limit or 500), 1000))
         categories = store.memory_category_repo.list_categories(where)
@@ -220,6 +226,8 @@ class GraphMixin:
                 "updated_at": _iso(category.updated_at),
             })
 
+        if atom_ids is not None:
+            atoms = [atom for atom in atoms if str(atom["id"]) in atom_ids]
         atoms.sort(key=lambda atom: (atom.get("updated_at") or "", atom["id"]), reverse=True)
         page = atoms[:limit]
         memory_ids = {str(atom["id"]).removeprefix("memory:") for atom in page if str(atom["id"]).startswith("memory:")}
