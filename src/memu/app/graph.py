@@ -348,6 +348,39 @@ class GraphMixin:
             node = self.graph_memory(f"memory:{raw_id}", where=where)
             if node is not None:
                 nodes.append(node | {"depth": 1})
+        center_item = store.memory_item_repo.list_items_by_ids(
+            {center_id},
+            where,
+            include_embeddings=True,
+        ).get(center_id)
+        center_embedding = getattr(center_item, "embedding", None)
+        if center_embedding:
+            seen = {node["id"] for node in nodes}
+            candidates = store.memory_item_repo.list_items(where)
+            for raw_id, score in cosine_topk(
+                center_embedding,
+                (
+                    (item.id, getattr(item, "embedding", None))
+                    for item in candidates.values()
+                    if item.id != center_id
+                ),
+                k=5,
+            ):
+                if score < min_similarity:
+                    continue
+                node = self.graph_memory(f"memory:{raw_id}", where=where)
+                if node is None or node["id"] in seen:
+                    continue
+                nodes.append(node | {"depth": 1})
+                seen.add(node["id"])
+                edges.append({
+                    "source_id": center["id"],
+                    "target_id": node["id"],
+                    "edge_type": "semantic",
+                    "strength": float(score),
+                    "shared_tag_count": 0,
+                    "similarity_score": float(score),
+                })
         return {"center_atom_id": center["id"], "nodes": nodes, "edges": edges}
 
     async def graph_update_memory_summary(

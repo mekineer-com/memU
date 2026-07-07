@@ -404,6 +404,36 @@ def test_graph_atomic_neighborhood_is_seeded_by_memory():
     assert graph["edges"][0]["edge_type"] == "semantic"
 
 
+def test_graph_atomic_neighborhood_includes_similarity_neighbors():
+    now = datetime(2026, 7, 1, tzinfo=UTC)
+    db = SimpleNamespace(
+        memory_item_repo=_Repo({
+            "m10": _item("m10", "First memory", now),
+            "m11": _item("m11", "Similar memory", now),
+            "m12": _item("m12", "Different memory", now),
+        }),
+        memory_category_repo=_Repo({}),
+        category_item_repo=_Repo([]),
+        triple_repo=_Triples(),
+    )
+    db.memory_item_repo.value["m10"].embedding = [1.0, 0.0]
+    db.memory_item_repo.value["m11"].embedding = [0.9, 0.1]
+    db.memory_item_repo.value["m12"].embedding = [0.0, 1.0]
+
+    graph = _Service(db).graph_atomic_neighborhood("memory:m10", min_similarity=0.7)
+
+    assert graph is not None
+    assert {node["id"] for node in graph["nodes"]} == {"memory:m10", "memory:m11"}
+    assert graph["edges"] == [{
+        "source_id": "memory:m10",
+        "target_id": "memory:m11",
+        "edge_type": "semantic",
+        "strength": pytest.approx(0.9938837),
+        "shared_tag_count": 0,
+        "similarity_score": pytest.approx(0.9938837),
+    }]
+
+
 def test_graph_search_is_scoped_and_honors_since_days():
     service = MemoryService(
         database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
