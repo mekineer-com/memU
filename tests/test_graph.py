@@ -478,6 +478,44 @@ def test_graph_atomic_neighborhood_honors_similarity_limit():
     assert len(graph["nodes"]) == 7
 
 
+def test_graph_atomic_similar_is_pure_similarity():
+    now = datetime(2026, 7, 1, tzinfo=UTC)
+    db = SimpleNamespace(
+        memory_item_repo=_Repo({
+            "m1": _item("m1", "Center memory", now),
+            "m2": _item("m2", "Triple only memory", now),
+            "m3": _item("m3", "Similar memory", now),
+            "m4": _item("m4", "Different memory", now),
+        }),
+        memory_category_repo=_Repo({}),
+        category_item_repo=_Repo([]),
+        triple_repo=_Triples(),
+    )
+    db.memory_item_repo.value["m1"].embedding = [1.0, 0.0]
+    db.memory_item_repo.value["m2"].embedding = [0.0, 1.0]
+    db.memory_item_repo.value["m3"].embedding = [0.9, 0.1]
+    db.memory_item_repo.value["m4"].embedding = [0.2, 0.8]
+
+    nodes = _Service(db).graph_atomic_similar("memory:m1", min_similarity=0.7)
+
+    assert nodes is not None
+    assert [node["id"] for node in nodes] == ["memory:m3"]
+    assert nodes[0]["similarity_score"] == pytest.approx(0.9938837)
+
+
+def test_graph_atomic_similar_handles_non_memory_and_missing():
+    now = datetime(2026, 7, 1, tzinfo=UTC)
+    db = SimpleNamespace(
+        memory_item_repo=_Repo({"m1": _item("m1", "Center memory", now)}),
+        memory_category_repo=_Repo({}),
+        category_item_repo=_Repo([]),
+        triple_repo=_Triples(),
+    )
+
+    assert _Service(db).graph_atomic_similar("category:c1") == []
+    assert _Service(db).graph_atomic_similar("memory:missing") is None
+
+
 def test_graph_search_is_scoped_and_honors_since_days():
     service = MemoryService(
         database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},

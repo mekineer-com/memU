@@ -409,6 +409,59 @@ class GraphMixin:
                 })
         return {"center_atom_id": center["id"], "nodes": nodes, "edges": edges}
 
+    def graph_atomic_similar(
+        self,
+        item_id: str,
+        *,
+        where: Mapping[str, Any] | None = None,
+        limit: int = 5,
+        min_similarity: float = 0.7,
+    ) -> list[dict[str, Any]] | None:
+        store = self._get_database()
+        kind, _, raw_id = str(item_id or "").partition(":")
+        if not raw_id:
+            kind, raw_id = "memory", kind
+        if kind != "memory":
+            return []
+
+        limit = max(1, min(int(limit or 5), 20))
+        items = store.memory_item_repo.list_items(where)
+        center_item = items.get(raw_id)
+        if center_item is None:
+            return None
+
+        center_embedding = getattr(center_item, "embedding", None)
+        if not center_embedding:
+            return []
+
+        categories = store.memory_category_repo.list_categories(where)
+        item_category_ids: dict[str, list[str]] = {}
+        for rel in store.category_item_repo.list_relations(where):
+            if rel.category_id in categories:
+                item_category_ids.setdefault(rel.item_id, []).append(rel.category_id)
+
+        nodes = []
+        for similar_id, score in cosine_topk(
+            center_embedding,
+            (
+                (item.id, getattr(item, "embedding", None))
+                for item in items.values()
+                if item.id != raw_id
+            ),
+            k=limit,
+        ):
+            if score < min_similarity:
+                continue
+            category_ids = item_category_ids.get(similar_id, [])
+            node = self._memory_node(
+                items[similar_id],
+                category_names=[categories[cat_id].name for cat_id in category_ids],
+                category_ids=category_ids,
+            )
+            node["similarity_score"] = float(score)
+            nodes.append(node)
+        return nodes
+
     async def graph_update_memory_summary(
         self,
         item_id: str,
