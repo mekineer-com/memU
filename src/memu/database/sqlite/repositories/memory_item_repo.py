@@ -328,8 +328,7 @@ WHERE version = 1 AND model IN ({placeholders})
             stmt = stmt.where(*filters)
         with self._sessions.session() as session:
             rows = session.exec(stmt).all()
-        embedding = None if include_embeddings else []
-        return {row.id: self._to_memory_item(row, embedding=embedding) for row in rows}
+        return {row.id: self._to_memory_item(row, embedding=None if include_embeddings else []) for row in rows}
 
     def list_recent_items(
         self,

@@ -254,12 +254,22 @@ class GraphMixin:
         atoms.sort(key=lambda atom: (atom.get("updated_at") or "", atom["id"]), reverse=True)
         page = atoms[:limit]
         memory_ids = {str(atom["id"]).removeprefix("memory:") for atom in page if str(atom["id"]).startswith("memory:")}
-        entities = {entity.id: entity for entity in store.entity_repo.list_all(where)}
+        mention_triples_by_memory = {
+            memory_id: store.triple_repo.get_edges_from(memory_id, predicate="mentions", where=where)
+            for memory_id in memory_ids
+        }
+        entity_ids = {
+            triple.object_id
+            for triples in mention_triples_by_memory.values()
+            for triple in triples
+            if triple.object_kind == "entity"
+        }
+        entities = {entity.id: entity for entity in store.entity_repo.list_by_ids(entity_ids, where)}
         entities_by_memory: dict[str, list[tuple[str, str]]] = {}
-        for memory_id in memory_ids:
+        for memory_id, triples in mention_triples_by_memory.items():
             pairs = []
-            for triple in store.triple_repo.get_edges_from(memory_id, predicate="mentions", where=where):
-                if triple.object_kind != "entity" or triple.object_id not in entities:
+            for triple in triples:
+                if triple.object_id not in entities:
                     continue
                 entity = entities[triple.object_id]
                 pairs.append((f"entity:{entity.id}", entity.name))

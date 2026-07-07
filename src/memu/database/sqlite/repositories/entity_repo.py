@@ -129,5 +129,16 @@ class SQLiteEntityRepo(SQLiteRepoBase, EntityRepo):
             rows = session.exec(stmt).all()
             return [self._row_to_entity(r) for r in rows]
 
+    def list_by_ids(self, entity_ids: set[str], where: Mapping[str, Any] | None = None) -> list[Entity]:
+        if not entity_ids:
+            return []
+        with self._sessions.session() as session:
+            stmt = select(self._entity_model).where(self._entity_model.id.in_(entity_ids))
+            filters = self._build_filters(self._entity_model, where)
+            if filters:
+                stmt = stmt.where(*filters)
+            rows = session.exec(stmt).all()
+            return [self._row_to_entity(r) for r in rows]
+
 
 __all__ = ["SQLiteEntityRepo"]

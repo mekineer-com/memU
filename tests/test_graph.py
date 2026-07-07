@@ -23,6 +23,8 @@ class _Repo:
         self.value = value
         self.list_items_calls = 0
         self.list_items_by_ids_calls = 0
+        self.list_all_calls = 0
+        self.list_by_ids_calls = 0
 
     def list_items(self, where=None, *, include_superseded=False):
         self.list_items_calls += 1
@@ -42,7 +44,14 @@ class _Repo:
         return self.value
 
     def list_all(self, where=None):
+        self.list_all_calls += 1
         return self.value
+
+    def list_by_ids(self, entity_ids, where=None):
+        self.list_by_ids_calls += 1
+        if isinstance(self.value, dict):
+            return [self.value[entity_id] for entity_id in entity_ids if entity_id in self.value]
+        return [entity for entity in self.value if entity.id in entity_ids]
 
 
 class _Triples:
@@ -328,6 +337,10 @@ def test_graph_atomic_canvas_source_filters_before_item_scan():
     )
     db.memory_item_repo.value["m1"].embedding = [1.0, 0.0]
     db.memory_item_repo.value["m2"].embedding = [0.9, 0.1]
+    db.triple_repo.get_edges_from = lambda subject_id, predicate=None, where=None: [  # type: ignore[method-assign]
+        SimpleNamespace(object_kind="entity", object_id="e1")
+    ] if subject_id == "m1" and predicate == "mentions" else []
+    db.entity_repo.value.append(SimpleNamespace(id="e1", name="Visible entity"))
 
     out = _Service(db).graph_atomic_canvas_source(
         limit=10,
@@ -337,6 +350,9 @@ def test_graph_atomic_canvas_source_filters_before_item_scan():
     assert {atom["id"] for atom in out["atoms"]} == {"memory:m1", "category:c1"}
     assert db.memory_item_repo.list_items_calls == 0
     assert db.memory_item_repo.list_items_by_ids_calls == 1
+    assert db.entity_repo.list_all_calls == 0
+    assert db.entity_repo.list_by_ids_calls == 1
+    assert next(atom for atom in out["atoms"] if atom["id"] == "memory:m1")["entity_names"] == ["Visible entity"]
 
 
 def test_graph_atomic_neighborhood_is_seeded_by_memory():
