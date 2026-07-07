@@ -15,10 +15,6 @@ import pendulum
 logger = logging.getLogger(__name__)
 
 
-class ExtractionParseError(ValueError):
-    """Raised when an extraction response cannot be parsed as valid XML."""
-
-
 def _normalize_reflection_salience(value: Any) -> float | None:
     try:
         parsed = float(value)

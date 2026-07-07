@@ -4,16 +4,14 @@ import pytest
 from pydantic import BaseModel
 
 from memu.app.memorize import SpeakerRosterEntry
-from memu.app.memorize_speakers import _build_speaker_roster_if_ambiguous
 from memu.app.service import MemoryService
 
 
-def _make_roster(speaker_map):
-    return _build_speaker_roster_if_ambiguous(
-        speaker_map,
-        roster_entry_factory=lambda speaker_id, speaker_label, coarse_role: SpeakerRosterEntry(
-            speaker_id, speaker_label, coarse_role
-        ),
+def _make_roster(service, speaker_map):
+    return service._build_speaker_roster_for_segment(
+        speaker_map=speaker_map,
+        declared_entities=None,
+        segment_text="",
     )
 
 
@@ -35,7 +33,7 @@ def test_unambiguous_episode_skips_roster(service: MemoryService) -> None:
         0: ("user:marcos", "Marcos"),
         1: ("soul:siri", "Siri"),
     }
-    roster = _make_roster(speaker_map)
+    roster = _make_roster(service, speaker_map)
     assert roster is None
 
     prompt = service._build_memory_type_prompt(
@@ -56,7 +54,7 @@ def test_ambiguous_segment_attaches_roster_and_accepts_valid_speaker_ref(service
         11: ("entity:bob", "Bob"),
         12: ("soul:siri", "Siri"),
     }
-    roster = _make_roster(speaker_map)
+    roster = _make_roster(service, speaker_map)
     assert roster is not None
     assert len(roster) == 3
 
@@ -105,7 +103,7 @@ def test_parser_rejects_hallucinated_speaker_ref_and_leaves_speaker_null(service
         20: ("entity:alice", "Alice"),
         21: ("entity:bob", "Bob"),
     }
-    roster = _make_roster(speaker_map)
+    roster = _make_roster(service, speaker_map)
     assert roster is not None
 
     response = """

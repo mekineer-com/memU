@@ -9,11 +9,6 @@ class LLMBackend:
     name: str = "base"
     summary_endpoint: str = "/chat/completions"
 
-    def build_summary_payload(
-        self, *, text: str, system_prompt: str | None, chat_model: str, max_tokens: int | None
-    ) -> dict[str, Any]:
-        raise NotImplementedError
-
     def parse_summary_response(self, data: dict[str, Any]) -> str:
         raise NotImplementedError
 

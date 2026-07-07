@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import copy
 import time
 from collections.abc import Iterable
 from dataclasses import dataclass, field
@@ -47,79 +46,6 @@ class PipelineManager:
     def build(self, name: str) -> list[WorkflowStep]:
         revision = self._current_revision(name)
         return [step.copy() for step in revision.steps]
-
-    def config_step(self, name: str, step_id: str, configs: dict[str, Any]) -> int:
-        def mutator(steps: list[WorkflowStep]) -> None:
-            for step in steps:
-                if step.step_id == step_id:
-                    merged = dict(getattr(step, "config", {}) or {})
-                    merged.update(configs)
-                    step.config = merged
-                    return
-            msg = f"Step '{step_id}' not found in pipeline '{name}'"
-            raise KeyError(msg)
-
-        return self._mutate(name, mutator)
-
-    def insert_after(self, name: str, target_step_id: str, new_step: WorkflowStep) -> int:
-        def mutator(steps: list[WorkflowStep]) -> None:
-            for idx, step in enumerate(steps):
-                if step.step_id == target_step_id:
-                    steps.insert(idx + 1, new_step)
-                    return
-            msg = f"Step '{target_step_id}' not found in pipeline '{name}'"
-            raise KeyError(msg)
-
-        return self._mutate(name, mutator)
-
-    def insert_before(self, name: str, target_step_id: str, new_step: WorkflowStep) -> int:
-        def mutator(steps: list[WorkflowStep]) -> None:
-            for idx, step in enumerate(steps):
-                if step.step_id == target_step_id:
-                    steps.insert(idx, new_step)
-                    return
-            msg = f"Step '{target_step_id}' not found in pipeline '{name}'"
-            raise KeyError(msg)
-
-        return self._mutate(name, mutator)
-
-    def replace_step(self, name: str, target_step_id: str, new_step: WorkflowStep) -> int:
-        def mutator(steps: list[WorkflowStep]) -> None:
-            for idx, step in enumerate(steps):
-                if step.step_id == target_step_id:
-                    steps[idx] = new_step
-                    return
-            msg = f"Step '{target_step_id}' not found in pipeline '{name}'"
-            raise KeyError(msg)
-
-        return self._mutate(name, mutator)
-
-    def remove_step(self, name: str, target_step_id: str) -> int:
-        def mutator(steps: list[WorkflowStep]) -> None:
-            for idx, step in enumerate(steps):
-                if step.step_id == target_step_id:
-                    steps.pop(idx)
-                    return
-            msg = f"Step '{target_step_id}' not found in pipeline '{name}'"
-            raise KeyError(msg)
-
-        return self._mutate(name, mutator)
-
-    def _mutate(self, name: str, mutator: Any) -> int:
-        revision = self._current_revision(name)
-        steps = [step.copy() for step in revision.steps]
-        metadata = copy.deepcopy(revision.metadata)
-        mutator(steps)
-        self._validate_steps(steps, initial_state_keys=metadata.get("initial_state_keys"))
-        new_revision = PipelineRevision(
-            name=name,
-            revision=revision.revision + 1,
-            steps=steps,
-            created_at=time.time(),
-            metadata=metadata,
-        )
-        self._pipelines[name].append(new_revision)
-        return new_revision.revision
 
     def _current_revision(self, name: str) -> PipelineRevision:
         revisions = self._pipelines.get(name)

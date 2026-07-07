@@ -34,7 +34,7 @@ from memu.llm.wrapper import (
 )
 from memu.workflow.pipeline import PipelineManager
 from memu.workflow.runner import WorkflowRunner, resolve_workflow_runner
-from memu.workflow.step import WorkflowState, WorkflowStep
+from memu.workflow.step import WorkflowState
 
 TConfigModel = TypeVar("TConfigModel", bound=BaseModel)
 
@@ -396,41 +396,3 @@ class MemoryService(GraphMixin, MemorizeMixin, RetrieveMixin):
         if config is None:
             return model_type()
         return model_type.model_validate(config)
-
-    def configure_pipeline(self, *, step_id: str, configs: Mapping[str, Any], pipeline: str = "memorize") -> int:
-        revision = self._pipelines.config_step(pipeline, step_id, dict(configs))
-        return revision
-
-    def insert_step_after(
-        self,
-        *,
-        target_step_id: str,
-        new_step: WorkflowStep,
-        pipeline: str = "memorize",
-    ) -> int:
-        revision = self._pipelines.insert_after(pipeline, target_step_id, new_step)
-        return revision
-
-    def insert_step_before(
-        self,
-        *,
-        target_step_id: str,
-        new_step: WorkflowStep,
-        pipeline: str = "memorize",
-    ) -> int:
-        revision = self._pipelines.insert_before(pipeline, target_step_id, new_step)
-        return revision
-
-    def replace_step(
-        self,
-        *,
-        target_step_id: str,
-        new_step: WorkflowStep,
-        pipeline: str = "memorize",
-    ) -> int:
-        revision = self._pipelines.replace_step(pipeline, target_step_id, new_step)
-        return revision
-
-    def remove_step(self, *, target_step_id: str, pipeline: str = "memorize") -> int:
-        revision = self._pipelines.remove_step(pipeline, target_step_id)
-        return revision

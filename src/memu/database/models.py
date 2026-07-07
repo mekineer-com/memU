@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Any, Literal
 
 import pendulum
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
 
 MemoryType = Literal["profile", "knowledge", "behavior", "social", "episode", "skill", "tool", "narrative_self", "subconscious", "reflection"]
 
@@ -96,37 +96,6 @@ class CategoryItem(BaseRecord):
     category_id: str
 
 
-def merge_scope_model[TBaseRecord: BaseRecord](
-    user_model: type[BaseModel], core_model: type[TBaseRecord], *, name_suffix: str
-) -> type[TBaseRecord]:
-    """Create a scoped model inheriting both the user scope model and the core model."""
-    overlap = set(user_model.model_fields) & set(core_model.model_fields)
-    if overlap:
-        msg = f"Scope fields conflict with core model fields: {sorted(overlap)}"
-        raise TypeError(msg)
-
-    return type(
-        f"{user_model.__name__}{core_model.__name__}{name_suffix}",
-        (user_model, core_model),
-        {"model_config": ConfigDict(extra="allow")},
-    )
-
-
-def build_scoped_models(
-    user_model: type[BaseModel],
-) -> tuple[type[Resource], type[MemoryCategory], type[MemoryItem], type[CategoryItem], type[Entity], type[Triple]]:
-    """
-    Build scoped interface models (Pydantic) that inherit from the base record models and user scope.
-    """
-    resource_model = merge_scope_model(user_model, Resource, name_suffix="Resource")
-    memory_category_model = merge_scope_model(user_model, MemoryCategory, name_suffix="MemoryCategory")
-    memory_item_model = merge_scope_model(user_model, MemoryItem, name_suffix="MemoryItem")
-    category_item_model = merge_scope_model(user_model, CategoryItem, name_suffix="CategoryItem")
-    entity_model = merge_scope_model(user_model, Entity, name_suffix="Entity")
-    triple_model = merge_scope_model(user_model, Triple, name_suffix="Triple")
-    return resource_model, memory_category_model, memory_item_model, category_item_model, entity_model, triple_model
-
-
 __all__ = [
     "BaseRecord",
     "CategoryItem",
@@ -136,6 +105,4 @@ __all__ = [
     "MemoryType",
     "Resource",
     "Triple",
-    "build_scoped_models",
-    "merge_scope_model",
 ]

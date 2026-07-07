@@ -69,17 +69,6 @@ def _has_ambiguous_speaker_role(roster: Sequence[SpeakerLike]) -> bool:
     return any(count > 1 for count in role_counts.values())
 
 
-def _build_speaker_roster_if_ambiguous(
-    speaker_map: Mapping[int, tuple[str, str]] | None,
-    *,
-    roster_entry_factory: Callable[[str, str, str], TEntry],
-) -> list[TEntry] | None:
-    roster = _build_speaker_roster(speaker_map, roster_entry_factory=roster_entry_factory)
-    if not roster or not _has_ambiguous_speaker_role(roster):
-        return None
-    return roster
-
-
 def _is_user_declared_relationship_entity(entity: Any) -> bool:
     props = getattr(entity, "properties", None)
     if not isinstance(props, Mapping):
