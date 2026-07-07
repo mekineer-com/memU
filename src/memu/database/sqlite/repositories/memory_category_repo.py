@@ -211,7 +211,6 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
                 msg = f"Category with id {category_id} not found"
                 raise KeyError(msg)
             row.approved_summary = row.summary
-            row.updated_at = self._now()
             session.add(row)
             session.commit()
             session.refresh(row)

@@ -312,6 +312,7 @@ class GraphMixin:
         where: Mapping[str, Any] | None = None,
         depth: int = 1,
         min_similarity: float = 0.5,
+        similarity_limit: int = 5,
     ) -> dict[str, Any] | None:
         store = self._get_database()
         kind, _, raw_id = str(item_id or "").partition(":")
@@ -324,6 +325,7 @@ class GraphMixin:
             return {"center_atom_id": center["id"], "nodes": [center | {"depth": 0}], "edges": []}
 
         depth = max(0, int(depth or 1))
+        similarity_limit = max(1, min(int(similarity_limit or 5), 20))
         center_id = raw_id
         items = store.memory_item_repo.list_items(where)
         center_item = items.get(center_id)
@@ -388,7 +390,7 @@ class GraphMixin:
                     for item in items.values()
                     if item.id != center_id
                 ),
-                k=5,
+                k=similarity_limit,
             ):
                 if score < min_similarity:
                     continue

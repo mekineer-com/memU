@@ -459,6 +459,25 @@ def test_graph_atomic_neighborhood_includes_similarity_neighbors():
     assert db.memory_item_repo.list_items_by_ids_calls == 0
 
 
+def test_graph_atomic_neighborhood_honors_similarity_limit():
+    now = datetime(2026, 7, 1, tzinfo=UTC)
+    items = {"m10": _item("m10", "Center memory", now)}
+    items.update({f"m{idx}": _item(f"m{idx}", f"Similar memory {idx}", now) for idx in range(11, 18)})
+    db = SimpleNamespace(
+        memory_item_repo=_Repo(items),
+        memory_category_repo=_Repo({}),
+        category_item_repo=_Repo([]),
+        triple_repo=_Triples(),
+    )
+    for item in db.memory_item_repo.value.values():
+        item.embedding = [1.0, 0.0]
+
+    graph = _Service(db).graph_atomic_neighborhood("memory:m10", min_similarity=0.7, similarity_limit=6)
+
+    assert graph is not None
+    assert len(graph["nodes"]) == 7
+
+
 def test_graph_search_is_scoped_and_honors_since_days():
     service = MemoryService(
         database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
@@ -734,6 +753,28 @@ def test_graph_pending_and_memory_approval_semantics():
 
     service.graph_approve_memory(item.id, where=scope)
     assert service.graph_list_pending(where=scope)["items"] == []
+
+
+def test_category_approval_does_not_touch_updated_at():
+    service = MemoryService(
+        database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
+        user_config={"model": GraphScope},
+    )
+    store = service._get_database()
+    scope = {"user_id": "pending_category", "soul_id": "s"}
+    category = store.memory_category_repo.get_or_create_category(
+        name="Identity",
+        description="",
+        embedding=[0.1],
+        user_data=scope,
+    )
+    category = store.memory_category_repo.update_category(category_id=category.id, summary="new summary")
+    original_updated_at = category.updated_at
+
+    approved = store.memory_category_repo.approve_category_summary(category.id, where=scope)
+
+    assert approved.approved_summary == "new summary"
+    assert approved.updated_at == original_updated_at
 
 
 def test_graph_pending_excludes_superseded_memories():
