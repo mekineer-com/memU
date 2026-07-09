@@ -1861,7 +1861,7 @@ class MemorizeMixin:
             min_chunk_tokens = int(getattr(self.memorize_config, "min_chunk_tokens", 4000) or 4000)
         except (TypeError, ValueError, OverflowError):
             min_chunk_tokens = 4000
-        target = max(1, math.ceil(1.5 * (max(0, min_chunk_tokens) / 1000)))
+        target = max(1, math.ceil(1.2 * (max(0, min_chunk_tokens) / 1000)))
         return f"up to {target}"
 
     @staticmethod
