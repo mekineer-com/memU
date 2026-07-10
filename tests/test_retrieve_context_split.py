@@ -37,11 +37,11 @@ def test_format_query_context_uses_markdown_sections_and_chat_first_order():
     assert "## My SillyTavern Conversations:\n\n[10] [Marcos] hello" in rendered
     assert "## My WhatsApp Conversations:" in rendered
     assert "- [cross_conversation]:" not in rendered
-    assert "My Working Thoughts:\ntrack bridge duplication issue" in rendered
-    assert "My Intentions:\n- relax: Relax (reminder to breathe)" in rendered
+    assert "My working thoughts:\ntrack bridge duplication issue" in rendered
+    assert "My intentions:\n- relax: Relax (reminder to breathe)" in rendered
     assert rendered.index("## My SillyTavern Conversations:") < rendered.index("## My WhatsApp Conversations:")
-    assert rendered.index("## My WhatsApp Conversations:") < rendered.index("My Working Thoughts:")
-    assert rendered.index("My Working Thoughts:") < rendered.index("My Intentions:")
+    assert rendered.index("## My WhatsApp Conversations:") < rendered.index("My working thoughts:")
+    assert rendered.index("My working thoughts:") < rendered.index("My intentions:")
 
 
 def test_format_query_context_rejects_legacy_string_entries():

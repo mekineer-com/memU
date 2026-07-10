@@ -40,12 +40,6 @@ def _normalize_coarse_role(role: str | None) -> str:
     return "environment"
 
 
-def _message_from_whatsapp(message: Mapping[str, Any]) -> bool:
-    source_label = str(message.get("source_label") or "").strip().lower()
-    source_conversation_id = str(message.get("source_conversation_id") or "").strip().lower()
-    return source_label.startswith("whatsapp:") or source_conversation_id.startswith("whatsapp:")
-
-
 def _build_speaker_roster(
     speaker_map: Mapping[int, tuple[str, str]] | None,
     *,
@@ -222,10 +216,7 @@ def _build_speaker_map(
             speaker_id = _normalize_speaker_slug("soul", soul_name or speaker_label)
         elif role in {"user", "human", "participant"}:
             speaker_label = normalized_name or user_label_default
-            if _message_from_whatsapp(message) and normalized_name and normalized_name.casefold() != user_name.casefold():
-                speaker_id = _normalize_speaker_slug("user", normalized_name)
-            else:
-                speaker_id = user_id_default
+            speaker_id = user_id_default
         elif normalized_name:
             speaker_label = normalized_name
             speaker_id = _normalize_speaker_slug("entity", normalized_name)
