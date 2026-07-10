@@ -28,19 +28,19 @@ def test_memory_type_target_items_uses_min_chunk_tokens() -> None:
         database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
         memorize_config={"min_chunk_tokens": 4000},
     )
-    assert service._memory_type_target_items() == "up to 6"
+    assert service._memory_type_target_items() == "up to 5"
 
     service = MemoryService(
         database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
         memorize_config={"min_chunk_tokens": 8000},
     )
-    assert service._memory_type_target_items() == "up to 12"
+    assert service._memory_type_target_items() == "up to 10"
 
     service = MemoryService(
         database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
         memorize_config={"min_chunk_tokens": 3000},
     )
-    assert service._memory_type_target_items() == "up to 5"
+    assert service._memory_type_target_items() == "up to 4"
 
 
 @pytest.mark.parametrize("memory_type", ["knowledge", "behavior"])
