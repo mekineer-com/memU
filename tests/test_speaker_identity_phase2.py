@@ -58,15 +58,17 @@ def _build_token_index(summary_tokens: Mapping[str, set[str]]) -> tuple[dict[str
 
 
 def test_build_speaker_map_resolves_user_soul_entity_and_environment(service: MemoryService) -> None:
-    # role=user is always the scope user; message.name is a display label, not a
-    # different identity. Third-party speakers come through role=entity or the
-    # ambiguous-episode roster (Phase 4) — never as role=user+name=SomeoneElse.
+    # Non-WhatsApp role=user is always the scope user; message.name is a display
+    # label, not a different identity. WhatsApp user-role rows can be distinct
+    # present humans, so their speaker labels become separate user:* speakers.
     episode_messages = [
         {"_message_index": 0, "role": "user", "name": "Marcos"},
         {"_message_index": 1, "role": "assistant", "name": "Siri"},
         {"_message_index": 2, "role": "user", "name": "MarcosDisplay"},
         {"_message_index": 3, "role": "entity", "name": "Brother"},
         {"_message_index": 4, "role": "system"},
+        {"_message_index": 5, "role": "user", "name": "Raquel", "source_label": "whatsapp:dm"},
+        {"_message_index": 6, "role": "user", "name": "Liz", "source_conversation_id": "whatsapp:group:familia"},
     ]
     speaker_map = service._build_speaker_map(episode_messages, {"user_id": "Marcos", "soul_id": "Siri"})
 
@@ -75,6 +77,8 @@ def test_build_speaker_map_resolves_user_soul_entity_and_environment(service: Me
     assert speaker_map[2] == ("user:marcos", "MarcosDisplay")
     assert speaker_map[3] == ("entity:brother", "Brother")
     assert speaker_map[4] == ("environment:system", "system")
+    assert speaker_map[5] == ("user:raquel", "Raquel")
+    assert speaker_map[6] == ("user:liz", "Liz")
 
 
 def test_attribute_memory_fills_when_unambiguous(service: MemoryService) -> None:
@@ -92,6 +96,16 @@ def test_attribute_memory_uses_source_role_to_disambiguate_mixed_speakers(servic
     attributed = service._attribute_memory(_entry(source_role="user", source_message_ids=[10, 11]), speaker_map)
     assert attributed.speaker_id == "user:marcos"
     assert attributed.speaker_label == "Marcos"
+
+
+def test_attribute_memory_leaves_null_when_multiple_whatsapp_users_share_role(service: MemoryService) -> None:
+    speaker_map = {
+        10: ("user:raquel", "Raquel"),
+        11: ("user:liz", "Liz"),
+    }
+    attributed = service._attribute_memory(_entry(source_role="user", source_message_ids=[10, 11]), speaker_map)
+    assert attributed.speaker_id is None
+    assert attributed.speaker_label is None
 
 
 def test_attribute_memory_leaves_null_when_role_stays_ambiguous(service: MemoryService) -> None:
