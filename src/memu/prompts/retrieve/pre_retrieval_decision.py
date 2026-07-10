@@ -125,7 +125,7 @@ SYSTEM_PROMPT = system_prompt_for_angle(0)
 USER_PROMPT = """
 {conversation_history}
 
-New message:
+New Message:
 {new_message}
 {retrieved_section}
 

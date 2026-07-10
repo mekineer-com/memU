@@ -671,10 +671,10 @@ class RetrieveMixin:
             blocks.append(cross_text)
         working_text = "\n".join(by_role.get("memory_cache", []))
         if working_text:
-            blocks.append(f"My working thoughts:\n{working_text}")
+            blocks.append(f"My Working Thoughts:\n{working_text}")
         intentions_text = "\n\n".join(by_role.get("intentions", []))
         if intentions_text:
-            blocks.append(f"My intentions:\n{intentions_text}")
+            blocks.append(f"My Intentions:\n{intentions_text}")
         blocks.extend(passthrough)
 
         if not blocks:
