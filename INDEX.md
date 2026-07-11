@@ -8,72 +8,71 @@
 | Package | Purpose |
 |---------|---------|
 | `app/service.py` | `MemoryService` — top-level facade, only public API |
-| `app/memorize.py` | Memorize workflow: preprocess → route → extract → store; `all_categories_summary` + `soul_card` threaded into extraction soul-context; deterministic speaker attribution (`speaker_id`/`speaker_label`) from segment message metadata + message-index provenance; extraction roster now supports two trigger paths: ambiguous same-role segments, or segments that mention user-declared relationship entities (so 1:1 chats can still emit valid `<speaker_ref>` for quoted third parties); roster refs are fail-closed (unknown refs ignored); semantic dedupe now keys by `(source_role, speaker_id, summary)` so same content from different speakers does not collapse; reinforcement roll-up on dedupe merge (`reinforcement_count` + `last_reinforced_at` accumulated on survivor when `enable_item_reinforcement=true`); conversation segments are passed whole via `memorize_segment()` / `memorize_segments_batch()`, routed individually, and extracted per segment/type without AI-visible segment-number citations; router still produces titled `episode_items`; segment provenance (`segment_id`) is threaded into persisted episode/entry memory writes; after each MemoryItem is created, `<entities>` XML from the extraction response is parsed → `entity_repo.get_or_create()` per entity → `mentions` triple written; supersession also writes `evolved_into` triple (old item → new); parse failures in `_generate_entries_from_text` raise `ValueError` and retry the LLM call once before propagating (segment stays un-memorized for server retry loop) |
-| `app/memorize_parsing.py` | Parsing/normalization seam for memorize extraction inputs/outputs: message-index extraction, source-message-id normalization fallback, conversation timestamp parsing, and XML/JSON memory-type response parsing |
-| `app/memorize_speakers.py` | Speaker attribution seam for memorize: speaker-id slugging, roster construction/validation, prompt-label sanitization, parsed speaker_ref resolution, and source-message speaker attribution helpers |
-| `app/memorize_dedupe.py` | Dedupe/supersession seam for memorize: semantic dedupe scope/filtering, similarity scoring and re-embed fallback, merged-category-update filtering, and `replaces_previous_fact` supersede target resolution |
-| `app/memorize_categories.py` | Category seam for memorize: homeless-entry clustering, dynamic-category planning/creation, category init/scope mapping, and category-summary update rendering; category summary overwrites journal old→new via `category_summary_journal.py`; agent-name fallback is "the soul" (not "the assistant"); dynamic-category planning LLM calls route through `_select_chat_client` (Claude-Code-aware, ensures claude_code=true uses step seam) |
-| `app/category_summary_journal.py` | Append-only category-summary journal under `memu/journal/` plus shared helper that writes journal first, then updates `MemoryCategory.summary` + `previous_summary`. |
-| `app/graph.py` | `GraphMixin` — bounded graph reads (`graph_memory`, `graph_nodes`, `graph_related`), Atomic read surfaces (`graph_atomic_atoms`, `graph_atomic_tags`, `graph_atomic_canvas_source` (accepts optional `atom_ids` set for subset-only rebuilds), `graph_atomic_neighborhood`, `graph_atomic_similar` (cosine-similar neighbors as pure similarity graph, no DB expansion), `graph_search`: scoped FTS + vector over memory items plus category-summary matches), memory-summary edits (`update_memory_summary` — embed-first, whitespace-no-op guarded, writes `memory_item_edit_history`), category-summary edits (`update_category_summary` — delegates to `category_summary_journal.py` helper), Atomic approval review (`graph_list_pending`, `graph_approve_memory` (preserves original `happened_at` on approve), `graph_approve_category`), and scoped hard-delete (`graph_delete_memory` — removes fts/edit_history/category_items/triples + item in one transaction); semantic edge predicates: `caused_by`, `evokes`, `conflicts_with`, `parallels`, `shaped_by`; `list_items_by_ids` backed by `memory_item.py` repo |
-| `app/memorize_persistence.py` | Persistence seam for memorize: resource creation, item/link/triple writes, item-reference backfill, and happened-at resolution |
-| `app/memorize_segments.py` | Segment/preprocess seam for memorize: modality preprocessing dispatch, segment text preparation, background-context rendering, multimodal response parsing, segment payload normalization, batched background-tail summarization (single call keyed by source), rolling-summary merge helper for per-chat background rollups, and optional `on_extraction_progress(current, total)` callback fired after each memory-type extraction completes (used by server to update granular memorize progress); background rollup LLM calls and batched background-tail summaries route through step LLM client (ensures claude_code mode uses step seam, not default HTTP model); pre-memorize background-tail step id is `background_extra_messages`; segment payload key is `segment_background_context_rows` |
-| `app/retrieve.py` | Retrieve workflow: derive `active_query` from soul context → embed → rank → judge; server-provided context queries (identity, summaries, cache, intentions, recent history) are preserved across steps and rendered as plain text in soul context; `force_retrieve` skips the retrieve/no-retrieve decision and uses a query-only prompt before item recall; optional `as_of` filters graph edges by `valid_from`/`valid_to`; serialized retrieved memory items explicitly carry `speaker_id` + `speaker_label` when present; `mental_health_query` preserved across all retrieve steps |
+| `app/memorize.py` | Memorize workflow: preprocess → route → extract → store. Roster supports same-role ambiguity + relationship-entity triggers; dedupe keys by `(source_role, speaker_id, summary)`; parse failures retry once before propagating. |
+| `app/memorize_parsing.py` | Parsing/normalization seam: message-index extraction, source-message-id normalization, timestamp parsing, XML/JSON memory-type response parsing |
+| `app/memorize_speakers.py` | Speaker attribution seam: speaker-id slugging, roster construction/validation, prompt-label sanitization, speaker_ref resolution |
+| `app/memorize_dedupe.py` | Dedupe/supersession seam: semantic dedupe, similarity scoring, re-embed fallback, `replaces_previous_fact` supersede resolution |
+| `app/memorize_categories.py` | Category seam: homeless-entry clustering, dynamic-category planning/creation, summary update via journal. Seed defaults live in `mcp-memu-server/config.json` — engine defaults are overridden by the server. |
+| `app/category_summary_journal.py` | Append-only category-summary journal under `memu/journal/`; writes journal then updates `MemoryCategory.summary` + `previous_summary` |
+| `app/graph.py` | `GraphMixin` — graph reads, Atomic read surfaces (atoms/tags/canvas/neighborhood/similar/search), memory/category edits, approval review, hard-delete. Edge predicates: `caused_by`, `evokes`, `conflicts_with`, `parallels`, `shaped_by`. |
+| `app/memorize_persistence.py` | Persistence seam: resource creation, item/link/triple writes, item-reference backfill, happened-at resolution |
+| `app/memorize_segments.py` | Segment/preprocess seam: modality dispatch, segment text prep, background-tail summarization, rolling-summary merge, `on_extraction_progress` callback |
+| `app/retrieve.py` | Retrieve workflow: derive `active_query` → embed → rank → judge. `force_retrieve` skips the retrieve/no-retrieve gate. |
 | `app/settings.py` | Pydantic config models (MemorizeConfig, RetrieveConfig, LLMProfile, etc.) |
 | `database/models.py` | Backend-agnostic data models (MemoryItem, MemoryCategory, Resource, Entity, Triple) |
-| `database/factory.py` | `build_database()` — sqlite backend selector (Postgres backend removed) |
+| `database/factory.py` | `build_database()` — sqlite backend selector (Postgres removed) |
 | `database/interfaces.py` | `Database` Protocol — the repo surface engine code programs against |
-| `database/state.py` | `DatabaseState` dataclass — in-memory cache of loaded categories/resources used by workflow ctx |
-| `database/vector.py` | Cosine + RRF helpers: `cosine_topk`, `reciprocal_rank_fusion`, `salience_score`, `rerank_by_salience` |
-| `database/sqlite/sqlite.py` | `SQLiteStore` — concrete backend; includes idempotent `_ensure_*_columns` migration helpers |
-| `database/sqlite/schema.py` | Per-scope SQLAlchemy model factory (`get_sqlite_sqlalchemy_models`); deep-copies columns per derivation |
-| `database/sqlite/models.py` | Per-table model classes + `build_sqlite_table_model` — wires scope fields into each table |
+| `database/state.py` | `DatabaseState` dataclass — in-memory cache of loaded categories/resources |
+| `database/vector.py` | `cosine_topk`, `reciprocal_rank_fusion`, `salience_score`, `rerank_by_salience` |
+| `database/sqlite/sqlite.py` | `SQLiteStore` — concrete backend; idempotent `_ensure_*_columns` migration helpers |
+| `database/sqlite/schema.py` | Per-scope SQLAlchemy model factory (`get_sqlite_sqlalchemy_models`) |
+| `database/sqlite/models.py` | Per-table model classes + `build_sqlite_table_model` |
 | `database/sqlite/session.py` | Session factory + async engine wrapper |
-| `database/postgres/` | Removed. If Postgres returns, rebuild as a thin adapter over shared repo logic. |
-| `database/repositories/` | Backend-agnostic Protocol contracts: `memory_item.py`, `memory_category.py`, `resource.py`, `entity.py`, `triple.py`, `category_item.py` |
+| `database/postgres/` | Removed. If Postgres returns, rebuild as thin adapter over shared repo logic. |
+| `database/repositories/` | Backend-agnostic Protocol contracts: memory_item, memory_category, resource, entity, triple, category_item |
 | `llm/wrapper.py` | LLM client factory — dispatches to backends |
 | `llm/backends/` | Provider impls: `openai.py` (httpx-based, covers OpenAI-compatible APIs) |
-| `llm/claude_cli.py` | `ClaudeCLIClient` — Claude Code CLI adapter. Runs `claude -p --model ... --system-prompt-file ...` in a persistent workspace; unwraps the `{"type":"result","result":"...","usage":{}}` envelope from `--output-format json`; uses soul workspace for session/resume calls, neutral internal workspace for no-session calls (prevents persona bleed). |
+| `llm/claude_cli.py` | `ClaudeCLIClient` — Claude Code CLI adapter. Uses soul workspace for session/resume calls, neutral workspace for no-session calls (prevents persona bleed). |
 | `embedding/` | Embedding client factory + backends (same pattern as llm/) |
 | `workflow/` | DAG runner: `step.py` (unit), `pipeline.py` (graph), `runner.py` (executor) |
 | `blob/local_fs.py` | Local filesystem media storage |
-| `utils/` | Format converters (conversation, references, video) |
-| `utils/conversation.py` | Shared chat display utilities: `format_grouped_chat_history()` (platform/chat headings + `[Name] message` lines + date dividers; `activity:dm:{soul}` conversation renders as `My Activities:` section and is always first), `format_chat_messages()`, `display_speaker_label()`, `format_relative_time_label()`. Used by turn_contract, consolidation excerpts, and memorize rendering. Canonical source for all AI-facing chat display. |
+| `utils/conversation.py` | Canonical source for all AI-facing chat display: `format_grouped_chat_history()`, platform/chat headings, date dividers, `My Activities:` always first. Used by turn_contract, consolidation, and memorize rendering. |
 
 ## Prompts (`src/memu/prompts/`)
 
 | Directory | Files | Purpose |
 |-----------|-------|---------|
-| `memory_type/` | `profile.py`, `behavior.py`, `knowledge.py`, `social.py` | Per-type extraction prompts (PROMPT + CUSTOM_PROMPT). These four are active (DEFAULT_MEMORY_TYPES). `skill.py` and `tool.py` exist but are not active extraction types. `event.py` removed — episodes are episodic memory; archived to `_archive/event-memory-type/`. |
+| `memory_type/` | `profile.py`, `behavior.py`, `knowledge.py`, `social.py` | Per-type extraction prompts (PROMPT + CUSTOM_PROMPT). These four are active (DEFAULT_MEMORY_TYPES). `skill.py` and `tool.py` exist but are inactive. `event.py` removed — archived to `_archive/event-memory-type/`. |
 | `memory_type/__init__.py` | — | PROMPTS dict, DEFAULT_MEMORY_TYPES list |
 | `preprocess/` | `document.py`, `image.py`, `audio.py`, `video.py` | Input normalization for non-chat modalities |
-| `router/router.py` | — | Route input by excluded memory types and produce `segment_summary` plus 1..N titled `episode_items` story distillations (no memorable/not-memorable gate) |
-| `retrieve/` | `pre_retrieval_decision.py` | Retrieve/no-retrieve and active-query prompt; item ranking is code/config in `app/retrieve.py` + `RetrieveItemConfig` |
-| `category_summary/` | `category.py`, `category_with_refs.py` | Category synthesis; both prompts treat `[reinforced Nx]` markers as frequency signals — instruct LLM to use "often", "frequently", "tends to" rather than treating as a one-off fact |
-| `consolidation/` | `consolidation.py` | Consolidation prompt: narrative_self, life_goals, intentions, edges, companion_memory. Weekly reflection cycle. |
+| `router/router.py` | — | Route input by excluded memory types; produce `segment_summary` + 1..N titled `episode_items` |
+| `retrieve/` | `pre_retrieval_decision.py` | Retrieve/no-retrieve and active-query prompt |
+| `category_summary/` | `category.py`, `category_with_refs.py` | Category synthesis; treat `[reinforced Nx]` markers as frequency signals, not one-off facts |
+| `consolidation/` | `consolidation.py` | Consolidation prompt: narrative_self, life_goals, intentions, edges, companion_memory |
 
 ## Task → Files
 
 | Task | Read first | Then modify |
 |------|-----------|-------------|
-| Add memory type | `prompts/memory_type/__init__.py`, `database/models.py` | New `prompts/memory_type/{type}.py`, update `__init__.py` PROMPTS dict, add to MemoryType literal |
-| Tune extraction | `prompts/memory_type/{type}.py` | Edit PROMPT / CUSTOM_PROMPT in that file |
+| Add memory type | `prompts/memory_type/__init__.py`, `database/models.py` | New `prompts/memory_type/{type}.py`, update PROMPTS dict + MemoryType literal |
+| Tune extraction | `prompts/memory_type/{type}.py` | Edit PROMPT / CUSTOM_PROMPT |
 | Tune routing | `prompts/router/router.py` | Edit routing prompt directly |
-| Change categories | `app/settings.py` (CategoryConfig), `prompts/category_summary/` | Target prompt file + settings. **Seed defaults live in `mcp-memu-server/config.json` `categories.defaults[]`** — engine settings.py defaults are overridden by the server. |
-| Modify retrieval | `app/retrieve.py`, `app/settings.py`, `prompts/retrieve/pre_retrieval_decision.py` | Retrieval logic/config or the pre-retrieval query prompt |
-| Add LLM provider | `llm/backends/base.py`, any existing backend | New `llm/backends/{provider}.py`, register in `llm/wrapper.py` |
+| Change categories | `app/settings.py`, `prompts/category_summary/` | Prompt file + settings; seed defaults in `mcp-memu-server/config.json` |
+| Modify retrieval | `app/retrieve.py`, `app/settings.py`, `prompts/retrieve/pre_retrieval_decision.py` | — |
+| Add LLM provider | `llm/backends/base.py` | New `llm/backends/{provider}.py`, register in `llm/wrapper.py` |
 | Add embedding provider | `embedding/backends/base.py` | New `embedding/backends/{provider}.py`, register in `embedding/http_client.py` |
-| Change DB schema | `database/models.py`, `database/sqlite/schema.py` | Both files (sqlite only in current codebase) |
+| Change DB schema | `database/models.py`, `database/sqlite/schema.py` | Both files |
 | Run the test suite | `tests/README.md` | — |
 
 ## Database Tables
 
 | Table | Key Fields |
 |-------|-----------|
-| `MemoryItem` | id, memory_type, summary, embedding, happened_at, source_role, speaker_id, speaker_label, confidence, emotional_intensity, source_message_ids, reflection_salience, conversation_id, segment_id, merged_into, extra (JSON), approved_at (nullable TEXT; NULL = pending review; backfilled to CURRENT_TIMESTAMP when column first added) |
-| `MemoryCategory` | id, name, description, embedding, summary, approved_summary (nullable TEXT; NULL or mismatch with summary = pending review; backfilled to summary when column first added) |
+| `MemoryItem` | id, memory_type, summary, embedding, happened_at, source_role, speaker_id, speaker_label, confidence, emotional_intensity, source_message_ids, reflection_salience, conversation_id, segment_id, merged_into, extra (JSON), approved_at |
+| `MemoryCategory` | id, name, description, embedding, summary, approved_summary |
 | `CategoryItem` | id, item_id, category_id |
 | `Resource` | id, url, modality, local_path, caption, embedding |
-| `Entity` | id, name, entity_type (person/topic/place/project), normalized (lookup key), properties (JSON) |
-| `Triple` | id, subject_id, subject_kind (entity/memory), predicate, object_id, object_kind, valid_from, valid_to (NULL=current), confidence, source_memory_id, properties (JSON) |
-| `memory_item_edit_history` | item_id, old_summary, new_summary, edited_at — append-only audit log written by `graph.py` `update_memory_summary()` before each DB update |
-| `MemoryCategory.previous_summary` | nullable column added at runtime (ensure); stores the summary value before each overwrite (both graph edits and memorize pipeline) |
+| `Entity` | id, name, entity_type (person/topic/place/project), normalized, properties (JSON) |
+| `Triple` | id, subject_id, subject_kind, predicate, object_id, object_kind, valid_from, valid_to (NULL=current), confidence, source_memory_id, properties (JSON) |
+| `memory_item_edit_history` | item_id, old_summary, new_summary, edited_at — append-only audit log |
+| `MemoryCategory.previous_summary` | stores summary before each overwrite |
