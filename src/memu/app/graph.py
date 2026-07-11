@@ -7,6 +7,7 @@ from typing import Any
 import numpy as np
 
 from memu.app.category_summary_journal import update_category_summary_with_journal
+from memu.app.memorize_dedupe import _cosine_similarity
 from memu.database.vector import cosine_topk
 
 SEMANTIC_PREDICATES = ["caused_by", "evokes", "conflicts_with", "parallels", "shaped_by"]
@@ -25,6 +26,73 @@ def _utc(value: Any) -> datetime | None:
     if not isinstance(value, datetime):
         return None
     return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
+
+DUPE_CLUSTER_THRESHOLD = 0.80
+
+
+def _cluster_by_embedding(items: list[Any]) -> dict[str, dict[str, Any]]:
+    """Cluster items by pairwise cosine similarity (transitive closure).
+
+    Returns {item_id: {"similar_to": [...], "similarity": float}} for clustered
+    items only; non-clustered items are absent (absence = not a dupe).
+    """
+    # ponytail: O(n^2) pairwise scan — pending lists are small; revisit if that changes.
+    n = len(items)
+    pairs: list[tuple[int, int, float]] = []
+    for i in range(n):
+        vec_i = items[i].embedding
+        if not vec_i:
+            continue
+        for j in range(i + 1, n):
+            vec_j = items[j].embedding
+            if not vec_j:
+                continue
+            score = _cosine_similarity(vec_i, vec_j)
+            if score >= DUPE_CLUSTER_THRESHOLD:
+                pairs.append((i, j, score))
+
+    if not pairs:
+        return {}
+
+    parent = list(range(n))
+
+    def find(x: int) -> int:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(x: int, y: int) -> None:
+        rx, ry = find(x), find(y)
+        if rx != ry:
+            parent[rx] = ry
+
+    for i, j, _score in pairs:
+        union(i, j)
+
+    best_score: dict[int, float] = {}
+    for i, j, score in pairs:
+        best_score[i] = max(best_score.get(i, 0.0), score)
+        best_score[j] = max(best_score.get(j, 0.0), score)
+
+    groups: dict[int, list[int]] = {}
+    for idx in best_score:
+        groups.setdefault(find(idx), []).append(idx)
+
+    result: dict[str, dict[str, Any]] = {}
+    for members in groups.values():
+        if len(members) < 2:
+            continue
+        group_key = min(items[m].id for m in members)
+        for idx in members:
+            others = [f"memory:{items[m].id}" for m in members if m != idx]
+            result[items[idx].id] = {
+                "similar_to": others,
+                "similarity": round(best_score[idx], 3),
+                "_group_key": group_key,
+            }
+    return result
 
 
 def _atomic_similarity_edges(atoms: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -553,15 +621,29 @@ class GraphMixin:
                 category_names_by_item.setdefault(rel.item_id, []).append(category.name)
                 category_ids_by_item.setdefault(rel.item_id, []).append(rel.category_id)
 
-        pending_items = [
-            self._memory_node(
+        pending_source = [item for item in items.values() if getattr(item, "approved_at", None) is None]
+        clusters = _cluster_by_embedding(pending_source)
+        # Reorder so cluster members are adjacent; non-clustered items keep their place after clusters.
+        original_order = {item.id: idx for idx, item in enumerate(pending_source)}
+        pending_source.sort(
+            key=lambda item: (
+                item.id not in clusters,
+                clusters.get(item.id, {}).get("_group_key", ""),
+                original_order[item.id],
+            )
+        )
+        pending_items = []
+        for item in pending_source:
+            node = self._memory_node(
                 item,
                 category_names=category_names_by_item.get(item.id, []),
                 category_ids=category_ids_by_item.get(item.id, []),
             )
-            for item in items.values()
-            if getattr(item, "approved_at", None) is None
-        ]
+            cluster_info = clusters.get(item.id, {})
+            if cluster_info:
+                node["similar_to"] = cluster_info["similar_to"]
+                node["similarity"] = cluster_info["similarity"]
+            pending_items.append(node)
         pending_categories = [
             self._category_node(category)
             for category in categories.values()

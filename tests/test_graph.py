@@ -913,6 +913,37 @@ def test_graph_pending_excludes_superseded_memories():
     assert store.triple_repo.get_edges_from(old.id, predicate="evolved_into", where=scope)
 
 
+def test_graph_pending_groups_near_duplicate_embeddings():
+    service = MemoryService(
+        database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
+        user_config={"model": GraphScope},
+    )
+    store = service._get_database()
+    scope = {"user_id": "pending_dupe", "soul_id": "s"}
+    dupe_a = store.memory_item_repo.create_item(
+        memory_type="episode", summary="likes coffee in the morning", embedding=[1.0, 0.0], user_data=scope
+    )
+    dupe_b = store.memory_item_repo.create_item(
+        memory_type="episode", summary="enjoys morning coffee", embedding=[0.99, 0.01], user_data=scope
+    )
+    distinct = store.memory_item_repo.create_item(
+        memory_type="episode", summary="lives in Lisbon", embedding=[0.0, 1.0], user_data=scope
+    )
+
+    items = service.graph_list_pending(where=scope)["items"]
+    by_id = {node["memory_id"]: node for node in items}
+
+    assert by_id[dupe_a.id]["similar_to"] == [f"memory:{dupe_b.id}"]
+    assert by_id[dupe_b.id]["similar_to"] == [f"memory:{dupe_a.id}"]
+    assert by_id[dupe_a.id]["similarity"] > 0.99
+    assert by_id[dupe_b.id]["similarity"] > 0.99
+    assert "similar_to" not in by_id[distinct.id]
+    assert "similarity" not in by_id[distinct.id]
+
+    ids_in_order = [node["memory_id"] for node in items]
+    assert abs(ids_in_order.index(dupe_a.id) - ids_in_order.index(dupe_b.id)) == 1
+
+
 def test_graph_delete_memory_removes_dependents():
     service = MemoryService(
         database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},

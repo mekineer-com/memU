@@ -248,7 +248,7 @@ class MemorizeConfig(BaseModel):
         description="Enable conservative post-persist semantic dedupe in memorize workflow.",
     )
     semantic_dedupe_similarity_threshold: float = Field(
-        default=0.89,
+        default=0.85,
         description="Cosine similarity threshold for semantic dedupe auto-merge decisions.",
     )
 
