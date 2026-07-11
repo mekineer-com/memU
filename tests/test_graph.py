@@ -1,16 +1,17 @@
 import asyncio
 import json
 import sqlite3
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
-from datetime import datetime, UTC, timedelta
 
 import pytest
+from pydantic import BaseModel
+
 from memu.app import category_summary_journal
 from memu.app.graph import GraphMixin
 from memu.app.memorize_categories import _update_category_summaries
 from memu.app.service import MemoryService
 from memu.database.models import Triple
-from pydantic import BaseModel
 
 
 class GraphScope(BaseModel):
@@ -813,19 +814,42 @@ def test_graph_pending_and_memory_approval_semantics():
     approved = store.memory_item_repo.list_items_by_ids({item.id}, scope)[item.id]
     assert approved.approved_at is not None
     assert approved.updated_at == original_updated_at
+    approved_again = store.memory_item_repo.approve_item(item.id, where=scope)
+    assert approved_again.approved_at == approved.approved_at
 
     class _Embedder:
         async def embed(self, texts):
             return [[0.2]]
 
     service._select_embedding_client = lambda _ctx: _Embedder()  # type: ignore[method-assign]
+
+    # Soul edit (approved=False) re-opens approval.
     asyncio.run(service.graph_update_memory_summary(item.id, summary="siri edit", where=scope))
     pending = service.graph_list_pending(where=scope)["items"]
-
     assert [node["memory_id"] for node in pending] == [item.id]
     assert pending[0]["approved_at"] is None
 
     service.graph_approve_memory(item.id, where=scope)
+    assert service.graph_list_pending(where=scope)["items"] == []
+    reapproved = store.memory_item_repo.list_items_by_ids({item.id}, scope)[item.id]
+    assert reapproved.approved_at is not None
+
+    # Human "Save" on an approved item keeps the original approval stamp.
+    asyncio.run(
+        service.graph_update_memory_summary(item.id, summary="human edit", where=scope, approved=True)
+    )
+    edited = store.memory_item_repo.list_items_by_ids({item.id}, scope)[item.id]
+    assert edited.approved_at == reapproved.approved_at
+    assert service.graph_list_pending(where=scope)["items"] == []
+
+    # Human "Save + approve" on a pending item stamps it.
+    asyncio.run(service.graph_update_memory_summary(item.id, summary="soul edit 2", where=scope))
+    assert service.graph_list_pending(where=scope)["items"] != []
+    asyncio.run(
+        service.graph_update_memory_summary(item.id, summary="human fix", where=scope, approved=True)
+    )
+    fixed = store.memory_item_repo.list_items_by_ids({item.id}, scope)[item.id]
+    assert fixed.approved_at is not None
     assert service.graph_list_pending(where=scope)["items"] == []
 
 

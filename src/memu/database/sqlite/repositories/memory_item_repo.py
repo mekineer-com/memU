@@ -9,8 +9,7 @@ from collections.abc import Mapping
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import func
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from sqlmodel import delete, select
 
 from memu.database.models import MemoryItem, MemoryType
@@ -407,10 +406,11 @@ WHERE version = 1 AND model IN ({placeholders})
             if row is None:
                 msg = f"Item with id {item_id} not found"
                 raise KeyError(msg)
-            row.approved_at = self._now()
-            session.add(row)
-            session.commit()
-            session.refresh(row)
+            if row.approved_at is None:
+                row.approved_at = self._now()
+                session.add(row)
+                session.commit()
+                session.refresh(row)
             return self._to_memory_item(row)
 
     def hard_delete_item(self, item_id: str, where: Mapping[str, Any] | None = None) -> MemoryItem:
@@ -647,7 +647,13 @@ VALUES (?, ?, ?, ?, ?, ?, ?)
             )
             row.summary = summary
             self._set_row_embedding(row, embedding)
-            row.approved_at = self._now() if approved else None
+            # Human edit (approved=True): "Save + approve" stamps a pending item once;
+            # an already-approved item just saves. Soul edits require re-approval.
+            if approved:
+                if row.approved_at is None:
+                    row.approved_at = self._now()
+            else:
+                row.approved_at = None
             row.updated_at = self._now()
             session.add(row)
             session.flush()
