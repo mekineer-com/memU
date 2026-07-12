@@ -233,7 +233,7 @@ class MemorizeConfig(BaseModel):
         default=CATEGORY_SUMMARY_PROMPT,
         description="Default system prompt for auto-generated category summaries.",
     )
-    category_summary_target_length: int = Field(
+    category_summary_target_words: int = Field(
         default=300,
         description="Target maximum word count for auto-generated category summaries.",
     )

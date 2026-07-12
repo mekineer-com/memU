@@ -625,7 +625,7 @@ def _build_category_summary_prompt(
         prompt = resolve_custom_prompt(configured_prompt, category_summary_custom_prompt)
     target_length = (
         category_config and category_config.target_length
-    ) or memorize_config.category_summary_target_length
+    ) or memorize_config.category_summary_target_words
     user_scope = user or {}
     user_name = summary_user_name(user_scope)
     raw_agent = (
