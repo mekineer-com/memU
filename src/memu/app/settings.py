@@ -233,9 +233,9 @@ class MemorizeConfig(BaseModel):
         default=CATEGORY_SUMMARY_PROMPT,
         description="Default system prompt for auto-generated category summaries.",
     )
-    default_category_summary_target_length: int = Field(
-        default=500,
-        description="Target max length for auto-generated category summaries.",
+    category_summary_target_length: int = Field(
+        default=300,
+        description="Target maximum word count for auto-generated category summaries.",
     )
     category_update_llm_profile: str = Field(default="default", description="LLM profile for category summary.")
     # Reference tracking for category summaries

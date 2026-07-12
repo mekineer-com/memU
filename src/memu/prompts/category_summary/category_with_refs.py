@@ -69,7 +69,7 @@ PROMPT_BLOCK_OUTPUT = """
 - User information item [ref:ITEM_ID,ITEM_ID2]
 ```
 
-Keep the output within {target_length} tokens. Include [ref:ITEM_ID] for any information from new memory items. Merge or omit less important details if needed.
+Keep the output within {target_length} words. Include [ref:ITEM_ID] for any information from new memory items. Merge or omit less important details if needed.
 """
 
 PROMPT_BLOCK_EXAMPLES = """

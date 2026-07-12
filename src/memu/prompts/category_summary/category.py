@@ -73,7 +73,7 @@ PROMPT_BLOCK_OUTPUT = """
 - Memory item
 ```
 
-Keep the output within {target_length} tokens. Merge or omit less important details if needed.
+Keep the output within {target_length} words. Merge or omit less important details if needed.
 """
 
 PROMPT_BLOCK_EXAMPLES = """
