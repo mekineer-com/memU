@@ -1219,6 +1219,25 @@ def test_update_category_summaries_journals_pipeline_overwrite(monkeypatch, tmp_
     assert entry["edited_by"] == "pipeline"
 
 
+def test_append_soul_summary_journal(monkeypatch, tmp_path):
+    monkeypatch.setattr(category_summary_journal, "JOURNAL_DIR", tmp_path)
+
+    category_summary_journal.append_summary_journal(
+        kind="narrative_self",
+        summary_id="soul-summary:narrative_self",
+        summary_before="before",
+        summary_after="after",
+        scope={"user_id": "u", "soul_id": "s"},
+        edited_by="consolidation",
+    )
+
+    entry = json.loads((tmp_path / "s.summary_journal.jsonl").read_text(encoding="utf-8"))
+    assert entry["kind"] == "narrative_self"
+    assert entry["summary_id"] == "soul-summary:narrative_self"
+    assert entry["summary_before"] == "before"
+    assert entry["summary_after"] == "after"
+
+
 def test_update_category_summaries_empty_pipeline_output_keeps_old_summary(monkeypatch, tmp_path):
     monkeypatch.setattr(category_summary_journal, "JOURNAL_DIR", tmp_path)
     service = MemoryService(

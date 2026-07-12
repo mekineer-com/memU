@@ -16,6 +16,33 @@ def _safe_soul_id(scope: Mapping[str, Any] | None) -> str:
     return safe or "unknown"
 
 
+def append_summary_journal(
+    *,
+    kind: str,
+    summary_id: str,
+    summary_before: str,
+    summary_after: str,
+    scope: Mapping[str, Any] | None,
+    edited_by: str | None = None,
+    category_id: str | None = None,
+) -> None:
+    JOURNAL_DIR.mkdir(parents=True, exist_ok=True)
+    entry = {
+        "ts": datetime.now(UTC).isoformat(),
+        "kind": kind,
+        "summary_id": summary_id,
+        "summary_before": summary_before,
+        "summary_after": summary_after,
+        "edited_by": edited_by,
+        "scope": dict(scope or {}),
+    }
+    if category_id is not None:
+        entry["category_id"] = category_id
+    path = JOURNAL_DIR / f"{_safe_soul_id(scope)}.summary_journal.jsonl"
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(entry, ensure_ascii=False, sort_keys=True) + "\n")
+
+
 def append_category_summary_journal(
     *,
     category_id: str,
@@ -24,18 +51,15 @@ def append_category_summary_journal(
     scope: Mapping[str, Any] | None,
     edited_by: str | None = None,
 ) -> None:
-    JOURNAL_DIR.mkdir(parents=True, exist_ok=True)
-    entry = {
-        "ts": datetime.now(UTC).isoformat(),
-        "category_id": category_id,
-        "summary_before": summary_before,
-        "summary_after": summary_after,
-        "edited_by": edited_by,
-        "scope": dict(scope or {}),
-    }
-    path = JOURNAL_DIR / f"{_safe_soul_id(scope)}.summary_journal.jsonl"
-    with path.open("a", encoding="utf-8") as fh:
-        fh.write(json.dumps(entry, ensure_ascii=False, sort_keys=True) + "\n")
+    append_summary_journal(
+        kind="category",
+        summary_id=f"category:{category_id}",
+        category_id=category_id,
+        summary_before=summary_before,
+        summary_after=summary_after,
+        scope=scope,
+        edited_by=edited_by,
+    )
 
 
 def update_category_summary_with_journal(
