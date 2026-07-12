@@ -210,7 +210,7 @@ class MemorizeConfig(BaseModel):
         description="When true, redistribute clustered confidence scores via z-score rescaling.",
     )
     dynamic_category_cluster_size: int = Field(
-        default=3,
+        default=10,
         description="Minimum number of homeless items that must cluster together (by embedding similarity) before that cluster becomes a new dynamic category.",
     )
     max_categories_total: int = Field(
