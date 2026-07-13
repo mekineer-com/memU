@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from time import perf_counter
@@ -138,6 +139,10 @@ def _atomic_similarity_edges(atoms: list[dict[str, Any]]) -> list[dict[str, Any]
             "predicate": "similarity",
         })
     return edges
+
+
+def _pack_embedding(values: list[float]) -> str:
+    return base64.b64encode(np.asarray(values, dtype="<f4").tobytes()).decode("ascii")
 
 
 class GraphMixin:
@@ -384,6 +389,8 @@ class GraphMixin:
         total_count = len(atoms) if atom_ids is not None else total_memory_count + sum(
             category.embedding is not None for category in category_values
         )
+        for atom in page:
+            atom["embedding_f32_le_b64"] = _pack_embedding(atom.pop("embedding"))
         finished = perf_counter()
         return {
             "atoms": page,
