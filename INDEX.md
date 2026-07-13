@@ -27,7 +27,7 @@
 | `database/sqlite/sqlite.py` | `SQLiteStore` — concrete backend; idempotent `_ensure_*_columns` migration helpers |
 | `database/sqlite/schema.py` | Per-scope SQLAlchemy model factory (`get_sqlite_sqlalchemy_models`) |
 | `database/sqlite/models.py` | Per-table model classes + `build_sqlite_table_model` |
-| `database/sqlite/session.py` | Session factory + async engine wrapper |
+| `database/sqlite/session.py` | Session factory; loads the required package-local `vec0.so` built by `scripts/build-sqlite-vec.sh` on every connection |
 | `database/postgres/` | Removed. If Postgres returns, rebuild as thin adapter over shared repo logic. |
 | `database/repositories/` | Backend-agnostic Protocol contracts: memory_item, memory_category, resource, entity, triple, category_item |
 | `llm/wrapper.py` | LLM client factory — dispatches to backends |

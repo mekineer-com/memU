@@ -21,6 +21,9 @@ from sqlmodel import Session, create_engine
 
 logger = logging.getLogger(__name__)
 
+SQLITE_VEC_VERSION = "v0.1.9"
+SQLITE_VEC_EXTENSION_PATH = Path(__file__).with_name("vec0.so")
+
 
 class SQLiteSessionManager:
     """Handle engine lifecycle and session creation for SQLite store."""
@@ -104,6 +107,27 @@ class SQLiteSessionManager:
 
         @event.listens_for(self._engine, "connect")
         def _set_sqlite_pragmas(dbapi_conn: Any, _conn_record: Any) -> None:
+            build_command = "scripts/build-sqlite-vec.sh"
+            if not SQLITE_VEC_EXTENSION_PATH.is_file():
+                msg = f"sqlite-vec extension not found at {SQLITE_VEC_EXTENSION_PATH}; run {build_command}"
+                raise RuntimeError(msg)
+            dbapi_conn.enable_load_extension(True)
+            try:
+                try:
+                    dbapi_conn.load_extension(str(SQLITE_VEC_EXTENSION_PATH))
+                except Exception as exc:
+                    msg = f"failed to load sqlite-vec extension at {SQLITE_VEC_EXTENSION_PATH}; run {build_command}"
+                    raise RuntimeError(msg) from exc
+            finally:
+                dbapi_conn.enable_load_extension(False)
+            version = dbapi_conn.execute("SELECT vec_version()").fetchone()[0]
+            if version != SQLITE_VEC_VERSION:
+                msg = (
+                    f"sqlite-vec version mismatch at {SQLITE_VEC_EXTENSION_PATH}: "
+                    f"expected {SQLITE_VEC_VERSION}, got {version}; run {build_command}"
+                )
+                raise RuntimeError(msg)
+
             try:
                 cur = dbapi_conn.cursor()
                 # WAL => readers don't block writers (and vice-versa) as much.

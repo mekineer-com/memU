@@ -62,6 +62,7 @@ Each entry reads as internalized professional knowledge — no framework names o
 
 ```bash
 pip install -e .
+scripts/build-sqlite-vec.sh
 ```
 
 Or with the monorepo venv:
@@ -69,7 +70,10 @@ Or with the monorepo venv:
 cd memu
 python3 -m venv --system-site-packages .venv
 .venv/bin/pip install -e .
+scripts/build-sqlite-vec.sh
 ```
+
+SQLite storage requires the pinned `sqlite-vec` extension built by that script. The generated package-local `vec0.so` is ignored by Git and loaded automatically by memU.
 
 ---
 
