@@ -59,14 +59,15 @@ def _build_token_index(summary_tokens: Mapping[str, set[str]]) -> tuple[dict[str
 
 def test_build_speaker_map_resolves_user_soul_entity_and_environment(service: MemoryService) -> None:
     # role=user is always the scope user; message.name is a display label, not a
-    # different identity. Third-party speakers come through role=entity or the
-    # ambiguous-episode roster (Phase 4) — never as role=user+name=SomeoneElse.
+    # different identity. Third-party speakers come through role=entity, a
+    # roleless named source row, or the ambiguous-episode roster (Phase 4).
     episode_messages = [
         {"_message_index": 0, "role": "user", "name": "Marcos"},
         {"_message_index": 1, "role": "assistant", "name": "Siri"},
         {"_message_index": 2, "role": "user", "name": "MarcosDisplay"},
         {"_message_index": 3, "role": "entity", "name": "Brother"},
         {"_message_index": 4, "role": "system"},
+        {"_message_index": 5, "name": "Group Member"},
     ]
     speaker_map = service._build_speaker_map(episode_messages, {"user_id": "Marcos", "soul_id": "Siri"})
 
@@ -75,6 +76,7 @@ def test_build_speaker_map_resolves_user_soul_entity_and_environment(service: Me
     assert speaker_map[2] == ("user:marcos", "MarcosDisplay")
     assert speaker_map[3] == ("entity:brother", "Brother")
     assert speaker_map[4] == ("environment:system", "system")
+    assert speaker_map[5] == ("entity:group_member", "Group Member")
 
 
 def test_attribute_memory_fills_when_unambiguous(service: MemoryService) -> None:
