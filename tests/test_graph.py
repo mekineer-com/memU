@@ -726,7 +726,7 @@ def test_graph_update_memory_summary_embeds_before_history_update(monkeypatch, t
     saved = store.memory_item_repo.get_item(item.id)
     assert updated["summary"] == "new summary"
     assert saved.summary == "new summary"
-    assert saved.embedding == [0.9, 0.8]
+    assert saved.embedding == pytest.approx([0.9, 0.8])
     with store._sessions.engine.connect() as conn:
         row = conn.exec_driver_sql(
             "SELECT summary_before, summary_after, scope_json FROM memory_item_edit_history"
@@ -760,7 +760,7 @@ def test_graph_update_memory_summary_embed_failure_leaves_memory_unchanged():
 
     saved = store.memory_item_repo.get_item(item.id)
     assert saved.summary == "old summary"
-    assert saved.embedding == [0.1]
+    assert saved.embedding == pytest.approx([0.1])
     with store._sessions.engine.connect() as conn:
         count = conn.exec_driver_sql("SELECT COUNT(*) FROM memory_item_edit_history").scalar()
     assert count == 0
@@ -1086,7 +1086,7 @@ def test_graph_update_category_summary_journals_before_db_update(monkeypatch, tm
     assert updated["previous_summary"] == "old category summary"
     assert saved.summary == "new category summary"
     assert saved.previous_summary == "old category summary"
-    assert saved.embedding == [0.1]
+    assert saved.embedding == pytest.approx([0.1])
     assert entry["summary_before"] == "old category summary"
     assert entry["summary_after"] == "new category summary"
     assert entry["edited_by"] == "surfer"

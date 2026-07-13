@@ -10,7 +10,7 @@ from typing import Any
 
 import pendulum
 from pydantic import BaseModel
-from sqlalchemy import JSON, Float, MetaData, String, Text
+from sqlalchemy import JSON, Float, LargeBinary, MetaData, String, Text
 from sqlmodel import Column, DateTime, Field, Index, SQLModel, func
 
 from memu.database.models import CategoryItem, Entity, MemoryCategory, MemoryItem, MemoryType, Resource, Triple
@@ -53,8 +53,7 @@ class SQLiteResourceModel(SQLiteBaseModelMixin, Resource):
     modality: str = Field(sa_column=Column(String, nullable=False))
     local_path: str = Field(sa_column=Column(String, nullable=False))
     caption: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
-    # Store embedding as JSON (SQLite stores it as TEXT under the hood)
-    embedding: str | None = Field(default=None, sa_column=Column(Text, nullable=True))  # type: ignore[assignment]
+    embedding: bytes | None = Field(default=None, sa_column=Column(LargeBinary, nullable=True))  # type: ignore[assignment]
     segment_id: str | None = Field(default=None, sa_column=Column(String, nullable=True))
     conversation_id: str | None = Field(default=None, sa_column=Column(String, nullable=True))
     memory_retrieve_history: list[str] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
@@ -67,8 +66,7 @@ class SQLiteMemoryItemModel(SQLiteBaseModelMixin, MemoryItem):
     resource_id: str | None = Field(sa_column=Column(String, nullable=True))
     memory_type: MemoryType = Field(sa_column=Column(String, nullable=False))
     summary: str = Field(sa_column=Column(Text, nullable=False))
-    # Store embedding as JSON (SQLite stores it as TEXT under the hood)
-    embedding: str | None = Field(default=None, sa_column=Column(Text, nullable=True))  # type: ignore[assignment]
+    embedding: bytes | None = Field(default=None, sa_column=Column(LargeBinary, nullable=True))  # type: ignore[assignment]
     happened_at: datetime | None = Field(default=None, sa_column=Column(DateTime, nullable=True))
     source_role: str | None = Field(default=None, sa_column=Column(String, nullable=True))
     speaker_id: str | None = Field(default=None, sa_column=Column(String, nullable=True))
@@ -90,8 +88,7 @@ class SQLiteMemoryCategoryModel(SQLiteBaseModelMixin, MemoryCategory):
 
     name: str = Field(sa_column=Column(String, nullable=False, index=True))
     description: str = Field(sa_column=Column(Text, nullable=False))
-    # Store embedding as JSON (SQLite stores it as TEXT under the hood)
-    embedding: str | None = Field(default=None, sa_column=Column(Text, nullable=True))  # type: ignore[assignment]
+    embedding: bytes | None = Field(default=None, sa_column=Column(LargeBinary, nullable=True))  # type: ignore[assignment]
     summary: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
     previous_summary: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
     approved_summary: str | None = Field(default=None, sa_column=Column(Text, nullable=True))

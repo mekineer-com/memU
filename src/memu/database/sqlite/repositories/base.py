@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 import json
-import logging
+import struct
 from collections.abc import Mapping
 from typing import Any
 
 import pendulum
+
 from memu.database.sqlite.session import SQLiteSessionManager
 from memu.database.state import DatabaseState
-
-logger = logging.getLogger(__name__)
 
 
 class SQLiteRepoBase:
@@ -31,22 +30,29 @@ class SQLiteRepoBase:
         self._scope_fields = scope_fields
 
     def _normalize_embedding(self, embedding: Any) -> list[float] | None:
-        """Normalize embedding from various formats to list[float]."""
+        """Normalize canonical BLOBs and transitional legacy values."""
         if embedding is None:
             return None
-        # Handle JSON string format (SQLite stores embeddings as JSON)
+        if isinstance(embedding, (bytes, bytearray, memoryview)):
+            blob = bytes(embedding)
+            if len(blob) % 4:
+                msg = f"Malformed embedding BLOB length: {len(blob)} bytes"
+                raise ValueError(msg)
+            return list(struct.unpack(f"{len(blob) // 4}f", blob))
         if isinstance(embedding, str):
             try:
-                return [float(x) for x in json.loads(embedding)]
-            except (json.JSONDecodeError, TypeError):
-                logger.debug("Could not parse embedding JSON: %s", embedding)
-                return None
-        # Handle list format
+                embedding = json.loads(embedding)
+            except json.JSONDecodeError as exc:
+                msg = "Malformed legacy JSON embedding"
+                raise ValueError(msg) from exc
+            if not isinstance(embedding, list):
+                msg = "Legacy JSON embedding must be a list"
+                raise TypeError(msg)
         try:
             return [float(x) for x in embedding]
-        except (ValueError, TypeError, OverflowError):
-            logger.debug("Could not normalize embedding %s", embedding)
-            return None
+        except (ValueError, TypeError, OverflowError) as exc:
+            msg = "Embedding must contain only numeric values"
+            raise ValueError(msg) from exc
 
     def _get_row_embedding(self, row: Any) -> Any:
         """Read embedding from the canonical embedding column."""
@@ -57,11 +63,12 @@ class SQLiteRepoBase:
         prepared = self._prepare_embedding(embedding)
         row.embedding = prepared
 
-    def _prepare_embedding(self, embedding: list[float] | None) -> str | None:
-        """Serialize embedding to JSON string for SQLite storage."""
+    def _prepare_embedding(self, embedding: list[float] | None) -> bytes | None:
+        """Serialize an embedding to the canonical native float32 BLOB."""
         if embedding is None:
             return None
-        return json.dumps(embedding)
+        values = self._normalize_embedding(embedding) or []
+        return struct.pack(f"{len(values)}f", *values)
 
     def _now(self) -> pendulum.DateTime:
         """Get current UTC time."""
@@ -88,5 +95,6 @@ class SQLiteRepoBase:
             else:
                 filters.append(column == expected)
         return filters
+
 
 __all__ = ["SQLiteRepoBase"]
