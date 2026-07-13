@@ -125,19 +125,26 @@ def test_store_rejects_legacy_text_embeddings(tmp_path) -> None:
         SQLiteStore(dsn=dsn, scope_model=LegacyEmbeddingScope, sqla_models=models)
 
 
-def test_store_rejects_zero_length_embedding_blob(tmp_path) -> None:
-    dsn = f"sqlite:///{tmp_path / 'empty.db'}"
+@pytest.mark.parametrize(
+    ("blob", "error"),
+    [
+        (b"", "empty_blob=1, malformed_blob=0"),
+        (b"bad", "empty_blob=0, malformed_blob=1"),
+    ],
+)
+def test_store_rejects_invalid_embedding_blob(tmp_path, blob: bytes, error: str) -> None:
+    dsn = f"sqlite:///{tmp_path / 'invalid.db'}"
     store = SQLiteStore(dsn=dsn, scope_model=EmbeddingBlobScope)
     with store._sessions.engine.begin() as conn:
         conn.exec_driver_sql(
             "INSERT INTO resources "
             "(id, created_at, updated_at, url, modality, local_path, embedding, user_id) "
             "VALUES ('empty', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'empty', 'conversation', 'empty', ?, 'blob')",
-            (b"",),
+            (blob,),
         )
     store.close()
 
-    with pytest.raises(RuntimeError, match="resources: non_blob=0, empty_blob=1"):
+    with pytest.raises(RuntimeError, match=error):
         SQLiteStore(dsn=dsn, scope_model=EmbeddingBlobScope)
 
 

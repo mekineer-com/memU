@@ -8,7 +8,7 @@ from sqlalchemy import event
 
 from memu.database.models import Triple
 from memu.database.sqlite.sqlite import SQLiteStore
-from memu.database.vector import cosine_topk
+from memu.database.vector import cosine_topk, reciprocal_rank_fusion
 
 
 class SearchScope(BaseModel):
@@ -64,10 +64,16 @@ def test_hybrid_search_and_embedding_free_materialization(store: SQLiteStore, mo
         memory_type="knowledge", summary="different topic", embedding=[1.0, 0.0], user_data=scope
     )
 
-    hits = store.memory_item_repo.vector_search_items(
+    pool = store.memory_item_repo.list_items(scope)
+    vector_hits = cosine_topk([1.0, 0.0], [(item.id, item.embedding) for item in pool.values()], 2)
+    fts_hits = store.memory_item_repo.fts_search_items("platypus", 2, pool_ids=set(pool))
+    expected = reciprocal_rank_fusion(vector_hits, fts_hits)
+    actual = store.memory_item_repo.vector_search_items(
         [1.0, 0.0], 2, scope, fts_enabled=True, fts_query="platypus", fts_top_k=2
     )
-    assert lexical.id in {item_id for item_id, _ in hits}
+    assert lexical.id in {item_id for item_id, _ in actual}
+    assert [item_id for item_id, _ in actual] == [item_id for item_id, _ in expected]
+    assert [score for _, score in actual] == pytest.approx([score for _, score in expected])
 
     statements = []
     event.listen(

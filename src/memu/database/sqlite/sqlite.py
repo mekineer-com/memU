@@ -149,14 +149,18 @@ class SQLiteStore(Database):
         invalid: list[str] = []
         with self._sessions.engine.connect() as conn:
             for table in ("resources", "memory_items", "categories"):
-                text_count, empty_count = conn.exec_driver_sql(
+                text_count, empty_count, malformed_count = conn.exec_driver_sql(
                     f"SELECT "
                     "SUM(CASE WHEN embedding IS NOT NULL AND typeof(embedding) != 'blob' THEN 1 ELSE 0 END), "
-                    "SUM(CASE WHEN typeof(embedding) = 'blob' AND length(embedding) = 0 THEN 1 ELSE 0 END) "
+                    "SUM(CASE WHEN typeof(embedding) = 'blob' AND length(embedding) = 0 THEN 1 ELSE 0 END), "
+                    "SUM(CASE WHEN typeof(embedding) = 'blob' AND length(embedding) % 4 != 0 THEN 1 ELSE 0 END) "
                     f"FROM {table}"
                 ).one()
-                if text_count or empty_count:
-                    invalid.append(f"{table}: non_blob={text_count or 0}, empty_blob={empty_count or 0}")
+                if text_count or empty_count or malformed_count:
+                    invalid.append(
+                        f"{table}: non_blob={text_count or 0}, empty_blob={empty_count or 0}, "
+                        f"malformed_blob={malformed_count or 0}"
+                    )
         if invalid:
             detail = "; ".join(invalid)
             database = self._sessions._sqlite_file_from_dsn(self.dsn) or self.dsn
