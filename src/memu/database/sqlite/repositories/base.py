@@ -68,6 +68,9 @@ class SQLiteRepoBase:
         if embedding is None:
             return None
         values = self._normalize_embedding(embedding) or []
+        if not values:
+            msg = "Embedding vector cannot be empty"
+            raise ValueError(msg)
         return struct.pack(f"{len(values)}f", *values)
 
     def _now(self) -> pendulum.DateTime:

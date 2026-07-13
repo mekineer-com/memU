@@ -165,3 +165,16 @@ def test_malformed_embedding_blob_fails_loudly() -> None:
 
     with pytest.raises(ValueError, match="Malformed embedding BLOB length: 3 bytes"):
         store.resource_repo.list_resources({"user_id": "blob"})
+
+
+def test_empty_embedding_write_fails_loudly() -> None:
+    store = _service()._get_database()
+    with pytest.raises(ValueError, match="Embedding vector cannot be empty"):
+        store.resource_repo.create_resource(
+            url="empty",
+            modality="conversation",
+            local_path="empty",
+            caption=None,
+            embedding=[],
+            user_data={"user_id": "blob"},
+        )
