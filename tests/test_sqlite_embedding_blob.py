@@ -114,9 +114,9 @@ def test_legacy_text_schema_embedding_reads_during_migration(tmp_path) -> None:
             conn.exec_driver_sql(legacy_ddl)
             conn.exec_driver_sql(
                 "INSERT INTO resources "
-                "(id, created_at, updated_at, url, modality, local_path, embedding) "
+                "(id, created_at, updated_at, url, modality, local_path, embedding, user_id) "
                 "VALUES ('legacy', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'legacy', "
-                "'conversation', 'legacy', ?)",
+                "'conversation', 'legacy', ?, 'legacy')",
                 (json.dumps([0.25, 0.75]),),
             )
     finally:
@@ -124,13 +124,27 @@ def test_legacy_text_schema_embedding_reads_during_migration(tmp_path) -> None:
 
     store = SQLiteStore(dsn=dsn, scope_model=LegacyEmbeddingScope, sqla_models=models)
     try:
-        loaded = store.resource_repo.list_resources()["legacy"]
+        loaded = store.resource_repo.list_resources({"user_id": "legacy"})["legacy"]
         assert loaded.embedding == pytest.approx([0.25, 0.75])
+        updated = store.resource_repo.create_resource(
+            url="legacy",
+            modality="conversation",
+            local_path="legacy",
+            caption=None,
+            embedding=[0.5, 1.5],
+            user_data={"user_id": "legacy"},
+        )
+        assert updated.id == loaded.id
+        assert updated.embedding == pytest.approx([0.5, 1.5])
         with store._sessions.engine.connect() as conn:
             column_type = next(
                 row[2] for row in conn.exec_driver_sql("PRAGMA table_info(resources)") if row[1] == "embedding"
             )
+            storage = conn.exec_driver_sql(
+                "SELECT typeof(embedding), length(embedding) FROM resources WHERE id = 'legacy'"
+            ).one()
         assert column_type == "TEXT"
+        assert storage == ("blob", 8)
     finally:
         store.close()
 
