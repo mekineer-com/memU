@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import struct
 from collections.abc import Mapping
 from typing import Any
@@ -38,21 +39,26 @@ class SQLiteRepoBase:
             if len(blob) % 4:
                 msg = f"Malformed embedding BLOB length: {len(blob)} bytes"
                 raise ValueError(msg)
-            return list(struct.unpack(f"{len(blob) // 4}f", blob))
-        if isinstance(embedding, str):
+            values = list(struct.unpack(f"{len(blob) // 4}f", blob))
+        else:
+            if isinstance(embedding, str):
+                try:
+                    embedding = json.loads(embedding)
+                except json.JSONDecodeError as exc:
+                    msg = "Malformed legacy JSON embedding"
+                    raise ValueError(msg) from exc
+                if not isinstance(embedding, list):
+                    msg = "Legacy JSON embedding must be a list"
+                    raise TypeError(msg)
             try:
-                embedding = json.loads(embedding)
-            except json.JSONDecodeError as exc:
-                msg = "Malformed legacy JSON embedding"
+                values = [float(x) for x in embedding]
+            except (ValueError, TypeError, OverflowError) as exc:
+                msg = "Embedding must contain only numeric values"
                 raise ValueError(msg) from exc
-            if not isinstance(embedding, list):
-                msg = "Legacy JSON embedding must be a list"
-                raise TypeError(msg)
-        try:
-            return [float(x) for x in embedding]
-        except (ValueError, TypeError, OverflowError) as exc:
-            msg = "Embedding must contain only numeric values"
-            raise ValueError(msg) from exc
+        if not all(math.isfinite(value) for value in values):
+            msg = "Embedding must contain only finite values"
+            raise ValueError(msg)
+        return values
 
     def _get_row_embedding(self, row: Any) -> Any:
         """Read embedding from the canonical embedding column."""
@@ -71,7 +77,11 @@ class SQLiteRepoBase:
         if not values:
             msg = "Embedding vector cannot be empty"
             raise ValueError(msg)
-        return struct.pack(f"{len(values)}f", *values)
+        blob = struct.pack(f"{len(values)}f", *values)
+        if not all(math.isfinite(value) for value in struct.unpack(f"{len(values)}f", blob)):
+            msg = "Embedding cannot be represented as finite float32"
+            raise ValueError(msg)
+        return blob
 
     def _now(self) -> pendulum.DateTime:
         """Get current UTC time."""

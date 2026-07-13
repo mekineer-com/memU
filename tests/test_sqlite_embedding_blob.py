@@ -178,3 +178,17 @@ def test_empty_embedding_write_fails_loudly() -> None:
             embedding=[],
             user_data={"user_id": "blob"},
         )
+
+
+@pytest.mark.parametrize("embedding", [[float("nan")], [1e39]])
+def test_non_finite_float32_embedding_write_fails_loudly(embedding) -> None:
+    store = _service()._get_database()
+    with pytest.raises(ValueError, match="finite"):
+        store.resource_repo.create_resource(
+            url="non-finite",
+            modality="conversation",
+            local_path="non-finite",
+            caption=None,
+            embedding=embedding,
+            user_data={"user_id": "blob"},
+        )
