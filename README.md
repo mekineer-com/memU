@@ -54,6 +54,7 @@ Each entry reads as internalized professional knowledge — no framework names o
 
 - Python 3.12+
 - SQLite
+- `cc`, `curl`, `tar`, and `sha256sum` to build the pinned sqlite-vec extension
 - An LLM provider API key (OpenAI-compatible)
 
 ---
