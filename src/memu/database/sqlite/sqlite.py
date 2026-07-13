@@ -10,7 +10,14 @@ from sqlmodel import SQLModel
 
 from memu.database.interfaces import Database
 from memu.database.models import MemoryCategory, Resource
-from memu.database.repositories import CategoryItemRepo, EntityRepo, MemoryCategoryRepo, MemoryItemRepo, ResourceRepo, TripleRepo
+from memu.database.repositories import (
+    CategoryItemRepo,
+    EntityRepo,
+    MemoryCategoryRepo,
+    MemoryItemRepo,
+    ResourceRepo,
+    TripleRepo,
+)
 from memu.database.sqlite.repositories.category_item_repo import SQLiteCategoryItemRepo
 from memu.database.sqlite.repositories.entity_repo import SQLiteEntityRepo
 from memu.database.sqlite.repositories.memory_category_repo import SQLiteMemoryCategoryRepo
@@ -28,8 +35,7 @@ class SQLiteStore(Database):
     """SQLite database store implementation.
 
     This store provides a lightweight, file-based database backend for MemU.
-    It uses SQLite for metadata storage and brute-force cosine similarity
-    for vector search (native vector support is not available in SQLite).
+    It uses SQLite for metadata storage and sqlite-vec cosine search.
 
     Attributes:
         resource_repo: Repository for resource records.
@@ -80,6 +86,8 @@ class SQLiteStore(Database):
 
         # Create tables
         self._create_tables()
+
+        self._assert_canonical_embeddings()
 
         # Use provided models or defaults from sqla_models
         resource_model = resource_model or self._sqla_models.Resource
@@ -136,6 +144,27 @@ class SQLiteStore(Database):
         # Set up cache references
         self.resources = self._state.resources
         self.categories = self._state.categories
+
+    def _assert_canonical_embeddings(self) -> None:
+        invalid: list[str] = []
+        with self._sessions.engine.connect() as conn:
+            for table in ("resources", "memory_items", "categories"):
+                text_count, empty_count = conn.exec_driver_sql(
+                    f"SELECT "
+                    "SUM(CASE WHEN embedding IS NOT NULL AND typeof(embedding) != 'blob' THEN 1 ELSE 0 END), "
+                    "SUM(CASE WHEN typeof(embedding) = 'blob' AND length(embedding) = 0 THEN 1 ELSE 0 END) "
+                    f"FROM {table}"
+                ).one()
+                if text_count or empty_count:
+                    invalid.append(f"{table}: non_blob={text_count or 0}, empty_blob={empty_count or 0}")
+        if invalid:
+            detail = "; ".join(invalid)
+            database = self._sessions._sqlite_file_from_dsn(self.dsn) or self.dsn
+            msg = (
+                f"non-canonical SQLite embeddings ({detail}); stop services and run "
+                f"scripts/migrate-embeddings-to-blob.py {database} --apply"
+            )
+            raise RuntimeError(msg)
 
     def _ensure_fts_table(self) -> None:
         """Create FTS5 virtual table for BM25 keyword search on memory items."""

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import math
 import struct
 from collections.abc import Mapping
@@ -31,7 +30,7 @@ class SQLiteRepoBase:
         self._scope_fields = scope_fields
 
     def _normalize_embedding(self, embedding: Any) -> list[float] | None:
-        """Normalize canonical BLOBs and transitional legacy values."""
+        """Normalize canonical BLOBs or caller-provided numeric vectors."""
         if embedding is None:
             return None
         if isinstance(embedding, (bytes, bytearray, memoryview)):
@@ -42,14 +41,8 @@ class SQLiteRepoBase:
             values = list(struct.unpack(f"{len(blob) // 4}f", blob))
         else:
             if isinstance(embedding, str):
-                try:
-                    embedding = json.loads(embedding)
-                except json.JSONDecodeError as exc:
-                    msg = "Malformed legacy JSON embedding"
-                    raise ValueError(msg) from exc
-                if not isinstance(embedding, list):
-                    msg = "Legacy JSON embedding must be a list"
-                    raise TypeError(msg)
+                msg = "Canonical embedding must be a float32 BLOB"
+                raise TypeError(msg)
             try:
                 values = [float(x) for x in embedding]
             except (ValueError, TypeError, OverflowError) as exc:

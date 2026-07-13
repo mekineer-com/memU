@@ -28,6 +28,7 @@
 | `database/sqlite/schema.py` | Per-scope SQLAlchemy model factory (`get_sqlite_sqlalchemy_models`) |
 | `database/sqlite/models.py` | Per-table model classes + `build_sqlite_table_model` |
 | `database/sqlite/session.py` | Session factory; loads the required package-local `vec0.so` built by `scripts/build-sqlite-vec.sh` on every connection |
+| `database/sqlite/repositories/memory_item_repo.py` | Scoped memory-item search: scalar sqlite-vec cosine query, optional FTS/RRF fusion, and salience reranking |
 | `scripts/migrate-embeddings-to-blob.py` | Offline dry-run/backup/migration tool for converting one explicitly named stopped soul DB from legacy JSON TEXT embeddings to canonical float32 BLOBs |
 | `database/postgres/` | Removed. If Postgres returns, rebuild as thin adapter over shared repo logic. |
 | `database/repositories/` | Backend-agnostic Protocol contracts: memory_item, memory_category, resource, entity, triple, category_item |

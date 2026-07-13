@@ -385,7 +385,11 @@ class RetrieveMixin:
         store = state["store"]
         where_filters = state["where"]
         include_superseded = state.get("as_of") is not None
-        items_pool = store.memory_item_repo.list_items(where_filters, include_superseded=include_superseded)
+        items_pool = store.memory_item_repo.list_items(
+            where_filters,
+            include_superseded=include_superseded,
+            include_embeddings=False,
+        )
         qvec = state.get("query_vector")
         if qvec is None:
             embed_client = self._select_embedding_client(step_context)
@@ -505,7 +509,9 @@ class RetrieveMixin:
             include_superseded = state.get("as_of") is not None
             categories_pool = state.get("category_pool") or store.memory_category_repo.list_categories(where_filters)
             items_pool = state.get("item_pool") or store.memory_item_repo.list_items(
-                where_filters, include_superseded=include_superseded
+                where_filters,
+                include_superseded=include_superseded,
+                include_embeddings=False,
             )
             resources_pool = state.get("resource_pool") or store.resource_repo.list_resources(where_filters)
             response["categories"] = self._materialize_hits(

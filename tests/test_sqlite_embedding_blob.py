@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import struct
 
 import pytest
@@ -102,7 +101,7 @@ def test_embedding_blob_round_trips_across_repositories() -> None:
     assert struct.unpack("2f", history_blob) == pytest.approx((0.3, 0.4))
 
 
-def test_legacy_text_schema_embedding_reads_during_migration(tmp_path) -> None:
+def test_store_rejects_legacy_text_embeddings(tmp_path) -> None:
     dsn = f"sqlite:///{tmp_path / 'legacy.db'}"
     models = get_sqlite_sqlalchemy_models(scope_model=LegacyEmbeddingScope)
     manager = SQLiteSessionManager(dsn=dsn)
@@ -117,36 +116,29 @@ def test_legacy_text_schema_embedding_reads_during_migration(tmp_path) -> None:
                 "(id, created_at, updated_at, url, modality, local_path, embedding, user_id) "
                 "VALUES ('legacy', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'legacy', "
                 "'conversation', 'legacy', ?, 'legacy')",
-                (json.dumps([0.25, 0.75]),),
+                ("[0.25, 0.75]",),
             )
     finally:
         manager.close()
 
-    store = SQLiteStore(dsn=dsn, scope_model=LegacyEmbeddingScope, sqla_models=models)
-    try:
-        loaded = store.resource_repo.list_resources({"user_id": "legacy"})["legacy"]
-        assert loaded.embedding == pytest.approx([0.25, 0.75])
-        updated = store.resource_repo.create_resource(
-            url="legacy",
-            modality="conversation",
-            local_path="legacy",
-            caption=None,
-            embedding=[0.5, 1.5],
-            user_data={"user_id": "legacy"},
+    with pytest.raises(RuntimeError, match=r"resources: non_blob=1.*migrate-embeddings-to-blob"):
+        SQLiteStore(dsn=dsn, scope_model=LegacyEmbeddingScope, sqla_models=models)
+
+
+def test_store_rejects_zero_length_embedding_blob(tmp_path) -> None:
+    dsn = f"sqlite:///{tmp_path / 'empty.db'}"
+    store = SQLiteStore(dsn=dsn, scope_model=EmbeddingBlobScope)
+    with store._sessions.engine.begin() as conn:
+        conn.exec_driver_sql(
+            "INSERT INTO resources "
+            "(id, created_at, updated_at, url, modality, local_path, embedding, user_id) "
+            "VALUES ('empty', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'empty', 'conversation', 'empty', ?, 'blob')",
+            (b"",),
         )
-        assert updated.id == loaded.id
-        assert updated.embedding == pytest.approx([0.5, 1.5])
-        with store._sessions.engine.connect() as conn:
-            column_type = next(
-                row[2] for row in conn.exec_driver_sql("PRAGMA table_info(resources)") if row[1] == "embedding"
-            )
-            storage = conn.exec_driver_sql(
-                "SELECT typeof(embedding), length(embedding) FROM resources WHERE id = 'legacy'"
-            ).one()
-        assert column_type == "TEXT"
-        assert storage == ("blob", 8)
-    finally:
-        store.close()
+    store.close()
+
+    with pytest.raises(RuntimeError, match="resources: non_blob=0, empty_blob=1"):
+        SQLiteStore(dsn=dsn, scope_model=EmbeddingBlobScope)
 
 
 def test_malformed_embedding_blob_fails_loudly() -> None:

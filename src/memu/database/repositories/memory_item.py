@@ -20,6 +20,7 @@ class MemoryItemRepo(Protocol):
         where: Mapping[str, Any] | None = None,
         *,
         include_superseded: bool = False,
+        include_embeddings: bool = True,
     ) -> dict[str, MemoryItem]: ...
 
     def list_recent_items(

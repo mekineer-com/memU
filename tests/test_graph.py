@@ -27,7 +27,7 @@ class _Repo:
         self.list_all_calls = 0
         self.list_by_ids_calls = 0
 
-    def list_items(self, where=None, *, include_superseded=False):
+    def list_items(self, where=None, *, include_superseded=False, include_embeddings=True):
         self.list_items_calls += 1
         return self.value
 
@@ -508,7 +508,7 @@ def test_graph_atomic_similar_threads_scope_to_item_repo():
     now = datetime(2026, 7, 1, tzinfo=UTC)
 
     class _ScopedRepo(_Repo):
-        def list_items(self, where=None, *, include_superseded=False):
+        def list_items(self, where=None, *, include_superseded=False, include_embeddings=True):
             self.list_items_calls += 1
             return {
                 item_id: item
@@ -1009,7 +1009,7 @@ CREATE TABLE memory_items (
   resource_id TEXT,
   memory_type TEXT NOT NULL,
   summary TEXT NOT NULL,
-  embedding TEXT,
+  embedding BLOB,
   happened_at DATETIME,
   source_role TEXT,
   speaker_id TEXT,
@@ -1027,7 +1027,7 @@ CREATE TABLE memory_items (
   soul_id TEXT
 );
 INSERT INTO memory_items (id, created_at, updated_at, memory_type, summary, embedding, extra, user_id, soul_id)
-VALUES ('old', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'episode', 'old approved', '[0.1]', '{}', 'backfill', 's');
+VALUES ('old', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'episode', 'old approved', X'CDCCCC3D', '{}', 'backfill', 's');
 """
     )
     conn.close()

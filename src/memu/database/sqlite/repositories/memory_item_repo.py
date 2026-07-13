@@ -9,7 +9,8 @@ from collections.abc import Mapping
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import func, or_
+from sqlalchemy import case, func, or_
+from sqlalchemy.orm import defer
 from sqlmodel import delete, select
 
 from memu.database.models import MemoryItem, MemoryType
@@ -18,7 +19,7 @@ from memu.database.sqlite.repositories.base import SQLiteRepoBase
 from memu.database.sqlite.schema import SQLiteSQLAModels
 from memu.database.sqlite.session import SQLiteSessionManager
 from memu.database.state import DatabaseState
-from memu.database.vector import cosine_topk, reciprocal_rank_fusion, rerank_by_salience
+from memu.database.vector import reciprocal_rank_fusion, rerank_by_salience
 
 logger = logging.getLogger(__name__)
 
@@ -279,6 +280,7 @@ WHERE version = 1 AND model IN ({placeholders})
         where: Mapping[str, Any] | None = None,
         *,
         include_superseded: bool = False,
+        include_embeddings: bool = True,
     ) -> dict[str, MemoryItem]:
         """List memory items matching the where clause.
 
@@ -286,12 +288,15 @@ WHERE version = 1 AND model IN ({placeholders})
             where: Optional filter conditions.
             include_superseded: When True, also include items that have a live
                 outbound ``evolved_into`` edge (older versions).
+            include_embeddings: When False, omit embedding BLOBs from the query.
 
         Returns:
             Dictionary of item ID to MemoryItem mapping.
         """
         with self._sessions.session() as session:
             stmt = select(self._memory_item_model)
+            if not include_embeddings:
+                stmt = stmt.options(defer(self._memory_item_model.embedding))
             filters = self._build_filters(self._memory_item_model, where)
             active_filter = self._active_item_filter(
                 self._memory_item_model, include_superseded=include_superseded
@@ -302,12 +307,10 @@ WHERE version = 1 AND model IN ({placeholders})
                 stmt = stmt.where(*filters)
             rows = session.exec(stmt).all()
 
-        result: dict[str, MemoryItem] = {}
-        for row in rows:
-            item = self._to_memory_item(row)
-            result[row.id] = item
-
-        return result
+        return {
+            row.id: self._to_memory_item(row, embedding=None if include_embeddings else [])
+            for row in rows
+        }
 
     def _list_graph_items(
         self,
@@ -748,15 +751,54 @@ VALUES (?, ?, ?, ?, ?, ?, ?)
         alongside cosine similarity and merges results via Reciprocal Rank Fusion
         before applying salience reranking.
         """
-        pool = self.list_items(where, include_superseded=include_superseded)
-
-        # Expand candidate pool when doing hybrid search
         vector_k = max(top_k, fts_top_k) if fts_enabled else top_k
-        vector_hits = cosine_topk(query_vec, [(i.id, i.embedding) for i in pool.values()], k=vector_k)
+        query_blob = self._prepare_embedding(query_vec)
+        query_dimension = len(query_vec)
+        embedding = self._memory_item_model.embedding
+        filters = self._build_filters(self._memory_item_model, where)
+        active_filter = self._active_item_filter(
+            self._memory_item_model, include_superseded=include_superseded
+        )
+        if active_filter is not None:
+            filters.append(active_filter)
+
+        with self._sessions.session() as session:
+            dimensions = dict(
+                session.exec(
+                    select(func.vec_length(embedding), func.count())
+                    .where(embedding.is_not(None), *filters)
+                    .group_by(func.vec_length(embedding))
+                ).all()
+            )
+            mismatched = sorted(dim for dim in dimensions if dim != query_dimension)
+            if mismatched:
+                logger.error(
+                    "cosine_topk: skipped %d vector(s) with mismatched dimension "
+                    "(expected %d, found dims: %s)",
+                    sum(dimensions[dim] for dim in mismatched),
+                    query_dimension,
+                    mismatched,
+                )
+
+            distance = case(
+                (func.vec_length(embedding) == query_dimension, func.vec_distance_cosine(embedding, query_blob)),
+                else_=None,
+            ).label("distance")
+            rows = session.exec(
+                select(self._memory_item_model.id, distance)
+                .where(embedding.is_not(None), *filters, distance.is_not(None))
+                .order_by(distance.asc(), self._memory_item_model.id.asc())
+                .limit(vector_k)
+            ).all()
+            vector_hits = [(item_id, 1.0 - float(item_distance)) for item_id, item_distance in rows]
 
         # Hybrid: fuse vector + FTS via RRF
         if fts_enabled and fts_query:
-            fts_hits = self.fts_search_items(fts_query, fts_top_k, pool_ids=set(pool.keys()))
+            with self._sessions.session() as session:
+                pool_ids = set(
+                    session.exec(select(self._memory_item_model.id).where(*filters)).all()
+                )
+            fts_hits = self.fts_search_items(fts_query, fts_top_k, pool_ids=pool_ids)
             # FTS returned nothing (stop-words only, etc.) — fall back to vector
             hits = reciprocal_rank_fusion(vector_hits, fts_hits, k=rrf_k) if fts_hits else vector_hits
         else:
@@ -775,7 +817,9 @@ VALUES (?, ?, ?, ?, ?, ?, ?)
                     self._memory_item_model.created_at,
                     self._memory_item_model.extra,
                 ).where(self._memory_item_model.id.in_(candidate_ids))
-                active_filter = self._active_item_filter(self._memory_item_model)
+                active_filter = self._active_item_filter(
+                    self._memory_item_model, include_superseded=include_superseded
+                )
                 if active_filter is not None:
                     stmt = stmt.where(active_filter)
                 rows = session.exec(stmt).all()
