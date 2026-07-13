@@ -76,6 +76,15 @@ scripts/build-sqlite-vec.sh
 
 SQLite storage requires the pinned `sqlite-vec` extension built by that script. The generated package-local `vec0.so` is ignored by Git and loaded automatically by memU.
 
+Before the sqlite-vec storage cutover, inspect and migrate each stopped soul database explicitly:
+
+```bash
+scripts/migrate-embeddings-to-blob.py path/to/soul.db
+scripts/migrate-embeddings-to-blob.py path/to/soul.db --apply
+```
+
+Dry-run is the default. `--apply` requires all processes using that database to be stopped and creates a timestamped backup before conversion.
+
 ---
 
 ## Usage
