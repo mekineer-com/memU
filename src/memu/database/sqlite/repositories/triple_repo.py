@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from datetime import datetime
 from typing import Any
 
+from sqlalchemy import or_
 from sqlmodel import select
 
 from memu.database.models import Triple
@@ -174,6 +175,34 @@ class SQLiteTripleRepo(SQLiteRepoBase, TripleRepo):
                 stmt = stmt.where(self._triple_model.valid_to.is_(None))
             rows = session.exec(stmt).all()
             return [self._row_to_triple(r) for r in rows]
+
+    def list_edges_for_memories(
+        self,
+        memory_ids: Collection[str],
+        predicates: Collection[str],
+        where: Mapping[str, Any] | None = None,
+        *,
+        current_only: bool = True,
+    ) -> list[Triple]:
+        ids = set(memory_ids)
+        predicate_set = set(predicates)
+        if not ids or not predicate_set:
+            return []
+        with self._sessions.session() as session:
+            stmt = select(self._triple_model).where(
+                or_(
+                    self._triple_model.subject_id.in_(ids),
+                    self._triple_model.object_id.in_(ids),
+                ),
+                self._triple_model.predicate.in_(predicate_set),
+            )
+            filters = self._build_filters(self._triple_model, where)
+            if filters:
+                stmt = stmt.where(*filters)
+            if current_only:
+                stmt = stmt.where(self._triple_model.valid_to.is_(None))
+            rows = session.exec(stmt).all()
+        return [self._row_to_triple(row) for row in rows]
 
     def invalidate(
         self,

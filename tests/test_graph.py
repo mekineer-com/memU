@@ -23,6 +23,7 @@ class _Repo:
     def __init__(self, value):
         self.value = value
         self.list_items_calls = 0
+        self.list_canvas_items_calls = 0
         self.list_items_by_ids_calls = 0
         self.list_all_calls = 0
         self.list_by_ids_calls = 0
@@ -33,6 +34,12 @@ class _Repo:
 
     def list_recent_items(self, where=None, *, limit, include_superseded=False):
         return dict(list(self.value.items())[:limit])
+
+    def list_canvas_items(self, where=None, *, limit):
+        self.list_canvas_items_calls += 1
+        items = [item for item in self.value.values() if getattr(item, "embedding", None)]
+        items.sort(key=lambda item: (item.updated_at, f"memory:{item.id}"), reverse=True)
+        return {item.id: item for item in items[:limit]}, len(items)
 
     def list_items_by_ids(self, item_ids, where=None, *, include_superseded=False, include_embeddings=False):
         self.list_items_by_ids_calls += 1
@@ -56,9 +63,20 @@ class _Repo:
 
 
 class _Triples:
+    def __init__(self):
+        self.list_edges_for_memories_calls = 0
+
     def get_edges_from(self, subject_id, predicate=None, where=None):
         if subject_id == "m1" and predicate == "mentions":
-            return [SimpleNamespace(object_kind="entity", object_id="e1")]
+            return [
+                SimpleNamespace(
+                    subject_id="m1",
+                    subject_kind="memory",
+                    predicate="mentions",
+                    object_id="e1",
+                    object_kind="entity",
+                )
+            ]
         if subject_id == "m2" and predicate == "caused_by":
             return [
                 SimpleNamespace(
@@ -83,6 +101,15 @@ class _Triples:
                 )
             ]
         return []
+
+    def list_edges_for_memories(self, memory_ids, predicates, where=None, *, current_only=True):
+        self.list_edges_for_memories_calls += 1
+        triples = []
+        for memory_id in memory_ids:
+            for predicate in predicates:
+                triples.extend(self.get_edges_from(memory_id, predicate=predicate, where=where))
+                triples.extend(self.get_edges_to(memory_id, predicate=predicate, where=where))
+        return triples
 
 
 class _Service(GraphMixin):
@@ -244,6 +271,55 @@ def test_graph_atomic_canvas_source_includes_embeddings_and_category_tags():
     edges = {(edge["source"], edge["target"], edge["predicate"]): edge for edge in out["edges"]}
     assert edges[("memory:m2", "memory:m1", "caused_by")]["weight"] == 0.7
     assert edges[("memory:m1", "memory:m2", "similarity")]["weight"] == pytest.approx(0.9938837)
+    assert db.memory_item_repo.list_canvas_items_calls == 1
+    assert db.triple_repo.list_edges_for_memories_calls == 1
+
+
+def test_canvas_item_read_applies_scope_active_filter_order_and_limit():
+    service = MemoryService(
+        database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
+        user_config={"model": GraphScope},
+    )
+    store = service._get_database()
+    scope = {"user_id": "canvas_page", "soul_id": "s"}
+    first = store.memory_item_repo.create_item(
+        memory_type="episode",
+        summary="first",
+        embedding=[1.0, 0.0],
+        user_data=scope,
+    )
+    second = store.memory_item_repo.create_item(
+        memory_type="episode",
+        summary="second",
+        embedding=[0.0, 1.0],
+        user_data=scope,
+    )
+    store.memory_item_repo.create_item(
+        memory_type="episode",
+        summary="other scope",
+        embedding=[1.0, 1.0],
+        user_data={"user_id": "canvas_page_other", "soul_id": "s"},
+    )
+    store.memory_item_repo.update_item(item_id=first.id, summary="first, updated")
+
+    items, total = store.memory_item_repo.list_canvas_items(scope, limit=1)
+
+    assert list(items) == [first.id]
+    assert total == 2
+
+    store.triple_repo.add(
+        Triple(
+            subject_id=first.id,
+            subject_kind="memory",
+            predicate="evolved_into",
+            object_id=second.id,
+            object_kind="memory",
+        ),
+        user_data=scope,
+    )
+    items, total = store.memory_item_repo.list_canvas_items(scope, limit=1)
+    assert list(items) == [second.id]
+    assert total == 1
 
 
 def test_graph_atomic_canvas_source_includes_category_similarity_edges():
@@ -342,7 +418,13 @@ def test_graph_atomic_canvas_source_filters_before_item_scan():
     db.memory_item_repo.value["m2"].embedding = [0.9, 0.1]
     db.memory_item_repo.value["m3"].embedding = [0.95, 0.05]
     db.triple_repo.get_edges_from = lambda subject_id, predicate=None, where=None: [  # type: ignore[method-assign]
-        SimpleNamespace(object_kind="entity", object_id="e1")
+        SimpleNamespace(
+            subject_id="m1",
+            subject_kind="memory",
+            predicate="mentions",
+            object_kind="entity",
+            object_id="e1",
+        )
     ] if subject_id == "m1" and predicate == "mentions" else []
     db.entity_repo.value.append(SimpleNamespace(id="e1", name="Visible entity"))
 

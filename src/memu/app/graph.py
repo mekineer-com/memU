@@ -278,11 +278,11 @@ class GraphMixin:
                 item_category_ids.setdefault(rel.item_id, []).append(rel.category_id)
 
         atoms: list[dict[str, Any]] = []
-        items = (
-            store.memory_item_repo.list_items_by_ids(requested_memory_ids, where, include_embeddings=True)
-            if requested_memory_ids is not None
-            else store.memory_item_repo.list_items(where)
-        )
+        if requested_memory_ids is not None:
+            items = store.memory_item_repo.list_items_by_ids(requested_memory_ids, where, include_embeddings=True)
+            total_memory_count = len(items)
+        else:
+            items, total_memory_count = store.memory_item_repo.list_canvas_items(where, limit=limit)
         for item in items.values():
             if not item.embedding:
                 continue
@@ -301,7 +301,7 @@ class GraphMixin:
                 "updated_at": _iso(item.updated_at),
             })
 
-        category_values = (
+        category_values = list(
             (categories[category_id] for category_id in requested_category_ids if category_id in categories)
             if requested_category_ids is not None
             else categories.values()
@@ -323,10 +323,15 @@ class GraphMixin:
         atoms.sort(key=lambda atom: (atom.get("updated_at") or "", atom["id"]), reverse=True)
         page = atoms[:limit]
         memory_ids = {str(atom["id"]).removeprefix("memory:") for atom in page if str(atom["id"]).startswith("memory:")}
-        mention_triples_by_memory = {
-            memory_id: store.triple_repo.get_edges_from(memory_id, predicate="mentions", where=where)
-            for memory_id in memory_ids
-        }
+        canvas_triples = store.triple_repo.list_edges_for_memories(
+            memory_ids,
+            ["mentions", *SEMANTIC_PREDICATES],
+            where=where,
+        )
+        mention_triples_by_memory: dict[str, list[Any]] = {}
+        for triple in canvas_triples:
+            if triple.predicate == "mentions" and triple.subject_id in memory_ids:
+                mention_triples_by_memory.setdefault(triple.subject_id, []).append(triple)
         entity_ids = {
             triple.object_id
             for triples in mention_triples_by_memory.values()
@@ -353,25 +358,26 @@ class GraphMixin:
         for edge in _atomic_similarity_edges(page):
             edges[f"similarity:{edge['source']}:{edge['target']}"] = edge
 
-        for memory_id in memory_ids:
-            for predicate in SEMANTIC_PREDICATES:
-                triples = store.triple_repo.get_edges_from(memory_id, predicate=predicate, where=where)
-                triples += store.triple_repo.get_edges_to(memory_id, predicate=predicate, where=where)
-                for triple in triples:
-                    if triple.subject_kind != "memory" or triple.object_kind != "memory":
-                        continue
-                    if triple.subject_id not in memory_ids or triple.object_id not in memory_ids:
-                        continue
-                    edge_id = f"semantic:{triple.subject_id}:{triple.predicate}:{triple.object_id}"
-                    confidence = getattr(triple, "confidence", None)
-                    edges[edge_id] = {
-                        "source": f"memory:{triple.subject_id}",
-                        "target": f"memory:{triple.object_id}",
-                        "weight": float(confidence) if confidence is not None else 0.7,
-                        "kind": "triple",
-                        "predicate": triple.predicate,
-                    }
-        return {"atoms": page, "edges": list(edges.values()), "count": len(page), "total_count": len(atoms)}
+        for triple in canvas_triples:
+            if triple.predicate not in SEMANTIC_PREDICATES:
+                continue
+            if triple.subject_kind != "memory" or triple.object_kind != "memory":
+                continue
+            if triple.subject_id not in memory_ids or triple.object_id not in memory_ids:
+                continue
+            edge_id = f"semantic:{triple.subject_id}:{triple.predicate}:{triple.object_id}"
+            confidence = getattr(triple, "confidence", None)
+            edges[edge_id] = {
+                "source": f"memory:{triple.subject_id}",
+                "target": f"memory:{triple.object_id}",
+                "weight": float(confidence) if confidence is not None else 0.7,
+                "kind": "triple",
+                "predicate": triple.predicate,
+            }
+        total_count = len(atoms) if atom_ids is not None else total_memory_count + sum(
+            category.embedding is not None for category in category_values
+        )
+        return {"atoms": page, "edges": list(edges.values()), "count": len(page), "total_count": total_count}
 
     def graph_atomic_neighborhood(
         self,

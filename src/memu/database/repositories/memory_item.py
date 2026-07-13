@@ -31,6 +31,13 @@ class MemoryItemRepo(Protocol):
         include_superseded: bool = False,
     ) -> dict[str, MemoryItem]: ...
 
+    def list_canvas_items(
+        self,
+        where: Mapping[str, Any] | None = None,
+        *,
+        limit: int,
+    ) -> tuple[dict[str, MemoryItem], int]: ...
+
     def list_items_by_ids(
         self,
         item_ids: set[str],

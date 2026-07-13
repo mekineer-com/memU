@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from datetime import datetime
 from typing import Any, Protocol, runtime_checkable
 
@@ -36,6 +36,15 @@ class TripleRepo(Protocol):
         as_of: datetime | None = None,
     ) -> list[Triple]: ...
 
+    def list_edges_for_memories(
+        self,
+        memory_ids: Collection[str],
+        predicates: Collection[str],
+        where: Mapping[str, Any] | None = None,
+        *,
+        current_only: bool = True,
+    ) -> list[Triple]: ...
+
     def invalidate(
         self,
         subject_id: str,
@@ -57,4 +66,3 @@ class TripleRepo(Protocol):
         is the source memory in ``memory_ids`` that this edge attaches to.
         """
         ...
-

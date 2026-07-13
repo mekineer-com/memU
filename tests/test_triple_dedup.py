@@ -7,9 +7,10 @@ Memu's triple_repo now does both.
 from __future__ import annotations
 
 import pytest
+from pydantic import BaseModel
+
 from memu.app.service import MemoryService
 from memu.database.models import Triple
-from pydantic import BaseModel
 
 
 class TripleDedupScope(BaseModel):
@@ -96,3 +97,25 @@ def test_invalidate_finds_canonicalized_row_regardless_of_argument_order(store) 
         "inv_a", predicate="conflicts_with", current_only=True, where=scope
     )
     assert current == []
+
+
+def test_bulk_memory_edges_keep_scope_direction_predicate_and_current_filters(store) -> None:
+    scope = {"user_id": "tdu_bulk", "soul_id": "s"}
+    other_scope = {"user_id": "tdu_bulk_other", "soul_id": "s"}
+    outgoing = store.triple_repo.add(_triple("bulk_a", "caused_by", "bulk_b"), user_data=scope)
+    incoming = store.triple_repo.add(_triple("bulk_c", "shaped_by", "bulk_a"), user_data=scope)
+    ignored_predicate = store.triple_repo.add(_triple("bulk_a", "unrelated", "bulk_d"), user_data=scope)
+    other = store.triple_repo.add(_triple("bulk_a", "caused_by", "bulk_e"), user_data=other_scope)
+    expired = store.triple_repo.add(_triple("bulk_a", "parallels", "bulk_f"), user_data=scope)
+    store.triple_repo.invalidate("bulk_a", "parallels", "bulk_f", scope=scope)
+
+    edges = store.triple_repo.list_edges_for_memories(
+        {"bulk_a"},
+        {"caused_by", "shaped_by", "parallels"},
+        where=scope,
+    )
+
+    assert {edge.id for edge in edges} == {outgoing.id, incoming.id}
+    assert ignored_predicate.id not in {edge.id for edge in edges}
+    assert other.id not in {edge.id for edge in edges}
+    assert expired.id not in {edge.id for edge in edges}

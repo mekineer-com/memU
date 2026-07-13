@@ -347,6 +347,29 @@ WHERE version = 1 AND model IN ({placeholders})
         )
         return self._list_graph_items(stmt, where, include_superseded)
 
+    def list_canvas_items(
+        self,
+        where: Mapping[str, Any] | None = None,
+        *,
+        limit: int,
+    ) -> tuple[dict[str, MemoryItem], int]:
+        filters = self._build_filters(self._memory_item_model, where)
+        active_filter = self._active_item_filter(self._memory_item_model, include_superseded=False)
+        if active_filter is not None:
+            filters.append(active_filter)
+        filters.append(self._memory_item_model.embedding.is_not(None))
+        stmt = (
+            select(self._memory_item_model)
+            .where(*filters)
+            .order_by(self._memory_item_model.updated_at.desc().nulls_last(), self._memory_item_model.id.desc())
+            .limit(max(1, int(limit)))
+        )
+        count_stmt = select(func.count(self._memory_item_model.id)).where(*filters)
+        with self._sessions.session() as session:
+            rows = session.exec(stmt).all()
+            total = int(session.exec(count_stmt).one())
+        return {row.id: self._to_memory_item(row) for row in rows}, total
+
     def list_items_by_ids(
         self,
         item_ids: set[str],
