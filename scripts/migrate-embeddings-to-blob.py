@@ -8,10 +8,11 @@ import argparse
 import hashlib
 import json
 import math
-import shutil
+import os
 import sqlite3
 import struct
 import sys
+import tempfile
 from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
@@ -139,6 +140,23 @@ def _convert_text_rows(conn: sqlite3.Connection, table: str) -> None:
         conn.execute(f"UPDATE {table} SET embedding = ? WHERE id = ?", (_canonical_blob(value, "text"), row_id))
 
 
+def _create_backup(path: Path, destination: Path) -> Path:
+    destination.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
+    backup_path = destination / f"{path.stem}-pre-sqlite-vec-{stamp}{path.suffix or '.db'}"
+    fd, temporary_name = tempfile.mkstemp(prefix=f".{backup_path.name}.", suffix=".tmp", dir=destination)
+    os.close(fd)
+    temporary_path = Path(temporary_name)
+    try:
+        with closing(sqlite3.connect(path)) as source, closing(sqlite3.connect(temporary_path)) as target:
+            source.backup(target)
+        os.replace(temporary_path, backup_path)
+    except Exception:
+        temporary_path.unlink(missing_ok=True)
+        raise
+    return backup_path
+
+
 def _verify_after(path: Path, before: dict[str, Any]) -> dict[str, Any]:
     after = scan_database(path)
     if after["errors"]:
@@ -179,20 +197,9 @@ def apply_migration(path: Path, backup_dir: Path | None = None) -> dict[str, Any
         busy, _, _ = conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
         if busy:
             raise MigrationError("WAL checkpoint is busy; stop every process using this database")
-    finally:
-        conn.close()
-
-    destination = backup_dir or path.parent / "_backups"
-    destination.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
-    backup_path = destination / f"{path.stem}-pre-sqlite-vec-{stamp}{path.suffix or '.db'}"
-    shutil.copy2(path, backup_path)
-
-    conn = sqlite3.connect(path, timeout=0)
-    try:
-        conn.execute("PRAGMA busy_timeout=0")
         conn.execute("BEGIN IMMEDIATE")
         try:
+            backup_path = _create_backup(path, backup_dir or path.parent / "_backups")
             for table in TABLES:
                 _convert_text_rows(conn, table)
             conn.commit()
@@ -202,7 +209,12 @@ def apply_migration(path: Path, backup_dir: Path | None = None) -> dict[str, Any
     finally:
         conn.close()
 
-    after = _verify_after(path, before)
+    try:
+        after = _verify_after(path, before)
+    except Exception as exc:
+        raise MigrationError(
+            f"conversion committed; verification failed: {exc}; backup: {backup_path}; do not restart services"
+        ) from exc
     return {"backup": str(backup_path), "before": before, "after": after}
 
 

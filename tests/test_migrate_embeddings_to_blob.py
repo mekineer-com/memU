@@ -143,3 +143,61 @@ def test_busy_wal_checkpoint_fails_before_backup(tmp_path) -> None:
         reader.close()
 
     assert not (tmp_path / "_backups").exists()
+
+
+def test_writer_cannot_commit_during_backup(tmp_path, monkeypatch) -> None:
+    path = tmp_path / "locked.db"
+    _create_db(path, journal_mode="WAL")
+    original = migration._create_backup
+    writer_blocked = False
+
+    def backup_while_writer_tries(source_path, destination):
+        nonlocal writer_blocked
+        with closing(sqlite3.connect(source_path, timeout=0)) as writer:
+            try:
+                writer.execute("INSERT INTO resources VALUES ('racer', '[1.0]')")
+            except sqlite3.OperationalError as exc:
+                writer_blocked = "locked" in str(exc)
+            else:
+                writer.commit()
+        return original(source_path, destination)
+
+    monkeypatch.setattr(migration, "_create_backup", backup_while_writer_tries)
+    migration.apply_migration(path)
+
+    assert writer_blocked
+    assert all(row[0] != "racer" for row in _storage(path)["resources"])
+
+
+def test_backup_failure_leaves_no_final_file_or_source_mutation(tmp_path, monkeypatch) -> None:
+    path = tmp_path / "backup-failure.db"
+    _create_db(path)
+
+    def fail_replace(_source, _destination):
+        raise OSError("simulated atomic rename failure")
+
+    monkeypatch.setattr(migration.os, "replace", fail_replace)
+    with pytest.raises(OSError, match="simulated atomic rename failure"):
+        migration.apply_migration(path)
+
+    backup_dir = tmp_path / "_backups"
+    assert list(backup_dir.iterdir()) == []
+    assert all(row[1] == "text" for rows in _storage(path).values() for row in rows)
+
+
+def test_post_commit_verification_failure_reports_backup_and_stop(tmp_path, monkeypatch, capsys) -> None:
+    path = tmp_path / "verify-failure.db"
+    _create_db(path)
+
+    def fail_verification(_path, _before):
+        raise migration.MigrationError("simulated verification failure")
+
+    monkeypatch.setattr(migration, "_verify_after", fail_verification)
+    result = migration.main([str(path), "--apply"])
+    error = capsys.readouterr().err
+
+    assert result == 1
+    assert "conversion committed; verification failed" in error
+    assert "backup:" in error
+    assert "do not restart services" in error
+    assert all(row[1] == "blob" for rows in _storage(path).values() for row in rows)
