@@ -273,6 +273,8 @@ def test_graph_atomic_canvas_source_includes_embeddings_and_category_tags():
     assert edges[("memory:m1", "memory:m2", "similarity")]["weight"] == pytest.approx(0.9938837)
     assert db.memory_item_repo.list_canvas_items_calls == 1
     assert db.triple_repo.list_edges_for_memories_calls == 1
+    assert set(out["timing_ms"]) == {"store", "taxonomy", "atoms", "graph", "similarity", "finalize", "total"}
+    assert all(value >= 0 for value in out["timing_ms"].values())
 
 
 def test_canvas_item_read_applies_scope_active_filter_order_and_limit():

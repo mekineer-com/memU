@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
+from time import perf_counter
 from typing import Any
 
 import numpy as np
@@ -253,7 +254,9 @@ class GraphMixin:
         limit: int = 500,
         atom_ids: set[str] | None = None,
     ) -> dict[str, Any]:
+        started = perf_counter()
         store = self._get_database()
+        store_done = perf_counter()
         limit = max(1, min(int(limit or 500), 1000))
         requested_memory_ids: set[str] | None = None
         requested_category_ids: set[str] | None = None
@@ -276,6 +279,7 @@ class GraphMixin:
                 continue
             if rel.category_id in categories:
                 item_category_ids.setdefault(rel.item_id, []).append(rel.category_id)
+        taxonomy_done = perf_counter()
 
         atoms: list[dict[str, Any]] = []
         if requested_memory_ids is not None:
@@ -323,6 +327,7 @@ class GraphMixin:
         atoms.sort(key=lambda atom: (atom.get("updated_at") or "", atom["id"]), reverse=True)
         page = atoms[:limit]
         memory_ids = {str(atom["id"]).removeprefix("memory:") for atom in page if str(atom["id"]).startswith("memory:")}
+        atoms_done = perf_counter()
         canvas_triples = store.triple_repo.list_edges_for_memories(
             memory_ids,
             ["mentions", *SEMANTIC_PREDICATES],
@@ -353,10 +358,12 @@ class GraphMixin:
             pairs = entities_by_memory.get(memory_id, [])
             atom["entity_ids"] = [entity_id for entity_id, _name in pairs]
             atom["entity_names"] = [name for _entity_id, name in pairs]
+        graph_done = perf_counter()
 
         edges: dict[str, dict[str, Any]] = {}
         for edge in _atomic_similarity_edges(page):
             edges[f"similarity:{edge['source']}:{edge['target']}"] = edge
+        similarity_done = perf_counter()
 
         for triple in canvas_triples:
             if triple.predicate not in SEMANTIC_PREDICATES:
@@ -377,7 +384,22 @@ class GraphMixin:
         total_count = len(atoms) if atom_ids is not None else total_memory_count + sum(
             category.embedding is not None for category in category_values
         )
-        return {"atoms": page, "edges": list(edges.values()), "count": len(page), "total_count": total_count}
+        finished = perf_counter()
+        return {
+            "atoms": page,
+            "edges": list(edges.values()),
+            "count": len(page),
+            "total_count": total_count,
+            "timing_ms": {
+                "store": round((store_done - started) * 1000, 2),
+                "taxonomy": round((taxonomy_done - store_done) * 1000, 2),
+                "atoms": round((atoms_done - taxonomy_done) * 1000, 2),
+                "graph": round((graph_done - atoms_done) * 1000, 2),
+                "similarity": round((similarity_done - graph_done) * 1000, 2),
+                "finalize": round((finished - similarity_done) * 1000, 2),
+                "total": round((finished - started) * 1000, 2),
+            },
+        }
 
     def graph_atomic_neighborhood(
         self,
