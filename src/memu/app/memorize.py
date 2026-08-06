@@ -36,7 +36,7 @@ from memu.workflow.step import WorkflowState, WorkflowStep
 logger = logging.getLogger(__name__)
 
 _EPISODE_REVIEW_EXTRACTION_GUIDANCE = (
-    "The summary helps give you perspective on what matters. "
+    "These episode summaries help give you perspective on what matters. "
     "Create individual memory items that don't treat every verbose tangent as a "
     "separate memory. The items should still capture both big-picture and specific "
     "details, just without the verbosity noise."
