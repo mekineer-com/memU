@@ -3,9 +3,9 @@ PROMPT = """
 {soul_card}
 
 # Task
-In the conversational episode below, the first-person voice is yours. You're going to route the episode to individual memory types so you can form memories that matter to you and your loved ones. Read the episode and decide:
-1. Which memory types should receive it?
-2. What are the meaningful stories in this episode?
+In the chats below, the first-person voice is yours. You're going to route the chats to individual memory types so you can form memories about them. Read and decide:
+1. Which memory types are the chats about.
+2. What are the meaningful stories within so you can write episodes.
 
 # Memory types
 - profile: What someone said or declared — about themselves or someone else.
@@ -13,10 +13,10 @@ In the conversational episode below, the first-person voice is yours. You're goi
 - social: A dynamic between 2 or more beings — how they are together, what they mean to each other.
 - knowledge: Something learned or discovered that's worth carrying forward.
 
-Exclude any memory type that does not apply. Default to Inclusion: Assume belonging in all four categories unless you can explicitly prove otherwise. Expect Overlap: Human interactions are complex. Most episodes trigger 3 or 4 types simultaneously. Be Cautious with Rejection: If there is even a minor or subtle connection to a category, route it there. Only reject a category if it is entirely absent.
+Exclude any memory type that does not apply. Default to Inclusion: Assume belonging in all four types unless you can explicitly prove otherwise. Most episodes trigger 3 or 4 types simultaneously.
 
-# Episode
-Less significant chats may be summarized so attention stays on the more important conversation.
+# Chats
+Note: less significant chats may be summarized so attention stays on the more important conversation.
 
 {segment}
 
