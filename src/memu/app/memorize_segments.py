@@ -13,6 +13,7 @@ from memu.utils.conversation import (
     format_conversation_for_preprocess,
     format_dated_relative_time_label,
     format_grouped_chat_history,
+    parse_happened_at,
 )
 from memu.utils.video import VideoFrameExtractor
 
@@ -222,8 +223,22 @@ def _summary_row_lines(row: Mapping[str, Any]) -> list[str]:
     return lines
 
 
+def grouped_chat_happened_at(message: Mapping[str, Any]) -> Any:
+    return parse_happened_at(
+        message.get("received_at")
+        or message.get("ts_ms")
+        or message.get("created_at")
+        or message.get("timestamp")
+    )
+
+
 def _grouped_chat_timestamp(message: Mapping[str, Any]) -> Any:
-    return message.get("received_at") or message.get("ts_ms") or message.get("created_at")
+    return (
+        message.get("received_at")
+        or message.get("ts_ms")
+        or message.get("created_at")
+        or message.get("timestamp")
+    )
 
 
 def _prepare_grouped_chat_messages(messages: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:

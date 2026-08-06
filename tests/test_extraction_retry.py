@@ -23,7 +23,8 @@ _GARBAGE = "not xml at all %%% garbage"
 
 _VALID_ROUTER = (
     '{"excluded_types": [], "episodes": '
-    '[{"title": "T", "episode_summary": "Full story.", "episode_item": "Compact story."}]}'
+    '[{"title": "T", "episode_summary": "Full story.", "episode_item": "Compact story.", '
+    '"categories": ["Daily life"], "day": "2026-01-02"}]}'
 )
 
 
@@ -158,6 +159,7 @@ async def test_router_retry_succeeds_and_logs_error(caplog: pytest.LogCaptureFix
             "episode text",
             ["knowledge"],
             llm_client=stub,
+            source_days=["2026-01-02"],
         )
 
     assert "knowledge" in routed
@@ -181,6 +183,7 @@ async def test_router_retry_raises_on_double_garbage(tmp_path: pathlib.Path, mon
             "episode text",
             ["knowledge"],
             llm_client=stub,
+            source_days=["2026-01-02"],
         )
 
     dumps = list((tmp_path / "extraction_dumps").iterdir())
@@ -199,10 +202,17 @@ async def test_router_retries_invalid_episode_shape() -> None:
         "episode text",
         ["knowledge"],
         llm_client=stub,
+        source_days=["2026-01-02"],
     )
 
     assert routed == ["knowledge"]
-    assert episodes == [{"title": "T", "summary": "Full story.", "item": "Compact story."}]
+    assert episodes == [{
+        "title": "T",
+        "summary": "Full story.",
+        "item": "Compact story.",
+        "categories": ["Daily life"],
+        "day": "2026-01-02",
+    }]
 
 
 @pytest.mark.asyncio
@@ -214,6 +224,7 @@ async def test_router_retries_empty_episode_list() -> None:
         "ordinary logistics still form a story",
         ["knowledge"],
         llm_client=stub,
+        source_days=["2026-01-02"],
     )
 
     assert routed == ["knowledge"]

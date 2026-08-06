@@ -1,4 +1,5 @@
 import json
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
@@ -15,8 +16,10 @@ def _service() -> MemoryService:
 class _RouterStub:
     def __init__(self, payload: str) -> None:
         self.payload = payload
+        self.prompts: list[str] = []
 
-    async def chat(self, _prompt: str) -> str:
+    async def chat(self, prompt: str) -> str:
+        self.prompts.append(prompt)
         return self.payload
 
 
@@ -32,18 +35,28 @@ class _EmbedStub:
 @pytest.mark.asyncio
 async def test_route_segment_uses_excluded_types_model() -> None:
     service = _service()
+    service._category_prompt_str = "- Existing: An existing dossier"
     client = _RouterStub(
-        '{"excluded_types": ["knowledge", "social"], "episodes": [{"title": "Anchor", "episode_summary": "Full story.", "episode_item": "Compact story."}]}'
+        '{"excluded_types": ["knowledge", "social"], "episodes": [{"title": "Anchor", "episode_summary": "Full story.", "episode_item": "Compact story.", "categories": ["Existing", "New domain"], "day": "2026-01-02"}]}'
     )
 
     routed, episodes = await service._route_segment(
-        "episode text",
+        "--- 2026-01-02 (today) ---\nepisode text",
         ["profile", "knowledge", "behavior", "social"],
         llm_client=client,
+        source_days=["2026-01-02"],
     )
 
     assert routed == ["profile", "behavior"]
-    assert episodes == [{"title": "Anchor", "summary": "Full story.", "item": "Compact story."}]
+    assert episodes == [{
+        "title": "Anchor",
+        "summary": "Full story.",
+        "item": "Compact story.",
+        "categories": ["Existing", "New domain"],
+        "day": "2026-01-02",
+    }]
+    assert "- Existing: An existing dossier" in client.prompts[0]
+    assert "--- 2026-01-02 (today) ---" in client.prompts[0]
 
 
 @pytest.mark.asyncio
@@ -51,17 +64,21 @@ async def test_route_segment_ignores_full_exclusion(caplog: pytest.LogCaptureFix
     service = _service()
     client = _RouterStub(
         '{"excluded_types": ["profile", "knowledge"], "episodes": '
-        '[{"title": "Anchor", "episode_summary": "Full story.", "episode_item": null}]}'
+        '[{"title": "Anchor", "episode_summary": "Full story.", "episode_item": null, '
+        '"categories": [], "day": "wrong"}]}'
     )
 
     routed, episodes = await service._route_segment(
         "episode text",
         ["profile", "knowledge"],
         llm_client=client,
+        source_days=["2026-01-02"],
     )
 
     assert routed == ["profile", "knowledge"]
     assert episodes[0]["item"] == "Full story."
+    assert episodes[0]["categories"] == []
+    assert episodes[0]["day"] == "2026-01-02"
     assert "excluded every configured memory type" in caplog.text
 
 
@@ -80,22 +97,27 @@ async def test_persist_plan_uses_short_episode_summary_as_item(
             created_items.append(kwargs)
             return SimpleNamespace(id="episode1", summary=kwargs["summary"])
 
-    class _CategoryItemRepo:
-        def link_item_category(self, **_kwargs):
-            return SimpleNamespace()
-
     monkeypatch.setattr(service, "_create_resource_with_caption", _resource)
-    monkeypatch.setattr(service, "_map_category_names_to_ids", lambda _names, _ctx: ["experiences"])
     embed_client = _EmbedStub()
+    happened_at = datetime(2026, 1, 2, 10, tzinfo=UTC)
+    relations: list[object] = []
+    category_updates: dict[str, list[tuple[str, str]]] = {}
 
     await service._process_plan(
         {
             "resource_url": "memory://episode",
             "text": "conversation",
             "caption": None,
-            "episodes": [{"title": "Anchor", "summary": "Full short story.", "item": "Full short story."}],
+            "episodes": [{
+                "title": "Anchor",
+                "summary": "Full short story.",
+                "item": "Full short story.",
+                "categories": ["Unmatched proposal"],
+                "day": "2026-01-02",
+            }],
             "entries": [],
             "message_happened_at_map": {},
+            "source_day_happened_at": {"2026-01-02": happened_at},
             "segment_id": "chat:0-1",
             "segment_messages": [],
         },
@@ -104,14 +126,13 @@ async def test_persist_plan_uses_short_episode_summary_as_item(
         ctx=SimpleNamespace(),
         store=SimpleNamespace(
             memory_item_repo=_MemoryItemRepo(),
-            category_item_repo=_CategoryItemRepo(),
         ),
         embed_client=embed_client,
         user_scope={},
         conversation_id="chat",
         items=[],
-        relations=[],
-        category_updates={},
+        relations=relations,
+        category_updates=category_updates,
         pending_segment_ids=[],
     )
 
@@ -119,6 +140,11 @@ async def test_persist_plan_uses_short_episode_summary_as_item(
     assert created_items[0]["summary"] == "Anchor: Full short story."
     assert created_items[0]["embedding"] == [1.0, 1.0]
     assert created_items[0]["extra"]["episode_summary"] == "Full short story."
+    assert created_items[0]["extra"]["episode_categories"] == ["Unmatched proposal"]
+    assert created_items[0]["extra"]["memory_date"] == "2026-01-02"
+    assert created_items[0]["happened_at"] == happened_at
+    assert relations == []
+    assert category_updates == {}
     assert embed_client.payloads == [["Anchor: Full short story."]]
 
 
@@ -137,13 +163,10 @@ async def test_episode_items_use_their_own_embeddings(
             created_items.append(kwargs)
             return SimpleNamespace(id=f"episode-{len(created_items)}", summary=kwargs["summary"])
 
-    class _CategoryItemRepo:
-        def link_item_category(self, **_kwargs):
-            return SimpleNamespace()
-
     monkeypatch.setattr(service, "_create_resource_with_caption", _resource)
-    monkeypatch.setattr(service, "_map_category_names_to_ids", lambda _names, _ctx: ["experiences"])
     embed_client = _EmbedStub()
+    first_day = datetime(2026, 1, 2, 10, tzinfo=UTC)
+    second_day = datetime(2026, 1, 3, 10, tzinfo=UTC)
 
     await service._process_plan(
         {
@@ -151,11 +174,21 @@ async def test_episode_items_use_their_own_embeddings(
             "text": "conversation",
             "caption": "whole segment",
             "episodes": [
-                {"title": "Choice", "summary": "A fuller account of a choice.", "item": "A compact choice."},
-                {"title": "Discovery", "summary": "A fuller account of a discovery.", "item": "A compact discovery."},
+                {
+                    "title": "Choice", "summary": "A fuller account of a choice.",
+                    "item": "A compact choice.", "categories": ["Decisions"], "day": "2026-01-02",
+                },
+                {
+                    "title": "Discovery", "summary": "A fuller account of a discovery.",
+                    "item": "A compact discovery.", "categories": ["Learning"], "day": "2026-01-03",
+                },
             ],
             "entries": [],
             "message_happened_at_map": {},
+            "source_day_happened_at": {
+                "2026-01-02": first_day,
+                "2026-01-03": second_day,
+            },
             "segment_id": "chat:0-1",
             "segment_messages": [],
         },
@@ -164,7 +197,6 @@ async def test_episode_items_use_their_own_embeddings(
         ctx=SimpleNamespace(),
         store=SimpleNamespace(
             memory_item_repo=_MemoryItemRepo(),
-            category_item_repo=_CategoryItemRepo(),
         ),
         embed_client=embed_client,
         user_scope={},
@@ -188,6 +220,7 @@ async def test_episode_items_use_their_own_embeddings(
         "A fuller account of a choice.",
         "A fuller account of a discovery.",
     ]
+    assert [item["happened_at"] for item in created_items] == [first_day, second_day]
 
 
 @pytest.mark.asyncio
@@ -279,6 +312,7 @@ async def test_route_segment_raises_on_unparseable_router_response() -> None:
             "episode text",
             ["profile", "knowledge"],
             llm_client=client,
+            source_days=["2026-01-02"],
         )
 
 
@@ -293,6 +327,7 @@ async def test_batch_router_failure_stops_before_persistence(monkeypatch: pytest
             segment_text,
             memory_types,
             llm_client=_RouterStub("not-json-and-no-json-blob"),
+            source_days=_kwargs["source_days"],
         )
 
     async def _mark_persistence(*_args, **_kwargs):
@@ -314,7 +349,10 @@ async def test_batch_router_failure_stops_before_persistence(monkeypatch: pytest
             segments=[
                 {
                     "resource_url": "memory://segment",
-                    "raw_text": json.dumps([{"role": "user", "content": "ordinary exchange"}]),
+                    "raw_text": json.dumps([{
+                        "role": "user", "content": "ordinary exchange",
+                        "received_at": "2026-01-02T10:00:00-05:00",
+                    }]),
                     "segment": {"message_indices": [0], "context_only": False},
                 }
             ],
@@ -322,6 +360,28 @@ async def test_batch_router_failure_stops_before_persistence(monkeypatch: pytest
         )
 
     assert persistence_started is False
+
+
+@pytest.mark.asyncio
+async def test_batch_rejects_active_segment_without_source_date(monkeypatch: pytest.MonkeyPatch) -> None:
+    service = _service()
+
+    async def _noop_ensure(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(service, "_ensure_categories_ready", _noop_ensure)
+    monkeypatch.setattr(service, "_list_declared_relationship_roster", lambda **_kwargs: [])
+
+    with pytest.raises(ValueError, match="has no source date"):
+        await service.memorize_segments_batch(
+            modality="conversation",
+            segments=[{
+                "resource_url": "memory://undated",
+                "raw_text": json.dumps([{"role": "user", "content": "undated"}]),
+                "segment": {"message_indices": [0], "context_only": False},
+            }],
+            user={"user_id": "test-user", "soul_id": "test-soul"},
+        )
 
 
 @pytest.mark.asyncio
@@ -404,8 +464,10 @@ async def test_batch_full_exclusion_runs_all_types_and_keeps_episodes(
             memory_types,
             llm_client=_RouterStub(
                 '{"excluded_types": ["profile", "knowledge"], "episodes": '
-                '[{"title": "Anchor", "episode_summary": "Full story.", "episode_item": null}]}'
+                '[{"title": "Anchor", "episode_summary": "Full story.", "episode_item": null, '
+                '"categories": ["Daily life"], "day": "2026-01-02"}]}'
             ),
+            source_days=_kwargs["source_days"],
         )
 
     async def _capture_extract(*, memory_types, **_kwargs):
@@ -441,7 +503,10 @@ async def test_batch_full_exclusion_runs_all_types_and_keeps_episodes(
         segments=[
             {
                 "resource_url": "memory://segment",
-                "raw_text": json.dumps([{"role": "user", "content": "ordinary story"}]),
+                "raw_text": json.dumps([{
+                    "role": "user", "content": "ordinary story",
+                    "received_at": "2026-01-02T10:00:00-05:00",
+                }]),
                 "segment": {"message_indices": [0], "context_only": False},
             }
         ],
@@ -449,7 +514,13 @@ async def test_batch_full_exclusion_runs_all_types_and_keeps_episodes(
     )
 
     assert routed_types == ["profile", "knowledge"]
-    assert persisted_episodes == [{"title": "Anchor", "summary": "Full story.", "item": "Full story."}]
+    assert persisted_episodes == [{
+        "title": "Anchor",
+        "summary": "Full story.",
+        "item": "Full story.",
+        "categories": ["Daily life"],
+        "day": "2026-01-02",
+    }]
 
 
 def test_parse_memory_type_response_xml_raises_on_unsalvageable_xml() -> None:
@@ -518,14 +589,26 @@ async def test_memorize_segments_batch_passes_segment_speaker_rosters_without_se
     monkeypatch.setattr(service, "_generate_entries_from_text", _capture_generate_entries_from_text)
 
     raw_text_segment_1 = json.dumps([
-        {"role": "user", "name": "Marcos", "content": "Starting a new thread with Nicholas."},
-        {"role": "group_member", "name": "Alice", "content": "Alice joins this discussion."},
+        {
+            "role": "user", "name": "Marcos", "content": "Starting a new thread with Nicholas.",
+            "received_at": "2026-01-02T10:00:00-05:00",
+        },
+        {
+            "role": "group_member", "name": "Alice", "content": "Alice joins this discussion.",
+            "received_at": "2026-01-02T10:01:00-05:00",
+        },
     ])
     raw_text_segment_2 = json.dumps([
         {"role": "system", "name": "context", "content": "ignored prelude"},
         {"role": "system", "name": "context", "content": "ignored prelude 2"},
-        {"role": "assistant", "name": "Echo", "content": "Echo reflects on the day."},
-        {"role": "group_member", "name": "Bob", "content": "Bob asks about Nicholas too."},
+        {
+            "role": "assistant", "name": "Echo", "content": "Echo reflects on the day.",
+            "received_at": "2026-01-03T10:00:00-05:00",
+        },
+        {
+            "role": "group_member", "name": "Bob", "content": "Bob asks about Nicholas too.",
+            "received_at": "2026-01-03T10:01:00-05:00",
+        },
     ])
 
     segments = [

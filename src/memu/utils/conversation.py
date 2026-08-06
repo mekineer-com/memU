@@ -270,7 +270,7 @@ def _elapsed_calendar_months(older: datetime, newer: datetime) -> int:
     return max(0, months)
 
 
-def _parse_happened_at(raw: Any) -> datetime | None:
+def parse_happened_at(raw: Any) -> datetime | None:
     parsed: datetime | None = None
     if isinstance(raw, datetime):
         parsed = raw
@@ -291,7 +291,7 @@ def _parse_happened_at(raw: Any) -> datetime | None:
                 numeric = float(text)
             except ValueError:
                 return None
-            return _parse_happened_at(numeric)
+            return parse_happened_at(numeric)
         normalized = text[:-1] + "+00:00" if text.endswith("Z") else text
         try:
             parsed = datetime.fromisoformat(normalized)
@@ -305,7 +305,7 @@ def _parse_happened_at(raw: Any) -> datetime | None:
 
 
 def format_relative_time_label(happened_at: Any, *, now: datetime | None = None) -> str | None:
-    happened = _parse_happened_at(happened_at)
+    happened = parse_happened_at(happened_at)
     if happened is None:
         return None
     anchor = _local_now(now)
@@ -357,7 +357,7 @@ def format_relative_time_label(happened_at: Any, *, now: datetime | None = None)
 
 
 def format_dated_relative_time_label(happened_at: Any, *, now: datetime | None = None) -> str | None:
-    happened = _parse_happened_at(happened_at)
+    happened = parse_happened_at(happened_at)
     relative = format_relative_time_label(happened, now=now) if happened is not None else None
     return f"{happened.date().isoformat()} ({relative})" if happened is not None and relative else None
 

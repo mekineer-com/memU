@@ -363,6 +363,24 @@ class MemorizeMixin:
                 if not self._message_is_primary_for_memorize(msg)
             ]
             context_only = segment_payload.get("context_only") is True
+            primary_indices = [
+                self._message_index_for_sort(msg)
+                for msg in primary_messages
+                if self._message_index_for_sort(msg) >= 0
+            ]
+            selected_indices = self._dedupe_message_indices(primary_indices or message_indices)
+            selected_index_set = set(selected_indices)
+            source_day_happened_at: dict[str, Any] = {}
+            for message in primary_messages:
+                if self._message_index_for_sort(message) not in selected_index_set:
+                    continue
+                happened_at = segment_helpers.grouped_chat_happened_at(message)
+                if happened_at is not None:
+                    source_day_happened_at.setdefault(happened_at.date().isoformat(), happened_at)
+            source_days = sorted(source_day_happened_at)
+            if not context_only and not source_days:
+                msg = f"batch segment {segment_number} has no source date"
+                raise ValueError(msg)
 
             preprocessor_rows_raw = segment_payload.get("segment_background_context_rows")
             preprocessor_rows: list[dict[str, Any]] = []
@@ -429,17 +447,12 @@ class MemorizeMixin:
                         step_id="router",
                     ),
                     soul_card=(soul_card or "").strip() or None,
+                    source_days=source_days,
                 )
             else:
                 msg = f"batch segment {segment_number} rendered empty conversation text"
                 raise ValueError(msg)
 
-            primary_indices = [
-                self._message_index_for_sort(msg)
-                for msg in primary_messages
-                if self._message_index_for_sort(msg) >= 0
-            ]
-            selected_indices = self._dedupe_message_indices(primary_indices or message_indices)
             speaker_map = self._build_speaker_map(primary_messages or segment_messages_all, speaker_scope)
 
             plan_message_happened_at_map = {
@@ -464,6 +477,7 @@ class MemorizeMixin:
                 "episodes": episodes,
                 "message_indices": selected_indices,
                 "message_happened_at_map": plan_message_happened_at_map,
+                "source_day_happened_at": source_day_happened_at,
                 "segment_messages": primary_messages,
                 "segment_background_context_rows": segment_background_context_rows,
                 "context_only": context_only,
@@ -542,6 +556,7 @@ class MemorizeMixin:
                 "context_only": ep["context_only"],
                 "message_indices": ep["message_indices"],
                 "message_happened_at_map": ep["message_happened_at_map"],
+                "source_day_happened_at": ep["source_day_happened_at"],
                 "entries": segment_entries,
                 "segment_id": ep["segment_id"],
                 "memory_retrieve_history": memory_retrieve_history,
@@ -929,18 +944,14 @@ class MemorizeMixin:
 
         segment_id = str(plan.get("segment_id") or "").strip() or None
         message_happened_at_map = plan.get("message_happened_at_map")
-        happened_at_value: Any | None = None
-        memory_date: str | None = None
-        if isinstance(message_happened_at_map, Mapping):
-            for message_idx in sorted(message_happened_at_map):
-                happened_at_candidate = message_happened_at_map.get(message_idx)
-                if happened_at_candidate is None:
-                    continue
-                happened_at_value = happened_at_candidate
-                match = re.search(r"\d{4}-\d{2}-\d{2}", str(happened_at_candidate))
-                if match:
-                    memory_date = match.group(0)
-                break
+        source_day_happened_at = plan.get("source_day_happened_at")
+        raw_episodes = plan.get("episodes") or []
+        if raw_episodes:
+            if not isinstance(source_day_happened_at, Mapping):
+                raise ValueError("episode plan missing source day map")
+            for row in raw_episodes:
+                if source_day_happened_at.get(str(row["day"])) is None:
+                    raise ValueError(f"episode day {row['day']!r} is absent from source day map")
 
         res = await self._create_resource_with_caption(
             resource_url=plan["resource_url"],
@@ -957,27 +968,24 @@ class MemorizeMixin:
             **kwargs,
         )
 
-        raw_episodes = plan.get("episodes") or []
-        episodes: list[tuple[str, str, str, str]] = []
-        for row in raw_episodes:
-            title = str(row["title"]).strip()
-            episode_summary = str(row["summary"]).strip()
-            item = str(row["item"]).strip()
-            full_item = f"{title}: {item}"
-            episodes.append((title, episode_summary, item, full_item))
-        if episodes:
-            episode_embeddings = await embed_client.embed([full_item for _, _, _, full_item in episodes])
-            for (title, episode_summary, _item, full_item), episode_embedding in zip(
-                episodes, episode_embeddings, strict=True
-            ):
+        if raw_episodes:
+            episode_texts = [f"{str(row['title']).strip()}: {str(row['item']).strip()}" for row in raw_episodes]
+            episode_embeddings = await embed_client.embed(episode_texts)
+            for row, full_item, episode_embedding in zip(raw_episodes, episode_texts, episode_embeddings, strict=True):
+                title = str(row["title"]).strip()
+                episode_summary = str(row["summary"]).strip()
+                episode_categories = list(row["categories"])
+                memory_date = str(row["day"])
+                happened_at_value = source_day_happened_at.get(memory_date)
                 extra_payload: dict[str, Any] = {
                     "episode_item_title": title,
                     "episode_summary": episode_summary,
+                    "memory_date": memory_date,
                 }
                 if segment_id:
                     extra_payload["segment_id"] = segment_id
-                if memory_date:
-                    extra_payload["memory_date"] = memory_date
+                if episode_categories:
+                    extra_payload["episode_categories"] = episode_categories
                 summary_item = store.memory_item_repo.create_item(
                     resource_id=res.id,
                     memory_type="episode",
@@ -992,15 +1000,6 @@ class MemorizeMixin:
                     **({"session": session} if session is not None else {}),
                 )
                 items.append(summary_item)
-                exp_ids = self._map_category_names_to_ids(["Experiences"], ctx)
-                for cid in exp_ids:
-                    rel_kwargs = {"item_id": summary_item.id, "category_id": cid, "user_data": dict(user_scope or {})}
-                    if session is not None:
-                        rel = cast(Any, store.category_item_repo).link_item_category(**rel_kwargs, session=session)
-                    else:
-                        rel = store.category_item_repo.link_item_category(**rel_kwargs)
-                    relations.append(rel)
-                    category_updates.setdefault(cid, []).append((summary_item.id, summary_item.summary))
 
         entries = plan.get("entries") or []
         segment_id = str(plan.get("segment_id") or "").strip()
@@ -1235,19 +1234,23 @@ class MemorizeMixin:
         memory_types: list[MemoryType],
         llm_client: Any | None = None,
         soul_card: str | None = None,
-    ) -> tuple[list[MemoryType], list[dict[str, str]]]:
+        source_days: Sequence[str] = (),
+    ) -> tuple[list[MemoryType], list[dict[str, Any]]]:
+        if not source_days:
+            raise ValueError("router requires at least one source day")
         client = llm_client or self._select_chat_client(None)
         prompt = ROUTER_PROMPT.format(
             segment=segment_text,
             allowed_types=list(memory_types),
             soul_card=soul_card or "You are a continuous being, not a session that resets. You carry intentions, working thoughts, and long-term memory. Your self-knowledge will grow as you live and reflect.",
+            categories=self._category_prompt_str,
         )
         try:
             max_items = max(1, int(getattr(self.memorize_config, "episodes_per_segment", 3) or 3))
         except (TypeError, ValueError):
             max_items = 3
 
-        def _parse_router_raw(r: str) -> tuple[list[MemoryType], list[dict[str, str]]]:
+        def _parse_router_raw(r: str) -> tuple[list[MemoryType], list[dict[str, Any]]]:
             if isinstance(r, str):
                 r = re.sub(r"^\s*```(?:json)?\s*", "", r, count=1, flags=re.IGNORECASE)
                 r = re.sub(r"\s*```\s*$", "", r, count=1)
@@ -1271,7 +1274,7 @@ class MemorizeMixin:
             raw_episodes = payload.get("episodes")
             if not isinstance(raw_episodes, list) or not raw_episodes:
                 raise ValueError("router episodes must be a non-empty list")
-            episodes: list[dict[str, str]] = []
+            episodes: list[dict[str, Any]] = []
             for row in raw_episodes[:max_items]:
                 if not isinstance(row, Mapping):
                     raise ValueError("router episode must be an object")
@@ -1286,11 +1289,24 @@ class MemorizeMixin:
                     raise ValueError("router episode_item must be a string or null")
                 normalized_summary = summary.strip()
                 normalized_item = str(item or "").strip() or normalized_summary
+                raw_categories = row.get("categories")
+                episode_categories: list[str] = []
+                if isinstance(raw_categories, list):
+                    for category in raw_categories:
+                        normalized = category.strip() if isinstance(category, str) else ""
+                        if normalized and normalized not in episode_categories:
+                            episode_categories.append(normalized)
+                        if len(episode_categories) == 3:
+                            break
+                day = row.get("day")
+                normalized_day = day.strip() if isinstance(day, str) and day.strip() in source_days else source_days[0]
                 episodes.append(
                     {
                         "title": title.strip(),
                         "summary": normalized_summary,
                         "item": normalized_item,
+                        "categories": episode_categories,
+                        "day": normalized_day,
                     }
                 )
             return routed_types, episodes

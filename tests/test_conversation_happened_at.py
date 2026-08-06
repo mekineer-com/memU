@@ -1,6 +1,7 @@
 import json
 
 from memu.app.service import MemoryService
+from memu.app.memorize_segments import grouped_chat_happened_at
 
 
 def _service() -> MemoryService:
@@ -26,6 +27,13 @@ def test_extract_message_happened_at_map_prefers_ts_ms_and_falls_back() -> None:
     assert happened_at_map[1].to_iso8601_string() == "2025-01-26T00:00:00Z"
     assert happened_at_map[2].to_iso8601_string() == "2025-01-27T00:00:00Z"
     assert happened_at_map[3].to_iso8601_string() == "2025-01-28T00:00:00Z"
+
+
+def test_grouped_chat_happened_at_accepts_timestamp_fallback() -> None:
+    happened_at = grouped_chat_happened_at({"timestamp": "2026-01-02T10:00:00-05:00"})
+
+    assert happened_at is not None
+    assert happened_at.date().isoformat() == "2026-01-02"
 
 
 def test_resolve_entry_happened_at_uses_episode_provenance_start() -> None:
