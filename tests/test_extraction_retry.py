@@ -170,9 +170,10 @@ async def test_router_retry_succeeds_and_logs_error(caplog: pytest.LogCaptureFix
 
 
 @pytest.mark.asyncio
-async def test_router_retry_raises_on_double_garbage() -> None:
+async def test_router_retry_raises_on_double_garbage(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Router: garbage → garbage: raises ValueError."""
     service = _service()
+    monkeypatch.setattr(service.fs, "base", tmp_path)
     stub = _RouterStub([_GARBAGE, _GARBAGE])
 
     with pytest.raises(ValueError, match="invalid"):
@@ -181,6 +182,11 @@ async def test_router_retry_raises_on_double_garbage() -> None:
             ["knowledge"],
             llm_client=stub,
         )
+
+    dumps = list((tmp_path / "extraction_dumps").iterdir())
+    assert len(dumps) == 1
+    assert "router_attempt2" in dumps[0].name
+    assert dumps[0].read_text() == _GARBAGE
 
 
 @pytest.mark.asyncio
@@ -197,3 +203,18 @@ async def test_router_retries_invalid_episode_shape() -> None:
 
     assert routed == ["knowledge"]
     assert episodes == [{"title": "T", "summary": "Full story.", "item": "Compact story."}]
+
+
+@pytest.mark.asyncio
+async def test_router_retries_empty_episode_list() -> None:
+    service = _service()
+    stub = _RouterStub(['{"excluded_types": [], "episodes": []}', _VALID_ROUTER])
+
+    routed, episodes = await service._route_segment(
+        "ordinary logistics still form a story",
+        ["knowledge"],
+        llm_client=stub,
+    )
+
+    assert routed == ["knowledge"]
+    assert episodes[0]["title"] == "T"

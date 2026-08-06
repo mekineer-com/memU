@@ -282,6 +282,176 @@ async def test_route_segment_raises_on_unparseable_router_response() -> None:
         )
 
 
+@pytest.mark.asyncio
+async def test_batch_router_failure_stops_before_persistence(monkeypatch: pytest.MonkeyPatch) -> None:
+    service = _service()
+    actual_route = service._route_segment
+    persistence_started = False
+
+    async def _fail_route(segment_text, memory_types, *_args, **_kwargs):
+        return await actual_route(
+            segment_text,
+            memory_types,
+            llm_client=_RouterStub("not-json-and-no-json-blob"),
+        )
+
+    async def _mark_persistence(*_args, **_kwargs):
+        nonlocal persistence_started
+        persistence_started = True
+        raise AssertionError("persistence must not start after router failure")
+
+    async def _noop_ensure(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(service, "_route_segment", _fail_route)
+    monkeypatch.setattr(service, "_memorize_categorize_items", _mark_persistence)
+    monkeypatch.setattr(service, "_ensure_categories_ready", _noop_ensure)
+    monkeypatch.setattr(service, "_list_declared_relationship_roster", lambda **_kwargs: [])
+
+    with pytest.raises(ValueError, match="Router reply still invalid"):
+        await service.memorize_segments_batch(
+            modality="conversation",
+            segments=[
+                {
+                    "resource_url": "memory://segment",
+                    "raw_text": json.dumps([{"role": "user", "content": "ordinary exchange"}]),
+                    "segment": {"message_indices": [0], "context_only": False},
+                }
+            ],
+            user={"user_id": "test-user", "soul_id": "TestSoul"},
+        )
+
+    assert persistence_started is False
+
+
+@pytest.mark.asyncio
+async def test_context_only_batch_skips_llm_and_returns_plural_empty_shape(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = _service()
+
+    async def _unexpected(*_args, **_kwargs):
+        raise AssertionError("context-only batch must not call an LLM")
+
+    async def _noop_ensure(*_args, **_kwargs):
+        return None
+
+    async def _categorize_empty(state, _step_context):
+        assert state["segment_plans"][0]["context_only"] is True
+        state.update(resources=[], items=[], relations=[], pending_segment_ids=[])
+        return state
+
+    async def _noop_step(state, _step_context):
+        return state
+
+    def _build_empty(state, _step_context):
+        state["response"] = {
+            "resources": [],
+            "items": [],
+            "categories": [],
+            "relations": [],
+            "pending_segment_ids": [],
+        }
+        return state
+
+    monkeypatch.setattr(service, "_route_segment", _unexpected)
+    monkeypatch.setattr(service, "_generate_entries_from_text", _unexpected)
+    monkeypatch.setattr(service, "_ensure_categories_ready", _noop_ensure)
+    monkeypatch.setattr(service, "_list_declared_relationship_roster", lambda **_kwargs: [])
+    monkeypatch.setattr(service, "_memorize_categorize_items", _categorize_empty)
+    monkeypatch.setattr(service, "_memorize_dedupe_merge", _noop_step)
+    monkeypatch.setattr(service, "_memorize_persist_and_index", _noop_step)
+    monkeypatch.setattr(service, "_memorize_build_response", _build_empty)
+
+    responses = await service.memorize_segments_batch(
+        modality="conversation",
+        segments=[
+            {
+                "resource_url": "memory://background",
+                "raw_text": json.dumps(
+                    [{"role": "user", "content": "background", "memorize_chat": False}]
+                ),
+                "segment": {"message_indices": [0], "context_only": True},
+            }
+        ],
+        user={"user_id": "test-user", "soul_id": "TestSoul"},
+    )
+
+    assert responses == [
+        {
+            "resources": [],
+            "items": [],
+            "categories": [],
+            "relations": [],
+            "pending_segment_ids": [],
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_batch_full_exclusion_runs_all_types_and_keeps_episodes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = _service()
+    service.memorize_config.memory_types = ["profile", "knowledge"]
+    actual_route = service._route_segment
+    routed_types: list[str] = []
+    persisted_episodes: list[dict[str, str]] = []
+
+    async def _route(segment_text, memory_types, *_args, **_kwargs):
+        return await actual_route(
+            segment_text,
+            memory_types,
+            llm_client=_RouterStub(
+                '{"excluded_types": ["profile", "knowledge"], "episodes": '
+                '[{"title": "Anchor", "episode_summary": "Full story.", "episode_item": null}]}'
+            ),
+        )
+
+    async def _capture_extract(*, memory_types, **_kwargs):
+        routed_types.extend(memory_types)
+        return []
+
+    async def _noop_ensure(*_args, **_kwargs):
+        return None
+
+    async def _capture_categorize(state, _step_context):
+        persisted_episodes.extend(state["segment_plans"][0]["episodes"])
+        state.update(resources=[], items=[], relations=[], pending_segment_ids=[])
+        return state
+
+    async def _noop_step(state, _step_context):
+        return state
+
+    def _build_empty(state, _step_context):
+        state["response"] = {"resources": [], "items": [], "categories": [], "relations": [], "pending_segment_ids": []}
+        return state
+
+    monkeypatch.setattr(service, "_route_segment", _route)
+    monkeypatch.setattr(service, "_generate_entries_from_text", _capture_extract)
+    monkeypatch.setattr(service, "_ensure_categories_ready", _noop_ensure)
+    monkeypatch.setattr(service, "_list_declared_relationship_roster", lambda **_kwargs: [])
+    monkeypatch.setattr(service, "_memorize_categorize_items", _capture_categorize)
+    monkeypatch.setattr(service, "_memorize_dedupe_merge", _noop_step)
+    monkeypatch.setattr(service, "_memorize_persist_and_index", _noop_step)
+    monkeypatch.setattr(service, "_memorize_build_response", _build_empty)
+
+    await service.memorize_segments_batch(
+        modality="conversation",
+        segments=[
+            {
+                "resource_url": "memory://segment",
+                "raw_text": json.dumps([{"role": "user", "content": "ordinary story"}]),
+                "segment": {"message_indices": [0], "context_only": False},
+            }
+        ],
+        user={"user_id": "test-user", "soul_id": "TestSoul"},
+    )
+
+    assert routed_types == ["profile", "knowledge"]
+    assert persisted_episodes == [{"title": "Anchor", "summary": "Full story.", "item": "Full story."}]
+
+
 def test_parse_memory_type_response_xml_raises_on_unsalvageable_xml() -> None:
     # "<item><memory></item>" is malformed AND unsalvageable — both passes fail
     bad_xml = "<item><memory></item>"

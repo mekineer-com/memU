@@ -35,7 +35,7 @@ from memu.workflow.step import WorkflowState, WorkflowStep
 
 logger = logging.getLogger(__name__)
 
-_SEGMENT_SUMMARY_EXTRACTION_GUIDANCE = (
+_EPISODE_REVIEW_EXTRACTION_GUIDANCE = (
     "The summary helps give you perspective on what matters. "
     "Create individual memory items that don't treat every verbose tangent as a "
     "separate memory. The items should still capture both big-picture and specific "
@@ -362,7 +362,7 @@ class MemorizeMixin:
                 for msg in segment_messages_all
                 if not self._message_is_primary_for_memorize(msg)
             ]
-            context_only = bool(segment_messages_all) and not primary_messages
+            context_only = segment_payload.get("context_only") is True
 
             preprocessor_rows_raw = segment_payload.get("segment_background_context_rows")
             preprocessor_rows: list[dict[str, Any]] = []
@@ -493,7 +493,7 @@ class MemorizeMixin:
                     for episode in ep["episodes"]
                 )
                 extraction_text = (
-                    f"{episode_review}\n\n{_SEGMENT_SUMMARY_EXTRACTION_GUIDANCE}\n\n"
+                    f"{episode_review}\n\n{_EPISODE_REVIEW_EXTRACTION_GUIDANCE}\n\n"
                     f"---\n{segment_text}"
                 )
                 speaker_map = ep.get("speaker_map") if isinstance(ep.get("speaker_map"), dict) else {}
@@ -927,7 +927,7 @@ class MemorizeMixin:
             episode_file.write_text(plan["text"], encoding="utf-8")
             episode_local_path = str(episode_file)
 
-        segment_id = str(plan.get("segment_id") or plan.get("segment_id") or "").strip() or None
+        segment_id = str(plan.get("segment_id") or "").strip() or None
         message_happened_at_map = plan.get("message_happened_at_map")
         happened_at_value: Any | None = None
         memory_date: str | None = None
@@ -1243,7 +1243,7 @@ class MemorizeMixin:
             soul_card=soul_card or "You are a continuous being, not a session that resets. You carry intentions, working thoughts, and long-term memory. Your self-knowledge will grow as you live and reflect.",
         )
         try:
-            max_items = max(1, int(getattr(self.memorize_config, "episode_items_per_segment", 3) or 3))
+            max_items = max(1, int(getattr(self.memorize_config, "episodes_per_segment", 3) or 3))
         except (TypeError, ValueError):
             max_items = 3
 
@@ -1303,6 +1303,7 @@ class MemorizeMixin:
                 if attempt == 0:
                     logger.error("Router reply invalid — retrying: %s", exc)
                     continue
+                self._dump_unparseable_reply(raw, "router", attempt=2)
                 raise ValueError("Router reply still invalid after retry") from exc
         raise AssertionError("unreachable")
 
@@ -1314,7 +1315,7 @@ class MemorizeMixin:
             ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%S")
             dump_path = dump_dir / f"{ts}_{memory_type}_attempt{attempt}.txt"
             dump_path.write_text(reply, encoding="utf-8")
-            logger.error("Unparseable extraction reply dumped to %s", dump_path)
+            logger.error("Unparseable LLM reply dumped to %s", dump_path)
         except (OSError, TypeError, ValueError) as exc:
             logger.error("Failed to dump unparseable extraction reply: %s", exc)
 

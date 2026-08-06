@@ -25,6 +25,8 @@ JSON only. No explanation. No markdown.
 Of these memory types: {allowed_types}
 Are any not relevant? Write the excluded type(s) in the JSON.
 
+Every segment contains at least one story. Never return an empty episodes list. If the chats are mostly logistics or small talk, write the one ordinary story they still contain.
+
 Write episodes as 1-3 meaningful stories. Each episode needs:
 - title: very short topical anchor
 - episode_summary: a short paragraph capturing what matters. Write in first person for your observations, third person for the user. Focus on what shifted or was revealed — not a play-by-play.
