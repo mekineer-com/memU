@@ -8,6 +8,7 @@ from typing import Any, Literal, TypeVar
 
 from pydantic import BaseModel
 
+from memu.app.dossier import DossierMixin
 from memu.app.graph import GraphMixin
 from memu.app.memorize import MemorizeMixin
 from memu.app.retrieve import RetrieveMixin
@@ -48,7 +49,7 @@ class Context:
     _init_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
 
-class MemoryService(GraphMixin, MemorizeMixin, RetrieveMixin):
+class MemoryService(DossierMixin, GraphMixin, MemorizeMixin, RetrieveMixin):
     def __init__(
         self,
         *,
@@ -91,6 +92,7 @@ class MemoryService(GraphMixin, MemorizeMixin, RetrieveMixin):
 
         self._context = Context(categories_ready=not bool(self.category_configs))
         self._category_summary_embedding_cache: dict[str, tuple[str, list[float]]] = {}
+        self._dossier_content_embedding_cache: dict[str, tuple[str, list[float]]] = {}
 
         self.database: Database = build_database(
             config=self.database_config,

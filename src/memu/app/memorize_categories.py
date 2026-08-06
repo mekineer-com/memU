@@ -8,6 +8,7 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from typing import Any
 
 from memu.app.category_summary_journal import update_category_summary_with_journal
+from memu.app.dossier import dossier_identity_text
 from memu.prompts.category_summary import (
     CUSTOM_PROMPT as CATEGORY_SUMMARY_CUSTOM_PROMPT,
 )
@@ -554,9 +555,7 @@ async def _initialize_categories(
 
 
 def _category_embedding_text(cat: Any) -> str:
-    name = str(getattr(cat, "name", "") or "").strip() or "Untitled"
-    desc = str(getattr(cat, "description", "") or "").strip()
-    return f"{name}: {desc}" if desc else name
+    return dossier_identity_text(cat)
 
 
 def _map_category_names_to_ids(names: list[str], ctx: Any) -> list[str]:

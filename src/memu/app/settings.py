@@ -213,6 +213,11 @@ class MemorizeConfig(BaseModel):
         default=10,
         description="Minimum number of homeless items that must cluster together (by embedding similarity) before that cluster becomes a new dynamic category.",
     )
+    active_dossiers_per_kind: int = Field(
+        default=30,
+        ge=0,
+        description="Maximum active non-anchor dossiers retained per dossier kind.",
+    )
     max_categories_total: int = Field(
         default=12,
         description="Maximum total number of categories allowed (configured + dynamically created).",
