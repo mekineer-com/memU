@@ -69,6 +69,19 @@ def _render_index_field(value: str) -> str:
     return " ".join(value.split())
 
 
+def _validate_anchors(
+    anchors: Mapping[str, MemoryCategory], scope: Mapping[str, str]
+) -> None:
+    expected: dict[AnchorRole, str] = {"soul": scope["soul_id"], "user": scope["user_id"]}
+    for role, category in anchors.items():
+        if (
+            role not in expected
+            or category.name != expected[cast(AnchorRole, role)]
+            or category.kind != "lore"
+        ):
+            raise ValueError(f"Invalid {role} dossier anchor for scope")
+
+
 class DossierMixin:
     if TYPE_CHECKING:
         memorize_config: MemorizeConfig
@@ -88,13 +101,13 @@ class DossierMixin:
 
         store = self._get_database()
         categories = store.memory_category_repo.list_categories(scope)
-        anchors = store.memory_category_repo.list_anchor_categories(scope)
+        anchors = {
+            cast(str, category.anchor_role): category
+            for category in categories.values()
+            if category.anchor_role is not None
+        }
+        _validate_anchors(anchors, scope)
         expected: dict[AnchorRole, str] = {"soul": scope["soul_id"], "user": scope["user_id"]}
-        for role, category in anchors.items():
-            if role not in ("soul", "user"):
-                raise ValueError(f"Invalid {role} dossier anchor for scope")
-            if category.name != expected[cast(AnchorRole, role)] or category.kind != "lore":
-                raise ValueError(f"Invalid {role} dossier anchor for scope")
 
         missing = [(role, name) for role, name in expected.items() if role not in anchors]
         for role, name in missing:
@@ -193,14 +206,8 @@ class DossierMixin:
         scope = _scope(where)
         store = self._get_database()
         anchors = store.memory_category_repo.list_anchor_categories(scope)
-        expected: dict[AnchorRole, str] = {"soul": scope["soul_id"], "user": scope["user_id"]}
-        active: list[MemoryCategory] = []
-        for role, category in anchors.items():
-            if role not in ("soul", "user"):
-                raise ValueError(f"Invalid {role} dossier anchor for scope")
-            if category.name != expected[cast(AnchorRole, role)] or category.kind != "lore":
-                raise ValueError(f"Invalid {role} dossier anchor for scope")
-            active.append(category)
+        _validate_anchors(anchors, scope)
+        active = list(anchors.values())
 
         limit = max(0, int(self.memorize_config.active_dossiers_per_kind))
         for kind in DOSSIER_KINDS:
