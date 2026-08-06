@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# ruff: noqa: S608, TRY003
 """Inspect or migrate memU SQLite embeddings to canonical float32 BLOBs."""
 
 from __future__ import annotations

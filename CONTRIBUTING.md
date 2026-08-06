@@ -13,14 +13,13 @@ Open a GitHub issue with:
 ## Submitting changes
 
 1. Fork, create a feature branch
-2. Run `make check` before pushing (ruff + mypy)
+2. Run `make check` before pushing (pre-commit hygiene checks + mypy)
 3. Python syntax check: `python3 -m py_compile src/memu/app/memorize.py`
 4. Open a pull request with a short description of what changed and why
 
 ## Code style
 
 - Python 3.12+
-- Ruff for formatting/linting (line length 120, configured in `pyproject.toml`)
 - Type hints on public functions
 
 ## License

@@ -61,7 +61,6 @@ lint = [
     "deptry>=0.23.1",
     "mypy>=1.18.2",
     "pre-commit>=4.3.0",
-    "ruff>=0.14.3",
     "types-defusedxml>=0.7.0",
 ]
 test = [
@@ -107,60 +106,6 @@ disable_error_code = ["attr-defined", "call-arg"]
 [[tool.mypy.overrides]]
 module = ["lazyllm.*"]
 ignore_missing_imports = true
-
-[tool.ruff]
-target-version = "py312"
-line-length = 120
-
-[tool.ruff.lint]
-select = [
-    # flake8-2020
-    "YTT",
-    # flake8-bandit
-    "S",
-    # flake8-bugbear
-    "B",
-    # flake8-builtins
-    "A",
-    # flake8-comprehensions
-    "C4",
-    # flake8-debugger
-    "T10",
-    # flake8-simplify
-    "SIM",
-    # isort
-    "I",
-    # mccabe
-    "C90",
-    # pycodestyle
-    "E", "W",
-    # pyflakes
-    "F",
-    # pygrep-hooks
-    "PGH",
-    # pyupgrade
-    "UP",
-    # ruff
-    "RUF",
-    # tryceratops
-    "TRY",
-]
-ignore = [
-    # LineTooLong
-    "E501",
-    # DoNotAssignLambda
-    "E731",
-]
-
-[tool.ruff.lint.mccabe]
-max-complexity = 60
-
-[tool.ruff.lint.per-file-ignores]
-"tests/*" = ["S101"]
-"examples/*" = ["E402", "TRY003", "B904", "S104", "TRY300", "SIM108"]
-
-[tool.ruff.format]
-preview = true
 
 [tool.coverage.report]
 skip_empty = true
