@@ -54,24 +54,24 @@ class SQLiteDossierCandidateRepo(SQLiteRepoBase, DossierCandidateRepo):
         memory_day: str | None = None,
         session: Any | None = None,
     ) -> DossierCandidate:
-        scope = self._require_scope(where)
-        normalized_name = normalize_category_name(proposed_name)
-        if normalized_name is None:
-            raise ValueError("Dossier candidate name must contain letters or digits")
-        normalized_day = date.fromisoformat(memory_day).isoformat() if memory_day is not None else None
-
         if session is None:
             with self._sessions.session() as managed_session:
                 candidate = self.add_candidate(
                     proposed_name=proposed_name,
                     item_id=item_id,
-                    where=scope,
+                    where=where,
                     segment_id=segment_id,
-                    memory_day=normalized_day,
+                    memory_day=memory_day,
                     session=managed_session,
                 )
                 managed_session.commit()
                 return candidate
+
+        scope = self._require_scope(where)
+        normalized_name = normalize_category_name(proposed_name)
+        if normalized_name is None:
+            raise ValueError("Dossier candidate name must contain letters or digits")
+        normalized_day = date.fromisoformat(memory_day).isoformat() if memory_day is not None else None
 
         candidate = DossierCandidate(
             proposed_name=proposed_name.strip(),

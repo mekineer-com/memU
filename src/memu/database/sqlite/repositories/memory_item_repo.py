@@ -9,7 +9,7 @@ from collections.abc import Mapping
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import case, func, or_
+from sqlalchemy import case, func, or_, text
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import defer
 from sqlmodel import delete, select
@@ -313,7 +313,7 @@ WHERE version = 1 AND model IN ({placeholders})
         scope = self._require_scope(where)
         with self._sessions.session() as session:
             try:
-                session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+                session.execute(text("BEGIN IMMEDIATE"))
                 rows = session.exec(
                     select(self._memory_item_model)
                     .where(*self._build_filters(self._memory_item_model, scope))

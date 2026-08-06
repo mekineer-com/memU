@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping
 from datetime import datetime
+from types import EllipsisType
 from typing import Any, Literal
 
 from sqlalchemy import func
@@ -287,12 +288,12 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
         embedding: list[float] | None = None,
         summary: str | None = None,
         previous_summary: str | None = None,
-        kind: DossierKind | None = None,
-        lore_subtype: str | None = None,
-        entity_id: str | None = None,
-        anchor_role: Literal["soul", "user"] | None = None,
-        last_evidence_at: datetime | None = None,
-        last_revised_at: datetime | None = None,
+        kind: DossierKind | None | EllipsisType = ...,
+        lore_subtype: str | None | EllipsisType = ...,
+        entity_id: str | None | EllipsisType = ...,
+        anchor_role: Literal["soul", "user"] | None | EllipsisType = ...,
+        last_evidence_at: datetime | None | EllipsisType = ...,
+        last_revised_at: datetime | None | EllipsisType = ...,
     ) -> MemoryCategory:
         """Update an existing category.
 
@@ -327,18 +328,16 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
                 row.summary = summary
             if previous_summary is not None:
                 row.previous_summary = previous_summary
-            if kind is not None:
-                row.kind = kind
-            if lore_subtype is not None:
-                row.lore_subtype = lore_subtype
-            if entity_id is not None:
-                row.entity_id = entity_id
-            if anchor_role is not None:
-                row.anchor_role = anchor_role
-            if last_evidence_at is not None:
-                row.last_evidence_at = last_evidence_at
-            if last_revised_at is not None:
-                row.last_revised_at = last_revised_at
+            for field, value in (
+                ("kind", kind),
+                ("lore_subtype", lore_subtype),
+                ("entity_id", entity_id),
+                ("anchor_role", anchor_role),
+                ("last_evidence_at", last_evidence_at),
+                ("last_revised_at", last_revised_at),
+            ):
+                if value is not ...:
+                    setattr(row, field, value)
             row.updated_at = self._now()
 
             session.add(row)

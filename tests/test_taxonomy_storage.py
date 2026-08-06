@@ -206,6 +206,15 @@ def test_dossier_fields_anchors_and_activity_order_round_trip(tmp_path) -> None:
     assert revised.entity_id == "entity-a"
     assert revised.lore_subtype == "person"
     assert revised.last_revised_at == new.replace(tzinfo=None)
+    cleared = store.memory_category_repo.update_category(
+        category_id=alpha.id,
+        lore_subtype=None,
+        entity_id=None,
+        last_revised_at=None,
+    )
+    assert cleared.lore_subtype is None
+    assert cleared.entity_id is None
+    assert cleared.last_revised_at is None
     with pytest.raises(IntegrityError):
         _category(store, SCOPE, "second self", kind="lore", anchor_role="soul")
     _category(store, OTHER_SCOPE, "other self", kind="lore", anchor_role="soul")

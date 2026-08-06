@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import datetime
+from types import EllipsisType
 from typing import Any, Literal, Protocol, runtime_checkable
 
 from memu.database.models import DossierKind, MemoryCategory
@@ -51,12 +52,12 @@ class MemoryCategoryRepo(Protocol):
         embedding: list[float] | None = None,
         summary: str | None = None,
         previous_summary: str | None = None,
-        kind: DossierKind | None = None,
-        lore_subtype: str | None = None,
-        entity_id: str | None = None,
-        anchor_role: Literal["soul", "user"] | None = None,
-        last_evidence_at: datetime | None = None,
-        last_revised_at: datetime | None = None,
+        kind: DossierKind | None | EllipsisType = ...,
+        lore_subtype: str | None | EllipsisType = ...,
+        entity_id: str | None | EllipsisType = ...,
+        anchor_role: Literal["soul", "user"] | None | EllipsisType = ...,
+        last_evidence_at: datetime | None | EllipsisType = ...,
+        last_revised_at: datetime | None | EllipsisType = ...,
     ) -> MemoryCategory: ...
 
     def approve_category_summary(
