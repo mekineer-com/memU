@@ -224,12 +224,7 @@ def _summary_row_lines(row: Mapping[str, Any]) -> list[str]:
 
 
 def grouped_chat_happened_at(message: Mapping[str, Any]) -> Any:
-    return parse_happened_at(
-        message.get("received_at")
-        or message.get("ts_ms")
-        or message.get("created_at")
-        or message.get("timestamp")
-    )
+    return parse_happened_at(_grouped_chat_timestamp(message))
 
 
 def _grouped_chat_timestamp(message: Mapping[str, Any]) -> Any:

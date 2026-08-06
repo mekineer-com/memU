@@ -65,7 +65,7 @@ async def test_route_segment_ignores_full_exclusion(caplog: pytest.LogCaptureFix
     client = _RouterStub(
         '{"excluded_types": ["profile", "knowledge"], "episodes": '
         '[{"title": "Anchor", "episode_summary": "Full story.", "episode_item": null, '
-        '"categories": [], "day": "wrong"}]}'
+        '"categories": 42, "day": null}]}'
     )
 
     routed, episodes = await service._route_segment(

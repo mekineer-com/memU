@@ -433,7 +433,7 @@ class MemorizeMixin:
                     soul_name=soul_name,
                 )
             segment_text = rendered_text or (str(text).strip() if isinstance(text, str) else "")
-            episodes: list[dict[str, str]] = []
+            episodes: list[dict[str, Any]] = []
             applicable_types: list[MemoryType] = memory_types
             if context_only:
                 applicable_types = []
@@ -441,7 +441,7 @@ class MemorizeMixin:
                 applicable_types, episodes = await self._route_segment(
                     segment_text,
                     memory_types,
-                    self._with_llm_step(
+                    llm_client=self._with_llm_step(
                         extract_client,
                         operation="memorize",
                         step_id="router",
@@ -1002,7 +1002,6 @@ class MemorizeMixin:
                 items.append(summary_item)
 
         entries = plan.get("entries") or []
-        segment_id = str(plan.get("segment_id") or "").strip()
         if segment_id:
             pending_segment_ids.append(segment_id)
         if not entries:
@@ -1232,9 +1231,10 @@ class MemorizeMixin:
         self,
         segment_text: str,
         memory_types: list[MemoryType],
+        *,
+        source_days: Sequence[str],
         llm_client: Any | None = None,
         soul_card: str | None = None,
-        source_days: Sequence[str] = (),
     ) -> tuple[list[MemoryType], list[dict[str, Any]]]:
         if not source_days:
             raise ValueError("router requires at least one source day")

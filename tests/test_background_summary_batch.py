@@ -151,6 +151,19 @@ def test_render_grouped_chat_messages_places_activities_before_chats() -> None:
     assert "[SoulA] I wrote a note to myself." in rendered
 
 
+def test_render_grouped_chat_messages_shows_timestamp_fallback_date() -> None:
+    rendered = segment_helpers._render_grouped_chat_messages([{
+        "_message_index": 1,
+        "role": "user",
+        "speaker": "User A",
+        "content": "dated message",
+        "source_conversation_id": "whatsapp:dm:contact-a",
+        "timestamp": "2026-01-02T10:00:00-05:00",
+    }])
+
+    assert "--- 2026-01-02 (" in rendered
+
+
 @pytest.mark.asyncio
 async def test_render_episode_with_background_context_uses_batch_summary_when_above_floor() -> None:
     primary_messages = [{"_message_index": 3, "role": "user", "name": "Marcos", "content": "primary"}]
