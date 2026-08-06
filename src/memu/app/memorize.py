@@ -320,7 +320,6 @@ class MemorizeMixin:
         )
 
         prepared: list[dict[str, Any]] = []
-        routing_notes: list[str] = []
         for segment_number, segment_job in enumerate(segments, start=1):
             resource_url = str(segment_job.get("resource_url") or "").strip()
             if not resource_url:
@@ -363,6 +362,7 @@ class MemorizeMixin:
                 for msg in segment_messages_all
                 if not self._message_is_primary_for_memorize(msg)
             ]
+            context_only = bool(segment_messages_all) and not primary_messages
 
             preprocessor_rows_raw = segment_payload.get("segment_background_context_rows")
             preprocessor_rows: list[dict[str, Any]] = []
@@ -380,7 +380,10 @@ class MemorizeMixin:
                         }
                     )
 
-            if preprocessor_rows:
+            if context_only:
+                segment_background_context_rows = preprocessor_rows
+                rendered_text = ""
+            elif preprocessor_rows:
                 seeded_rows = list(preprocessor_rows)
                 if background_messages:
                     _rendered_with_tail, tail_rows = await self._render_episode_with_background_context(
@@ -412,28 +415,12 @@ class MemorizeMixin:
                     soul_name=soul_name,
                 )
             segment_text = rendered_text or (str(text).strip() if isinstance(text, str) else "")
-            context_only = bool(segment_messages_all) and not primary_messages
-
-            segment_summary: str | None = str(caption).strip() if isinstance(caption, str) and str(caption).strip() else None
-            episode_items: list[dict[str, str]] = []
+            episodes: list[dict[str, str]] = []
             applicable_types: list[MemoryType] = memory_types
             if context_only:
                 applicable_types = []
-                if not segment_summary:
-                    segment_summary = await self._summarize_background_messages(
-                        messages=background_messages or segment_messages_all,
-                        llm_client=self._with_llm_step(
-                            extract_client,
-                            operation="memorize",
-                            step_id="background_extra_messages",
-                        ),
-                    )
-                if segment_summary:
-                    episode_items = [{"title": "Story", "summary": segment_summary}]
-                if not segment_summary:
-                    routing_notes.append(f"segment {segment_number}: context-only background, no summary generated")
             elif segment_text:
-                applicable_types, routed_summary, routed_items = await self._route_segment(
+                applicable_types, episodes = await self._route_segment(
                     segment_text,
                     memory_types,
                     self._with_llm_step(
@@ -442,11 +429,10 @@ class MemorizeMixin:
                         step_id="router",
                     ),
                     soul_card=(soul_card or "").strip() or None,
-                    skipped_reasons=routing_notes,
                 )
-                if routed_summary:
-                    segment_summary = routed_summary
-                episode_items = routed_items
+            else:
+                msg = f"batch segment {segment_number} rendered empty conversation text"
+                raise ValueError(msg)
 
             primary_indices = [
                 self._message_index_for_sort(msg)
@@ -475,8 +461,7 @@ class MemorizeMixin:
                 "segment_raw_text": raw_text,
                 "text": segment_text,
                 "caption": caption,
-                "segment_summary": segment_summary,
-                "episode_items": episode_items,
+                "episodes": episodes,
                 "message_indices": selected_indices,
                 "message_happened_at_map": plan_message_happened_at_map,
                 "segment_messages": primary_messages,
@@ -503,20 +488,28 @@ class MemorizeMixin:
             ]
             for i, (ep, mtype) in enumerate(extraction_jobs):
                 segment_text = str(ep.get("text") or "").strip()
+                episode_review = "\n\n".join(
+                    f"Episode: {episode['title']}\nEpisode Summary:\n{episode['summary']}"
+                    for episode in ep["episodes"]
+                )
+                extraction_text = (
+                    f"{episode_review}\n\n{_SEGMENT_SUMMARY_EXTRACTION_GUIDANCE}\n\n"
+                    f"---\n{segment_text}"
+                )
                 speaker_map = ep.get("speaker_map") if isinstance(ep.get("speaker_map"), dict) else {}
                 speaker_roster = self._build_speaker_roster_for_segment(
                     speaker_map=speaker_map,
                     declared_entities=declared_entity_roster,
                     segment_text=segment_text,
                 )
-                estimated_tokens = self._estimate_text_tokens(segment_text)
+                estimated_tokens = self._estimate_text_tokens(extraction_text)
                 if estimated_tokens > 100000:
                     logger.warning(
                         "segment extraction prompt estimated at %d tokens (>100000)",
                         estimated_tokens,
                     )
                 type_entries = await self._generate_entries_from_text(
-                    resource_text=segment_text,
+                    resource_text=extraction_text,
                     store=store,
                     memory_types=[mtype],
                     categories_prompt_str=self._category_prompt_str,
@@ -544,9 +537,9 @@ class MemorizeMixin:
             plan = {
                 "resource_url": ep["resource_url"],
                 "text": ep["text"],
-                "caption": ep["segment_summary"] or ep["caption"],
-                "segment_summary": ep["segment_summary"],
-                "episode_items": ep["episode_items"],
+                "caption": ep["caption"],
+                "episodes": ep["episodes"],
+                "context_only": ep["context_only"],
                 "message_indices": ep["message_indices"],
                 "message_happened_at_map": ep["message_happened_at_map"],
                 "entries": segment_entries,
@@ -589,8 +582,6 @@ class MemorizeMixin:
             if response is None:
                 msg = "Memorize segment batch failed to produce a response"
                 raise RuntimeError(msg)
-            if routing_notes:
-                response["skipped_reasons"] = list(routing_notes)
             responses.append(response)
 
         return responses
@@ -724,7 +715,6 @@ class MemorizeMixin:
         extract_model = str(getattr(llm_client, "chat_model", "") or "").strip() or None
         episodes = state.get("episodes", [])
         segment_plans: list[dict[str, Any]] = []
-        skipped_reasons: list[str] = []
         message_happened_at_map = self._extract_message_happened_at_map(state.get("raw_text"))
         conversation_messages = self._extract_conversation_messages(state.get("raw_text"))
         messages_by_index = {idx: msg for idx, msg in conversation_messages}
@@ -746,21 +736,7 @@ class MemorizeMixin:
             text=text if isinstance(text, str) else None,
             message_indices=prep.get("message_indices"),
         )
-        segment_summary: str | None = None
-        episode_items: list[dict[str, str]] = []
-        if state["modality"] == "conversation" and isinstance(text, str):
-            applicable_types, segment_summary, episode_items = await self._route_segment(
-                text, state["memory_types"], llm_client,
-                soul_card=state.get("soul_card"),
-                skipped_reasons=skipped_reasons,
-            )
-            if not applicable_types:
-                state["segment_plans"] = []
-                if skipped_reasons:
-                    state["skipped_reasons"] = skipped_reasons
-                return state
-        else:
-            applicable_types = state["memory_types"]
+        applicable_types = state["memory_types"]
 
         segment_messages: list[dict[str, Any]] = []
         for message_idx in message_indices:
@@ -777,25 +753,16 @@ class MemorizeMixin:
             segment_text=text,
         )
 
-        extraction_text = text
-        if segment_summary:
-            extraction_text = (
-                f"Episode Summary:\n{segment_summary}\n\n"
-                f"{_SEGMENT_SUMMARY_EXTRACTION_GUIDANCE}\n\n"
-                f"---\n{text}"
-            )
-
         structured_entries = await self._generate_structured_entries(
             modality=state["modality"],
             store=state["store"],
             memory_types=applicable_types,
-            text=extraction_text,
+            text=text,
             categories_prompt_str=state["categories_prompt_str"],
             all_categories_summary=state.get("all_categories_summary"),
             soul_card=state.get("soul_card"),
             speaker_roster=speaker_roster,
             llm_client=llm_client,
-            skipped_reasons=skipped_reasons,
         )
         structured_entries = self._decorate_entries_with_plan_context(
             structured_entries,
@@ -818,9 +785,7 @@ class MemorizeMixin:
         plan: dict[str, Any] = {
             "resource_url": state["resource_url"],
             "text": text,
-            "caption": segment_summary or caption,
-            "segment_summary": segment_summary,
-            "episode_items": episode_items,
+            "caption": caption,
             "message_indices": message_indices,
             "message_happened_at_map": plan_message_happened_at_map,
             "entries": structured_entries,
@@ -833,8 +798,6 @@ class MemorizeMixin:
         segment_plans.append(plan)
 
         state["segment_plans"] = segment_plans
-        if skipped_reasons:
-            state["skipped_reasons"] = skipped_reasons
         return state
 
     async def _memorize_dedupe_merge(self, state: WorkflowState, step_context: Any) -> WorkflowState:
@@ -949,6 +912,9 @@ class MemorizeMixin:
         pending_segment_ids: list[str],
         session: Any = None,
     ) -> tuple[list[Resource], int]:
+        if plan.get("context_only"):
+            return [], 0
+
         kwargs: dict[str, Any] = {}
         if session is not None:
             kwargs["session"] = session
@@ -991,32 +957,23 @@ class MemorizeMixin:
             **kwargs,
         )
 
-        segment_summary_text = str(plan.get("segment_summary") or "").strip()
-        raw_episode_items = plan.get("episode_items")
-        episode_items: list[dict[str, str]] = []
-        if isinstance(raw_episode_items, list):
-            for row in raw_episode_items:
-                if not isinstance(row, Mapping):
-                    continue
-                title = str(row.get("title") or "").strip()
-                summary = str(row.get("summary") or "").strip()
-                if not summary:
-                    continue
-                episode_items.append({"title": title or "Story", "summary": summary})
-        if not episode_items and segment_summary_text:
-            episode_items = [{"title": "Story", "summary": segment_summary_text}]
-        if episode_items:
-            episode_summaries: list[tuple[str, str, str]] = []
-            for episode_item in episode_items:
-                title = str(episode_item.get("title") or "").strip() or "Story"
-                summary = str(episode_item.get("summary") or "").strip()
-                full_summary = f"{title}: {summary}"
-                episode_summaries.append((title, summary, full_summary))
-            episode_embeddings = await embed_client.embed([full_summary for _, _, full_summary in episode_summaries])
-            for (title, _summary, full_summary), episode_embedding in zip(
-                episode_summaries, episode_embeddings, strict=True
+        raw_episodes = plan.get("episodes") or []
+        episodes: list[tuple[str, str, str, str]] = []
+        for row in raw_episodes:
+            title = str(row["title"]).strip()
+            episode_summary = str(row["summary"]).strip()
+            item = str(row["item"]).strip()
+            full_item = f"{title}: {item}"
+            episodes.append((title, episode_summary, item, full_item))
+        if episodes:
+            episode_embeddings = await embed_client.embed([full_item for _, _, _, full_item in episodes])
+            for (title, episode_summary, _item, full_item), episode_embedding in zip(
+                episodes, episode_embeddings, strict=True
             ):
-                extra_payload: dict[str, Any] = {"episode_item_title": title}
+                extra_payload: dict[str, Any] = {
+                    "episode_item_title": title,
+                    "episode_summary": episode_summary,
+                }
                 if segment_id:
                     extra_payload["segment_id"] = segment_id
                 if memory_date:
@@ -1025,7 +982,7 @@ class MemorizeMixin:
                     resource_id=res.id,
                     memory_type="episode",
                     source_role="environment",
-                    summary=full_summary,
+                    summary=full_item,
                     embedding=episode_embedding,
                     user_data=dict(user_scope or {}),
                     conversation_id=conversation_id,
@@ -1182,9 +1139,6 @@ class MemorizeMixin:
                 "relations": relations,
                 "pending_segment_ids": state.get("pending_segment_ids", []),
             }
-        skipped = state.get("skipped_reasons")
-        if skipped:
-            response["skipped_reasons"] = skipped
         state["response"] = response
         return state
 
@@ -1257,7 +1211,6 @@ class MemorizeMixin:
         soul_card: str | None = None,
         speaker_roster: Sequence[SpeakerRosterEntry] | None = None,
         llm_client: Any | None = None,
-        skipped_reasons: list[str] | None = None,
     ) -> list[StructuredMemoryEntry]:
         if not memory_types or not text:
             return []
@@ -1282,81 +1235,76 @@ class MemorizeMixin:
         memory_types: list[MemoryType],
         llm_client: Any | None = None,
         soul_card: str | None = None,
-        skipped_reasons: list[str] | None = None,
-    ) -> tuple[list[MemoryType], str | None, list[dict[str, str]]]:
-        if not memory_types:
-            return [], None, []
+    ) -> tuple[list[MemoryType], list[dict[str, str]]]:
         client = llm_client or self._select_chat_client(None)
         prompt = ROUTER_PROMPT.format(
             segment=segment_text,
             allowed_types=list(memory_types),
             soul_card=soul_card or "You are a continuous being, not a session that resets. You carry intentions, working thoughts, and long-term memory. Your self-knowledge will grow as you live and reflect.",
         )
-        def _parse_router_raw(r: str) -> dict:
+        try:
+            max_items = max(1, int(getattr(self.memorize_config, "episode_items_per_segment", 3) or 3))
+        except (TypeError, ValueError):
+            max_items = 3
+
+        def _parse_router_raw(r: str) -> tuple[list[MemoryType], list[dict[str, str]]]:
             if isinstance(r, str):
                 r = re.sub(r"^\s*```(?:json)?\s*", "", r, count=1, flags=re.IGNORECASE)
                 r = re.sub(r"\s*```\s*$", "", r, count=1)
             try:
-                return json.loads(r)
+                payload = json.loads(r)
             except (json.JSONDecodeError, TypeError):
-                return json.loads(self._extract_json_blob(r))
+                payload = json.loads(self._extract_json_blob(r))
+            if not isinstance(payload, dict):
+                raise ValueError("router payload must be an object")
 
-        raw = await client.chat(prompt)
-        try:
-            payload = _parse_router_raw(raw)
-        except (json.JSONDecodeError, TypeError, ValueError):
-            logger.error("Router reply unparseable — retrying")
+            excluded_types = payload.get("excluded_types", [])
+            if not isinstance(excluded_types, list) or any(not isinstance(value, str) for value in excluded_types):
+                raise ValueError("router excluded_types must be a string list")
+            configured = set(memory_types)
+            excluded = {value for value in excluded_types if value in configured}
+            if configured and excluded == configured:
+                logger.warning("Router excluded every configured memory type; extracting all types")
+                excluded.clear()
+            routed_types = [memory_type for memory_type in memory_types if memory_type not in excluded]
+
+            raw_episodes = payload.get("episodes")
+            if not isinstance(raw_episodes, list) or not raw_episodes:
+                raise ValueError("router episodes must be a non-empty list")
+            episodes: list[dict[str, str]] = []
+            for row in raw_episodes[:max_items]:
+                if not isinstance(row, Mapping):
+                    raise ValueError("router episode must be an object")
+                title = row.get("title")
+                summary = row.get("episode_summary")
+                item = row.get("episode_item")
+                if not isinstance(title, str) or not title.strip():
+                    raise ValueError("router episode title must be non-blank")
+                if not isinstance(summary, str) or not summary.strip():
+                    raise ValueError("router episode_summary must be non-blank")
+                if item is not None and not isinstance(item, str):
+                    raise ValueError("router episode_item must be a string or null")
+                normalized_summary = summary.strip()
+                normalized_item = str(item or "").strip() or normalized_summary
+                episodes.append(
+                    {
+                        "title": title.strip(),
+                        "summary": normalized_summary,
+                        "item": normalized_item,
+                    }
+                )
+            return routed_types, episodes
+
+        for attempt in range(2):
             raw = await client.chat(prompt)
             try:
-                payload = _parse_router_raw(raw)
+                return _parse_router_raw(raw)
             except (json.JSONDecodeError, TypeError, ValueError) as exc:
-                raise ValueError("Router reply still unparseable after retry") from exc
-        if not isinstance(payload, dict):
-            logger.warning("Router returned non-dict payload, skipping episode: %s", type(payload).__name__)
-            if skipped_reasons is not None:
-                skipped_reasons.append("router returned non-dict payload")
-            return [], None, []
-        excluded_types = payload.get("excluded_types")
-        reason = payload.get("reason", "")
-        segment_summary = str(payload.get("episode_summary") or "").strip() or None
-        episode_items: list[dict[str, str]] = []
-        raw_episode_items = payload.get("episode_items")
-        if isinstance(raw_episode_items, list):
-            for row in raw_episode_items:
-                if not isinstance(row, Mapping):
+                if attempt == 0:
+                    logger.error("Router reply invalid — retrying: %s", exc)
                     continue
-                summary = str(row.get("summary") or "").strip()
-                if not summary:
-                    continue
-                title = str(row.get("title") or "").strip() or "Story"
-                episode_items.append({"title": title, "summary": summary})
-        legacy_episode_item = str(payload.get("episode_item") or "").strip()
-        if not episode_items and legacy_episode_item:
-            episode_items = [{"title": "Story", "summary": legacy_episode_item}]
-        if not episode_items and segment_summary:
-            episode_items = [{"title": "Story", "summary": segment_summary}]
-        try:
-            max_items = int(getattr(self.memorize_config, "episode_items_per_segment", 3) or 3)
-        except (TypeError, ValueError):
-            max_items = 3
-        episode_items = episode_items[: max(1, max_items)]
-        if excluded_types is None:
-            excluded_types = []
-        if not isinstance(excluded_types, list):
-            logger.warning("Router returned invalid excluded_types, skipping episode")
-            if skipped_reasons is not None:
-                skipped_reasons.append("router returned invalid excluded_types")
-            return [], segment_summary, episode_items
-        excluded = {
-            routed_type
-            for routed_type in excluded_types
-            if isinstance(routed_type, str) and routed_type in set(memory_types)
-        }
-        allowed_types = set(memory_types) - excluded
-        routed_types = [mtype for mtype in memory_types if mtype in allowed_types]
-        if not routed_types and skipped_reasons is not None and isinstance(reason, str) and reason.strip():
-            skipped_reasons.append(reason.strip())
-        return routed_types, segment_summary, episode_items
+                raise ValueError("Router reply still invalid after retry") from exc
+        raise AssertionError("unreachable")
 
     def _dump_unparseable_reply(self, reply: str, memory_type: str, attempt: int) -> None:
         import datetime
@@ -1749,14 +1697,6 @@ class MemorizeMixin:
             preprocess_audio=self._preprocess_audio,
         )
 
-    async def _summarize_segment(self, segment_text: str, llm_client: Any | None = None) -> str | None:
-        return await segment_helpers._summarize_segment(
-            segment_text=segment_text,
-            llm_client=llm_client or self._select_chat_client(
-                {"operation": "memorize", "step_id": "segment_summary"}
-            ),
-        )
-
     async def _preprocess_video(
         self, local_path: str, template: str, llm_client: Any | None = None
     ) -> list[dict[str, str | None]]:
@@ -1871,20 +1811,6 @@ class MemorizeMixin:
     @staticmethod
     def _message_index_for_sort(message: Mapping[str, Any]) -> int:
         return segment_helpers._message_index_for_sort(message)
-
-    async def _summarize_background_messages(
-        self,
-        *,
-        messages: Sequence[Mapping[str, Any]],
-        llm_client: Any | None = None,
-        soul_name: str | None = None,
-    ) -> str | None:
-        return await segment_helpers._summarize_background_messages(
-            messages=messages,
-            llm_client=llm_client,
-            summarize_segment=self._summarize_segment,
-            soul_name=soul_name,
-        )
 
     async def summarize_background_chat_rollup(
         self,

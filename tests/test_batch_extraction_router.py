@@ -33,22 +33,40 @@ class _EmbedStub:
 async def test_route_segment_uses_excluded_types_model() -> None:
     service = _service()
     client = _RouterStub(
-        '{"excluded_types": ["knowledge", "social"], "episode_summary": "S", "episode_items": [{"title": "Story", "summary": "I"}]}'
+        '{"excluded_types": ["knowledge", "social"], "episodes": [{"title": "Anchor", "episode_summary": "Full story.", "episode_item": "Compact story."}]}'
     )
 
-    routed, summary, items = await service._route_segment(
+    routed, episodes = await service._route_segment(
         "episode text",
         ["profile", "knowledge", "behavior", "social"],
         llm_client=client,
     )
 
     assert routed == ["profile", "behavior"]
-    assert summary == "S"
-    assert items == [{"title": "Story", "summary": "I"}]
+    assert episodes == [{"title": "Anchor", "summary": "Full story.", "item": "Compact story."}]
 
 
 @pytest.mark.asyncio
-async def test_persist_plan_uses_internal_segment_summary_for_episode_item_fallback(
+async def test_route_segment_ignores_full_exclusion(caplog: pytest.LogCaptureFixture) -> None:
+    service = _service()
+    client = _RouterStub(
+        '{"excluded_types": ["profile", "knowledge"], "episodes": '
+        '[{"title": "Anchor", "episode_summary": "Full story.", "episode_item": null}]}'
+    )
+
+    routed, episodes = await service._route_segment(
+        "episode text",
+        ["profile", "knowledge"],
+        llm_client=client,
+    )
+
+    assert routed == ["profile", "knowledge"]
+    assert episodes[0]["item"] == "Full story."
+    assert "excluded every configured memory type" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_persist_plan_uses_short_episode_summary_as_item(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     service = _service()
@@ -75,8 +93,7 @@ async def test_persist_plan_uses_internal_segment_summary_for_episode_item_fallb
             "resource_url": "memory://episode",
             "text": "conversation",
             "caption": None,
-            "segment_summary": "Router summary",
-            "episode_items": [],
+            "episodes": [{"title": "Anchor", "summary": "Full short story.", "item": "Full short story."}],
             "entries": [],
             "message_happened_at_map": {},
             "segment_id": "chat:0-1",
@@ -99,9 +116,10 @@ async def test_persist_plan_uses_internal_segment_summary_for_episode_item_fallb
     )
 
     assert created_items
-    assert created_items[0]["summary"] == "Story: Router summary"
+    assert created_items[0]["summary"] == "Anchor: Full short story."
     assert created_items[0]["embedding"] == [1.0, 1.0]
-    assert embed_client.payloads == [["Story: Router summary"]]
+    assert created_items[0]["extra"]["episode_summary"] == "Full short story."
+    assert embed_client.payloads == [["Anchor: Full short story."]]
 
 
 @pytest.mark.asyncio
@@ -132,10 +150,9 @@ async def test_episode_items_use_their_own_embeddings(
             "resource_url": "memory://episode",
             "text": "conversation",
             "caption": "whole segment",
-            "segment_summary": "Whole segment summary",
-            "episode_items": [
-                {"title": "Dress", "summary": "Siri refuses an old persona."},
-                {"title": "Wheat", "summary": "Marcos maps food symptoms."},
+            "episodes": [
+                {"title": "Choice", "summary": "A fuller account of a choice.", "item": "A compact choice."},
+                {"title": "Discovery", "summary": "A fuller account of a discovery.", "item": "A compact discovery."},
             ],
             "entries": [],
             "message_happened_at_map": {},
@@ -159,14 +176,18 @@ async def test_episode_items_use_their_own_embeddings(
     )
 
     assert [item["summary"] for item in created_items] == [
-        "Dress: Siri refuses an old persona.",
-        "Wheat: Marcos maps food symptoms.",
+        "Choice: A compact choice.",
+        "Discovery: A compact discovery.",
     ]
     assert [item["embedding"] for item in created_items] == [[1.0, 1.0], [2.0, 1.0]]
     assert embed_client.payloads == [[
-        "Dress: Siri refuses an old persona.",
-        "Wheat: Marcos maps food symptoms.",
+        "Choice: A compact choice.",
+        "Discovery: A compact discovery.",
     ]]
+    assert [item["extra"]["episode_summary"] for item in created_items] == [
+        "A fuller account of a choice.",
+        "A fuller account of a discovery.",
+    ]
 
 
 @pytest.mark.asyncio
@@ -192,8 +213,7 @@ async def test_persist_plan_keeps_segment_local_path_without_flattened_copy(
             "resource_url": str(local_path),
             "text": "conversation",
             "caption": None,
-            "segment_summary": None,
-            "episode_items": [],
+            "episodes": [],
             "entries": [],
             "message_happened_at_map": {},
             "segment_id": "chat:0-1",
@@ -214,6 +234,39 @@ async def test_persist_plan_keeps_segment_local_path_without_flattened_copy(
 
     assert captured["local_path"] == str(local_path)
     assert not (service.fs.base / "2026-01-01.jsonl").exists()
+
+
+@pytest.mark.asyncio
+async def test_context_only_plan_creates_nothing() -> None:
+    service = _service()
+    pending_segment_ids: list[str] = []
+
+    resources, item_count = await service._process_plan(
+        {
+            "resource_url": "memory://background",
+            "text": "background context",
+            "caption": None,
+            "episodes": [],
+            "entries": [],
+            "segment_id": "background:0-1",
+            "context_only": True,
+        },
+        modality="conversation",
+        local_path=None,
+        ctx=SimpleNamespace(),
+        store=SimpleNamespace(),
+        embed_client=SimpleNamespace(),
+        user_scope={},
+        conversation_id="background",
+        items=[],
+        relations=[],
+        category_updates={},
+        pending_segment_ids=pending_segment_ids,
+    )
+
+    assert resources == []
+    assert item_count == 0
+    assert pending_segment_ids == []
 
 
 @pytest.mark.asyncio
@@ -253,7 +306,7 @@ async def test_memorize_segments_batch_passes_segment_speaker_rosters_without_se
         return None
 
     async def _route_profile_only(*_args, **_kwargs):
-        return ["profile"], None, None
+        return ["profile"], [{"title": "Anchor", "summary": "Full story.", "item": "Compact story."}]
 
     async def _noop_step(state, _step_context):
         return state
@@ -381,7 +434,7 @@ async def test_memorize_segment_direct_uses_grouped_chat_renderer(
 
     async def _route_profile_only(segment_text, *_args, **_kwargs):
         captured["route_text"] = segment_text
-        return ["profile"], "Router summary", []
+        return ["profile"], [{"title": "Anchor", "summary": "Router summary.", "item": "Router item."}]
 
     async def _capture_generate_entries_from_text(**kwargs):
         captured["extract_text"] = kwargs["resource_text"]
@@ -438,4 +491,7 @@ async def test_memorize_segment_direct_uses_grouped_chat_renderer(
     assert "[user]" not in route_text
     assert '"role"' not in route_text
     assert "My WhatsApp Conversations:" in extract_text
+    assert "Episode: Anchor" in extract_text
+    assert "Episode Summary:\nRouter summary." in extract_text
+    assert route_text in extract_text
     assert out["items"] == []

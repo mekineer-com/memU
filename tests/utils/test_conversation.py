@@ -1,10 +1,12 @@
 import json
+from datetime import UTC, datetime
 
 import pytest
 
 from memu.utils.conversation import (  # type: ignore[import-untyped]
     display_speaker_label,
     format_conversation_for_preprocess,
+    format_dated_relative_time_label,
     format_grouped_chat_history,
 )
 
@@ -108,3 +110,10 @@ def test_atomic_chat_history_has_atomic_section() -> None:
     ])
     assert "My Atomic Conversations:" in rendered
     assert "My SillyTavern Conversations:" not in rendered
+
+
+def test_dated_relative_time_label_includes_local_day() -> None:
+    assert format_dated_relative_time_label(
+        "2026-06-06T12:00:00+00:00",
+        now=datetime(2026, 6, 27, 12, tzinfo=UTC),
+    ) == "2026-06-06 (3 weeks ago)"

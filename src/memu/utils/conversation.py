@@ -356,6 +356,12 @@ def format_relative_time_label(happened_at: Any, *, now: datetime | None = None)
     return f"in {years} year{'s' if years != 1 else ''}"
 
 
+def format_dated_relative_time_label(happened_at: Any, *, now: datetime | None = None) -> str | None:
+    happened = _parse_happened_at(happened_at)
+    relative = format_relative_time_label(happened, now=now) if happened is not None else None
+    return f"{happened.date().isoformat()} ({relative})" if happened is not None and relative else None
+
+
 def format_grouped_chat_history(
     messages: Sequence[Mapping[str, Any]],
     *,

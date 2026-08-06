@@ -11,8 +11,8 @@ from memu.utils.conversation import (
     conversation_message_indices,
     format_chat_messages,
     format_conversation_for_preprocess,
+    format_dated_relative_time_label,
     format_grouped_chat_history,
-    format_relative_time_label,
 )
 from memu.utils.video import VideoFrameExtractor
 
@@ -119,23 +119,6 @@ async def _dispatch_preprocessor(
     if modality == "audio" and text is not None:
         return await preprocess_audio(text, template, llm_client=llm_client)
     return [{"text": text, "caption": None}]
-
-
-async def _summarize_segment(
-    *,
-    segment_text: str,
-    llm_client: Any | None,
-) -> str | None:
-    system_prompt = (
-        "Summarize the given conversational episode in 1-2 concise sentences. "
-        "Focus on the main topic or theme discussed."
-    )
-    try:
-        response = await llm_client.chat(segment_text, system_prompt=system_prompt)
-        return response.strip() if response else None
-    except Exception:
-        logger.exception("Failed to summarize segment")
-        return None
 
 
 async def _preprocess_video(
@@ -264,7 +247,7 @@ def _render_grouped_chat_messages(
 ) -> str:
     return format_grouped_chat_history(
         _prepare_grouped_chat_messages(messages),
-        time_label_resolver=format_relative_time_label,
+        time_label_resolver=format_dated_relative_time_label,
         soul_name=soul_name,
     )
 
@@ -281,26 +264,6 @@ def _render_with_summary_rows(
     primary_rendered = _render_grouped_chat_messages(primary_messages, soul_name=soul_name)
     parts = ["\n".join(prefix_lines).strip(), primary_rendered]
     return "\n\n".join(part for part in parts if part).strip()
-
-
-async def _summarize_background_messages(
-    *,
-    messages: Sequence[Mapping[str, Any]],
-    llm_client: Any | None,
-    summarize_segment: Callable[..., Awaitable[str | None]],
-    soul_name: str | None = None,
-) -> str | None:
-    if not messages:
-        return None
-    rendered = format_chat_messages(
-        sorted(messages, key=_message_index_for_sort),
-        soul_name=soul_name,
-        default_role="user",
-    )
-    if not rendered:
-        return None
-    summary = await summarize_segment(rendered, llm_client=llm_client)
-    return str(summary or "").strip() or None
 
 
 async def _summarize_background_rollup(

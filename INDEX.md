@@ -47,7 +47,7 @@
 | `memory_type/` | `profile.py`, `behavior.py`, `knowledge.py`, `social.py` | Per-type extraction prompts (PROMPT + CUSTOM_PROMPT). These four are active (DEFAULT_MEMORY_TYPES). `skill.py` and `tool.py` exist but are inactive. `event.py` removed — archived to `_archive/event-memory-type/`. |
 | `memory_type/__init__.py` | — | PROMPTS dict, DEFAULT_MEMORY_TYPES list |
 | `preprocess/` | `document.py`, `image.py`, `audio.py`, `video.py` | Input normalization for non-chat modalities |
-| `router/router.py` | — | Route input by excluded memory types; produce `segment_summary` + 1..N titled `episode_items` |
+| `router/router.py` | — | Route input by excluded memory types; produce 1–3 titled episodes with separate full summaries and compact items |
 | `retrieve/` | `pre_retrieval_decision.py` | Retrieve/no-retrieve and active-query prompt |
 | `category_summary/` | `category.py`, `category_with_refs.py` | Category synthesis; treat `[reinforced Nx]` markers as frequency signals, not one-off facts |
 | `consolidation/` | `consolidation.py` | Consolidation prompt: narrative_self, life_goals, intentions, edges, companion_memory |

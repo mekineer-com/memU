@@ -21,7 +21,10 @@ _VALID_XML = """
 
 _GARBAGE = "not xml at all %%% garbage"
 
-_VALID_ROUTER = '{"excluded_types": [], "episode_summary": "S", "episode_items": [{"title": "T", "summary": "S"}]}'
+_VALID_ROUTER = (
+    '{"excluded_types": [], "episodes": '
+    '[{"title": "T", "episode_summary": "Full story.", "episode_item": "Compact story."}]}'
+)
 
 
 class _ExtractionStub:
@@ -151,13 +154,14 @@ async def test_router_retry_succeeds_and_logs_error(caplog: pytest.LogCaptureFix
 
     import logging
     with caplog.at_level(logging.ERROR):
-        routed, summary, items = await service._route_segment(
+        routed, episodes = await service._route_segment(
             "episode text",
             ["knowledge"],
             llm_client=stub,
         )
 
     assert "knowledge" in routed
+    assert episodes[0]["item"] == "Compact story."
     assert any(
         "unparseable" in r.message.lower() or "retry" in r.message.lower()
         for r in caplog.records
@@ -171,9 +175,25 @@ async def test_router_retry_raises_on_double_garbage() -> None:
     service = _service()
     stub = _RouterStub([_GARBAGE, _GARBAGE])
 
-    with pytest.raises(ValueError, match="unparseable"):
+    with pytest.raises(ValueError, match="invalid"):
         await service._route_segment(
             "episode text",
             ["knowledge"],
             llm_client=stub,
         )
+
+
+@pytest.mark.asyncio
+async def test_router_retries_invalid_episode_shape() -> None:
+    service = _service()
+    invalid = '{"excluded_types": [], "episodes": [{"title": "", "episode_summary": "Story."}]}'
+    stub = _RouterStub([invalid, _VALID_ROUTER])
+
+    routed, episodes = await service._route_segment(
+        "episode text",
+        ["knowledge"],
+        llm_client=stub,
+    )
+
+    assert routed == ["knowledge"]
+    assert episodes == [{"title": "T", "summary": "Full story.", "item": "Compact story."}]
