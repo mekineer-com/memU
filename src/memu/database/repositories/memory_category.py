@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, Protocol, runtime_checkable
+from datetime import datetime
+from typing import Any, Literal, Protocol, runtime_checkable
 
-from memu.database.models import MemoryCategory
+from memu.database.models import DossierKind, MemoryCategory
 
 
 @runtime_checkable
@@ -14,6 +15,15 @@ class MemoryCategoryRepo(Protocol):
 
     def list_categories(self, where: Mapping[str, Any] | None = None) -> dict[str, MemoryCategory]: ...
 
+    def list_anchor_categories(self, where: Mapping[str, Any]) -> dict[str, MemoryCategory]: ...
+
+    def list_categories_by_activity(
+        self,
+        where: Mapping[str, Any],
+        *,
+        kind: DossierKind,
+    ) -> list[MemoryCategory]: ...
+
     def clear_categories(self, where: Mapping[str, Any] | None = None) -> dict[str, MemoryCategory]: ...
 
     def get_or_create_category(
@@ -23,6 +33,12 @@ class MemoryCategoryRepo(Protocol):
         description: str,
         embedding: list[float],
         user_data: dict[str, Any],
+        kind: DossierKind | None = None,
+        lore_subtype: str | None = None,
+        entity_id: str | None = None,
+        anchor_role: Literal["soul", "user"] | None = None,
+        last_evidence_at: datetime | None = None,
+        last_revised_at: datetime | None = None,
         session: Any | None = None,
     ) -> MemoryCategory: ...
 
@@ -35,6 +51,12 @@ class MemoryCategoryRepo(Protocol):
         embedding: list[float] | None = None,
         summary: str | None = None,
         previous_summary: str | None = None,
+        kind: DossierKind | None = None,
+        lore_subtype: str | None = None,
+        entity_id: str | None = None,
+        anchor_role: Literal["soul", "user"] | None = None,
+        last_evidence_at: datetime | None = None,
+        last_revised_at: datetime | None = None,
     ) -> MemoryCategory: ...
 
     def approve_category_summary(

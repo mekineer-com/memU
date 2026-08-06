@@ -102,5 +102,13 @@ class SQLiteRepoBase:
                 filters.append(column == expected)
         return filters
 
+    def _require_scope(self, where: Mapping[str, Any] | None) -> dict[str, Any]:
+        values = dict(where or {})
+        missing = [field for field in self._scope_fields if values.get(field) is None]
+        if missing:
+            msg = f"Complete database scope required; missing: {', '.join(missing)}"
+            raise ValueError(msg)
+        return {field: values[field] for field in self._scope_fields}
+
 
 __all__ = ["SQLiteRepoBase"]

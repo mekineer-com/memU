@@ -12,6 +12,7 @@ from memu.database.interfaces import Database
 from memu.database.models import MemoryCategory, Resource
 from memu.database.repositories import (
     CategoryItemRepo,
+    DossierCandidateRepo,
     EntityRepo,
     MemoryCategoryRepo,
     MemoryItemRepo,
@@ -19,6 +20,7 @@ from memu.database.repositories import (
     TripleRepo,
 )
 from memu.database.sqlite.repositories.category_item_repo import SQLiteCategoryItemRepo
+from memu.database.sqlite.repositories.dossier_candidate_repo import SQLiteDossierCandidateRepo
 from memu.database.sqlite.repositories.entity_repo import SQLiteEntityRepo
 from memu.database.sqlite.repositories.memory_category_repo import SQLiteMemoryCategoryRepo
 from memu.database.sqlite.repositories.memory_item_repo import SQLiteMemoryItemRepo
@@ -50,6 +52,7 @@ class SQLiteStore(Database):
     memory_category_repo: MemoryCategoryRepo
     memory_item_repo: MemoryItemRepo
     category_item_repo: CategoryItemRepo
+    dossier_candidate_repo: DossierCandidateRepo
     entity_repo: EntityRepo
     triple_repo: TripleRepo
     resources: dict[str, Resource]
@@ -96,6 +99,7 @@ class SQLiteStore(Database):
         category_item_model = category_item_model or self._sqla_models.CategoryItem
         entity_model = self._sqla_models.Entity
         triple_model = self._sqla_models.Triple
+        dossier_candidate_model = self._sqla_models.DossierCandidate
 
         # Initialize repositories
         self.resource_repo = SQLiteResourceRepo(
@@ -122,6 +126,13 @@ class SQLiteStore(Database):
         self.category_item_repo = SQLiteCategoryItemRepo(
             state=self._state,
             category_item_model=category_item_model,
+            sqla_models=self._sqla_models,
+            sessions=self._sessions,
+            scope_fields=self._scope_fields,
+        )
+        self.dossier_candidate_repo = SQLiteDossierCandidateRepo(
+            state=self._state,
+            dossier_candidate_model=dossier_candidate_model,
             sqla_models=self._sqla_models,
             sessions=self._sessions,
             scope_fields=self._scope_fields,
@@ -265,12 +276,53 @@ ON memory_item_edit_history(memory_item_id, edited_at)
                 conn.exec_driver_sql("ALTER TABLE categories ADD COLUMN approved_summary TEXT")
                 conn.exec_driver_sql("UPDATE categories SET approved_summary = summary WHERE summary IS NOT NULL")
 
+    def _ensure_taxonomy_columns(self) -> None:
+        additions = {
+            "memory_items": {"memory_ref": "INTEGER"},
+            "categories": {
+                "kind": "TEXT",
+                "lore_subtype": "TEXT",
+                "entity_id": "TEXT",
+                "anchor_role": "TEXT",
+                "last_evidence_at": "DATETIME",
+                "last_revised_at": "DATETIME",
+            },
+        }
+        with self._sessions.engine.begin() as conn:
+            for table, columns in additions.items():
+                existing = {row[1] for row in conn.exec_driver_sql(f"PRAGMA table_info({table})").fetchall()}
+                for name, sql_type in columns.items():
+                    if name not in existing:
+                        conn.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {name} {sql_type}")
+
+    def _ensure_taxonomy_indexes(self) -> None:
+        names = {
+            "ix_categories__activity_scoped",
+            "ix_categories__anchor_scoped",
+            "ix_categories__entity_scoped",
+            "ix_dossier_candidates__unique_scoped",
+            "ix_memory_items__ref_scoped",
+            "ix_memory_ref_counters__unique_scoped",
+        }
+        with self._sessions.engine.begin() as conn:
+            for table in (
+                self._sqla_models.MemoryCategory.__table__,
+                self._sqla_models.MemoryItem.__table__,
+                self._sqla_models.DossierCandidate.__table__,
+                self._sqla_models.MemoryRefCounter.__table__,
+            ):
+                for index in table.indexes:
+                    if index.name in names:
+                        index.create(conn, checkfirst=True)
+
     def _create_tables(self) -> None:
         """Create SQLite tables if they don't exist."""
         SQLModel.metadata.create_all(self._sessions.engine)
         self._sqla_models.Base.metadata.create_all(self._sessions.engine)
         self._ensure_category_previous_summary_column()
         self._ensure_approval_columns()
+        self._ensure_taxonomy_columns()
+        self._ensure_taxonomy_indexes()
         self._ensure_fts_table()
         self._ensure_model_score_calibration_table()
         self._ensure_memory_item_edit_history_table()

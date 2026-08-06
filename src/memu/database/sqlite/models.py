@@ -6,14 +6,25 @@ import copy as _copy
 import logging
 import secrets
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 import pendulum
 from pydantic import BaseModel
-from sqlalchemy import JSON, Float, LargeBinary, MetaData, String, Text
+from sqlalchemy import JSON, Float, Integer, LargeBinary, MetaData, String, Text
 from sqlmodel import Column, DateTime, Field, Index, SQLModel, func
 
-from memu.database.models import CategoryItem, Entity, MemoryCategory, MemoryItem, MemoryType, Resource, Triple
+from memu.database.models import (
+    CategoryItem,
+    DossierCandidate,
+    DossierKind,
+    Entity,
+    MemoryCategory,
+    MemoryItem,
+    MemoryRefCounter,
+    MemoryType,
+    Resource,
+    Triple,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +74,7 @@ class SQLiteResourceModel(SQLiteBaseModelMixin, Resource):
 class SQLiteMemoryItemModel(SQLiteBaseModelMixin, MemoryItem):
     """SQLite memory item model."""
 
+    memory_ref: int | None = Field(default=None, sa_column=Column(Integer, nullable=True))
     resource_id: str | None = Field(sa_column=Column(String, nullable=True))
     memory_type: MemoryType = Field(sa_column=Column(String, nullable=False))
     summary: str = Field(sa_column=Column(Text, nullable=False))
@@ -92,6 +104,31 @@ class SQLiteMemoryCategoryModel(SQLiteBaseModelMixin, MemoryCategory):
     summary: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
     previous_summary: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
     approved_summary: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    kind: DossierKind | None = Field(default=None, sa_column=Column(String, nullable=True))
+    lore_subtype: str | None = Field(default=None, sa_column=Column(String, nullable=True))
+    entity_id: str | None = Field(default=None, sa_column=Column(String, nullable=True))
+    anchor_role: Literal["soul", "user"] | None = Field(default=None, sa_column=Column(String, nullable=True))
+    last_evidence_at: datetime | None = Field(default=None, sa_column=Column(DateTime, nullable=True))
+    last_revised_at: datetime | None = Field(default=None, sa_column=Column(DateTime, nullable=True))
+
+
+class SQLiteMemoryRefCounterModel(SQLiteBaseModelMixin, MemoryRefCounter):
+    """Scoped allocator state for human-readable memory references."""
+
+    counter_key: str = Field(default="memory", sa_column=Column(String, nullable=False))
+    next_value: int = Field(sa_column=Column(Integer, nullable=False))
+
+
+class SQLiteDossierCandidateModel(SQLiteBaseModelMixin, DossierCandidate):
+    """Unresolved dossier title proposed for a memory item."""
+
+    proposed_name: str = Field(sa_column=Column(String, nullable=False))
+    normalized_name: str = Field(sa_column=Column(String, nullable=False))
+    item_id: str = Field(sa_column=Column(String, nullable=False))
+    segment_id: str | None = Field(default=None, sa_column=Column(String, nullable=True))
+    memory_day: str | None = Field(default=None, sa_column=Column(String, nullable=True))
+    resolved_category_id: str | None = Field(default=None, sa_column=Column(String, nullable=True))
+    resolved_at: datetime | None = Field(default=None, sa_column=Column(DateTime, nullable=True))
 
 
 class SQLiteCategoryItemModel(SQLiteBaseModelMixin, CategoryItem):
@@ -246,9 +283,11 @@ def _clone_scoped_sa_columns(cls: type[SQLModel]) -> None:
 __all__ = [
     "SQLiteBaseModelMixin",
     "SQLiteCategoryItemModel",
+    "SQLiteDossierCandidateModel",
     "SQLiteEntityModel",
     "SQLiteMemoryCategoryModel",
     "SQLiteMemoryItemModel",
+    "SQLiteMemoryRefCounterModel",
     "SQLiteResourceModel",
     "SQLiteTripleModel",
     "build_sqlite_table_model",

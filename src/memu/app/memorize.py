@@ -31,6 +31,7 @@ from memu.prompts.memory_type import (
 )
 from memu.prompts.preprocess import PROMPTS as PREPROCESS_PROMPTS
 from memu.prompts.router import PROMPT as ROUTER_PROMPT
+from memu.utils.taxonomy import normalize_category_name
 from memu.workflow.step import WorkflowState, WorkflowStep
 
 logger = logging.getLogger(__name__)
@@ -1396,13 +1397,7 @@ class MemorizeMixin:
 
     @staticmethod
     def _normalize_category_name(raw: str) -> str | None:
-        if not isinstance(raw, str):
-            return None
-        s = raw.strip().lower()
-        if not s:
-            return None
-        s = re.sub(r"[^a-z0-9]+", "_", s).strip("_")
-        return s or None
+        return normalize_category_name(raw)
 
     def _parse_structured_entries(
         self,

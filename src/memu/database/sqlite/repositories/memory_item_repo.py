@@ -10,6 +10,7 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import case, func, or_
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import defer
 from sqlmodel import delete, select
 
@@ -227,6 +228,7 @@ WHERE version = 1 AND model IN ({placeholders})
     ) -> MemoryItem:
         return MemoryItem(
             id=row.id,
+            memory_ref=getattr(row, "memory_ref", None),
             resource_id=row.resource_id,
             memory_type=row.memory_type,
             summary=row.summary,
@@ -248,6 +250,96 @@ WHERE version = 1 AND model IN ({placeholders})
             created_at=row.created_at,
             updated_at=row.updated_at,
         )
+
+    def allocate_memory_ref(self, where: Mapping[str, Any], session: Any | None = None) -> int:
+        scope = self._require_scope(where)
+        if session is None:
+            with self._sessions.session() as managed_session:
+                memory_ref = self.allocate_memory_ref(scope, session=managed_session)
+                managed_session.commit()
+                return memory_ref
+
+        model = self._sqla_models.MemoryRefCounter
+        now = self._now()
+        statement = sqlite_insert(model).values(
+            counter_key="memory",
+            next_value=2,
+            created_at=now,
+            updated_at=now,
+            **scope,
+        )
+        upsert = statement.on_conflict_do_update(
+            index_elements=[*[getattr(model, field) for field in self._scope_fields], model.counter_key],
+            set_={"next_value": model.next_value + 1, "updated_at": now},
+        ).returning(model.next_value)
+        return int(session.execute(upsert).scalar_one()) - 1
+
+    def get_item_by_memory_ref(self, memory_ref: int, where: Mapping[str, Any]) -> MemoryItem | None:
+        scope = self._require_scope(where)
+        with self._sessions.session() as session:
+            row = session.exec(
+                select(self._memory_item_model).where(
+                    self._memory_item_model.memory_ref == memory_ref,
+                    *self._build_filters(self._memory_item_model, scope),
+                )
+            ).first()
+        return None if row is None else self._to_memory_item(row)
+
+    def _set_memory_ref_counter(self, session: Any, scope: Mapping[str, Any], next_value: int) -> None:
+        model = self._sqla_models.MemoryRefCounter
+        row = session.exec(
+            select(model).where(
+                model.counter_key == "memory",
+                *self._build_filters(model, scope),
+            )
+        ).first()
+        if row is None:
+            now = self._now()
+            session.add(
+                model(
+                    counter_key="memory",
+                    next_value=next_value,
+                    created_at=now,
+                    updated_at=now,
+                    **scope,
+                )
+            )
+        elif row.next_value < next_value:
+            row.next_value = next_value
+            row.updated_at = self._now()
+            session.add(row)
+
+    def backfill_memory_refs(self, where: Mapping[str, Any]) -> dict[str, int]:
+        scope = self._require_scope(where)
+        with self._sessions.session() as session:
+            try:
+                session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+                rows = session.exec(
+                    select(self._memory_item_model)
+                    .where(*self._build_filters(self._memory_item_model, scope))
+                    .order_by(self._memory_item_model.created_at, self._memory_item_model.id)
+                ).all()
+                populated = [row for row in rows if row.memory_ref is not None]
+                if populated and len(populated) != len(rows):
+                    raise RuntimeError("Memory reference backfill refused mixed assigned/unassigned state")
+
+                if not populated:
+                    for memory_ref, row in enumerate(rows, start=1):
+                        row.memory_ref = memory_ref
+                        session.add(row)
+                else:
+                    refs = [int(row.memory_ref) for row in rows]
+                    if len(refs) != len(set(refs)):
+                        raise RuntimeError("Memory reference backfill found duplicate references")
+
+                result = {row.id: int(row.memory_ref) for row in rows if row.memory_ref is not None}
+                if result:
+                    self._set_memory_ref_counter(session, scope, max(result.values()) + 1)
+                session.commit()
+                return result
+            except Exception:
+                session.rollback()
+                raise
 
     def get_item(self, item_id: str, *, include_superseded: bool = False) -> MemoryItem | None:
         """Get a memory item by ID.

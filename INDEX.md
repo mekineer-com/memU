@@ -19,7 +19,7 @@
 | `app/memorize_segments.py` | Segment/preprocess seam: modality dispatch, segment text prep, background-tail summarization, rolling-summary merge, `on_extraction_progress` callback |
 | `app/retrieve.py` | Retrieve workflow: derive `active_query` → embed → rank → judge. `force_retrieve` skips the retrieve/no-retrieve gate. |
 | `app/settings.py` | Pydantic config models (MemorizeConfig, RetrieveConfig, LLMProfile, etc.) |
-| `database/models.py` | Backend-agnostic data models (MemoryItem, MemoryCategory, Resource, Entity, Triple) |
+| `database/models.py` | Backend-agnostic records, including dossier metadata, scoped `memory_ref`, and `DossierCandidate` |
 | `database/factory.py` | `build_database()` — sqlite backend selector (Postgres removed) |
 | `database/interfaces.py` | `Database` Protocol — the repo surface engine code programs against |
 | `database/state.py` | `DatabaseState` dataclass — in-memory cache of loaded categories/resources |
@@ -28,7 +28,9 @@
 | `database/sqlite/schema.py` | Per-scope SQLAlchemy model factory (`get_sqlite_sqlalchemy_models`) |
 | `database/sqlite/models.py` | Per-table model classes + `build_sqlite_table_model` |
 | `database/sqlite/session.py` | Session factory; loads the required package-local `vec0.so` built by `scripts/build-sqlite-vec.sh` on every connection |
-| `database/sqlite/repositories/memory_item_repo.py` | Scoped memory-item search: scalar sqlite-vec cosine query, optional FTS/RRF fusion, and salience reranking |
+| `database/sqlite/repositories/memory_item_repo.py` | Scoped memory-item search plus atomic `[M#]` allocation and explicit migration-only ref backfill |
+| `database/sqlite/repositories/memory_category_repo.py` | Category/dossier persistence, anchor reads, and deterministic activity ordering |
+| `database/sqlite/repositories/dossier_candidate_repo.py` | Durable unresolved category proposals with idempotent create and atomic resolution |
 | `scripts/migrate-embeddings-to-blob.py` | Offline dry-run/backup/migration tool for converting one explicitly named stopped soul DB from legacy JSON TEXT embeddings to canonical float32 BLOBs |
 | `database/postgres/` | Removed. If Postgres returns, rebuild as thin adapter over shared repo logic. |
 | `database/repositories/` | Backend-agnostic Protocol contracts: memory_item, memory_category, resource, entity, triple, category_item |
@@ -39,6 +41,7 @@
 | `workflow/` | DAG runner: `step.py` (unit), `pipeline.py` (graph), `runner.py` (executor) |
 | `blob/local_fs.py` | Local filesystem media storage |
 | `utils/conversation.py` | Canonical source for all AI-facing chat display: `format_grouped_chat_history()`, platform/chat headings, date dividers, `My Activities:` always first. Used by turn_contract, consolidation, and memorize rendering. |
+| `utils/taxonomy.py` | Canonical category-name normalization shared by memorize and candidate persistence |
 
 ## Prompts (`src/memu/prompts/`)
 
@@ -63,15 +66,17 @@
 | Modify retrieval | `app/retrieve.py`, `app/settings.py`, `prompts/retrieve/pre_retrieval_decision.py` | — |
 | Add LLM provider | `llm/backends/base.py` | New `llm/backends/{provider}.py`, register in `llm/wrapper.py` |
 | Add embedding provider | `embedding/backends/base.py` | New `embedding/backends/{provider}.py`, register in `embedding/http_client.py` |
-| Change DB schema | `database/models.py`, `database/sqlite/schema.py` | Both files |
+| Change DB schema | `database/models.py`, `database/sqlite/schema.py`, `database/sqlite/sqlite.py` | Domain model, fresh schema, then additive legacy DDL |
 | Run the test suite | `tests/README.md` | — |
 
 ## Database Tables
 
 | Table | Key Fields |
 |-------|-----------|
-| `MemoryItem` | id, memory_type, summary, embedding, happened_at, source_role, speaker_id, speaker_label, confidence, emotional_intensity, source_message_ids, reflection_salience, conversation_id, segment_id, merged_into, extra (JSON), approved_at |
-| `MemoryCategory` | id, name, description, embedding, summary, approved_summary |
+| `MemoryItem` | id, scoped memory_ref, memory_type, summary, embedding, happened_at, provenance, merged_into, extra (JSON), approved_at |
+| `MemoryCategory` | id, name, description, embedding, summary approval fields, kind/subtype/entity/anchor, evidence/revision timestamps |
+| `DossierCandidate` | proposed/normalized name, item/segment/day provenance, optional resolved category/timestamp |
+| `memory_ref_counters` | scoped next `[M#]` value; owned by `memory_item_repo` |
 | `CategoryItem` | id, item_id, category_id |
 | `Resource` | id, url, modality, local_path, caption, embedding |
 | `Entity` | id, name, entity_type (person/topic/place/project), normalized, properties (JSON) |

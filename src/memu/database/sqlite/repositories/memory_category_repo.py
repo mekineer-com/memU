@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping
-from typing import Any
+from datetime import datetime
+from typing import Any, Literal
 
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import delete, select
 
-from memu.database.models import MemoryCategory
+from memu.database.models import DossierKind, MemoryCategory
 from memu.database.repositories.memory_category import MemoryCategoryRepo
 from memu.database.sqlite.repositories.base import SQLiteRepoBase
 from memu.database.sqlite.schema import SQLiteSQLAModels
@@ -58,6 +60,12 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
             summary=row.summary,
             previous_summary=row.previous_summary,
             approved_summary=getattr(row, "approved_summary", None),
+            kind=getattr(row, "kind", None),
+            lore_subtype=getattr(row, "lore_subtype", None),
+            entity_id=getattr(row, "entity_id", None),
+            anchor_role=getattr(row, "anchor_role", None),
+            last_evidence_at=getattr(row, "last_evidence_at", None),
+            last_revised_at=getattr(row, "last_revised_at", None),
             created_at=row.created_at,
             updated_at=row.updated_at,
         )
@@ -85,6 +93,40 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
             self.categories[row.id] = cat
 
         return result
+
+    def list_anchor_categories(self, where: Mapping[str, Any]) -> dict[str, MemoryCategory]:
+        scope = self._require_scope(where)
+        with self._sessions.session() as session:
+            stmt = select(self._memory_category_model).where(
+                *self._build_filters(self._memory_category_model, scope),
+                self._memory_category_model.anchor_role.is_not(None),
+            )
+            rows = session.exec(stmt).all()
+        return {row.anchor_role: self._to_category(row) for row in rows}
+
+    def list_categories_by_activity(
+        self,
+        where: Mapping[str, Any],
+        *,
+        kind: DossierKind,
+    ) -> list[MemoryCategory]:
+        scope = self._require_scope(where)
+        with self._sessions.session() as session:
+            stmt = (
+                select(self._memory_category_model)
+                .where(
+                    *self._build_filters(self._memory_category_model, scope),
+                    self._memory_category_model.kind == kind,
+                    self._memory_category_model.anchor_role.is_(None),
+                )
+                .order_by(
+                    self._memory_category_model.last_evidence_at.desc().nulls_last(),
+                    func.lower(self._memory_category_model.name),
+                    self._memory_category_model.id,
+                )
+            )
+            rows = session.exec(stmt).all()
+        return [self._to_category(row) for row in rows]
 
     def clear_categories(self, where: Mapping[str, Any] | None = None) -> dict[str, MemoryCategory]:
         """Clear categories matching the where clause.
@@ -131,6 +173,12 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
         description: str,
         embedding: list[float],
         user_data: dict[str, Any],
+        kind: DossierKind | None = None,
+        lore_subtype: str | None = None,
+        entity_id: str | None = None,
+        anchor_role: Literal["soul", "user"] | None = None,
+        last_evidence_at: datetime | None = None,
+        last_revised_at: datetime | None = None,
         session: Any | None = None,
     ) -> MemoryCategory:
         """Get existing category by name or create a new one.
@@ -153,6 +201,12 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
                     description=description,
                     embedding=embedding,
                     user_data=user_data,
+                    kind=kind,
+                    lore_subtype=lore_subtype,
+                    entity_id=entity_id,
+                    anchor_role=anchor_role,
+                    last_evidence_at=last_evidence_at,
+                    last_revised_at=last_revised_at,
                     session=session,
                 )
                 session.commit()
@@ -177,6 +231,12 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
                 description=description,
                 embedding=None,
                 summary=None,
+                kind=kind,
+                lore_subtype=lore_subtype,
+                entity_id=entity_id,
+                anchor_role=anchor_role,
+                last_evidence_at=last_evidence_at,
+                last_revised_at=last_revised_at,
                 created_at=now,
                 updated_at=now,
                 **user_data,
@@ -227,6 +287,12 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
         embedding: list[float] | None = None,
         summary: str | None = None,
         previous_summary: str | None = None,
+        kind: DossierKind | None = None,
+        lore_subtype: str | None = None,
+        entity_id: str | None = None,
+        anchor_role: Literal["soul", "user"] | None = None,
+        last_evidence_at: datetime | None = None,
+        last_revised_at: datetime | None = None,
     ) -> MemoryCategory:
         """Update an existing category.
 
@@ -261,6 +327,18 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
                 row.summary = summary
             if previous_summary is not None:
                 row.previous_summary = previous_summary
+            if kind is not None:
+                row.kind = kind
+            if lore_subtype is not None:
+                row.lore_subtype = lore_subtype
+            if entity_id is not None:
+                row.entity_id = entity_id
+            if anchor_role is not None:
+                row.anchor_role = anchor_role
+            if last_evidence_at is not None:
+                row.last_evidence_at = last_evidence_at
+            if last_revised_at is not None:
+                row.last_revised_at = last_revised_at
             row.updated_at = self._now()
 
             session.add(row)

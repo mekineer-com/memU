@@ -6,14 +6,16 @@ from dataclasses import dataclass
 from typing import Any
 
 from pydantic import BaseModel
-from sqlalchemy import MetaData
+from sqlalchemy import Index, MetaData
 from sqlmodel import SQLModel
 
 from memu.database.sqlite.models import (
     SQLiteCategoryItemModel,
+    SQLiteDossierCandidateModel,
     SQLiteEntityModel,
     SQLiteMemoryCategoryModel,
     SQLiteMemoryItemModel,
+    SQLiteMemoryRefCounterModel,
     SQLiteResourceModel,
     SQLiteTripleModel,
     build_sqlite_table_model,
@@ -29,6 +31,8 @@ class SQLiteSQLAModels:
     MemoryCategory: type[Any]
     MemoryItem: type[Any]
     CategoryItem: type[Any]
+    DossierCandidate: type[Any]
+    MemoryRefCounter: type[Any]
     Entity: type[Any]
     Triple: type[Any]
 
@@ -52,6 +56,7 @@ def get_sqlite_sqlalchemy_models(*, scope_model: type[BaseModel] | None = None) 
         return cached
 
     metadata_obj = MetaData()
+    scope_fields = list(scope.model_fields)
 
     resource_model = build_sqlite_table_model(
         scope,
@@ -64,18 +69,55 @@ def get_sqlite_sqlalchemy_models(*, scope_model: type[BaseModel] | None = None) 
         SQLiteMemoryCategoryModel,
         tablename="categories",
         metadata=metadata_obj,
+        extra_table_args=(
+            Index("ix_categories__anchor_scoped", *scope_fields, "anchor_role", unique=True),
+            Index("ix_categories__activity_scoped", *scope_fields, "kind", "last_evidence_at"),
+            Index("ix_categories__entity_scoped", *scope_fields, "entity_id"),
+        ),
     )
     memory_item_model = build_sqlite_table_model(
         scope,
         SQLiteMemoryItemModel,
         tablename="memory_items",
         metadata=metadata_obj,
+        extra_table_args=(
+            Index("ix_memory_items__ref_scoped", *scope_fields, "memory_ref", unique=True),
+        ),
     )
     category_item_model = build_sqlite_table_model(
         scope,
         SQLiteCategoryItemModel,
         tablename="category_items",
         metadata=metadata_obj,
+    )
+    dossier_candidate_model = build_sqlite_table_model(
+        scope,
+        SQLiteDossierCandidateModel,
+        tablename="dossier_candidates",
+        metadata=metadata_obj,
+        extra_table_args=(
+            Index(
+                "ix_dossier_candidates__unique_scoped",
+                *scope_fields,
+                "normalized_name",
+                "item_id",
+                unique=True,
+            ),
+        ),
+    )
+    memory_ref_counter_model = build_sqlite_table_model(
+        scope,
+        SQLiteMemoryRefCounterModel,
+        tablename="memory_ref_counters",
+        metadata=metadata_obj,
+        extra_table_args=(
+            Index(
+                "ix_memory_ref_counters__unique_scoped",
+                *scope_fields,
+                "counter_key",
+                unique=True,
+            ),
+        ),
     )
     entity_model = build_sqlite_table_model(
         scope,
@@ -100,6 +142,8 @@ def get_sqlite_sqlalchemy_models(*, scope_model: type[BaseModel] | None = None) 
         MemoryCategory=memory_category_model,
         MemoryItem=memory_item_model,
         CategoryItem=category_item_model,
+        DossierCandidate=dossier_candidate_model,
+        MemoryRefCounter=memory_ref_counter_model,
         Entity=entity_model,
         Triple=triple_model,
     )

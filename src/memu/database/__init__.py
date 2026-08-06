@@ -8,6 +8,7 @@ from memu.database.interfaces import (
 )
 from memu.database.repositories import (
     CategoryItemRepo,
+    DossierCandidateRepo,
     EntityRepo,
     MemoryCategoryRepo,
     MemoryItemRepo,
@@ -18,6 +19,7 @@ from memu.database.repositories import (
 __all__ = [
     "CategoryItemRepo",
     "Database",
+    "DossierCandidateRepo",
     "EntityRepo",
     "MemoryCategoryRecord",
     "MemoryCategoryRepo",

@@ -5,7 +5,15 @@ from typing import Protocol, runtime_checkable
 from memu.database.models import MemoryCategory as MemoryCategoryRecord
 from memu.database.models import MemoryItem as MemoryItemRecord
 from memu.database.models import Resource as ResourceRecord
-from memu.database.repositories import CategoryItemRepo, EntityRepo, MemoryCategoryRepo, MemoryItemRepo, ResourceRepo, TripleRepo
+from memu.database.repositories import (
+    CategoryItemRepo,
+    DossierCandidateRepo,
+    EntityRepo,
+    MemoryCategoryRepo,
+    MemoryItemRepo,
+    ResourceRepo,
+    TripleRepo,
+)
 
 
 @runtime_checkable
@@ -16,6 +24,7 @@ class Database(Protocol):
     memory_category_repo: MemoryCategoryRepo
     memory_item_repo: MemoryItemRepo
     category_item_repo: CategoryItemRepo
+    dossier_candidate_repo: DossierCandidateRepo
     entity_repo: EntityRepo
     triple_repo: TripleRepo
 

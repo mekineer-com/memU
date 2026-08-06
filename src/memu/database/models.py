@@ -8,6 +8,7 @@ import pendulum
 from pydantic import BaseModel, Field
 
 MemoryType = Literal["profile", "knowledge", "behavior", "social", "episode", "skill", "tool", "narrative_self", "subconscious", "reflection"]
+DossierKind = Literal["lore", "topic", "goal"]
 
 class BaseRecord(BaseModel):
     """Backend-agnostic record interface."""
@@ -52,6 +53,7 @@ class Resource(BaseRecord):
 
 
 class MemoryItem(BaseRecord):
+    memory_ref: int | None = None
     resource_id: str | None
     memory_type: str
     summary: str
@@ -89,6 +91,27 @@ class MemoryCategory(BaseRecord):
     summary: str | None = None
     previous_summary: str | None = None
     approved_summary: str | None = None
+    kind: DossierKind | None = None
+    lore_subtype: str | None = None
+    entity_id: str | None = None
+    anchor_role: Literal["soul", "user"] | None = None
+    last_evidence_at: datetime | None = None
+    last_revised_at: datetime | None = None
+
+
+class MemoryRefCounter(BaseRecord):
+    counter_key: str = "memory"
+    next_value: int
+
+
+class DossierCandidate(BaseRecord):
+    proposed_name: str
+    normalized_name: str
+    item_id: str
+    segment_id: str | None = None
+    memory_day: str | None = None
+    resolved_category_id: str | None = None
+    resolved_at: datetime | None = None
 
 
 class CategoryItem(BaseRecord):
@@ -99,9 +122,12 @@ class CategoryItem(BaseRecord):
 __all__ = [
     "BaseRecord",
     "CategoryItem",
+    "DossierCandidate",
+    "DossierKind",
     "Entity",
     "MemoryCategory",
     "MemoryItem",
+    "MemoryRefCounter",
     "MemoryType",
     "Resource",
     "Triple",

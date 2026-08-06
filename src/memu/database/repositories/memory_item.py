@@ -15,6 +15,10 @@ class MemoryItemRepo(Protocol):
 
     def get_item(self, item_id: str, *, include_superseded: bool = False) -> MemoryItem | None: ...
 
+    def allocate_memory_ref(self, where: Mapping[str, Any], session: Any | None = None) -> int: ...
+
+    def get_item_by_memory_ref(self, memory_ref: int, where: Mapping[str, Any]) -> MemoryItem | None: ...
+
     def list_items(
         self,
         where: Mapping[str, Any] | None = None,
