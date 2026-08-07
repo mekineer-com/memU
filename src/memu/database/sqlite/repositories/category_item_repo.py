@@ -48,7 +48,12 @@ class SQLiteCategoryItemRepo(SQLiteRepoBase, CategoryItemRepo):
         self._category_item_model = category_item_model
         self.relations = self._state.relations
 
-    def list_relations(self, where: Mapping[str, Any] | None = None) -> list[CategoryItem]:
+    def list_relations(
+        self,
+        where: Mapping[str, Any] | None = None,
+        *,
+        session: Any | None = None,
+    ) -> list[CategoryItem]:
         """List category-item relations matching the where clause.
 
         Args:
@@ -57,11 +62,14 @@ class SQLiteCategoryItemRepo(SQLiteRepoBase, CategoryItemRepo):
         Returns:
             List of CategoryItem relations.
         """
-        with self._sessions.session() as session:
-            stmt = select(self._category_item_model)
-            filters = self._build_filters(self._category_item_model, where)
-            if filters:
-                stmt = stmt.where(*filters)
+        stmt = select(self._category_item_model)
+        filters = self._build_filters(self._category_item_model, where)
+        if filters:
+            stmt = stmt.where(*filters)
+        if session is None:
+            with self._sessions.session() as managed_session:
+                rows = managed_session.exec(stmt).all()
+        else:
             rows = session.exec(stmt).all()
 
         result: list[CategoryItem] = []
@@ -74,8 +82,7 @@ class SQLiteCategoryItemRepo(SQLiteRepoBase, CategoryItemRepo):
                 updated_at=row.updated_at,
             )
             result.append(rel)
-            # Update cache
-            if not any(r.id == rel.id for r in self.relations):
+            if session is None and not any(r.id == rel.id for r in self.relations):
                 self.relations.append(rel)
 
         return result

@@ -17,11 +17,12 @@ from memu.utils.taxonomy import (
 )
 
 if TYPE_CHECKING:
-    from memu.app.settings import MemorizeConfig
+    from memu.app.settings import MemorizeConfig, RetrieveConfig
     from memu.database.interfaces import Database
 
 DOSSIER_INDEX_LIMIT = 20
 MEMORY_REF_PATTERN = re.compile(r"^\[M([1-9][0-9]*)\]$")
+MEMORY_REF_SCAN_PATTERN = re.compile(r"\[M(?:[0-9][^\]\r\n]*)?\]")
 AnchorRole = Literal["soul", "user"]
 
 
@@ -32,6 +33,39 @@ def _activity_key(category: MemoryCategory) -> tuple[int, float, str, str]:
     if happened.tzinfo is None:
         happened = happened.replace(tzinfo=UTC)
     return (0, -happened.timestamp(), category.name.casefold(), category.id)
+
+
+def _timestamp(value: datetime) -> float:
+    return (value if value.tzinfo is not None else value.replace(tzinfo=UTC)).timestamp()
+
+
+def _item_time(item: MemoryItem) -> datetime:
+    return item.happened_at or item.created_at
+
+
+def _item_sort_key(item: MemoryItem) -> tuple[float, int, str]:
+    return (_timestamp(_item_time(item)), int(item.memory_ref or 0), item.id)
+
+
+def _load_linked_items(
+    store: Any,
+    relations: Sequence[Any],
+    scope: Mapping[str, str],
+) -> tuple[dict[str, MemoryItem], set[str]]:
+    item_ids = {relation.item_id for relation in relations}
+    if not item_ids:
+        return {}, set()
+    items = store.memory_item_repo.list_items_by_ids(
+        item_ids,
+        scope,
+        include_superseded=True,
+        include_merged=True,
+    )
+    missing = item_ids - items.keys()
+    if missing:
+        raise KeyError(f"Dossier memberships reference missing memories: {sorted(missing)}")
+    active_ids = store.memory_item_repo.list_items_by_ids(item_ids, scope).keys()
+    return items, item_ids - active_ids
 
 
 def _content_text(category: MemoryCategory) -> str:
@@ -66,6 +100,7 @@ def _validate_anchors(
 class DossierMixin:
     if TYPE_CHECKING:
         memorize_config: MemorizeConfig
+        retrieve_config: RetrieveConfig
         _dossier_content_embedding_cache: dict[str, tuple[str, list[float]]]
         _get_database: Callable[[], Database]
         _select_embedding_client: Callable[[Mapping[str, Any] | None], Any]
@@ -182,6 +217,204 @@ class DossierMixin:
             last_evidence_at=last_evidence_at,
             last_revised_at=last_revised_at,
         )
+
+    def list_due_dossiers(self, where: Mapping[str, Any]) -> list[MemoryCategory]:
+        scope = _scope(where)
+        store = self._get_database()
+        categories = store.memory_category_repo.list_categories(scope)
+        relations = store.category_item_repo.list_relations(scope)
+        _linked_items, inactive_ids = _load_linked_items(store, relations, scope)
+
+        actionable: list[tuple[float, MemoryCategory]] = []
+        for category in categories.values():
+            if category.kind not in DOSSIER_KINDS:
+                continue
+            category_relations = [
+                relation for relation in relations if relation.category_id == category.id
+            ]
+            if not category_relations:
+                continue
+            if category.last_revised_at is None:
+                due_relations = category_relations
+            else:
+                revised_at = _timestamp(category.last_revised_at)
+                due_relations = [
+                    relation
+                    for relation in category_relations
+                    if _timestamp(relation.created_at) > revised_at
+                    or relation.item_id in inactive_ids
+                ]
+            if due_relations:
+                actionable.append(
+                    (min(_timestamp(relation.created_at) for relation in due_relations), category)
+                )
+
+        actionable.sort(
+            key=lambda row: (
+                row[0],
+                str(row[1].kind),
+                row[1].name.casefold(),
+                row[1].id,
+            )
+        )
+        return [category for _timestamp_value, category in actionable]
+
+    def list_dossiers_revised_since(
+        self,
+        where: Mapping[str, Any],
+        *,
+        revised_after: datetime | None,
+    ) -> list[MemoryCategory]:
+        scope = _scope(where)
+        cutoff = None if revised_after is None else _timestamp(revised_after)
+        categories = [
+            category
+            for category in self._get_database().memory_category_repo.list_categories(scope).values()
+            if category.kind in DOSSIER_KINDS
+            and category.last_revised_at is not None
+            and (cutoff is None or _timestamp(category.last_revised_at) > cutoff)
+        ]
+        return sorted(
+            categories,
+            key=lambda category: (
+                category.last_evidence_at is None,
+                _timestamp(category.last_evidence_at) if category.last_evidence_at else 0.0,
+                str(category.kind),
+                category.name.casefold(),
+                category.id,
+            ),
+        )
+
+    @staticmethod
+    def extract_memory_refs(text: str) -> list[int]:
+        return list(
+            dict.fromkeys(
+                DossierMixin.parse_memory_ref(token)
+                for token in MEMORY_REF_SCAN_PATTERN.findall(text or "")
+            )
+        )
+
+    def prepare_dossier_revision(
+        self,
+        category_id: str,
+        where: Mapping[str, Any],
+        *,
+        active_life_goals: Sequence[str] = (),
+        removed_life_goals: Sequence[str] = (),
+    ) -> dict[str, Any]:
+        scope = _scope(where)
+        store = self._get_database()
+        category = store.memory_category_repo.list_categories(scope).get(category_id)
+        if category is None or category.kind not in DOSSIER_KINDS:
+            raise KeyError(f"Dossier with id {category_id} not found in scope")
+
+        relations = [
+            relation
+            for relation in store.category_item_repo.list_relations(scope)
+            if relation.category_id == category.id
+        ]
+        linked_items, linked_inactive_ids = _load_linked_items(store, relations, scope)
+        revised_at = None if category.last_revised_at is None else _timestamp(category.last_revised_at)
+        pending_relations = [
+            relation
+            for relation in relations
+            if revised_at is None or _timestamp(relation.created_at) > revised_at
+        ]
+        pending_ids = {relation.item_id for relation in pending_relations}
+        if not pending_ids and not linked_inactive_ids:
+            raise ValueError(f"Dossier {category_id} is not due for revision")
+
+        cited_items: dict[str, MemoryItem] = {}
+        for memory_ref in self.extract_memory_refs(category.summary or ""):
+            item = store.memory_item_repo.get_item_by_memory_ref(memory_ref, scope)
+            if item is None:
+                raise KeyError(f"Memory reference [M{memory_ref}] not found in scope")
+            cited_items[item.id] = item
+
+        top_k = max(0, int(self.retrieve_config.item.top_k))
+        candidate_items: dict[str, MemoryItem] = {}
+        if top_k:
+            query = _embedding_vector(category.embedding, label=f"dossier {category.id} identity")
+            excluded_ids = set(linked_items) | set(cited_items)
+            hits = store.memory_item_repo.vector_search_items(
+                query,
+                top_k + len(excluded_ids),
+                scope,
+                ranking="similarity",
+            )
+            candidate_ids = [item_id for item_id, _score in hits if item_id not in excluded_ids][
+                :top_k
+            ]
+            candidate_items = store.memory_item_repo.list_items_by_ids(set(candidate_ids), scope)
+            missing = set(candidate_ids) - candidate_items.keys()
+            if missing:
+                raise KeyError(f"Dossier candidate memories disappeared: {sorted(missing)}")
+
+        prompt_items = {
+            item_id: item
+            for item_id, item in linked_items.items()
+            if item_id in pending_ids
+        }
+        prompt_items.update(cited_items)
+        prompt_items.update(candidate_items)
+        all_shown_items = {
+            **prompt_items,
+            **{item_id: linked_items[item_id] for item_id in linked_inactive_ids},
+        }
+        missing_refs = sorted(
+            item_id
+            for item_id, item in all_shown_items.items()
+            if item.memory_ref is None
+        )
+        if missing_refs:
+            raise ValueError(f"Dossier revision memories lack stable references: {missing_refs}")
+
+        active_shown_ids = store.memory_item_repo.list_items_by_ids(set(all_shown_items), scope).keys()
+        shown_inactive_ids = set(all_shown_items) - active_shown_ids
+        cleanup = [
+            {
+                "item_id": item_id,
+                "memory_ref": linked_items[item_id].memory_ref,
+                "lineage_state": "merged" if linked_items[item_id].merged_into else "superseded",
+                "merged_into": linked_items[item_id].merged_into,
+            }
+            for item_id in sorted(linked_inactive_ids)
+        ]
+        return {
+            "dossier": category,
+            "category_updated_at": category.updated_at,
+            "relation_tokens": sorted(
+                (relation.id, relation.created_at, relation.updated_at) for relation in relations
+            ),
+            "linked_item_ids": sorted(linked_items),
+            "linked_inactive_item_ids": sorted(linked_inactive_ids),
+            "cited_unlinked_item_ids": sorted(set(cited_items) - set(linked_items)),
+            "shown_inactive_item_ids": sorted(shown_inactive_ids),
+            "shown_item_tokens": sorted(
+                (
+                    item.id,
+                    item.updated_at,
+                    item.memory_ref,
+                    item.merged_into,
+                )
+                for item in all_shown_items.values()
+            ),
+            "cited_items": sorted(cited_items.values(), key=_item_sort_key),
+            "pending_items": sorted(
+                (linked_items[item_id] for item_id in pending_ids), key=_item_sort_key
+            ),
+            "cleanup_memberships": cleanup,
+            "candidate_items": sorted(candidate_items.values(), key=_item_sort_key),
+            "untouched_item_ids": sorted(
+                set(linked_items) - pending_ids - set(cited_items) - linked_inactive_ids
+            ),
+            "active_life_goals": [
+                goal.strip() for goal in active_life_goals if category.kind == "goal" and goal.strip()
+            ],
+            "removed_life_goals": [
+                goal.strip() for goal in removed_life_goals if category.kind == "goal" and goal.strip()
+            ],
+        }
 
     def list_active_dossiers(self, where: Mapping[str, Any]) -> list[MemoryCategory]:
         scope = _scope(where)

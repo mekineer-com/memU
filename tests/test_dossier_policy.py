@@ -6,6 +6,7 @@ import pytest
 from pydantic import BaseModel
 
 from memu.app.service import MemoryService
+from memu.database.models import Triple
 
 
 class DossierScope(BaseModel):
@@ -35,10 +36,17 @@ class FakeEmbedClient:
         return vectors
 
 
-def _service(tmp_path, name: str = "dossier.db", **memorize_config) -> MemoryService:
+def _service(
+    tmp_path,
+    name: str = "dossier.db",
+    *,
+    retrieve_config=None,
+    **memorize_config,
+) -> MemoryService:
     return MemoryService(
         database_config={"metadata_store": {"provider": "sqlite", "dsn": f"sqlite:///{tmp_path / name}"}},
         memorize_config=memorize_config,
+        retrieve_config=retrieve_config,
         user_config={"model": DossierScope},
     )
 
@@ -445,3 +453,140 @@ def test_memory_refs_are_strict_scoped_and_resolve_merged_rows(tmp_path) -> None
             service.parse_memory_ref(invalid)
     with pytest.raises(ValueError):
         service.format_memory_ref(0)
+
+
+def test_relation_caller_session_does_not_mutate_cache(tmp_path) -> None:
+    service = _service(tmp_path)
+    store = service.database
+    category = _category(service, "Health")
+    item = store.memory_item_repo.create_item(
+        memory_type="episode", summary="health", embedding=[1.0, 0.0], user_data=SCOPE
+    )
+    store.category_item_repo.link_item_category(item.id, category.id, SCOPE)
+    store.category_item_repo.relations.clear()
+
+    with store._sessions.session() as session:
+        assert len(store.category_item_repo.list_relations(SCOPE, session=session)) == 1
+        assert store.category_item_repo.relations == []
+
+    assert len(store.category_item_repo.list_relations(SCOPE)) == 1
+    assert len(store.category_item_repo.relations) == 1
+
+
+def test_due_dossiers_include_linked_merge_and_supersession(tmp_path) -> None:
+    service = _service(tmp_path)
+    store = service.database
+    merged_category = _category(service, "Merged")
+    superseded_category = _category(service, "Superseded")
+    merged_item = store.memory_item_repo.create_item(
+        memory_type="episode", summary="merged", embedding=[1.0, 0.0], user_data=SCOPE
+    )
+    superseded_item = store.memory_item_repo.create_item(
+        memory_type="episode", summary="superseded", embedding=[1.0, 0.0], user_data=SCOPE
+    )
+    survivor = store.memory_item_repo.create_item(
+        memory_type="episode", summary="survivor", embedding=[1.0, 0.0], user_data=SCOPE
+    )
+    merged_rel = store.category_item_repo.link_item_category(
+        merged_item.id, merged_category.id, SCOPE
+    )
+    superseded_rel = store.category_item_repo.link_item_category(
+        superseded_item.id, superseded_category.id, SCOPE
+    )
+    revised_at = max(merged_rel.created_at, superseded_rel.created_at) + timedelta(seconds=1)
+    for category in (merged_category, superseded_category):
+        store.memory_category_repo.update_category(
+            category_id=category.id,
+            last_revised_at=revised_at,
+        )
+    assert service.list_due_dossiers(SCOPE) == []
+
+    store.memory_item_repo.update_item(item_id=merged_item.id, merged_into=survivor.id)
+    store.triple_repo.add(
+        Triple(
+            subject_id=superseded_item.id,
+            subject_kind="memory",
+            predicate="evolved_into",
+            object_id=survivor.id,
+            object_kind="memory",
+            source_memory_id=survivor.id,
+        ),
+        user_data=SCOPE,
+    )
+
+    assert {category.id for category in service.list_due_dossiers(SCOPE)} == {
+        merged_category.id,
+        superseded_category.id,
+    }
+    assert {
+        category.id
+        for category in service.list_dossiers_revised_since(
+            SCOPE,
+            revised_after=revised_at - timedelta(seconds=1),
+        )
+    } == {merged_category.id, superseded_category.id}
+
+
+def test_prepare_dossier_revision_bounds_actionable_evidence(tmp_path) -> None:
+    service = _service(tmp_path, retrieve_config={"item": {"top_k": 1}})
+    store = service.database
+    category = _category(service, "Health", kind="goal", embedding=[1.0, 0.0])
+    cited = store.memory_item_repo.create_item(
+        memory_type="knowledge", summary="cited", embedding=[0.0, 1.0], user_data=SCOPE
+    )
+    cited_unlinked = store.memory_item_repo.create_item(
+        memory_type="knowledge", summary="cited unlinked", embedding=[0.0, 1.0], user_data=SCOPE
+    )
+    untouched = store.memory_item_repo.create_item(
+        memory_type="knowledge", summary="untouched", embedding=[0.0, 1.0], user_data=SCOPE
+    )
+    cleanup = store.memory_item_repo.create_item(
+        memory_type="knowledge", summary="cleanup", embedding=[0.0, 1.0], user_data=SCOPE
+    )
+    pending = store.memory_item_repo.create_item(
+        memory_type="knowledge", summary="pending", embedding=[0.0, 1.0], user_data=SCOPE
+    )
+    candidate = store.memory_item_repo.create_item(
+        memory_type="knowledge", summary="candidate", embedding=[1.0, 0.0], user_data=SCOPE
+    )
+    refs = store.memory_item_repo.backfill_memory_refs(SCOPE)
+
+    old_relations = [
+        store.category_item_repo.link_item_category(item.id, category.id, SCOPE)
+        for item in (cited, untouched, cleanup)
+    ]
+    revised_at = max(relation.created_at for relation in old_relations) + timedelta(microseconds=1)
+    store.memory_category_repo.update_category(
+        category_id=category.id,
+        summary=(
+            f"A cited fact [M{refs[cited.id]}] and unlinked fact "
+            f"[M{refs[cited_unlinked.id]}] with an ordinary [Speaker] label."
+        ),
+        last_revised_at=revised_at,
+    )
+    store.category_item_repo.link_item_category(pending.id, category.id, SCOPE)
+    store.memory_item_repo.update_item(item_id=cleanup.id, merged_into=candidate.id)
+
+    bundle = service.prepare_dossier_revision(
+        category.id,
+        SCOPE,
+        active_life_goals=["  active goal  "],
+        removed_life_goals=["removed goal"],
+    )
+
+    assert service.extract_memory_refs("[Speaker] [M2] [M2]") == [2]
+    with pytest.raises(ValueError, match="Invalid memory reference"):
+        service.extract_memory_refs("bad [M0]")
+    assert {item.id for item in bundle["cited_items"]} == {cited.id, cited_unlinked.id}
+    assert bundle["cited_unlinked_item_ids"] == [cited_unlinked.id]
+    assert [item.id for item in bundle["pending_items"]] == [pending.id]
+    assert bundle["cleanup_memberships"] == [{
+        "item_id": cleanup.id,
+        "memory_ref": refs[cleanup.id],
+        "lineage_state": "merged",
+        "merged_into": candidate.id,
+    }]
+    assert [item.id for item in bundle["candidate_items"]] == [candidate.id]
+    assert bundle["untouched_item_ids"] == [untouched.id]
+    assert bundle["active_life_goals"] == ["active goal"]
+    assert bundle["removed_life_goals"] == ["removed goal"]

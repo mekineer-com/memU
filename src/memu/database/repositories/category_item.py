@@ -12,7 +12,12 @@ class CategoryItemRepo(Protocol):
 
     relations: list[CategoryItem]
 
-    def list_relations(self, where: Mapping[str, Any] | None = None) -> list[CategoryItem]: ...
+    def list_relations(
+        self,
+        where: Mapping[str, Any] | None = None,
+        *,
+        session: Any | None = None,
+    ) -> list[CategoryItem]: ...
 
     def link_item_category(
         self,
