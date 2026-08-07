@@ -8,7 +8,7 @@ from types import EllipsisType
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 from memu.database.models import DossierKind, MemoryCategory, MemoryItem
-from memu.database.vector import cosine_topk
+from memu.database.vector import cosine_topk, reciprocal_rank_fusion
 from memu.utils.taxonomy import category_identity_text
 
 if TYPE_CHECKING:
@@ -58,6 +58,12 @@ def _content_text(category: MemoryCategory) -> str:
 
 def _render_index_field(value: str) -> str:
     return " ".join(value.split())
+
+
+def _render_dossier_index_line(category: MemoryCategory) -> str:
+    name = _render_index_field(category.name)
+    description = _render_index_field(category.description)
+    return f"- {name}: {description}" if description else f"- {name}"
 
 
 def _validate_anchors(
@@ -222,12 +228,132 @@ class DossierMixin:
         return sorted(inactive, key=_activity_key)
 
     def build_dossier_index(self, where: Mapping[str, Any]) -> str:
-        lines: list[str] = []
-        for category in self.list_active_dossiers(where)[:DOSSIER_INDEX_LIMIT]:
-            name = _render_index_field(category.name)
-            description = _render_index_field(category.description)
-            lines.append(f"- {name}: {description}" if description else f"- {name}")
-        return "\n".join(lines)
+        return "\n".join(
+            _render_dossier_index_line(category)
+            for category in self.list_active_dossiers(where)[:DOSSIER_INDEX_LIMIT]
+        )
+
+    async def select_memorize_dossier_context(
+        self,
+        episodes: Sequence[Mapping[str, Any]],
+        where: Mapping[str, Any],
+        *,
+        narrative_self: str | None,
+        embedding_client: Any | None = None,
+    ) -> dict[str, Any]:
+        scope = _scope(where)
+        if not 1 <= len(episodes) <= 3:
+            raise ValueError("Memorize dossier context requires one to three episodes")
+
+        episode_texts: list[str] = []
+        for episode in episodes:
+            if not isinstance(episode, Mapping):
+                raise ValueError("Each episode must be a mapping")
+            title = episode.get("title")
+            summary = episode.get("summary")
+            if not isinstance(title, str) or not title.strip():
+                raise ValueError("Each episode requires a nonblank title")
+            if not isinstance(summary, str) or not summary.strip():
+                raise ValueError("Each episode requires a nonblank summary")
+            episode_texts.append(category_identity_text(title, summary))
+
+        anchors = await self.ensure_dossier_anchors(scope, embedding_client=embedding_client)
+        client = embedding_client or self._select_embedding_client(
+            {"operation": "dossier", "step_id": "memorize_context"}
+        )
+        raw_embeddings = await client.embed(episode_texts)
+        if len(raw_embeddings) != len(episode_texts):
+            raise ValueError("Episode embedding response count does not match input")
+        query_embeddings = [
+            _embedding_vector(raw, label=f"episode {index + 1}")
+            for index, raw in enumerate(raw_embeddings)
+        ]
+
+        store = self._get_database()
+        active = self.list_active_dossiers(scope)
+        anchor_ids = {category.id for category in anchors.values()}
+        active_candidates = [category for category in active if category.id not in anchor_ids]
+        active_by_id = {category.id: category for category in active_candidates}
+        active_ids = {category.id for category in active}
+        inactive = sorted(
+            [
+                category
+                for category in store.memory_category_repo.list_categories(scope).values()
+                if category.kind in DOSSIER_KINDS
+                and category.anchor_role is None
+                and category.id not in active_ids
+            ],
+            key=_activity_key,
+        )
+
+        relevant: list[MemoryCategory] = []
+        selected_ids: set[str] = set()
+        for query in query_embeddings:
+            identity = await self.search_dossiers(
+                query,
+                where=scope,
+                view="identity",
+                activity="active",
+                limit=3,
+                min_score=-1.0,
+                categories=active_candidates,
+            )
+            content = await self.search_dossiers(
+                query,
+                where=scope,
+                view="content",
+                activity="active",
+                limit=3,
+                min_score=-1.0,
+                embedding_client=client,
+                categories=active_candidates,
+            )
+            ranked = reciprocal_rank_fusion(
+                [(category.id, score) for category, score in identity],
+                [(category.id, score) for category, score in content],
+            )
+            for category_id, _score in ranked[:3]:
+                if category_id not in selected_ids:
+                    relevant.append(active_by_id[category_id])
+                    selected_ids.add(category_id)
+
+        inactive_by_id = {category.id: category for category in inactive}
+        inactive_rankings: list[list[tuple[str, float]]] = []
+        for query in query_embeddings:
+            hits = await self.search_dossiers(
+                query,
+                where=scope,
+                view="identity",
+                activity="inactive",
+                limit=10,
+                min_score=-1.0,
+                categories=inactive,
+            )
+            inactive_rankings.append([(category.id, score) for category, score in hits])
+        inactive_ids = [
+            category_id
+            for category_id, _score in reciprocal_rank_fusion(*inactive_rankings)[:10]
+        ]
+
+        category_lines = [f"- {_render_index_field(category.name)}" for category in active]
+        category_lines.extend(
+            _render_dossier_index_line(inactive_by_id[category_id]) for category_id in inactive_ids
+        )
+        narrative = (
+            narrative_self.strip()
+            if isinstance(narrative_self, str) and narrative_self.strip()
+            else None
+        )
+        return {
+            "categories_str": "\n".join(category_lines),
+            "dossier_index": "\n".join(
+                _render_dossier_index_line(category)
+                for category in active_candidates[:DOSSIER_INDEX_LIMIT]
+            ),
+            "narrative_self": narrative,
+            "anchor_dossiers": [anchors[role] for role in ("soul", "user")],
+            "relevant_dossiers": relevant[:9],
+        }
 
     async def search_dossiers(
         self,
@@ -239,6 +365,7 @@ class DossierMixin:
         limit: int,
         min_score: float,
         embedding_client: Any | None = None,
+        categories: Sequence[MemoryCategory] | None = None,
     ) -> list[tuple[MemoryCategory, float]]:
         if view not in {"identity", "content"}:
             raise ValueError(f"Unknown dossier search view: {view}")
@@ -253,30 +380,32 @@ class DossierMixin:
 
         query = _embedding_vector(query_embedding, label="query")
         scope = _scope(where)
-        store = self._get_database()
-        if activity == "active":
-            categories = self.list_active_dossiers(scope)
-        elif activity == "inactive":
-            categories = self.list_inactive_dossiers(scope)
-        else:
-            categories = [
-                category
-                for category in store.memory_category_repo.list_categories(scope).values()
-                if category.kind in DOSSIER_KINDS
-            ]
-        if not categories:
+        search_categories = list(categories) if categories is not None else None
+        if search_categories is None:
+            store = self._get_database()
+            if activity == "active":
+                search_categories = self.list_active_dossiers(scope)
+            elif activity == "inactive":
+                search_categories = self.list_inactive_dossiers(scope)
+            else:
+                search_categories = [
+                    category
+                    for category in store.memory_category_repo.list_categories(scope).values()
+                    if category.kind in DOSSIER_KINDS
+                ]
+        if not search_categories:
             return []
 
         corpus: list[tuple[str, list[float]]] = []
         if view == "identity":
-            for category in categories:
+            for category in search_categories:
                 if category.embedding is None:
                     raise ValueError(f"Dossier {category.id} is missing its identity embedding")
                 corpus.append((category.id, _embedding_vector(category.embedding, label=f"dossier {category.id}")))
         else:
             cache = self._dossier_content_embedding_cache
             missing: list[tuple[str, str]] = []
-            for category in categories:
+            for category in search_categories:
                 text = _content_text(category)
                 cached = cache.get(category.id)
                 if cached is None or cached[0] != text:
@@ -293,7 +422,7 @@ class DossierMixin:
                         text,
                         _embedding_vector(raw_embedding, label=f"dossier {category_id} content"),
                     )
-            corpus = [(category.id, cache[category.id][1]) for category in categories]
+            corpus = [(category.id, cache[category.id][1]) for category in search_categories]
 
         wrong_dimension = [category_id for category_id, vector in corpus if len(vector) != len(query)]
         if wrong_dimension:
@@ -307,7 +436,7 @@ class DossierMixin:
                 if view == "identity"
                 else category
             )
-            for category in categories
+            for category in search_categories
         }
         scored = cosine_topk(query, corpus, k=len(corpus))
         results = [

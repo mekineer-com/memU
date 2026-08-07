@@ -277,6 +277,145 @@ async def test_identity_search_fails_loud_on_missing_or_mismatched_vectors(tmp_p
         )
 
 
+@pytest.mark.asyncio
+async def test_sparse_memorize_context_reuses_bounded_category_sets(tmp_path, monkeypatch) -> None:
+    service = _service(tmp_path)
+    client = FakeEmbedClient()
+    anchors = await service.ensure_dossier_anchors(SCOPE, embedding_client=client)
+    now = datetime(2026, 1, 1, tzinfo=UTC)
+    for index, name in enumerate(("Health", "Work", "Travel", "Art")):
+        _category(
+            service,
+            name,
+            evidence=now + timedelta(days=index),
+            embedding=[1.0, 0.0] if index % 2 == 0 else [0.0, 1.0],
+            summary=f"{name} complete active prose",
+        )
+    for index in range(12):
+        _category(
+            service,
+            f"Dormant {index:02d}",
+            embedding=[1.0, 0.0],
+            summary=f"private inactive prose {index}",
+        )
+
+    expected_active = service.list_active_dossiers(SCOPE)
+    active_calls = 0
+    original_active = service.list_active_dossiers
+    category_reads = 0
+    original_categories = service.database.memory_category_repo.list_categories
+
+    def traced_active(where):
+        nonlocal active_calls
+        active_calls += 1
+        return original_active(where)
+
+    def traced_categories(where=None):
+        nonlocal category_reads
+        category_reads += 1
+        return original_categories(where)
+
+    monkeypatch.setattr(service, "list_active_dossiers", traced_active)
+    monkeypatch.setattr(service.database.memory_category_repo, "list_categories", traced_categories)
+    monkeypatch.setattr(
+        service,
+        "list_inactive_dossiers",
+        lambda _where: pytest.fail("selector must derive inactive rows from the preloaded category set"),
+    )
+    supplied_category_ids: list[set[str]] = []
+    original_search = service.search_dossiers
+
+    async def traced_search(query_embedding, **kwargs):
+        supplied = kwargs.get("categories")
+        assert supplied is not None
+        supplied_category_ids.append({category.id for category in supplied})
+        return await original_search(query_embedding, **kwargs)
+
+    monkeypatch.setattr(service, "search_dossiers", traced_search)
+
+    client.calls.clear()
+    episodes = [
+        {"title": "Health day", "summary": "A full health summary"},
+        {"title": "Work day", "summary": "A full work summary"},
+        {"title": "Mixed day", "summary": "A full mixed summary"},
+    ]
+    result = await service.select_memorize_dossier_context(
+        episodes,
+        SCOPE,
+        narrative_self="  current self narrative  ",
+        embedding_client=client,
+    )
+
+    anchor_ids = {row.id for row in anchors.values()}
+    relevant = result["relevant_dossiers"]
+    assert active_calls == 1
+    assert category_reads == 2  # Existing anchor validation plus the selector's one full read.
+    assert len(supplied_category_ids) == 9
+    assert all(not anchor_ids & category_ids for category_ids in supplied_category_ids)
+    assert len(relevant) <= 9
+    assert len({row.id for row in relevant}) == len(relevant)
+    assert not anchor_ids & {row.id for row in relevant}
+    assert all(row.summary and "complete active prose" in row.summary for row in relevant)
+    assert [row.id for row in result["anchor_dossiers"]] == [anchors["soul"].id, anchors["user"].id]
+    assert result["narrative_self"] == "current self narrative"
+    assert client.calls[0] == [
+        "Health day: A full health summary",
+        "Work day: A full work summary",
+        "Mixed day: A full mixed summary",
+    ]
+
+    choice_lines = result["categories_str"].splitlines()
+    assert choice_lines[: len(expected_active)] == [f"- {row.name}" for row in expected_active]
+    assert len(choice_lines) == len(expected_active) + 10
+    assert all(": Dormant " in line for line in choice_lines[len(expected_active) :])
+    assert "private inactive prose" not in str(result)
+    anchor_names = {row.name for row in anchors.values()}
+    assert not anchor_names & {
+        line.split(":", 1)[0].removeprefix("- ")
+        for line in result["dossier_index"].splitlines()
+    }
+    assert len(result["dossier_index"].splitlines()) == 4
+
+    single = await service.select_memorize_dossier_context(
+        episodes[:1],
+        SCOPE,
+        narrative_self=None,
+        embedding_client=client,
+    )
+    repeated = await service.select_memorize_dossier_context(
+        episodes[:1],
+        SCOPE,
+        narrative_self=None,
+        embedding_client=client,
+    )
+    assert single["narrative_self"] is None
+    assert len(single["relevant_dossiers"]) <= 3
+    assert [row.id for row in single["relevant_dossiers"]] == [
+        row.id for row in repeated["relevant_dossiers"]
+    ]
+
+
+@pytest.mark.asyncio
+async def test_sparse_memorize_context_validates_before_database_work(tmp_path) -> None:
+    service = _service(tmp_path)
+    client = FakeEmbedClient()
+    invalid = (
+        [],
+        [{"title": "", "summary": "summary"}],
+        [{"title": "title", "summary": "summary"}] * 4,
+    )
+    for episodes in invalid:
+        with pytest.raises(ValueError):
+            await service.select_memorize_dossier_context(
+                episodes,
+                SCOPE,
+                narrative_self=None,
+                embedding_client=client,
+            )
+    assert client.calls == []
+    assert service.database.memory_category_repo.list_categories(SCOPE) == {}
+
+
 def test_memory_refs_are_strict_scoped_and_resolve_merged_rows(tmp_path) -> None:
     service = _service(tmp_path)
     store = service.database
