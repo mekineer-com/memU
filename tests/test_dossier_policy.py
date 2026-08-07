@@ -462,7 +462,8 @@ def test_relation_caller_session_does_not_mutate_cache(tmp_path) -> None:
     item = store.memory_item_repo.create_item(
         memory_type="episode", summary="health", embedding=[1.0, 0.0], user_data=SCOPE
     )
-    store.category_item_repo.link_item_category(item.id, category.id, SCOPE)
+    relation = store.category_item_repo.link_item_category(item.id, category.id, SCOPE)
+    assert [cached.id for cached in store.category_item_repo.relations] == [relation.id]
     store.category_item_repo.relations.clear()
 
     with store._sessions.session() as session:
@@ -471,6 +472,44 @@ def test_relation_caller_session_does_not_mutate_cache(tmp_path) -> None:
 
     assert len(store.category_item_repo.list_relations(SCOPE)) == 1
     assert len(store.category_item_repo.relations) == 1
+
+    rolled_back = store.memory_item_repo.create_item(
+        memory_type="episode", summary="rolled back", embedding=[1.0, 0.0], user_data=SCOPE
+    )
+    with store._sessions.session() as session:
+        store.category_item_repo.link_item_category(
+            rolled_back.id, category.id, SCOPE, session=session
+        )
+        assert all(rel.item_id != rolled_back.id for rel in store.category_item_repo.relations)
+        session.rollback()
+    assert store.category_item_repo.list_relations({"item_id": rolled_back.id}) == []
+
+
+def test_due_dossiers_cover_first_revision_and_watermark(tmp_path) -> None:
+    service = _service(tmp_path)
+    store = service.database
+    due = _category(service, "Due")
+    clean = _category(service, "Clean")
+    due_item = store.memory_item_repo.create_item(
+        memory_type="episode", summary="due", embedding=[1.0, 0.0], user_data=SCOPE
+    )
+    clean_item = store.memory_item_repo.create_item(
+        memory_type="episode", summary="clean", embedding=[1.0, 0.0], user_data=SCOPE
+    )
+    store.category_item_repo.link_item_category(due_item.id, due.id, SCOPE)
+    clean_relation = store.category_item_repo.link_item_category(clean_item.id, clean.id, SCOPE)
+    revised_at = clean_relation.created_at + timedelta(seconds=1)
+    store.memory_category_repo.update_category(
+        category_id=clean.id, last_revised_at=revised_at
+    )
+
+    assert [category.id for category in service.list_due_dossiers(SCOPE)] == [due.id]
+    assert [
+        category.id
+        for category in service.list_dossiers_revised_since(SCOPE, revised_after=None)
+    ] == [clean.id]
+    with pytest.raises(ValueError, match="not due for revision"):
+        service.prepare_dossier_revision(clean.id, SCOPE)
 
 
 def test_due_dossiers_include_linked_merge_and_supersession(tmp_path) -> None:
@@ -574,7 +613,7 @@ def test_prepare_dossier_revision_bounds_actionable_evidence(tmp_path) -> None:
         removed_life_goals=["removed goal"],
     )
 
-    assert service.extract_memory_refs("[Speaker] [M2] [M2]") == [2]
+    assert service.extract_memory_refs("[Speaker] [M] [M2] [M2]") == [2]
     with pytest.raises(ValueError, match="Invalid memory reference"):
         service.extract_memory_refs("bad [M0]")
     assert {item.id for item in bundle["cited_items"]} == {cited.id, cited_unlinked.id}
@@ -590,3 +629,26 @@ def test_prepare_dossier_revision_bounds_actionable_evidence(tmp_path) -> None:
     assert bundle["untouched_item_ids"] == [untouched.id]
     assert bundle["active_life_goals"] == ["active goal"]
     assert bundle["removed_life_goals"] == ["removed goal"]
+
+
+def test_prepare_dossier_revision_requires_refs_and_goal_kind(tmp_path) -> None:
+    service = _service(tmp_path, retrieve_config={"item": {"top_k": 0}})
+    store = service.database
+    category = _category(service, "Work", kind="topic")
+    item = store.memory_item_repo.create_item(
+        memory_type="knowledge", summary="work", embedding=[1.0, 0.0], user_data=SCOPE
+    )
+    store.category_item_repo.link_item_category(item.id, category.id, SCOPE)
+
+    with pytest.raises(ValueError, match="lack stable references"):
+        service.prepare_dossier_revision(category.id, SCOPE)
+
+    store.memory_item_repo.backfill_memory_refs(SCOPE)
+    bundle = service.prepare_dossier_revision(
+        category.id,
+        SCOPE,
+        active_life_goals=["active goal"],
+        removed_life_goals=["removed goal"],
+    )
+    assert bundle["active_life_goals"] == []
+    assert bundle["removed_life_goals"] == []

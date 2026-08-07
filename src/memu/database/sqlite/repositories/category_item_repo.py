@@ -113,6 +113,8 @@ class SQLiteCategoryItemRepo(SQLiteRepoBase, CategoryItemRepo):
                     session=session,
                 )
                 session.commit()
+                if not any(existing.id == rel.id for existing in self.relations):
+                    self.relations.append(rel)
                 return rel
 
         # Check if relation already exists
@@ -158,7 +160,6 @@ class SQLiteCategoryItemRepo(SQLiteRepoBase, CategoryItemRepo):
             updated_at=row.updated_at,
             **user_data,
         )
-        self.relations.append(rel)
         return rel
 
     def unlink_item_category(self, item_id: str, category_id: str) -> None:

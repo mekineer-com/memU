@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from types import EllipsisType
 from typing import TYPE_CHECKING, Any, Literal, cast
 
-from memu.database.models import DossierKind, MemoryCategory, MemoryItem
+from memu.database.models import CategoryItem, DossierKind, MemoryCategory, MemoryItem
 from memu.database.vector import cosine_topk, reciprocal_rank_fusion
 from memu.utils.taxonomy import (
     DOSSIER_KINDS,
@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 
 DOSSIER_INDEX_LIMIT = 20
 MEMORY_REF_PATTERN = re.compile(r"^\[M([1-9][0-9]*)\]$")
-MEMORY_REF_SCAN_PATTERN = re.compile(r"\[M(?:[0-9][^\]\r\n]*)?\]")
+MEMORY_REF_SCAN_PATTERN = re.compile(r"\[M[0-9][^\]\r\n]*\]")
 AnchorRole = Literal["soul", "user"]
 
 
@@ -48,8 +48,8 @@ def _item_sort_key(item: MemoryItem) -> tuple[float, int, str]:
 
 
 def _load_linked_items(
-    store: Any,
-    relations: Sequence[Any],
+    store: Database,
+    relations: Sequence[CategoryItem],
     scope: Mapping[str, str],
 ) -> tuple[dict[str, MemoryItem], set[str]]:
     item_ids = {relation.item_id for relation in relations}
