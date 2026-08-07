@@ -16,9 +16,8 @@ from memu.prompts.category_summary import (
 from memu.prompts.category_summary import (
     PROMPT as CATEGORY_SUMMARY_PROMPT,
 )
-from memu.app.memorize_dedupe import _cosine_similarity
 from memu.database.models import MemoryCategory, MemoryItem
-from memu.database.vector import cosine_topk
+from memu.database.vector import cosine_similarity, cosine_topk
 from memu.utils.taxonomy import (
     DOSSIER_KINDS,
     category_identity_text,
@@ -369,7 +368,7 @@ async def prepare_dynamic_category_review(
     components = _connected_components(
         list(range(len(node_ids))),
         vectors,
-        cosine_similarity=_cosine_similarity,
+        cosine_similarity=cosine_similarity,
         threshold=cosine_threshold,
     )
     components = [
@@ -508,11 +507,12 @@ def apply_dynamic_category_review(
         scope,
         session=session,
     )
+    all_categories = store.memory_category_repo.list_categories(
+        scope, session=session
+    )
     categories = {
         category_id: category
-        for category_id, category in store.memory_category_repo.list_categories(
-            scope, session=session
-        ).items()
+        for category_id, category in all_categories.items()
         if category.kind in DOSSIER_KINDS
     }
     bundle_targets = {
@@ -560,7 +560,7 @@ def apply_dynamic_category_review(
         if target_id is not None:
             raise ValueError("Create dossier decisions cannot contain an existing target")
         if not isinstance(name, str):
-            raise ValueError("Created dossier title must contain letters or digits")
+            raise ValueError("Created dossier title must be a string")
         normalized_name = normalize_category_name(name)
         if normalized_name is None:
             raise ValueError("Created dossier title must contain letters or digits")
@@ -575,14 +575,14 @@ def apply_dynamic_category_review(
 
         normalized_categories: dict[str, MemoryCategory] = {}
         ordinary: list[MemoryCategory] = []
-        for category in categories.values():
+        for category in all_categories.values():
             normalized = normalize_category_name(category.name)
             if normalized is None:
                 raise ValueError(f"Dossier {category.id} title must contain letters or digits")
             if normalized in normalized_categories:
                 raise ValueError(f"Duplicate normalized dossier title in scope: {normalized}")
             normalized_categories[normalized] = category
-            if category.anchor_role is None:
+            if category.kind in DOSSIER_KINDS and category.anchor_role is None:
                 ordinary.append(category)
         collision = normalized_categories.get(normalized_name)
         if collision is None and ordinary:
@@ -594,7 +594,7 @@ def apply_dynamic_category_review(
                 corpus.append((category.id, vector))
             hit_id, score = cosine_topk(embedding, corpus, k=1)[0]
             if score >= near_duplicate_threshold:
-                collision = categories[hit_id]
+                collision = all_categories[hit_id]
         if collision is not None:
             return {
                 "status": "collision",

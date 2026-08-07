@@ -43,11 +43,20 @@ class _Repo:
         items.sort(key=lambda item: (item.updated_at, f"memory:{item.id}"), reverse=True)
         return {item.id: item for item in items[:limit]}, len(items)
 
-    def list_items_by_ids(self, item_ids, where=None, *, include_superseded=False, include_embeddings=False):
+    def list_items_by_ids(
+        self,
+        item_ids,
+        where=None,
+        *,
+        include_superseded=False,
+        include_merged=False,
+        include_embeddings=False,
+        session=None,
+    ):
         self.list_items_by_ids_calls += 1
         return {item_id: self.value[item_id] for item_id in item_ids if item_id in self.value}
 
-    def list_categories(self, where=None):
+    def list_categories(self, where=None, *, session=None):
         return self.value
 
     def list_relations(self, where=None):

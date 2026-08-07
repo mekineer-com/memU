@@ -6,6 +6,8 @@ import re
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
+from memu.database.vector import cosine_similarity
+
 logger = logging.getLogger(__name__)
 
 
@@ -141,17 +143,6 @@ def _choose_survivor_and_redundant(left: Any, right: Any) -> tuple[Any, Any]:
     if left_id <= right_id:
         return left, right
     return right, left
-
-
-def _cosine_similarity(a: Sequence[float], b: Sequence[float]) -> float:
-    if not a or not b or len(a) != len(b):
-        return 0.0
-    dot = sum(x * y for x, y in zip(a, b, strict=True))
-    norm_a = math.sqrt(sum(x * x for x in a))
-    norm_b = math.sqrt(sum(y * y for y in b))
-    if norm_a <= 0.0 or norm_b <= 0.0:
-        return 0.0
-    return dot / (norm_a * norm_b)
 
 
 def _filter_merged_from_category_updates(
@@ -392,7 +383,7 @@ async def _memorize_dedupe_merge(
                 )
             if compare_anchor is None or compare_candidate is None or len(compare_anchor) != len(compare_candidate):
                 continue
-            similarity = _cosine_similarity(compare_anchor, compare_candidate)
+            similarity = cosine_similarity(compare_anchor, compare_candidate)
             if similarity >= threshold:
                 candidates.append((similarity, candidate_id))
         if not candidates:

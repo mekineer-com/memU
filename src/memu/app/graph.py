@@ -9,8 +9,7 @@ from typing import Any
 import numpy as np
 
 from memu.app.category_summary_journal import update_category_summary_with_journal
-from memu.app.memorize_dedupe import _cosine_similarity
-from memu.database.vector import cosine_topk
+from memu.database.vector import cosine_similarity, cosine_topk
 
 SEMANTIC_PREDICATES = ["caused_by", "evokes", "conflicts_with", "parallels", "shaped_by"]
 
@@ -50,7 +49,7 @@ def _cluster_by_embedding(items: list[Any]) -> dict[str, dict[str, Any]]:
             vec_j = items[j].embedding
             if not vec_j:
                 continue
-            score = _cosine_similarity(vec_i, vec_j)
+            score = cosine_similarity(vec_i, vec_j)
             if score >= DUPE_CLUSTER_THRESHOLD:
                 pairs.append((i, j, score))
 

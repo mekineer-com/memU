@@ -18,6 +18,7 @@ from memu.database.sqlite.repositories.base import SQLiteRepoBase
 from memu.database.sqlite.schema import SQLiteSQLAModels
 from memu.database.sqlite.session import SQLiteSessionManager
 from memu.database.state import DatabaseState
+from memu.utils.taxonomy import DOSSIER_KINDS
 
 logger = logging.getLogger(__name__)
 
@@ -116,7 +117,7 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
         scope = self._require_scope(user_data)
         if not name.strip() or not description.strip():
             raise ValueError("Category name and description are required")
-        if kind not in {"lore", "topic", "goal"}:
+        if kind not in DOSSIER_KINDS:
             raise ValueError(f"Invalid dossier kind: {kind}")
         now = self._now()
         row = self._memory_category_model(

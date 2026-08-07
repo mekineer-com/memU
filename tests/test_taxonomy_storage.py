@@ -538,6 +538,20 @@ async def test_dynamic_category_review_apply_is_atomic_and_collision_safe(tmp_pa
     assert len(remaining) == 2
     assert all(row.last_considered_at is not None for row in remaining)
 
+    legacy_exact = _category(store, SCOPE, "Created Topic")
+    with store._sessions.session() as session:
+        exact_collision = memorize_categories.apply_dynamic_category_review(
+            store=store,
+            where=SCOPE,
+            bundle=bundle,
+            decision=decision,
+            proposed_embedding=[0.0, 1.0],
+            session=session,
+        )
+        session.commit()
+    assert exact_collision["status"] == "collision"
+    assert exact_collision["target_dossier"].id == legacy_exact.id
+
     bundle["existing_dossiers"] = [existing]
     existing_decision = {
         "cluster_id": bundle["cluster_id"],
@@ -567,3 +581,75 @@ async def test_dynamic_category_review_apply_is_atomic_and_collision_safe(tmp_pa
         if candidate.id == accepted
     )
     assert store.category_item_repo.get_item_categories(accepted_item_id)[0].category_id == existing.id
+
+
+@pytest.mark.asyncio
+async def test_dynamic_category_review_defer_stamps_only_valid_decisions(tmp_path) -> None:
+    store = _store(tmp_path)
+    for index in range(2):
+        item = _item(store, SCOPE, f"memory {index}")
+        store.dossier_candidate_repo.add_candidate(
+            proposed_name="deferred topic", item_id=item.id, where=SCOPE
+        )
+
+    async def no_hits(_query, **_kwargs):
+        return []
+
+    bundle = (
+        await memorize_categories.prepare_dynamic_category_review(
+            store=store,
+            where=SCOPE,
+            cluster_size=2,
+            search_dossiers=no_hits,
+        )
+    )[0]
+    invalid = {
+        "cluster_id": bundle["cluster_id"],
+        "action": "defer",
+        "accepted_candidate_ids": [bundle["candidate_ids"][0]],
+        "rejected_candidate_ids": [bundle["candidate_ids"][1]],
+        "existing_dossier_id": None,
+        "name": None,
+        "description": None,
+        "kind": None,
+    }
+    with store._sessions.session() as session:
+        with pytest.raises(ValueError, match="cannot contain"):
+            memorize_categories.apply_dynamic_category_review(
+                store=store,
+                where=SCOPE,
+                bundle=bundle,
+                decision=invalid,
+                session=session,
+            )
+        session.rollback()
+    assert all(
+        row.last_considered_at is None
+        for row in store.dossier_candidate_repo.list_candidates(SCOPE)
+    )
+
+    deferred = {
+        **invalid,
+        "accepted_candidate_ids": [],
+        "rejected_candidate_ids": bundle["candidate_ids"],
+    }
+    with store._sessions.session() as session:
+        result = memorize_categories.apply_dynamic_category_review(
+            store=store,
+            where=SCOPE,
+            bundle=bundle,
+            decision=deferred,
+            session=session,
+        )
+        session.commit()
+    assert result["status"] == "deferred"
+    assert all(
+        row.last_considered_at is not None
+        for row in store.dossier_candidate_repo.list_candidates(SCOPE)
+    )
+    assert await memorize_categories.prepare_dynamic_category_review(
+        store=store,
+        where=SCOPE,
+        cluster_size=2,
+        search_dossiers=no_hits,
+    ) == []

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import math
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from datetime import datetime
 from typing import cast
 
@@ -14,6 +14,17 @@ log = logging.getLogger(__name__)
 W_SIMILARITY = 0.5
 W_RECENCY = 0.2
 W_IMPORTANCE = 0.3
+
+
+def cosine_similarity(a: Sequence[float], b: Sequence[float]) -> float:
+    if not a or not b or len(a) != len(b):
+        return 0.0
+    dot = sum(x * y for x, y in zip(a, b, strict=True))
+    norm_a = math.sqrt(sum(x * x for x in a))
+    norm_b = math.sqrt(sum(y * y for y in b))
+    if norm_a <= 0.0 or norm_b <= 0.0:
+        return 0.0
+    return dot / (norm_a * norm_b)
 
 
 def normalize_score_with_percentiles(value: float, params: Mapping[str, float]) -> float:

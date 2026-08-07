@@ -19,6 +19,7 @@ from memu.app import memorize_segments as segment_helpers
 from memu.app import memorize_persistence as persistence
 from memu.app.settings import CategoryConfig, CustomPrompt
 from memu.database.models import CategoryItem, MemoryCategory, MemoryItem, MemoryType, Resource
+from memu.database.vector import cosine_similarity
 from memu.prompts.memory_type import (
     CUSTOM_PROMPTS as MEMORY_TYPE_CUSTOM_PROMPTS,
 )
@@ -868,7 +869,7 @@ class MemorizeMixin:
                 per_entry_unknowns=per_entry_unknowns,
                 item_embeddings=item_embeddings,
                 normalize_embedding_vector=dedupe._normalize_embedding_vector,
-                cosine_similarity=dedupe._cosine_similarity,
+                cosine_similarity=cosine_similarity,
                 cluster_factory=HomelessCategoryCluster,
                 cluster_similarity_threshold=categories._dynamic_category_cluster_threshold(),
                 cluster_min_size=categories._dynamic_category_cluster_min_size(
