@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 
 from memu.database.models import DossierKind, MemoryCategory, MemoryItem
 from memu.database.vector import cosine_topk
+from memu.utils.taxonomy import category_identity_text
 
 if TYPE_CHECKING:
     from memu.app.settings import MemorizeConfig
@@ -18,16 +19,6 @@ DOSSIER_INDEX_LIMIT = 20
 DOSSIER_KINDS: tuple[DossierKind, ...] = ("lore", "topic", "goal")
 MEMORY_REF_PATTERN = re.compile(r"^\[M([1-9][0-9]*)\]$")
 AnchorRole = Literal["soul", "user"]
-
-
-def _identity_text(name: Any, description: Any) -> str:
-    name = str(name or "").strip() or "Untitled"
-    description = str(description or "").strip()
-    return f"{name}: {description}" if description else name
-
-
-def dossier_identity_text(category: Any) -> str:
-    return _identity_text(getattr(category, "name", ""), getattr(category, "description", ""))
 
 
 def _scope(where: Mapping[str, Any] | None) -> dict[str, str]:
@@ -60,7 +51,7 @@ def _embedding_vector(values: Sequence[float], *, label: str) -> list[float]:
 
 
 def _content_text(category: MemoryCategory) -> str:
-    identity = dossier_identity_text(category)
+    identity = category_identity_text(category.name, category.description)
     summary = str(category.summary or "").strip()
     return f"{identity}\n{summary}" if summary else identity
 
@@ -122,7 +113,7 @@ class DossierMixin:
             role: f"Identity, history, relationships, and lived experience of {name}."
             for role, name in missing
         }
-        texts = [_identity_text(name, descriptions[role]) for role, name in missing]
+        texts = [category_identity_text(name, descriptions[role]) for role, name in missing]
         client = embedding_client or self._select_embedding_client(
             {"operation": "dossier", "step_id": "seed_anchors"}
         )
@@ -179,9 +170,9 @@ class DossierMixin:
             if final_kind != "lore":
                 raise ValueError("Dossier anchors must remain Lore dossiers")
 
-        final_identity = _identity_text(final_name, final_description)
+        final_identity = category_identity_text(final_name, final_description)
         embedding = None
-        if dossier_identity_text(current) != final_identity:
+        if category_identity_text(current.name, current.description) != final_identity:
             client = embedding_client or self._select_embedding_client(
                 {"operation": "dossier", "step_id": "update_identity"}
             )
@@ -354,4 +345,4 @@ class DossierMixin:
         return item
 
 
-__all__ = ["DossierMixin", "dossier_identity_text"]
+__all__ = ["DossierMixin"]

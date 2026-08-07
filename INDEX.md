@@ -42,7 +42,7 @@
 | `workflow/` | DAG runner: `step.py` (unit), `pipeline.py` (graph), `runner.py` (executor) |
 | `blob/local_fs.py` | Local filesystem media storage |
 | `utils/conversation.py` | Canonical source for all AI-facing chat display: `format_grouped_chat_history()`, platform/chat headings, date dividers, `My Activities:` always first. Used by turn_contract, consolidation, and memorize rendering. |
-| `utils/taxonomy.py` | Canonical category-name normalization shared by memorize and candidate persistence |
+| `utils/taxonomy.py` | Canonical category-name normalization and title/description identity text shared by category policy and memorize |
 
 ## Prompts (`src/memu/prompts/`)
 

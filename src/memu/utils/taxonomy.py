@@ -1,6 +1,13 @@
 from __future__ import annotations
 
 import re
+from typing import Any
+
+
+def category_identity_text(name: Any, description: Any) -> str:
+    title = str(name or "").strip() or "Untitled"
+    detail = str(description or "").strip()
+    return f"{title}: {detail}" if detail else title
 
 
 def normalize_category_name(raw: str) -> str | None:
@@ -13,4 +20,4 @@ def normalize_category_name(raw: str) -> str | None:
     return value or None
 
 
-__all__ = ["normalize_category_name"]
+__all__ = ["category_identity_text", "normalize_category_name"]
