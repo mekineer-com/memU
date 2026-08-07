@@ -190,12 +190,18 @@ WHERE version = 1 AND model IN ({placeholders})
         _MISSING_CALIBRATION_WARNED.add(key)
         logger.warning("No score calibration found for model=%s field=%s; using identity mapping", model, field)
 
-    def _active_item_filter(self, model: Any, *, include_superseded: bool = False) -> Any | None:
+    def _active_item_filter(
+        self,
+        model: Any,
+        *,
+        include_superseded: bool = False,
+        include_merged: bool = False,
+    ) -> Any | None:
         merged_into_col = getattr(model, "merged_into", None)
         from sqlalchemy import and_, func, or_, select
 
         active_conditions: list[Any] = []
-        if merged_into_col is not None:
+        if merged_into_col is not None and not include_merged:
             active_conditions.append(or_(merged_into_col.is_(None), func.trim(merged_into_col) == ""))
         triple_model = getattr(self._sqla_models, "Triple", None)
         if triple_model is not None and not include_superseded:
@@ -410,17 +416,24 @@ WHERE version = 1 AND model IN ({placeholders})
         where: Mapping[str, Any] | None,
         include_superseded: bool,
         *,
+        include_merged: bool = False,
         include_embeddings: bool = False,
+        session: Any | None = None,
     ) -> dict[str, MemoryItem]:
         filters = self._build_filters(self._memory_item_model, where)
         active_filter = self._active_item_filter(
-            self._memory_item_model, include_superseded=include_superseded
+            self._memory_item_model,
+            include_superseded=include_superseded,
+            include_merged=include_merged,
         )
         if active_filter is not None:
             filters.append(active_filter)
         if filters:
             stmt = stmt.where(*filters)
-        with self._sessions.session() as session:
+        if session is None:
+            with self._sessions.session() as managed_session:
+                rows = managed_session.exec(stmt).all()
+        else:
             rows = session.exec(stmt).all()
         return {row.id: self._to_memory_item(row, embedding=None if include_embeddings else []) for row in rows}
 
@@ -468,12 +481,21 @@ WHERE version = 1 AND model IN ({placeholders})
         where: Mapping[str, Any] | None = None,
         *,
         include_superseded: bool = False,
+        include_merged: bool = False,
         include_embeddings: bool = False,
+        session: Any | None = None,
     ) -> dict[str, MemoryItem]:
         if not item_ids:
             return {}
         stmt = select(self._memory_item_model).where(self._memory_item_model.id.in_(item_ids))
-        return self._list_graph_items(stmt, where, include_superseded, include_embeddings=include_embeddings)
+        return self._list_graph_items(
+            stmt,
+            where,
+            include_superseded,
+            include_merged=include_merged,
+            include_embeddings=include_embeddings,
+            session=session,
+        )
 
     def clear_items(self, where: Mapping[str, Any] | None = None) -> dict[str, MemoryItem]:
         """Clear items matching the where clause.

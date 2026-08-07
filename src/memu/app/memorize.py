@@ -93,6 +93,7 @@ class MemorizeMixin:
         _get_database: Callable[[], Database]
         _select_chat_client: Callable[..., Any]
         _select_embedding_client: Callable[[Mapping[str, Any] | None], Any]
+        search_dossiers: Callable[..., Awaitable[list[tuple[MemoryCategory, float]]]]
         _model_dump_without_embeddings: Callable[[BaseModel], dict[str, Any]]
         _extract_json_blob: Callable[[str], str]
         _escape_prompt_value: Callable[[str], str]
@@ -1536,6 +1537,58 @@ class MemorizeMixin:
                 dynamic_category_policy=getattr(self.memorize_config, "dynamic_category_policy", ""),
                 dynamic_category_description=getattr(self.memorize_config, "dynamic_category_description", ""),
             ),
+        )
+
+    def file_category_proposals(
+        self,
+        *,
+        store: Database,
+        item_proposals: Sequence[tuple[MemoryItem, Sequence[str]]],
+        where: Mapping[str, Any],
+        session: Any,
+    ) -> tuple[list[Any], list[Any]]:
+        return categories.file_category_proposals(
+            store=store,
+            item_proposals=item_proposals,
+            where=where,
+            session=session,
+        )
+
+    async def prepare_dynamic_category_review(
+        self,
+        *,
+        store: Database,
+        where: Mapping[str, Any],
+        cluster_size: int,
+        cosine_threshold: float = 0.75,
+    ) -> list[dict[str, Any]]:
+        return await categories.prepare_dynamic_category_review(
+            store=store,
+            where=where,
+            cluster_size=cluster_size,
+            search_dossiers=self.search_dossiers,
+            cosine_threshold=cosine_threshold,
+        )
+
+    def apply_dynamic_category_review(
+        self,
+        *,
+        store: Database,
+        where: Mapping[str, Any],
+        bundle: Mapping[str, Any],
+        decision: Mapping[str, Any],
+        session: Any,
+        proposed_embedding: Sequence[float] | None = None,
+        near_duplicate_threshold: float = 0.95,
+    ) -> dict[str, Any]:
+        return categories.apply_dynamic_category_review(
+            store=store,
+            where=where,
+            bundle=bundle,
+            decision=decision,
+            session=session,
+            proposed_embedding=proposed_embedding,
+            near_duplicate_threshold=near_duplicate_threshold,
         )
 
     async def _persist_memory_items(

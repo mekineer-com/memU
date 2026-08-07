@@ -13,7 +13,7 @@
 | `app/memorize_parsing.py` | Parsing/normalization seam: message-index extraction, source-message-id normalization, timestamp parsing, XML/JSON memory-type response parsing |
 | `app/memorize_speakers.py` | Speaker attribution seam: speaker-id slugging, roster construction/validation, prompt-label sanitization, speaker_ref resolution |
 | `app/memorize_dedupe.py` | Dedupe/supersession seam: semantic dedupe, similarity scoring, re-embed fallback, `replaces_previous_fact` supersede resolution |
-| `app/memorize_categories.py` | Category seam: homeless-entry clustering, dynamic-category planning/creation, summary update via journal. Seed defaults live in `mcp-memu-server/config.json` — engine defaults are overridden by the server. |
+| `app/memorize_categories.py` | Category seam: shared clustering, legacy dynamic-category planning, and dormant durable proposal/review operations. Runtime cutover remains Slice H. Seed defaults live in `mcp-memu-server/config.json`. |
 | `app/category_summary_journal.py` | Append-only category-summary journal under `memu/journal/`; writes journal then updates `MemoryCategory.summary` + `previous_summary` |
 | `app/graph.py` | `GraphMixin` — graph reads, Atomic read surfaces (atoms/tags/canvas/neighborhood/similar/search), memory/category edits, approval review, hard-delete. Edge predicates: `caused_by`, `evokes`, `conflicts_with`, `parallels`, `shaped_by`. |
 | `app/memorize_persistence.py` | Persistence seam: resource creation, item/link/triple writes, item-reference backfill, happened-at resolution |
@@ -31,7 +31,7 @@
 | `database/sqlite/session.py` | Session factory; loads the required package-local `vec0.so` built by `scripts/build-sqlite-vec.sh` on every connection |
 | `database/sqlite/repositories/memory_item_repo.py` | Scoped memory-item search plus atomic `[M#]` allocation and explicit migration-only ref backfill |
 | `database/sqlite/repositories/memory_category_repo.py` | Category/dossier persistence, anchor reads, and deterministic activity ordering |
-| `database/sqlite/repositories/dossier_candidate_repo.py` | Durable unresolved category proposals with idempotent create and atomic resolution |
+| `database/sqlite/repositories/dossier_candidate_repo.py` | Durable unresolved category proposals with idempotent create, review-consideration state, and atomic resolution |
 | `scripts/migrate-embeddings-to-blob.py` | Offline dry-run/backup/migration tool for converting one explicitly named stopped soul DB from legacy JSON TEXT embeddings to canonical float32 BLOBs |
 | `database/postgres/` | Removed. If Postgres returns, rebuild as thin adapter over shared repo logic. |
 | `database/repositories/` | Backend-agnostic Protocol contracts: memory_item, memory_category, resource, entity, triple, category_item |
@@ -42,7 +42,7 @@
 | `workflow/` | DAG runner: `step.py` (unit), `pipeline.py` (graph), `runner.py` (executor) |
 | `blob/local_fs.py` | Local filesystem media storage |
 | `utils/conversation.py` | Canonical source for all AI-facing chat display: `format_grouped_chat_history()`, platform/chat headings, date dividers, `My Activities:` always first. Used by turn_contract, consolidation, and memorize rendering. |
-| `utils/taxonomy.py` | Canonical category-name normalization and title/description identity text shared by category policy and memorize |
+| `utils/taxonomy.py` | Shared dossier kinds, scope/embedding validation, category-name normalization, and title/description identity text |
 
 ## Prompts (`src/memu/prompts/`)
 
@@ -76,7 +76,7 @@
 |-------|-----------|
 | `MemoryItem` | id, scoped memory_ref, memory_type, summary, embedding, happened_at, provenance, merged_into, extra (JSON), approved_at |
 | `MemoryCategory` | id, name, description, embedding, summary approval fields, kind/subtype/entity/anchor, evidence/revision timestamps |
-| `DossierCandidate` | proposed/normalized name, item/segment/day provenance, optional resolved category/timestamp |
+| `DossierCandidate` | proposed/normalized name, item/segment/day provenance, consideration timestamp, optional resolved category/timestamp |
 | `memory_ref_counters` | scoped next `[M#]` value; owned by `memory_item_repo` |
 | `CategoryItem` | id, item_id, category_id |
 | `Resource` | id, url, modality, local_path, caption, embedding |

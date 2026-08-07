@@ -71,7 +71,12 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
             updated_at=row.updated_at,
         )
 
-    def list_categories(self, where: Mapping[str, Any] | None = None) -> dict[str, MemoryCategory]:
+    def list_categories(
+        self,
+        where: Mapping[str, Any] | None = None,
+        *,
+        session: Any | None = None,
+    ) -> dict[str, MemoryCategory]:
         """List categories matching the where clause.
 
         Args:
@@ -80,11 +85,14 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
         Returns:
             Dictionary of category ID to MemoryCategory mapping.
         """
-        with self._sessions.session() as session:
-            stmt = select(self._memory_category_model)
-            filters = self._build_filters(self._memory_category_model, where)
-            if filters:
-                stmt = stmt.where(*filters)
+        stmt = select(self._memory_category_model)
+        filters = self._build_filters(self._memory_category_model, where)
+        if filters:
+            stmt = stmt.where(*filters)
+        if session is None:
+            with self._sessions.session() as managed_session:
+                rows = managed_session.exec(stmt).all()
+        else:
             rows = session.exec(stmt).all()
 
         result: dict[str, MemoryCategory] = {}
@@ -94,6 +102,38 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
             self.categories[row.id] = cat
 
         return result
+
+    def create_category_strict(
+        self,
+        *,
+        name: str,
+        description: str,
+        embedding: list[float],
+        user_data: dict[str, Any],
+        kind: DossierKind,
+        session: Any,
+    ) -> MemoryCategory:
+        scope = self._require_scope(user_data)
+        if not name.strip() or not description.strip():
+            raise ValueError("Category name and description are required")
+        if kind not in {"lore", "topic", "goal"}:
+            raise ValueError(f"Invalid dossier kind: {kind}")
+        now = self._now()
+        row = self._memory_category_model(
+            name=name.strip(),
+            description=description.strip(),
+            embedding=None,
+            summary=None,
+            kind=kind,
+            created_at=now,
+            updated_at=now,
+            **scope,
+        )
+        self._set_row_embedding(row, embedding)
+        session.add(row)
+        session.flush()
+        session.refresh(row)
+        return self._to_category(row)
 
     def list_anchor_categories(self, where: Mapping[str, Any]) -> dict[str, MemoryCategory]:
         scope = self._require_scope(where)

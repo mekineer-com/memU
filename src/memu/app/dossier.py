@@ -9,26 +9,20 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 
 from memu.database.models import DossierKind, MemoryCategory, MemoryItem
 from memu.database.vector import cosine_topk, reciprocal_rank_fusion
-from memu.utils.taxonomy import category_identity_text
+from memu.utils.taxonomy import (
+    DOSSIER_KINDS,
+    category_identity_text,
+    dossier_scope as _scope,
+    embedding_vector as _embedding_vector,
+)
 
 if TYPE_CHECKING:
     from memu.app.settings import MemorizeConfig
     from memu.database.interfaces import Database
 
 DOSSIER_INDEX_LIMIT = 20
-DOSSIER_KINDS: tuple[DossierKind, ...] = ("lore", "topic", "goal")
 MEMORY_REF_PATTERN = re.compile(r"^\[M([1-9][0-9]*)\]$")
 AnchorRole = Literal["soul", "user"]
-
-
-def _scope(where: Mapping[str, Any] | None) -> dict[str, str]:
-    values: dict[str, str] = {}
-    for field in ("user_id", "soul_id"):
-        value = str((where or {}).get(field) or "").strip()
-        if not value:
-            raise ValueError(f"Complete dossier scope required; missing: {field}")
-        values[field] = value
-    return values
 
 
 def _activity_key(category: MemoryCategory) -> tuple[int, float, str, str]:
@@ -38,16 +32,6 @@ def _activity_key(category: MemoryCategory) -> tuple[int, float, str, str]:
     if happened.tzinfo is None:
         happened = happened.replace(tzinfo=UTC)
     return (0, -happened.timestamp(), category.name.casefold(), category.id)
-
-
-def _embedding_vector(values: Sequence[float], *, label: str) -> list[float]:
-    try:
-        vector = [float(value) for value in values]
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"{label} embedding is invalid") from exc
-    if not vector or not all(math.isfinite(value) for value in vector):
-        raise ValueError(f"{label} embedding must contain finite values")
-    return vector
 
 
 def _content_text(category: MemoryCategory) -> str:

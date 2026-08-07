@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from datetime import date
+from datetime import date, datetime
 from typing import Any
 
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
@@ -40,6 +40,7 @@ class SQLiteDossierCandidateRepo(SQLiteRepoBase, DossierCandidateRepo):
             memory_day=row.memory_day,
             resolved_category_id=row.resolved_category_id,
             resolved_at=row.resolved_at,
+            last_considered_at=row.last_considered_at,
             created_at=row.created_at,
             updated_at=row.updated_at,
         )
@@ -103,15 +104,47 @@ class SQLiteDossierCandidateRepo(SQLiteRepoBase, DossierCandidateRepo):
         where: Mapping[str, Any],
         *,
         unresolved_only: bool = True,
+        session: Any | None = None,
     ) -> list[DossierCandidate]:
         scope = self._require_scope(where)
         statement = select(self._candidate_model).where(*self._build_filters(self._candidate_model, scope))
         if unresolved_only:
             statement = statement.where(self._candidate_model.resolved_category_id.is_(None))
         statement = statement.order_by(self._candidate_model.created_at, self._candidate_model.id)
-        with self._sessions.session() as session:
+        if session is None:
+            with self._sessions.session() as managed_session:
+                rows = managed_session.exec(statement).all()
+        else:
             rows = session.exec(statement).all()
         return [self._to_candidate(row) for row in rows]
+
+    def mark_candidates_considered(
+        self,
+        candidate_ids: Sequence[str],
+        considered_at: datetime,
+        where: Mapping[str, Any],
+        session: Any,
+    ) -> list[DossierCandidate]:
+        scope = self._require_scope(where)
+        ids = set(candidate_ids)
+        if not ids:
+            return []
+        rows = session.exec(
+            select(self._candidate_model).where(
+                self._candidate_model.id.in_(ids),
+                *self._build_filters(self._candidate_model, scope),
+            )
+        ).all()
+        found = {row.id for row in rows}
+        if found != ids:
+            raise KeyError(f"Dossier candidates not found in scope: {sorted(ids - found)}")
+        now = self._now()
+        for row in rows:
+            row.last_considered_at = considered_at
+            row.updated_at = now
+            session.add(row)
+        session.flush()
+        return [self._to_candidate(row) for row in sorted(rows, key=lambda value: (value.created_at, value.id))]
 
     def resolve_candidates(
         self,

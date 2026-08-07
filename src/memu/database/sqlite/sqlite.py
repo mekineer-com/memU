@@ -279,6 +279,7 @@ ON memory_item_edit_history(memory_item_id, edited_at)
     def _ensure_taxonomy_columns(self) -> None:
         additions = {
             "memory_items": {"memory_ref": "INTEGER"},
+            "dossier_candidates": {"last_considered_at": "DATETIME"},
             "categories": {
                 "kind": "TEXT",
                 "lore_subtype": "TEXT",

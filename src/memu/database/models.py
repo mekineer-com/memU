@@ -112,6 +112,7 @@ class DossierCandidate(BaseRecord):
     memory_day: str | None = None
     resolved_category_id: str | None = None
     resolved_at: datetime | None = None
+    last_considered_at: datetime | None = None
 
 
 class CategoryItem(BaseRecord):

@@ -129,6 +129,7 @@ class SQLiteDossierCandidateModel(SQLiteBaseModelMixin, DossierCandidate):
     memory_day: str | None = Field(default=None, sa_column=Column(String, nullable=True))
     resolved_category_id: str | None = Field(default=None, sa_column=Column(String, nullable=True))
     resolved_at: datetime | None = Field(default=None, sa_column=Column(DateTime, nullable=True))
+    last_considered_at: datetime | None = Field(default=None, sa_column=Column(DateTime, nullable=True))
 
 
 class SQLiteCategoryItemModel(SQLiteBaseModelMixin, CategoryItem):

@@ -14,7 +14,12 @@ class MemoryCategoryRepo(Protocol):
 
     categories: dict[str, MemoryCategory]
 
-    def list_categories(self, where: Mapping[str, Any] | None = None) -> dict[str, MemoryCategory]: ...
+    def list_categories(
+        self,
+        where: Mapping[str, Any] | None = None,
+        *,
+        session: Any | None = None,
+    ) -> dict[str, MemoryCategory]: ...
 
     def list_anchor_categories(self, where: Mapping[str, Any]) -> dict[str, MemoryCategory]: ...
 
@@ -41,6 +46,17 @@ class MemoryCategoryRepo(Protocol):
         last_evidence_at: datetime | None = None,
         last_revised_at: datetime | None = None,
         session: Any | None = None,
+    ) -> MemoryCategory: ...
+
+    def create_category_strict(
+        self,
+        *,
+        name: str,
+        description: str,
+        embedding: list[float],
+        user_data: dict[str, Any],
+        kind: DossierKind,
+        session: Any,
     ) -> MemoryCategory: ...
 
     def update_category(

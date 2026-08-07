@@ -8,6 +8,7 @@ import pytest
 from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 
+from memu.app import memorize_categories
 from memu.database.sqlite.sqlite import SQLiteStore
 
 
@@ -57,9 +58,11 @@ def test_fresh_schema_is_additive_and_runtime_creation_stays_inert(tmp_path) -> 
         tables = {row[0] for row in conn.exec_driver_sql("SELECT name FROM sqlite_master WHERE type='table'")}
         item_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(memory_items)")}
         category_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(categories)")}
+        candidate_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(dossier_candidates)")}
 
     assert {"dossier_candidates", "memory_ref_counters"} <= tables
     assert "memory_ref" in item_columns
+    assert "last_considered_at" in candidate_columns
     assert {"kind", "lore_subtype", "entity_id", "anchor_role", "last_evidence_at", "last_revised_at"} <= category_columns
     assert item.memory_ref is None
     assert category.kind is None
@@ -260,6 +263,23 @@ def test_candidate_lifecycle_is_durable_idempotent_and_scope_safe(tmp_path) -> N
         )
 
 
+def test_legacy_candidate_table_gains_consideration_column(tmp_path) -> None:
+    path = tmp_path / "legacy-candidate.db"
+    store = _store(tmp_path, path.name)
+    item = _item(store, SCOPE)
+    candidate = store.dossier_candidate_repo.add_candidate(
+        proposed_name="candidate", item_id=item.id, where=SCOPE
+    )
+    store.close()
+    with sqlite3.connect(path) as conn:
+        conn.execute("ALTER TABLE dossier_candidates DROP COLUMN last_considered_at")
+
+    reopened = _store(tmp_path, path.name)
+    restored = reopened.dossier_candidate_repo.list_candidates(SCOPE)
+    assert [row.id for row in restored] == [candidate.id]
+    assert restored[0].last_considered_at is None
+
+
 def test_candidate_batch_resolution_is_atomic_and_idempotent(tmp_path) -> None:
     store = _store(tmp_path)
     item = _item(store, SCOPE)
@@ -294,3 +314,256 @@ def test_new_taxonomy_methods_require_complete_scope(tmp_path) -> None:
         store.memory_item_repo.allocate_memory_ref({"user_id": "test-user"})
     with pytest.raises(ValueError, match="soul_id"):
         store.dossier_candidate_repo.list_candidates({"user_id": "test-user"})
+
+
+def test_category_proposal_filing_keeps_known_and_unknown_and_is_atomic(tmp_path) -> None:
+    store = _store(tmp_path)
+    item = _item(store, SCOPE)
+    known = _category(store, SCOPE, "Known", kind="topic")
+
+    with store._sessions.session() as session:
+        relations, candidates = memorize_categories.file_category_proposals(
+            store=store,
+            item_proposals=[(item, ["Known", "New Domain"])],
+            where=SCOPE,
+            session=session,
+        )
+        session.commit()
+    assert [relation.category_id for relation in relations] == [known.id]
+    assert [candidate.normalized_name for candidate in candidates] == ["new_domain"]
+
+    with store._sessions.session() as session:
+        repeated = memorize_categories.file_category_proposals(
+            store=store,
+            item_proposals=[(item, ["known"]), (item, ["new-domain!"])],
+            where=SCOPE,
+            session=session,
+        )
+        session.commit()
+    assert repeated[0][0].id == relations[0].id
+    assert repeated[1][0].id == candidates[0].id
+
+    with store._sessions.session() as session:
+        with pytest.raises(ValueError, match="more than three"):
+            memorize_categories.file_category_proposals(
+                store=store,
+                item_proposals=[(item, ["one", "two"]), (item, ["three", "four"])],
+                where=SCOPE,
+                session=session,
+            )
+        session.rollback()
+    assert [row.normalized_name for row in store.dossier_candidate_repo.list_candidates(SCOPE)] == [
+        "new_domain"
+    ]
+
+
+@pytest.mark.asyncio
+async def test_dynamic_category_review_accumulates_all_candidates_and_obeys_threshold(tmp_path) -> None:
+    store = _store(tmp_path)
+    anchor = _category(store, SCOPE, "Self", kind="lore", anchor_role="soul")
+    exact = _category(store, SCOPE, "Shared Topic", kind="topic")
+    store.memory_category_repo.update_category(category_id=exact.id, summary="private prose")
+
+    for index in range(9):
+        item = _item(store, SCOPE, f"memory {index}")
+        store.dossier_candidate_repo.add_candidate(
+            proposed_name="Shared Topic" if index == 0 else "new topic",
+            item_id=item.id,
+            where=SCOPE,
+        )
+
+    async def search(query, **kwargs):
+        assert query
+        assert anchor.id not in {category.id for category in kwargs["categories"]}
+        return []
+
+    assert await memorize_categories.prepare_dynamic_category_review(
+        store=store,
+        where=SCOPE,
+        cluster_size=10,
+        search_dossiers=search,
+    ) == []
+    tenth = _item(store, SCOPE, "memory 9")
+    store.dossier_candidate_repo.add_candidate(
+        proposed_name="new topic", item_id=tenth.id, where=SCOPE
+    )
+    store.close()
+
+    reopened = _store(tmp_path)
+    bundles = await memorize_categories.prepare_dynamic_category_review(
+        store=reopened,
+        where=SCOPE,
+        cluster_size=10,
+        search_dossiers=search,
+    )
+    assert len(bundles) == 1
+    assert bundles[0]["memory_count"] == 10
+    assert len(bundles[0]["candidate_ids"]) == 10
+    assert [category.id for category in bundles[0]["existing_dossiers"]] == [exact.id]
+    assert bundles[0]["existing_dossiers"][0].summary is None
+
+    with reopened._sessions.session() as session:
+        reopened.dossier_candidate_repo.mark_candidates_considered(
+            bundles[0]["candidate_ids"], datetime.now(timezone.utc), SCOPE, session
+        )
+        session.commit()
+    assert await memorize_categories.prepare_dynamic_category_review(
+        store=reopened,
+        where=SCOPE,
+        cluster_size=10,
+        search_dossiers=search,
+    ) == []
+    new_item = _item(reopened, SCOPE, "new evidence")
+    reopened.dossier_candidate_repo.add_candidate(
+        proposed_name="new topic", item_id=new_item.id, where=SCOPE
+    )
+    assert len(
+        await memorize_categories.prepare_dynamic_category_review(
+            store=reopened,
+            where=SCOPE,
+            cluster_size=10,
+            search_dossiers=search,
+        )
+    ) == 1
+
+
+@pytest.mark.asyncio
+async def test_dynamic_category_review_counts_canonical_memories_and_fails_on_bad_lineage(tmp_path) -> None:
+    store = _store(tmp_path)
+    source = _item(store, SCOPE, "source")
+    middle = _item(store, SCOPE, "middle")
+    survivor = _item(store, SCOPE, "survivor")
+    other = _item(store, SCOPE, "other")
+    store.memory_item_repo.update_item(item_id=source.id, merged_into=middle.id)
+    store.memory_item_repo.update_item(item_id=middle.id, merged_into=survivor.id)
+    store.dossier_candidate_repo.add_candidate(proposed_name="topic", item_id=source.id, where=SCOPE)
+    store.dossier_candidate_repo.add_candidate(proposed_name="topic", item_id=middle.id, where=SCOPE)
+    store.dossier_candidate_repo.add_candidate(proposed_name="topic", item_id=other.id, where=SCOPE)
+
+    async def no_hits(_query, **_kwargs):
+        return []
+
+    bundles = await memorize_categories.prepare_dynamic_category_review(
+        store=store,
+        where=SCOPE,
+        cluster_size=2,
+        search_dossiers=no_hits,
+    )
+    assert bundles[0]["memory_count"] == 2
+    assert len(bundles[0]["candidate_ids"]) == 3
+
+    store.memory_item_repo.update_item(item_id=survivor.id, merged_into=source.id)
+    with pytest.raises(ValueError, match="merge cycle"):
+        await memorize_categories.prepare_dynamic_category_review(
+            store=store,
+            where=SCOPE,
+            cluster_size=2,
+            search_dossiers=no_hits,
+        )
+
+    broken = _store(tmp_path, "broken.db")
+    deleted = _item(broken, SCOPE)
+    live = _item(broken, SCOPE)
+    broken.dossier_candidate_repo.add_candidate(proposed_name="topic", item_id=deleted.id, where=SCOPE)
+    broken.dossier_candidate_repo.add_candidate(proposed_name="topic", item_id=live.id, where=SCOPE)
+    broken.memory_item_repo.hard_delete_item(deleted.id, SCOPE)
+    with pytest.raises(KeyError, match="not found in scope"):
+        await memorize_categories.prepare_dynamic_category_review(
+            store=broken,
+            where=SCOPE,
+            cluster_size=2,
+            search_dossiers=no_hits,
+        )
+
+
+@pytest.mark.asyncio
+async def test_dynamic_category_review_apply_is_atomic_and_collision_safe(tmp_path) -> None:
+    store = _store(tmp_path)
+    items = [_item(store, SCOPE, f"memory {index}") for index in range(2)]
+    for item in items:
+        store.dossier_candidate_repo.add_candidate(proposed_name="new topic", item_id=item.id, where=SCOPE)
+
+    async def no_hits(_query, **_kwargs):
+        return []
+
+    bundle = (
+        await memorize_categories.prepare_dynamic_category_review(
+            store=store,
+            where=SCOPE,
+            cluster_size=2,
+            search_dossiers=no_hits,
+        )
+    )[0]
+    accepted, rejected = bundle["candidate_ids"]
+    decision = {
+        "cluster_id": bundle["cluster_id"],
+        "action": "create",
+        "accepted_candidate_ids": [accepted],
+        "rejected_candidate_ids": [rejected],
+        "existing_dossier_id": None,
+        "name": "Created Topic",
+        "description": "A created dossier",
+        "kind": "topic",
+    }
+    with store._sessions.session() as session:
+        result = memorize_categories.apply_dynamic_category_review(
+            store=store,
+            where=SCOPE,
+            bundle=bundle,
+            decision=decision,
+            proposed_embedding=[1.0, 0.0],
+            session=session,
+        )
+        session.rollback()
+    assert result["status"] == "created"
+    assert all(category.name != "Created Topic" for category in store.memory_category_repo.list_categories(SCOPE).values())
+    assert all(row.last_considered_at is None for row in store.dossier_candidate_repo.list_candidates(SCOPE))
+
+    existing = _category(store, SCOPE, "Near Duplicate", kind="topic")
+    store.memory_category_repo.update_category(category_id=existing.id, embedding=[1.0, 0.0])
+    with store._sessions.session() as session:
+        collision = memorize_categories.apply_dynamic_category_review(
+            store=store,
+            where=SCOPE,
+            bundle=bundle,
+            decision=decision,
+            proposed_embedding=[1.0, 0.0],
+            near_duplicate_threshold=0.9,
+            session=session,
+        )
+        session.commit()
+    assert collision["status"] == "collision"
+    assert collision["target_dossier"].id == existing.id
+    remaining = store.dossier_candidate_repo.list_candidates(SCOPE)
+    assert len(remaining) == 2
+    assert all(row.last_considered_at is not None for row in remaining)
+
+    bundle["existing_dossiers"] = [existing]
+    existing_decision = {
+        "cluster_id": bundle["cluster_id"],
+        "action": "existing",
+        "accepted_candidate_ids": [accepted],
+        "rejected_candidate_ids": [rejected],
+        "existing_dossier_id": existing.id,
+        "name": None,
+        "description": None,
+        "kind": None,
+    }
+    with store._sessions.session() as session:
+        applied = memorize_categories.apply_dynamic_category_review(
+            store=store,
+            where=SCOPE,
+            bundle=bundle,
+            decision=existing_decision,
+            session=session,
+        )
+        session.commit()
+    assert applied["status"] == "existing"
+    assert [row.id for row in store.dossier_candidate_repo.list_candidates(SCOPE)] == [rejected]
+    accepted_item_id = next(
+        candidate.item_id
+        for memory in bundle["memories"]
+        for candidate in memory["candidates"]
+        if candidate.id == accepted
+    )
+    assert store.category_item_repo.get_item_categories(accepted_item_id)[0].category_id == existing.id

@@ -14,9 +14,14 @@ class CategoryItemRepo(Protocol):
 
     def list_relations(self, where: Mapping[str, Any] | None = None) -> list[CategoryItem]: ...
 
-    def link_item_category(self, item_id: str, cat_id: str, user_data: dict[str, Any]) -> CategoryItem: ...
+    def link_item_category(
+        self,
+        item_id: str,
+        category_id: str,
+        user_data: dict[str, Any],
+        session: Any | None = None,
+    ) -> CategoryItem: ...
 
     def unlink_item_category(self, item_id: str, cat_id: str) -> None: ...
 
     def get_item_categories(self, item_id: str) -> list[CategoryItem]: ...
-
