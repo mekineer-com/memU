@@ -8,7 +8,7 @@
 | Package | Purpose |
 |---------|---------|
 | `app/service.py` | `MemoryService` — top-level facade, only public API |
-| `app/dossier.py` | Dossier core policy: soul/user anchors, active/inactive sets, sparse memorize context, deterministic compact index, identity/content search views, strict `[M#]` handles, and dormant revision preparation/generation |
+| `app/dossier.py` | Dossier core policy: soul/user anchors, active/inactive sets, sparse memorize context, deterministic compact index, identity/content search views, strict `[M#]` handles, dormant revision preparation/generation, and atomic revision apply |
 | `app/dossier_revision.py` | Pure dossier-revision rendering, strict XML normalization, and deterministic section-patch assembly |
 | `app/memorize.py` | Memorize workflow: preprocess → route → extract → store. Roster supports same-role ambiguity + relationship-entity triggers; dedupe keys by `(source_role, speaker_id, summary)`; parse failures retry once before propagating. |
 | `app/memorize_parsing.py` | Parsing/normalization seam: message-index extraction, source-message-id normalization, timestamp parsing, XML/JSON memory-type response parsing |
@@ -39,7 +39,7 @@
 | `database/sqlite/repositories/triple_repo.py` | Triple (graph edge) persistence and temporal queries |
 | `database/sqlite/repositories/dossier_candidate_repo.py` | Durable unresolved category proposals with idempotent create, review-consideration state, and atomic resolution |
 | `scripts/migrate-embeddings-to-blob.py` | Offline dry-run/backup/migration tool for converting one explicitly named stopped soul DB from legacy JSON TEXT embeddings to canonical float32 BLOBs |
-| `database/postgres/` | Removed. If Postgres returns, rebuild as thin adapter over shared repo logic. |
+| `database/postgres/` | Removed |
 | `database/repositories/` | Backend-agnostic Protocol contracts: memory_item, memory_category, resource, entity, triple, category_item |
 | `llm/wrapper.py` | LLM client factory — dispatches to backends |
 | `llm/http_client.py` | LLM HTTP client |
@@ -49,7 +49,7 @@
 | `workflow/` | DAG runner: `step.py` (unit), `pipeline.py` (graph), `runner.py` (executor), `interceptor.py` (hook mechanism) |
 | `blob/local_fs.py` | Local filesystem media storage |
 | `utils/conversation.py` | Canonical source for all AI-facing chat display: `format_grouped_chat_history()`, platform/chat headings, date dividers, `My Activities:` always first. Used by turn_contract, consolidation, and memorize rendering. |
-| `utils/references.py` | Memory item reference utilities — inline `[ref:ITEM_ID]` citations in category summaries |
+| `utils/references.py` | Legacy `[ref:ITEM_ID]` inline citations in category summaries; canonical dossier citations use `[M#]` |
 | `utils/taxonomy.py` | Shared dossier kinds, scope/embedding validation, category-name normalization, and title/description identity text |
 | `utils/video.py` | Video processing utilities for frame extraction |
 
