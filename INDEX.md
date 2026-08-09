@@ -30,20 +30,28 @@
 | `database/sqlite/schema.py` | Per-scope SQLAlchemy model factory (`get_sqlite_sqlalchemy_models`) |
 | `database/sqlite/models.py` | Per-table model classes + `build_sqlite_table_model` |
 | `database/sqlite/session.py` | Session factory; loads the required package-local `vec0.so` built by `scripts/build-sqlite-vec.sh` on every connection |
+| `database/sqlite/repositories/base.py` | Base repository class for SQLite backend |
 | `database/sqlite/repositories/memory_item_repo.py` | Scoped memory-item search plus atomic `[M#]` allocation and explicit migration-only ref backfill |
 | `database/sqlite/repositories/memory_category_repo.py` | Category/dossier persistence, anchor reads, and deterministic activity ordering |
+| `database/sqlite/repositories/category_item_repo.py` | Category–item link persistence |
+| `database/sqlite/repositories/resource_repo.py` | Resource (segment file) persistence |
+| `database/sqlite/repositories/entity_repo.py` | Entity persistence and lookup |
+| `database/sqlite/repositories/triple_repo.py` | Triple (graph edge) persistence and temporal queries |
 | `database/sqlite/repositories/dossier_candidate_repo.py` | Durable unresolved category proposals with idempotent create, review-consideration state, and atomic resolution |
 | `scripts/migrate-embeddings-to-blob.py` | Offline dry-run/backup/migration tool for converting one explicitly named stopped soul DB from legacy JSON TEXT embeddings to canonical float32 BLOBs |
 | `database/postgres/` | Removed. If Postgres returns, rebuild as thin adapter over shared repo logic. |
 | `database/repositories/` | Backend-agnostic Protocol contracts: memory_item, memory_category, resource, entity, triple, category_item |
 | `llm/wrapper.py` | LLM client factory — dispatches to backends |
+| `llm/http_client.py` | LLM HTTP client |
 | `llm/backends/` | Provider impls: `openai.py` (httpx-based, covers OpenAI-compatible APIs) |
 | `llm/claude_cli.py` | `ClaudeCLIClient` — Claude Code CLI adapter. Uses soul workspace for session/resume calls, neutral workspace for no-session calls (prevents persona bleed). |
-| `embedding/` | Embedding client factory + backends (same pattern as llm/) |
-| `workflow/` | DAG runner: `step.py` (unit), `pipeline.py` (graph), `runner.py` (executor) |
+| `embedding/` | Embedding client factory + backends (same pattern as llm/): `openai.py`, `doubao.py` |
+| `workflow/` | DAG runner: `step.py` (unit), `pipeline.py` (graph), `runner.py` (executor), `interceptor.py` (hook mechanism) |
 | `blob/local_fs.py` | Local filesystem media storage |
 | `utils/conversation.py` | Canonical source for all AI-facing chat display: `format_grouped_chat_history()`, platform/chat headings, date dividers, `My Activities:` always first. Used by turn_contract, consolidation, and memorize rendering. |
+| `utils/references.py` | Memory item reference utilities — inline `[ref:ITEM_ID]` citations in category summaries |
 | `utils/taxonomy.py` | Shared dossier kinds, scope/embedding validation, category-name normalization, and title/description identity text |
+| `utils/video.py` | Video processing utilities for frame extraction |
 
 ## Prompts (`src/memu/prompts/`)
 
@@ -52,7 +60,7 @@ callable remains dormant until the taxonomy consolidation cutover.
 
 | Directory | Files | Purpose |
 |-----------|-------|---------|
-| `memory_type/` | `profile.py`, `behavior.py`, `knowledge.py`, `social.py` | Per-type extraction prompts (PROMPT + CUSTOM_PROMPT). These four are active (DEFAULT_MEMORY_TYPES). `skill.py` and `tool.py` exist but are inactive. `event.py` removed — archived to `_archive/event-memory-type/`. |
+| `memory_type/` | `profile.py`, `behavior.py`, `knowledge.py`, `social.py` | Per-type extraction prompts (PROMPT + CUSTOM_PROMPT). These four are active (DEFAULT_MEMORY_TYPES). `event.py` removed — archived to `_archive/event-memory-type/`. |
 | `memory_type/__init__.py` | — | PROMPTS dict, DEFAULT_MEMORY_TYPES list |
 | `preprocess/` | `document.py`, `image.py`, `audio.py`, `video.py` | Input normalization for non-chat modalities |
 | `router/router.py` | — | Route input by excluded memory types; produce 1–3 titled episodes with separate full summaries, compact items, category proposals, and a source-valid day |
