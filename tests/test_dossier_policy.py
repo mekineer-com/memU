@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from pydantic import BaseModel
 
-from memu.app.dossier_revision import render_memory_records
+from memu.app.dossier_revision import render_memory_records, revision_status_items
 from memu.app.service import MemoryService
 from memu.database.models import MemoryCategory, MemoryItem, Triple
 
@@ -675,6 +675,29 @@ def test_revision_memory_records_are_one_line() -> None:
     assert render_memory_records([item]) == "[M12] (2026-07-18) First line. Second line."
 
 
+def test_revision_status_precedence_is_disjoint() -> None:
+    def item(memory_ref: int) -> MemoryItem:
+        return MemoryItem(
+            resource_id=None,
+            memory_type="knowledge",
+            summary=f"Memory {memory_ref}",
+            memory_ref=memory_ref,
+        )
+
+    purged, cited, pending, search = (item(memory_ref) for memory_ref in range(1, 5))
+    statuses = revision_status_items({
+        "cleanup_items": [purged],
+        "cited_items": [purged, cited],
+        "pending_items": [purged, cited, pending],
+        "candidate_items": [purged, cited, pending, search],
+    })
+
+    assert {
+        status: [memory.memory_ref for memory in memories]
+        for status, memories in statuses.items()
+    } == {"cited": [2], "search": [4], "purged": [1], "pending": [3]}
+
+
 def test_prepare_dossier_revision_requires_refs_and_goal_kind(tmp_path) -> None:
     service = _service(tmp_path, retrieve_config={"item": {"top_k": 0}})
     store = service.database
@@ -793,6 +816,32 @@ River records each day with care [M{refs[pending.id]}].</body></section>
     assert result["resulting_prose"].startswith(original_first)
     assert "## Current Practice" in result["resulting_prose"]
     assert "## Timeline\n- 2026-07-18" in result["resulting_prose"]
+
+
+@pytest.mark.asyncio
+async def test_generate_dossier_revision_keep_and_remove_section(tmp_path) -> None:
+    current = "## Daily Care\nStable context.\n\n## Timeline\n- 2026-07-01: Earlier event."
+    service, _store, _anchors, category, pending, _candidate, refs, bundle = _revision_case(
+        tmp_path,
+        summary=current,
+    )
+    decision = f'<decision ref="[M{refs[pending.id]}]" action="add" />'
+    keep = f"""<dossier_revision dossier_id="{category.id}">
+  <description>Stable context.</description><prose_action>keep</prose_action>
+  <prose></prose><prose_patches></prose_patches><decisions>{decision}</decisions>
+</dossier_revision>"""
+    removed = f"""<dossier_revision dossier_id="{category.id}">
+  <description>The timeline remains.</description><prose_action>patch</prose_action>
+  <prose></prose><prose_patches>
+    <section ref="S1" action="remove"><body></body></section>
+  </prose_patches><decisions>{decision}</decisions>
+</dossier_revision>"""
+
+    kept = await service.generate_dossier_revision(bundle, chat_client=FakeChatClient(keep))
+    patched = await service.generate_dossier_revision(bundle, chat_client=FakeChatClient(removed))
+
+    assert kept["resulting_prose"] == current
+    assert patched["resulting_prose"] == "## Timeline\n- 2026-07-01: Earlier event."
 
 
 @pytest.mark.asyncio

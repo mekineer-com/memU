@@ -3,12 +3,15 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping, Sequence
 from typing import Any
+from xml.etree.ElementTree import Element
 
 from defusedxml import ElementTree
 
 from memu.database.models import MemoryItem
 
 _HEADING = re.compile(r"(?m)^## [^\r\n]+\r?$")
+# Model output is a trust boundary: these accept only exact [M#] tokens, unlike
+# dossier.py's broader scanner that also discovers malformed prose references.
 _MEMORY_REF = re.compile(r"^\[M([1-9][0-9]*)\]$")
 _MEMORY_REFS = re.compile(r"\[M[1-9][0-9]*\]")
 _MEMORY_TOKEN = re.compile(r"\[M[^\]\r\n]*\]")
@@ -22,7 +25,7 @@ def strip_memory_citations(text: str) -> str:
 
 def label_sections(prose: str) -> tuple[str, list[tuple[str, str]]] | None:
     matches = list(_HEADING.finditer(prose))
-    if len(matches) < 2 or not matches or matches[0].start() != 0:
+    if len(matches) < 2 or matches[0].start() != 0:
         return None
     sections = [
         (f"S{index + 1}", prose[match.start() : matches[index + 1].start() if index + 1 < len(matches) else None])
@@ -165,10 +168,10 @@ def parse_dossier_revision(raw: str, bundle: Mapping[str, Any]) -> dict[str, Any
     }
 
 
-def _singletons(root: Any, allowed: set[str]) -> dict[str, Any]:
+def _singletons(root: Element, allowed: set[str]) -> dict[str, Element]:
     if (root.text or "").strip():
         raise ValueError("Unexpected text inside dossier revision root")
-    children: dict[str, Any] = {}
+    children: dict[str, Element] = {}
     for child in root:
         if child.tag not in allowed:
             raise ValueError(f"Unknown dossier revision element: {child.tag}")
@@ -183,13 +186,13 @@ def _singletons(root: Any, allowed: set[str]) -> dict[str, Any]:
     return children
 
 
-def _leaf_text(element: Any) -> str:
+def _leaf_text(element: Element) -> str:
     if element.attrib or list(element):
         raise ValueError(f"Expected plain text in {element.tag}")
     return element.text or ""
 
 
-def _parse_patches(container: Any) -> list[tuple[str, str, str]]:
+def _parse_patches(container: Element) -> list[tuple[str, str, str]]:
     if container.attrib or (container.text or "").strip():
         raise ValueError("Invalid prose_patches wrapper")
     patches: list[tuple[str, str, str]] = []
@@ -221,7 +224,7 @@ def _parse_patches(container: Any) -> list[tuple[str, str, str]]:
 
 
 def _parse_decisions(
-    container: Any,
+    container: Element,
     by_ref: Mapping[str, MemoryItem],
     statuses: Mapping[str, Sequence[MemoryItem]],
 ) -> dict[str, str]:
