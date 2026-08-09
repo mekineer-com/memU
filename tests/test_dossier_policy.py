@@ -1058,8 +1058,14 @@ async def test_apply_dossier_revision_commits_one_reviewed_result(tmp_path, monk
         for relation in store.category_item_repo.list_relations(SCOPE)
         if relation.category_id == category.id
     }
+    cached_relation_ids = {
+        relation.item_id
+        for relation in store.category_item_repo.relations
+        if relation.category_id == category.id
+    }
     approved = store.memory_item_repo.list_items_by_ids({pending.id, candidate.id}, SCOPE)
     assert relation_ids == {pending.id, candidate.id}
+    assert cached_relation_ids == relation_ids
     assert all(item.approved_at is not None for item in approved.values())
     assert revised.description == decision["description"]
     assert revised.summary == prose
@@ -1074,28 +1080,45 @@ async def test_apply_dossier_revision_commits_one_reviewed_result(tmp_path, monk
 
 
 @pytest.mark.asyncio
-async def test_apply_dossier_revision_detects_lineage_race(tmp_path) -> None:
+@pytest.mark.parametrize("race", ["category", "relation", "shown_item", "lineage"])
+async def test_apply_dossier_revision_detects_snapshot_races(tmp_path, race) -> None:
     service, store, _anchors, category, pending, _candidate, refs, bundle = _revision_case(
         tmp_path,
         summary="## Health\nEarlier account.",
     )
-    replacement = store.memory_item_repo.create_item(
-        memory_type="knowledge",
-        summary="replacement",
-        embedding=[1.0, 0.0],
-        user_data=SCOPE,
-    )
-    store.triple_repo.add(
-        Triple(
-            subject_id=pending.id,
-            subject_kind="memory",
-            predicate="evolved_into",
-            object_id=replacement.id,
-            object_kind="memory",
-            source_memory_id=replacement.id,
-        ),
-        user_data=SCOPE,
-    )
+    if race == "category":
+        store.memory_category_repo.update_category(
+            category_id=category.id,
+            description="Concurrent description.",
+        )
+    elif race == "relation":
+        extra = store.memory_item_repo.create_item(
+            memory_type="knowledge",
+            summary="concurrent relation",
+            embedding=[1.0, 0.0],
+            user_data=SCOPE,
+        )
+        store.category_item_repo.link_item_category(extra.id, category.id, SCOPE)
+    elif race == "shown_item":
+        store.memory_item_repo.update_item(item_id=pending.id, summary="concurrent edit")
+    else:
+        replacement = store.memory_item_repo.create_item(
+            memory_type="knowledge",
+            summary="replacement",
+            embedding=[1.0, 0.0],
+            user_data=SCOPE,
+        )
+        store.triple_repo.add(
+            Triple(
+                subject_id=pending.id,
+                subject_kind="memory",
+                predicate="evolved_into",
+                object_id=replacement.id,
+                object_kind="memory",
+                source_memory_id=replacement.id,
+            ),
+            user_data=SCOPE,
+        )
     decision = {
         "dossier_id": category.id,
         "description": category.description,
@@ -1181,7 +1204,41 @@ async def test_apply_dossier_revision_keeps_empty_dossier_text(tmp_path, monkeyp
     assert revised.summary == "## Health\nHistorical account."
     assert revised.last_evidence_at is None and revised.last_revised_at is not None
     assert store.category_item_repo.list_relations({"category_id": category.id}) == []
+    assert all(
+        relation.category_id != category.id
+        for relation in store.category_item_repo.relations
+    )
     assert client.calls == [] and journal == []
+
+
+@pytest.mark.asyncio
+async def test_apply_dossier_revision_journal_failure_keeps_commit(tmp_path, monkeypatch) -> None:
+    service, store, _anchors, category, pending, _candidate, refs, bundle = _revision_case(
+        tmp_path,
+        summary="## Health\nEarlier account.",
+    )
+
+    def fail_journal(**_kwargs):
+        raise OSError("journal unavailable")
+
+    monkeypatch.setattr("memu.app.dossier.append_category_summary_journal", fail_journal)
+    prose = f"## Health\nDaily record [M{refs[pending.id]}]."
+    revised = await service.apply_dossier_revision(
+        bundle,
+        {
+            "dossier_id": category.id,
+            "description": category.description,
+            "resulting_prose": prose,
+            "add_item_ids": [pending.id],
+            "remove_item_ids": [],
+            "cleanup_item_ids": [],
+            "cited_item_ids": [pending.id],
+        },
+        SCOPE,
+    )
+
+    assert revised.summary == prose
+    assert store.memory_category_repo.list_categories(SCOPE)[category.id].summary == prose
 
 
 @pytest.mark.asyncio

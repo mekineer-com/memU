@@ -1006,6 +1006,20 @@ def test_pending_dossier_requires_prose_and_tracks_description():
     assert approved.approved_description == approved.description
     assert service.graph_list_pending(where=scope)["categories"] == []
 
+    legacy = store.memory_category_repo.get_or_create_category(
+        name="Legacy",
+        description="Original brief.",
+        embedding=[0.2],
+        user_data=scope,
+    )
+    store.memory_category_repo.update_category(category_id=legacy.id, summary="Approved prose.")
+    store.memory_category_repo.approve_category_summary(legacy.id, where=scope)
+    store.memory_category_repo.update_category(
+        category_id=legacy.id,
+        description="Unapproved legacy brief.",
+    )
+    assert service.graph_list_pending(where=scope)["categories"] == []
+
 
 def test_graph_pending_excludes_superseded_memories():
     service = MemoryService(

@@ -597,7 +597,6 @@ class DossierMixin:
             stale = (
                 current.updated_at != bundle["category_updated_at"]
                 or current_relation_tokens != list(bundle["relation_tokens"])
-                or set(linked_items) != snapshot_linked_ids
                 or linked_inactive_ids != set(bundle["linked_inactive_item_ids"])
                 or current_shown_tokens != shown_tokens
                 or shown_ids - active_shown_ids != set(bundle["shown_inactive_item_ids"])
