@@ -626,14 +626,19 @@ def test_due_dossiers_cover_first_revision_and_watermark(tmp_path) -> None:
     store = service.database
     due = _category(service, "Due")
     clean = _category(service, "Clean")
+    anchor = _seed_anchors(service)["soul"]
     due_item = store.memory_item_repo.create_item(
         memory_type="episode", summary="due", embedding=[1.0, 0.0], user_data=SCOPE
     )
     clean_item = store.memory_item_repo.create_item(
         memory_type="episode", summary="clean", embedding=[1.0, 0.0], user_data=SCOPE
     )
+    anchor_item = store.memory_item_repo.create_item(
+        memory_type="episode", summary="anchor", embedding=[1.0, 0.0], user_data=SCOPE
+    )
     store.category_item_repo.link_item_category(due_item.id, due.id, SCOPE)
     clean_relation = store.category_item_repo.link_item_category(clean_item.id, clean.id, SCOPE)
+    store.category_item_repo.link_item_category(anchor_item.id, anchor.id, SCOPE)
     revised_at = clean_relation.created_at + timedelta(seconds=1)
     store.memory_category_repo.update_category(
         category_id=clean.id, last_revised_at=revised_at

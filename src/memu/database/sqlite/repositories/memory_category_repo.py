@@ -174,7 +174,7 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
         return [self._to_category(row) for row in rows]
 
     def clear_categories(self, where: Mapping[str, Any] | None = None) -> dict[str, MemoryCategory]:
-        """Clear categories matching the where clause.
+        """Clear scoped taxonomy state matching the where clause.
 
         Args:
             where: Optional filter conditions.
@@ -182,32 +182,38 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
         Returns:
             Dictionary of deleted category ID to MemoryCategory mapping.
         """
-        filters = self._build_filters(self._memory_category_model, where)
+        scope = self._require_scope(where) if where is not None else None
+        filters = self._build_filters(self._memory_category_model, scope)
         with self._sessions.session() as session:
-            # First get the objects to delete
             stmt = select(self._memory_category_model)
             if filters:
                 stmt = stmt.where(*filters)
             rows = session.exec(stmt).all()
+            deleted = {row.id: self._to_category(row) for row in rows}
 
-            deleted: dict[str, MemoryCategory] = {}
-            for row in rows:
-                cat = self._to_category(row)
-                deleted[row.id] = cat
-
-            if not deleted:
-                return {}
-
-            # Delete from database
+            for model in (self._sqla_models.CategoryItem, self._sqla_models.DossierCandidate):
+                del_stmt = delete(model)
+                related_filters = self._build_filters(model, scope)
+                if related_filters:
+                    del_stmt = del_stmt.where(*related_filters)
+                session.exec(del_stmt)
             del_stmt = delete(self._memory_category_model)
             if filters:
                 del_stmt = del_stmt.where(*filters)
             session.exec(del_stmt)
             session.commit()
 
-            # Clean up cache
             for cat_id in deleted:
                 self.categories.pop(cat_id, None)
+            if scope is None:
+                self._state.relations.clear()
+            else:
+                deleted_ids = set(deleted)
+                self._state.relations[:] = [
+                    relation
+                    for relation in self._state.relations
+                    if relation.category_id not in deleted_ids
+                ]
 
         return deleted
 

@@ -247,7 +247,7 @@ class DossierMixin:
 
         actionable: list[tuple[float, MemoryCategory]] = []
         for category in categories.values():
-            if category.kind not in DOSSIER_KINDS:
+            if category.kind not in DOSSIER_KINDS or category.anchor_role is not None:
                 continue
             category_relations = [
                 relation for relation in relations if relation.category_id == category.id

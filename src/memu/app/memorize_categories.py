@@ -253,6 +253,8 @@ def file_category_proposals(
     categories = store.memory_category_repo.list_categories(scope, session=session)
     by_name: dict[str, MemoryCategory] = {}
     for category in categories.values():
+        if category.anchor_role is not None:
+            continue
         normalized = normalize_category_name(category.name)
         if normalized is None:
             raise ValueError(f"Dossier {category.id} title must contain letters or digits")

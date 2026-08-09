@@ -294,6 +294,46 @@ def test_candidate_lifecycle_is_durable_idempotent_and_scope_safe(tmp_path) -> N
         )
 
 
+def test_clear_categories_removes_only_scoped_taxonomy_state(tmp_path) -> None:
+    store = _store(tmp_path)
+    item = _item(store, SCOPE)
+    other_item = _item(store, OTHER_SCOPE)
+    category = _category(store, SCOPE, "Health", kind="topic")
+    other_category = _category(store, OTHER_SCOPE, "Work", kind="topic")
+    relation = store.category_item_repo.link_item_category(item.id, category.id, SCOPE)
+    other_relation = store.category_item_repo.link_item_category(
+        other_item.id, other_category.id, OTHER_SCOPE
+    )
+    candidate = store.dossier_candidate_repo.add_candidate(
+        proposed_name="Wellbeing", item_id=item.id, where=SCOPE
+    )
+    store.dossier_candidate_repo.resolve_candidates([candidate.id], category.id, SCOPE)
+    store.dossier_candidate_repo.add_candidate(
+        proposed_name="Daily Care", item_id=item.id, where=SCOPE
+    )
+    store.dossier_candidate_repo.add_candidate(
+        proposed_name="Career", item_id=other_item.id, where=OTHER_SCOPE
+    )
+
+    assert store.memory_category_repo.clear_categories(SCOPE) == {category.id: category}
+    assert store.memory_category_repo.list_categories(SCOPE) == {}
+    assert store.category_item_repo.list_relations(SCOPE) == []
+    assert store.dossier_candidate_repo.list_candidates(SCOPE, unresolved_only=False) == []
+    assert store.memory_item_repo.get_item(item.id) is not None
+    assert list(store.memory_category_repo.list_categories(OTHER_SCOPE)) == [other_category.id]
+    assert [row.id for row in store.category_item_repo.list_relations(OTHER_SCOPE)] == [
+        other_relation.id
+    ]
+    assert len(store.dossier_candidate_repo.list_candidates(OTHER_SCOPE)) == 1
+    assert relation not in store.category_item_repo.relations
+
+    store.dossier_candidate_repo.add_candidate(
+        proposed_name="Candidate Only", item_id=item.id, where=SCOPE
+    )
+    assert store.memory_category_repo.clear_categories(SCOPE) == {}
+    assert store.dossier_candidate_repo.list_candidates(SCOPE) == []
+
+
 def test_legacy_candidate_table_gains_consideration_column(tmp_path) -> None:
     path = tmp_path / "legacy-candidate.db"
     store = _store(tmp_path, path.name)
@@ -351,28 +391,29 @@ def test_category_proposal_filing_keeps_known_and_unknown_and_is_atomic(tmp_path
     store = _store(tmp_path)
     item = _item(store, SCOPE)
     known = _category(store, SCOPE, "Known", kind="topic")
+    _category(store, SCOPE, "Identity", kind="lore", anchor_role="soul")
 
     with store._sessions.session() as session:
         relations, candidates = memorize_categories.file_category_proposals(
             store=store,
-            item_proposals=[(item, ["Known", "New Domain"])],
+            item_proposals=[(item, ["Known", "New Domain", "Identity"])],
             where=SCOPE,
             session=session,
         )
         session.commit()
     assert [relation.category_id for relation in relations] == [known.id]
-    assert [candidate.normalized_name for candidate in candidates] == ["new_domain"]
+    assert [candidate.normalized_name for candidate in candidates] == ["new_domain", "identity"]
 
     with store._sessions.session() as session:
         repeated = memorize_categories.file_category_proposals(
             store=store,
-            item_proposals=[(item, ["known"]), (item, ["new-domain!"])],
+            item_proposals=[(item, ["known"]), (item, ["new-domain!", "identity"])],
             where=SCOPE,
             session=session,
         )
         session.commit()
     assert repeated[0][0].id == relations[0].id
-    assert repeated[1][0].id == candidates[0].id
+    assert [row.id for row in repeated[1]] == [row.id for row in candidates]
 
     with store._sessions.session() as session:
         with pytest.raises(ValueError, match="more than three"):
@@ -384,7 +425,8 @@ def test_category_proposal_filing_keeps_known_and_unknown_and_is_atomic(tmp_path
             )
         session.rollback()
     assert [row.normalized_name for row in store.dossier_candidate_repo.list_candidates(SCOPE)] == [
-        "new_domain"
+        "new_domain",
+        "identity",
     ]
 
 
