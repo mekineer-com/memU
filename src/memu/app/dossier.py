@@ -749,6 +749,49 @@ class DossierMixin:
         ]
         return sorted(inactive, key=_activity_key)
 
+    def list_dossiers_for_segments(
+        self,
+        where: Mapping[str, Any],
+        *,
+        segment_ids: Sequence[str],
+    ) -> list[MemoryCategory]:
+        scope = _scope(where)
+        selected_ids = set(segment_ids)
+        if not selected_ids:
+            return []
+
+        store = self._get_database()
+        categories = store.memory_category_repo.list_categories(scope)
+        relations = store.category_item_repo.list_relations(scope)
+        items = store.memory_item_repo.list_items_by_ids(
+            {relation.item_id for relation in relations},
+            scope,
+        )
+        newest_by_category: dict[str, float] = {}
+        for relation in relations:
+            item = items.get(relation.item_id)
+            if item is None or item.segment_id not in selected_ids:
+                continue
+            newest_by_category[relation.category_id] = max(
+                newest_by_category.get(relation.category_id, float("-inf")),
+                _timestamp(item.created_at),
+            )
+
+        relevant = [
+            categories[category_id]
+            for category_id in newest_by_category
+            if category_id in categories
+        ]
+        return sorted(
+            relevant,
+            key=lambda category: (
+                -newest_by_category[category.id],
+                str(category.kind),
+                category.name.casefold(),
+                category.id,
+            ),
+        )
+
     def build_dossier_index(self, where: Mapping[str, Any]) -> str:
         return "\n".join(
             _render_dossier_index_line(category)

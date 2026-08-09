@@ -213,6 +213,68 @@ async def test_update_dossier_refreshes_identity_and_derived_index(tmp_path) -> 
     assert client.calls == [["Health: A current health dossier"]]
 
 
+def test_dossiers_for_segments_use_exact_active_evidence_and_ignore_recall_quota(tmp_path) -> None:
+    service = _service(tmp_path, active_dossiers_per_kind=0)
+    store = service.database
+    alpha = _category(service, "Alpha", scope=SCOPE)
+    beta = _category(service, "beta", scope=SCOPE)
+    tied = _category(service, "Beta", scope=SCOPE)
+    merged = _category(service, "Merged", scope=SCOPE)
+    superseded = _category(service, "Superseded", scope=SCOPE)
+    other = _category(service, "Other", scope=OTHER_SCOPE)
+
+    def add(category, summary, segment_id, *, scope=SCOPE):
+        item = store.memory_item_repo.create_item(
+            memory_type="episode",
+            summary=summary,
+            embedding=[1.0, 0.0],
+            user_data=scope,
+            segment_id=segment_id,
+        )
+        store.category_item_repo.link_item_category(item.id, category.id, scope)
+        return item
+
+    alpha_item = add(alpha, "alpha", "selected")
+    beta_item = add(beta, "beta", "selected")
+    tied_item = add(tied, "tied", "selected")
+    add(beta, "wrong segment", "other-segment")
+    merged_item = add(merged, "merged", "selected")
+    superseded_item = add(superseded, "superseded", "selected")
+    survivor = add(alpha, "survivor", "other-segment")
+    add(other, "other scope", "selected", scope=OTHER_SCOPE)
+
+    with store._sessions.engine.begin() as conn:
+        conn.exec_driver_sql(
+            "UPDATE memory_items SET created_at = ? WHERE id = ?",
+            ("2026-01-02T00:00:00+00:00", alpha_item.id),
+        )
+        for item in (beta_item, tied_item):
+            conn.exec_driver_sql(
+                "UPDATE memory_items SET created_at = ? WHERE id = ?",
+                ("2026-01-03T00:00:00+00:00", item.id),
+            )
+    store.memory_item_repo.update_item(item_id=merged_item.id, merged_into=survivor.id)
+    store.triple_repo.add(
+        Triple(
+            subject_id=superseded_item.id,
+            subject_kind="memory",
+            predicate="evolved_into",
+            object_id=survivor.id,
+            object_kind="memory",
+            source_memory_id=survivor.id,
+        ),
+        user_data=SCOPE,
+    )
+
+    assert service.list_active_dossiers(SCOPE) == []
+    tied_ids = sorted((beta.id, tied.id))
+    assert [row.id for row in service.list_dossiers_for_segments(SCOPE, segment_ids=["selected"])] == [
+        *tied_ids,
+        alpha.id,
+    ]
+    assert service.list_dossiers_for_segments(SCOPE, segment_ids=[]) == []
+
+
 @pytest.mark.asyncio
 async def test_identity_and_content_search_boundaries_and_cache(tmp_path) -> None:
     service = _service(tmp_path)
