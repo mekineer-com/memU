@@ -5,8 +5,9 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from pydantic import BaseModel
 
+from memu.app.dossier_revision import render_memory_records
 from memu.app.service import MemoryService
-from memu.database.models import Triple
+from memu.database.models import MemoryCategory, MemoryItem, Triple
 
 
 class DossierScope(BaseModel):
@@ -34,6 +35,16 @@ class FakeEmbedClient:
             else:
                 vectors.append([0.5, 0.5])
         return vectors
+
+
+class FakeChatClient:
+    def __init__(self, response: str) -> None:
+        self.response = response
+        self.calls: list[tuple[str, str | None]] = []
+
+    async def chat(self, prompt: str, system_prompt: str | None = None) -> str:
+        self.calls.append((prompt, system_prompt))
+        return self.response
 
 
 def _service(
@@ -72,6 +83,22 @@ def _category(
     if summary is not None:
         category = service.database.memory_category_repo.update_category(category_id=category.id, summary=summary)
     return category
+
+
+def _seed_anchors(service: MemoryService) -> dict[str, MemoryCategory]:
+    repo = service.database.memory_category_repo
+    return {
+        role: repo.get_or_create_category(
+            name=name,
+            description=f"A personal account of {name}.",
+            embedding=[1.0, 0.0],
+            user_data=SCOPE,
+            kind="lore",
+            lore_subtype="person",
+            anchor_role=role,
+        )
+        for role, name in (("soul", SCOPE["soul_id"]), ("user", SCOPE["user_id"]))
+    }
 
 
 @pytest.mark.asyncio
@@ -504,10 +531,6 @@ def test_due_dossiers_cover_first_revision_and_watermark(tmp_path) -> None:
     )
 
     assert [category.id for category in service.list_due_dossiers(SCOPE)] == [due.id]
-    assert [
-        category.id
-        for category in service.list_dossiers_revised_since(SCOPE, revised_after=None)
-    ] == [clean.id]
     with pytest.raises(ValueError, match="not due for revision"):
         service.prepare_dossier_revision(clean.id, SCOPE)
 
@@ -557,18 +580,20 @@ def test_due_dossiers_include_linked_merge_and_supersession(tmp_path) -> None:
         merged_category.id,
         superseded_category.id,
     }
-    assert {
-        category.id
-        for category in service.list_dossiers_revised_since(
-            SCOPE,
-            revised_after=revised_at - timedelta(seconds=1),
-        )
-    } == {merged_category.id, superseded_category.id}
 
 
 def test_prepare_dossier_revision_bounds_actionable_evidence(tmp_path) -> None:
     service = _service(tmp_path, retrieve_config={"item": {"top_k": 1}})
     store = service.database
+    anchors = _seed_anchors(service)
+    store.memory_category_repo.update_category(
+        category_id=anchors["soul"].id,
+        summary="I remember a bond [M999] with care.",
+    )
+    store.memory_category_repo.update_category(
+        category_id=anchors["user"].id,
+        summary="My human values patience [M998].",
+    )
     category = _category(service, "Health", kind="goal", embedding=[1.0, 0.0])
     cited = store.memory_item_repo.create_item(
         memory_type="knowledge", summary="cited", embedding=[0.0, 1.0], user_data=SCOPE
@@ -609,6 +634,7 @@ def test_prepare_dossier_revision_bounds_actionable_evidence(tmp_path) -> None:
     bundle = service.prepare_dossier_revision(
         category.id,
         SCOPE,
+        narrative_self="  Curious {and} attentive <always>.  ",
         active_life_goals=["  active goal  "],
         removed_life_goals=["removed goal"],
     )
@@ -625,15 +651,34 @@ def test_prepare_dossier_revision_bounds_actionable_evidence(tmp_path) -> None:
         "lineage_state": "merged",
         "merged_into": candidate.id,
     }]
+    assert [item.id for item in bundle["cleanup_items"]] == [cleanup.id]
     assert [item.id for item in bundle["candidate_items"]] == [candidate.id]
     assert bundle["untouched_item_ids"] == [untouched.id]
     assert bundle["active_life_goals"] == ["active goal"]
     assert bundle["removed_life_goals"] == ["removed goal"]
+    assert bundle["narrative_self"] == "Curious {and} attentive <always>."
+    assert "[M999]" not in bundle["soul_presence"]
+    assert "[M998]" not in bundle["soul_presence"]
+    assert "# Your dossier" in bundle["soul_presence"]
+    assert "# Your human's dossier" in bundle["soul_presence"]
+    assert bundle["target_words"] == 300
+
+
+def test_revision_memory_records_are_one_line() -> None:
+    item = MemoryItem(
+        resource_id=None,
+        memory_type="knowledge",
+        summary="First line.\n  Second line.",
+        memory_ref=12,
+        created_at=datetime(2026, 7, 18, tzinfo=UTC),
+    )
+    assert render_memory_records([item]) == "[M12] (2026-07-18) First line. Second line."
 
 
 def test_prepare_dossier_revision_requires_refs_and_goal_kind(tmp_path) -> None:
     service = _service(tmp_path, retrieve_config={"item": {"top_k": 0}})
     store = service.database
+    _seed_anchors(service)
     category = _category(service, "Work", kind="topic")
     item = store.memory_item_repo.create_item(
         memory_type="knowledge", summary="work", embedding=[1.0, 0.0], user_data=SCOPE
@@ -652,3 +697,245 @@ def test_prepare_dossier_revision_requires_refs_and_goal_kind(tmp_path) -> None:
     )
     assert bundle["active_life_goals"] == []
     assert bundle["removed_life_goals"] == []
+
+
+def _revision_case(tmp_path, *, summary: str = "", kind: str = "topic"):
+    service = _service(tmp_path, retrieve_config={"item": {"top_k": 1}})
+    store = service.database
+    anchors = _seed_anchors(service)
+    category = _category(
+        service,
+        "Health",
+        kind=kind,
+        embedding=[1.0, 0.0],
+        summary=summary,
+    )
+    pending = store.memory_item_repo.create_item(
+        memory_type="knowledge",
+        summary="River kept a {daily} record <carefully>.",
+        embedding=[0.0, 1.0],
+        happened_at=datetime(2026, 7, 18, tzinfo=UTC),
+        user_data=SCOPE,
+    )
+    candidate = store.memory_item_repo.create_item(
+        memory_type="knowledge",
+        summary="River prepared questions before an appointment.",
+        embedding=[1.0, 0.0],
+        happened_at=datetime(2026, 7, 19, tzinfo=UTC),
+        user_data=SCOPE,
+    )
+    refs = store.memory_item_repo.backfill_memory_refs(SCOPE)
+    store.category_item_repo.link_item_category(pending.id, category.id, SCOPE)
+    bundle = service.prepare_dossier_revision(
+        category.id,
+        SCOPE,
+        narrative_self="Warm {and} steady <voice>.",
+    )
+    return service, store, anchors, category, pending, candidate, refs, bundle
+
+
+@pytest.mark.asyncio
+async def test_generate_dossier_revision_replaces_unstructured_prose_once(tmp_path) -> None:
+    service, store, _anchors, category, pending, candidate, refs, bundle = _revision_case(
+        tmp_path,
+        summary="An earlier account.",
+    )
+    response = f"""<dossier_revision dossier_id="{category.id}">
+  <description>A personal brief.</description>
+  <prose_action>replace</prose_action>
+  <prose>## Health\nA living account [M{refs[pending.id]}] [M{refs[candidate.id]}].</prose>
+  <prose_patches></prose_patches>
+  <decisions>
+    <decision ref="[M{refs[pending.id]}]" action="add" />
+    <decision ref="[M{refs[candidate.id]}]" action="add" />
+  </decisions>
+</dossier_revision>"""
+    client = FakeChatClient(response)
+    before = store.category_item_repo.list_relations(SCOPE)
+
+    result = await service.generate_dossier_revision(bundle, chat_client=client)
+
+    assert len(client.calls) == 1
+    user_prompt, system_prompt = client.calls[0]
+    assert "River kept a {daily} record <carefully>." in user_prompt
+    assert "Warm {and} steady <voice>." in str(system_prompt)
+    assert user_prompt.index("# cited_member") < user_prompt.index("# search_result")
+    assert user_prompt.index("# search_result") < user_prompt.index("# purged_member")
+    assert user_prompt.index("# purged_member") < user_prompt.index("# pending_member")
+    assert result["add_item_ids"] == sorted([pending.id, candidate.id])
+    assert result["cited_item_ids"] == sorted([pending.id, candidate.id])
+    assert store.category_item_repo.list_relations(SCOPE) == before
+
+
+@pytest.mark.asyncio
+async def test_generate_dossier_revision_patches_sections_without_touching_others(tmp_path) -> None:
+    original_first = "## Daily Care\nOriginal first section.\n\n"
+    original_second = "## Timeline\n- 2026-07-01: Earlier event.\n"
+    service, _store, _anchors, category, pending, _candidate, refs, bundle = _revision_case(
+        tmp_path,
+        summary=original_first + original_second,
+    )
+    response = f"""<dossier_revision dossier_id="{category.id}">
+  <description>Care became more deliberate.</description>
+  <prose_action>patch</prose_action>
+  <prose></prose>
+  <prose_patches>
+    <section ref="S2" action="replace"><body>## Timeline
+- 2026-07-18: River started a daily record [M{refs[pending.id]}].</body></section>
+    <section ref="S1" action="add_after"><body>## Current Practice
+River records each day with care [M{refs[pending.id]}].</body></section>
+  </prose_patches>
+  <decisions><decision ref="[M{refs[pending.id]}]" action="add" /></decisions>
+</dossier_revision>"""
+
+    result = await service.generate_dossier_revision(bundle, chat_client=FakeChatClient(response))
+
+    assert result["resulting_prose"].startswith(original_first)
+    assert "## Current Practice" in result["resulting_prose"]
+    assert "## Timeline\n- 2026-07-18" in result["resulting_prose"]
+
+
+@pytest.mark.asyncio
+async def test_generate_dossier_revision_validates_decisions_and_xml(tmp_path) -> None:
+    service, _store, _anchors, category, pending, _candidate, refs, bundle = _revision_case(tmp_path)
+    missing_pending = f"""<dossier_revision dossier_id="{category.id}">
+  <description>Brief.</description><prose_action>replace</prose_action>
+  <prose>## Health\nAccount.</prose><prose_patches></prose_patches><decisions></decisions>
+</dossier_revision>"""
+    with pytest.raises(ValueError, match="Pending memories require decisions"):
+        await service.generate_dossier_revision(bundle, chat_client=FakeChatClient(missing_pending))
+
+    malformed_ref = missing_pending.replace(
+        "<decisions></decisions>",
+        f'<decisions><decision ref="[M0]" action="add" /></decisions>',
+    )
+    with pytest.raises(ValueError, match="Unknown memory decision reference"):
+        await service.generate_dossier_revision(bundle, chat_client=FakeChatClient(malformed_ref))
+
+    wrapped = f"```xml\n{missing_pending}\n```"
+    with pytest.raises(ValueError, match="Expected exact dossier_revision XML"):
+        await service.generate_dossier_revision(bundle, chat_client=FakeChatClient(wrapped))
+
+    stray_patch_text = missing_pending.replace(
+        "<prose_action>replace</prose_action>",
+        "<prose_action>patch</prose_action>",
+    ).replace(
+        "<prose>## Health\nAccount.</prose><prose_patches></prose_patches>",
+        '<prose></prose><prose_patches><section ref="S1" action="remove"><body></body></section>junk</prose_patches>',
+    )
+    with pytest.raises(ValueError, match="Unexpected text in prose_patches wrapper"):
+        await service.generate_dossier_revision(
+            bundle,
+            chat_client=FakeChatClient(stray_patch_text),
+        )
+
+    valid = missing_pending.replace(
+        "<decisions></decisions>",
+        f'<decisions><decision ref="[M{refs[pending.id]}]" action="add" /></decisions>',
+    )
+    valid = valid.replace("Account.</prose>", f"Account [M{refs[pending.id]}].</prose>")
+    result = await service.generate_dossier_revision(bundle, chat_client=FakeChatClient(valid))
+    assert result["add_item_ids"] == [pending.id]
+
+
+@pytest.mark.asyncio
+async def test_generate_dossier_revision_rejects_oversized_prompt_before_client_selection(
+    tmp_path, monkeypatch
+) -> None:
+    service, _store, _anchors, _category_row, _pending, _candidate, _refs, bundle = _revision_case(
+        tmp_path
+    )
+    bundle["narrative_self"] = "word " * 75_001
+    monkeypatch.setattr(
+        service,
+        "_select_chat_client",
+        lambda *_args, **_kwargs: pytest.fail("client selected before prompt preflight"),
+    )
+    with pytest.raises(ValueError, match="exceeds 100000 tokens"):
+        await service.generate_dossier_revision(bundle)
+
+
+@pytest.mark.asyncio
+async def test_generate_dossier_revision_selects_existing_category_profile(
+    tmp_path, monkeypatch
+) -> None:
+    service, _store, _anchors, category, pending, _candidate, refs, bundle = _revision_case(
+        tmp_path
+    )
+    bundle["narrative_self"] = None
+    response = f"""<dossier_revision dossier_id="{category.id}">
+  <description>A personal brief.</description><prose_action>replace</prose_action>
+  <prose>## Health\nAccount [M{refs[pending.id]}].</prose>
+  <prose_patches></prose_patches>
+  <decisions><decision ref="[M{refs[pending.id]}]" action="add" /></decisions>
+</dossier_revision>"""
+    client = FakeChatClient(response)
+    selected: list[tuple[object, object]] = []
+
+    def select(step_context, *, profile=None):
+        selected.append((step_context, profile))
+        return client
+
+    monkeypatch.setattr(service, "_select_chat_client", select)
+    await service.generate_dossier_revision(bundle)
+
+    assert selected == [
+        ({"operation": "dossier", "step_id": "revision"}, service.memorize_config.category_update_llm_profile)
+    ]
+    assert "# Your character, your personality, your voice" not in str(client.calls[0][1])
+
+
+@pytest.mark.asyncio
+async def test_generate_dossier_revision_repairs_cited_unlinked_and_purges_lineage(
+    tmp_path,
+) -> None:
+    service = _service(tmp_path, retrieve_config={"item": {"top_k": 0}})
+    store = service.database
+    _seed_anchors(service)
+    category = _category(service, "Health", summary="temporary")
+    purged = store.memory_item_repo.create_item(
+        memory_type="knowledge", summary="An older account.", embedding=[1.0, 0.0], user_data=SCOPE
+    )
+    survivor = store.memory_item_repo.create_item(
+        memory_type="knowledge", summary="The surviving account.", embedding=[1.0, 0.0], user_data=SCOPE
+    )
+    cited_unlinked = store.memory_item_repo.create_item(
+        memory_type="knowledge", summary="A cited independent fact.", embedding=[1.0, 0.0], user_data=SCOPE
+    )
+    refs = store.memory_item_repo.backfill_memory_refs(SCOPE)
+    relation = store.category_item_repo.link_item_category(purged.id, category.id, SCOPE)
+    store.memory_category_repo.update_category(
+        category_id=category.id,
+        summary=f"Old [M{refs[purged.id]}], current [M{refs[cited_unlinked.id]}].",
+        last_revised_at=relation.created_at + timedelta(microseconds=1),
+    )
+    store.memory_item_repo.update_item(item_id=purged.id, merged_into=survivor.id)
+    bundle = service.prepare_dossier_revision(category.id, SCOPE)
+    response = f"""<dossier_revision dossier_id="{category.id}">
+  <description>The current independent fact.</description><prose_action>replace</prose_action>
+  <prose>## Health\nCurrent [M{refs[cited_unlinked.id]}].</prose>
+  <prose_patches></prose_patches><decisions></decisions>
+</dossier_revision>"""
+
+    result = await service.generate_dossier_revision(bundle, chat_client=FakeChatClient(response))
+
+    assert result["add_item_ids"] == [cited_unlinked.id]
+    assert result["cleanup_item_ids"] == [purged.id]
+    assert result["cited_item_ids"] == [cited_unlinked.id]
+
+
+def test_prepare_anchor_revision_omits_duplicate_presence_and_uses_500_words(tmp_path) -> None:
+    service = _service(tmp_path, retrieve_config={"item": {"top_k": 0}})
+    store = service.database
+    anchors = _seed_anchors(service)
+    item = store.memory_item_repo.create_item(
+        memory_type="knowledge", summary="A self memory.", embedding=[1.0, 0.0], user_data=SCOPE
+    )
+    store.memory_item_repo.backfill_memory_refs(SCOPE)
+    store.category_item_repo.link_item_category(item.id, anchors["soul"].id, SCOPE)
+
+    bundle = service.prepare_dossier_revision(anchors["soul"].id, SCOPE)
+
+    assert "# Your dossier" not in bundle["soul_presence"]
+    assert "# Your human's dossier" in bundle["soul_presence"]
+    assert bundle["target_words"] == 500

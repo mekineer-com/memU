@@ -7,8 +7,16 @@ from datetime import UTC, datetime
 from types import EllipsisType
 from typing import TYPE_CHECKING, Any, Literal, cast
 
+from memu.app.dossier_revision import (
+    label_sections,
+    parse_dossier_revision,
+    render_memory_records,
+    revision_status_items,
+    strip_memory_citations,
+)
 from memu.database.models import CategoryItem, DossierKind, MemoryCategory, MemoryItem
 from memu.database.vector import cosine_topk, reciprocal_rank_fusion
+from memu.prompts.dossier_revision import NARRATIVE_SELF_BLOCK, SYSTEM_PROMPT, USER_PROMPT
 from memu.utils.taxonomy import (
     DOSSIER_KINDS,
     category_identity_text,
@@ -103,6 +111,7 @@ class DossierMixin:
         retrieve_config: RetrieveConfig
         _dossier_content_embedding_cache: dict[str, tuple[str, list[float]]]
         _get_database: Callable[[], Database]
+        _select_chat_client: Callable[..., Any]
         _select_embedding_client: Callable[[Mapping[str, Any] | None], Any]
 
     async def ensure_dossier_anchors(
@@ -259,32 +268,6 @@ class DossierMixin:
         )
         return [category for _timestamp_value, category in actionable]
 
-    def list_dossiers_revised_since(
-        self,
-        where: Mapping[str, Any],
-        *,
-        revised_after: datetime | None,
-    ) -> list[MemoryCategory]:
-        scope = _scope(where)
-        cutoff = None if revised_after is None else _timestamp(revised_after)
-        categories = [
-            category
-            for category in self._get_database().memory_category_repo.list_categories(scope).values()
-            if category.kind in DOSSIER_KINDS
-            and category.last_revised_at is not None
-            and (cutoff is None or _timestamp(category.last_revised_at) > cutoff)
-        ]
-        return sorted(
-            categories,
-            key=lambda category: (
-                category.last_evidence_at is None,
-                _timestamp(category.last_evidence_at) if category.last_evidence_at else 0.0,
-                str(category.kind),
-                category.name.casefold(),
-                category.id,
-            ),
-        )
-
     @staticmethod
     def extract_memory_refs(text: str) -> list[int]:
         return list(
@@ -299,6 +282,7 @@ class DossierMixin:
         category_id: str,
         where: Mapping[str, Any],
         *,
+        narrative_self: str | None = None,
         active_life_goals: Sequence[str] = (),
         removed_life_goals: Sequence[str] = (),
     ) -> dict[str, Any]:
@@ -323,6 +307,11 @@ class DossierMixin:
         pending_ids = {relation.item_id for relation in pending_relations}
         if not pending_ids and not linked_inactive_ids:
             raise ValueError(f"Dossier {category_id} is not due for revision")
+
+        anchors = store.memory_category_repo.list_anchor_categories(scope)
+        _validate_anchors(anchors, scope)
+        if set(anchors) != {"soul", "user"}:
+            raise ValueError("Dossier revision requires seeded soul and user anchors")
 
         cited_items: dict[str, MemoryItem] = {}
         for memory_ref in self.extract_memory_refs(category.summary or ""):
@@ -404,6 +393,9 @@ class DossierMixin:
                 (linked_items[item_id] for item_id in pending_ids), key=_item_sort_key
             ),
             "cleanup_memberships": cleanup,
+            "cleanup_items": sorted(
+                (linked_items[item_id] for item_id in linked_inactive_ids), key=_item_sort_key
+            ),
             "candidate_items": sorted(candidate_items.values(), key=_item_sort_key),
             "untouched_item_ids": sorted(
                 set(linked_items) - pending_ids - set(cited_items) - linked_inactive_ids
@@ -414,7 +406,90 @@ class DossierMixin:
             "removed_life_goals": [
                 goal.strip() for goal in removed_life_goals if category.kind == "goal" and goal.strip()
             ],
+            "soul_name": scope["soul_id"],
+            "user_name": scope["user_id"],
+            "narrative_self": narrative_self.strip() if narrative_self and narrative_self.strip() else None,
+            "dossier_index": self.build_dossier_index(scope),
+            "soul_presence": "\n\n".join(
+                block
+                for role, block in (
+                    (
+                        "soul",
+                        "# Your dossier\n"
+                        + strip_memory_citations(anchors["soul"].summary or anchors["soul"].description),
+                    ),
+                    (
+                        "user",
+                        "# Your human's dossier\n"
+                        + strip_memory_citations(anchors["user"].summary or anchors["user"].description),
+                    ),
+                )
+                if category.anchor_role != role
+            ),
+            "target_words": (
+                500
+                if category.anchor_role is not None
+                else int(self.memorize_config.category_summary_target_words)
+            ),
         }
+
+    async def generate_dossier_revision(
+        self,
+        bundle: Mapping[str, Any],
+        *,
+        chat_client: Any | None = None,
+    ) -> dict[str, Any]:
+        dossier = bundle["dossier"]
+        sectioned = label_sections(str(dossier.summary or ""))
+        current_prose = sectioned[0] if sectioned is not None else str(dossier.summary or "")
+        statuses = revision_status_items(bundle)
+        active_goals = list(bundle["active_life_goals"])
+        removed_goals = list(bundle["removed_life_goals"])
+        if active_goals or removed_goals:
+            goal_context = "\n".join(
+                [
+                    "Active:",
+                    *([f"- {goal}" for goal in active_goals] or ["(none)"]),
+                    "Removed:",
+                    *([f"- {goal}" for goal in removed_goals] or ["(none)"]),
+                ]
+            )
+        else:
+            goal_context = "(none)"
+
+        system_prompt = SYSTEM_PROMPT.format(
+            target_words=bundle["target_words"],
+            dossier_id=dossier.id,
+            soul_name=bundle["soul_name"],
+            user_name=bundle["user_name"],
+        )
+        if bundle["narrative_self"]:
+            system_prompt += "\n\n" + NARRATIVE_SELF_BLOCK.format(
+                narrative_self=bundle["narrative_self"]
+            )
+        user_prompt = USER_PROMPT.format(
+            soul_presence=bundle["soul_presence"],
+            dossier_index=bundle["dossier_index"] or "(none)",
+            goal_context_or_none=goal_context,
+            dossier_id=dossier.id,
+            dossier_kind=dossier.kind,
+            dossier_title=dossier.name,
+            dossier_description=dossier.description,
+            current_prose=current_prose or "(none)",
+            cited_memory_records=render_memory_records(statuses["cited"]),
+            candidate_memory_records=render_memory_records(statuses["search"]),
+            cleanup_memberships=render_memory_records(statuses["purged"]),
+            required_memory_records=render_memory_records(statuses["pending"]),
+        )
+        if len((system_prompt + "\n" + user_prompt).split()) / 0.75 > 100_000:
+            raise ValueError("Dossier revision prompt exceeds 100000 tokens")
+
+        client = chat_client or self._select_chat_client(
+            {"operation": "dossier", "step_id": "revision"},
+            profile=self.memorize_config.category_update_llm_profile,
+        )
+        raw = await client.chat(user_prompt, system_prompt=system_prompt)
+        return parse_dossier_revision(str(raw or ""), bundle)
 
     def list_active_dossiers(self, where: Mapping[str, Any]) -> list[MemoryCategory]:
         scope = _scope(where)

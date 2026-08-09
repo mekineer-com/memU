@@ -8,7 +8,8 @@
 | Package | Purpose |
 |---------|---------|
 | `app/service.py` | `MemoryService` — top-level facade, only public API |
-| `app/dossier.py` | Dossier core policy: soul/user anchors, active/inactive sets, sparse memorize context, deterministic compact index, identity/content search views, strict `[M#]` handles, and dormant due/revision-bundle reads |
+| `app/dossier.py` | Dossier core policy: soul/user anchors, active/inactive sets, sparse memorize context, deterministic compact index, identity/content search views, strict `[M#]` handles, and dormant revision preparation/generation |
+| `app/dossier_revision.py` | Pure dossier-revision rendering, strict XML normalization, and deterministic section-patch assembly |
 | `app/memorize.py` | Memorize workflow: preprocess → route → extract → store. Roster supports same-role ambiguity + relationship-entity triggers; dedupe keys by `(source_role, speaker_id, summary)`; parse failures retry once before propagating. |
 | `app/memorize_parsing.py` | Parsing/normalization seam: message-index extraction, source-message-id normalization, timestamp parsing, XML/JSON memory-type response parsing |
 | `app/memorize_speakers.py` | Speaker attribution seam: speaker-id slugging, roster construction/validation, prompt-label sanitization, speaker_ref resolution |
@@ -45,6 +46,9 @@
 | `utils/taxonomy.py` | Shared dossier kinds, scope/embedding validation, category-name normalization, and title/description identity text |
 
 ## Prompts (`src/memu/prompts/`)
+
+`dossier_revision.py` contains Marcos-reviewed dossier revision prompts; the
+callable remains dormant until the taxonomy consolidation cutover.
 
 | Directory | Files | Purpose |
 |-----------|-------|---------|
