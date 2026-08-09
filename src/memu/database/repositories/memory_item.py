@@ -55,7 +55,13 @@ class MemoryItemRepo(Protocol):
 
     def clear_items(self, where: Mapping[str, Any] | None = None) -> dict[str, MemoryItem]: ...
 
-    def approve_item(self, item_id: str, where: Mapping[str, Any] | None = None) -> MemoryItem: ...
+    def approve_item(
+        self,
+        item_id: str,
+        where: Mapping[str, Any] | None = None,
+        *,
+        session: Any | None = None,
+    ) -> MemoryItem: ...
 
     def hard_delete_item(self, item_id: str, where: Mapping[str, Any] | None = None) -> MemoryItem: ...
 

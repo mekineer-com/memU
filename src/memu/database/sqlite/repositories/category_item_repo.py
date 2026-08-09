@@ -162,26 +162,63 @@ class SQLiteCategoryItemRepo(SQLiteRepoBase, CategoryItemRepo):
         )
         return rel
 
-    def unlink_item_category(self, item_id: str, category_id: str) -> None:
+    def unlink_item_category(
+        self,
+        item_id: str,
+        category_id: str,
+        where: Mapping[str, Any] | None = None,
+        *,
+        session: Any | None = None,
+    ) -> bool:
         """Remove a link between an item and a category.
 
         Args:
             item_id: Memory item ID.
             category_id: Category ID.
         """
-        with self._sessions.session() as session:
-            stmt = select(self._category_item_model).where(
-                self._category_item_model.item_id == item_id,
-                self._category_item_model.category_id == category_id,
-            )
-            row = session.exec(stmt).first()
-            if row:
-                session.delete(row)
-                session.commit()
-                # Remove from cache
+        if session is None:
+            with self._sessions.session() as managed_session:
+                deleted = self.unlink_item_category(
+                    item_id,
+                    category_id,
+                    where,
+                    session=managed_session,
+                )
+                managed_session.commit()
+            if deleted:
                 self.relations[:] = [
-                    r for r in self.relations if not (r.item_id == item_id and r.category_id == category_id)
+                    relation
+                    for relation in self.relations
+                    if not (relation.item_id == item_id and relation.category_id == category_id)
                 ]
+            return deleted
+
+        filters = self._build_filters(
+            self._category_item_model,
+            {"item_id": item_id, "category_id": category_id, **dict(where or {})},
+        )
+        row = session.exec(select(self._category_item_model).where(*filters)).first()
+        if row:
+            session.delete(row)
+            session.flush()
+            return True
+        return False
+
+    def refresh_category_relations(
+        self,
+        category_id: str,
+        where: Mapping[str, Any],
+    ) -> list[CategoryItem]:
+        relations = [
+            relation
+            for relation in self.list_relations(where)
+            if relation.category_id == category_id
+        ]
+        self.relations[:] = [
+            relation for relation in self.relations if relation.category_id != category_id
+        ]
+        self.relations.extend(relations)
+        return relations
 
     def get_item_categories(self, item_id: str) -> list[CategoryItem]:
         """Get all category relations for a given item.

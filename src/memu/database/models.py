@@ -89,6 +89,8 @@ class MemoryCategory(BaseRecord):
     description: str
     embedding: list[float] | None = None
     summary: str | None = None
+    previous_description: str | None = None
+    approved_description: str | None = None
     previous_summary: str | None = None
     approved_summary: str | None = None
     kind: DossierKind | None = None

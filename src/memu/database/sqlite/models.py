@@ -102,6 +102,8 @@ class SQLiteMemoryCategoryModel(SQLiteBaseModelMixin, MemoryCategory):
     description: str = Field(sa_column=Column(Text, nullable=False))
     embedding: bytes | None = Field(default=None, sa_column=Column(LargeBinary, nullable=True))  # type: ignore[assignment]
     summary: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    previous_description: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    approved_description: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
     previous_summary: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
     approved_summary: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
     kind: DossierKind | None = Field(default=None, sa_column=Column(String, nullable=True))

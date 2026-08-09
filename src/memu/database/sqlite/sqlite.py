@@ -272,6 +272,11 @@ ON memory_item_edit_history(memory_item_id, edited_at)
                 conn.exec_driver_sql("UPDATE memory_items SET approved_at = CURRENT_TIMESTAMP")
 
             category_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(categories)").fetchall()}
+            if "previous_description" not in category_columns:
+                conn.exec_driver_sql("ALTER TABLE categories ADD COLUMN previous_description TEXT")
+            if "approved_description" not in category_columns:
+                conn.exec_driver_sql("ALTER TABLE categories ADD COLUMN approved_description TEXT")
+                conn.exec_driver_sql("UPDATE categories SET approved_description = description")
             if "approved_summary" not in category_columns:
                 conn.exec_driver_sql("ALTER TABLE categories ADD COLUMN approved_summary TEXT")
                 conn.exec_driver_sql("UPDATE categories SET approved_summary = summary WHERE summary IS NOT NULL")

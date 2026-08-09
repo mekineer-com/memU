@@ -426,7 +426,13 @@ async def prepare_dynamic_category_review(
             if category is not None and category.id not in exact_ids:
                 exact.append(
                     category.model_copy(
-                        update={"summary": None, "previous_summary": None, "approved_summary": None}
+                        update={
+                            "summary": None,
+                            "previous_description": None,
+                            "approved_description": None,
+                            "previous_summary": None,
+                            "approved_summary": None,
+                        }
                     )
                 )
                 exact_ids.add(category.id)

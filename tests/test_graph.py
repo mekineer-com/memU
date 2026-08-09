@@ -966,6 +966,7 @@ def test_category_approval_does_not_touch_updated_at():
         description="",
         embedding=[0.1],
         user_data=scope,
+        kind="topic",
     )
     category = store.memory_category_repo.update_category(category_id=category.id, summary="new summary")
     original_updated_at = category.updated_at
@@ -973,7 +974,37 @@ def test_category_approval_does_not_touch_updated_at():
     approved = store.memory_category_repo.approve_category_summary(category.id, where=scope)
 
     assert approved.approved_summary == "new summary"
+    assert approved.approved_description == ""
     assert approved.updated_at == original_updated_at
+
+
+def test_pending_dossier_requires_prose_and_tracks_description():
+    service = MemoryService(
+        database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
+        user_config={"model": GraphScope},
+    )
+    store = service._get_database()
+    scope = {"user_id": "pending_pair", "soul_id": "s"}
+    category = store.memory_category_repo.get_or_create_category(
+        name="Daily Life",
+        description="A personal brief.",
+        embedding=[0.1],
+        user_data=scope,
+        kind="topic",
+    )
+    assert service.graph_list_pending(where=scope)["categories"] == []
+
+    category = store.memory_category_repo.update_category(
+        category_id=category.id,
+        summary="A fuller account.",
+    )
+    pending = service.graph_list_pending(where=scope)["categories"]
+    assert pending[0]["description"] == "A personal brief."
+    assert pending[0]["approved_description"] is None
+
+    approved = store.memory_category_repo.approve_category_summary(category.id, where=scope)
+    assert approved.approved_description == approved.description
+    assert service.graph_list_pending(where=scope)["categories"] == []
 
 
 def test_graph_pending_excludes_superseded_memories():

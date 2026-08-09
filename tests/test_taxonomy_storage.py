@@ -63,7 +63,16 @@ def test_fresh_schema_is_additive_and_runtime_creation_stays_inert(tmp_path) -> 
     assert {"dossier_candidates", "memory_ref_counters"} <= tables
     assert "memory_ref" in item_columns
     assert "last_considered_at" in candidate_columns
-    assert {"kind", "lore_subtype", "entity_id", "anchor_role", "last_evidence_at", "last_revised_at"} <= category_columns
+    assert {
+        "kind",
+        "lore_subtype",
+        "entity_id",
+        "anchor_role",
+        "last_evidence_at",
+        "last_revised_at",
+        "previous_description",
+        "approved_description",
+    } <= category_columns
     assert item.memory_ref is None
     assert category.kind is None
     assert store.dossier_candidate_repo.list_candidates(SCOPE) == []
@@ -221,6 +230,28 @@ def test_dossier_fields_anchors_and_activity_order_round_trip(tmp_path) -> None:
     with pytest.raises(IntegrityError):
         _category(store, SCOPE, "second self", kind="lore", anchor_role="soul")
     _category(store, OTHER_SCOPE, "other self", kind="lore", anchor_role="soul")
+
+
+def test_description_approval_backfill_runs_once(tmp_path) -> None:
+    path = tmp_path / "description-approval.db"
+    store = _store(tmp_path, path.name)
+    category = _category(store, SCOPE, "Health", kind="topic")
+    store.close()
+
+    with sqlite3.connect(path) as conn:
+        conn.execute("ALTER TABLE categories DROP COLUMN previous_description")
+        conn.execute("ALTER TABLE categories DROP COLUMN approved_description")
+
+    reopened = _store(tmp_path, path.name)
+    restored = reopened.memory_category_repo.list_categories(SCOPE)[category.id]
+    assert restored.approved_description == "Health description"
+    reopened.close()
+
+    with sqlite3.connect(path) as conn:
+        conn.execute("UPDATE categories SET approved_description = NULL WHERE id = ?", (category.id,))
+
+    reopened_again = _store(tmp_path, path.name)
+    assert reopened_again.memory_category_repo.list_categories(SCOPE)[category.id].approved_description is None
 
 
 def test_candidate_lifecycle_is_durable_idempotent_and_scope_safe(tmp_path) -> None:

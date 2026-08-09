@@ -67,6 +67,7 @@ class MemoryCategoryRepo(Protocol):
         description: str | None = None,
         embedding: list[float] | None = None,
         summary: str | None = None,
+        previous_description: str | None = None,
         previous_summary: str | None = None,
         kind: DossierKind | None | EllipsisType = ...,
         lore_subtype: str | None | EllipsisType = ...,
@@ -74,6 +75,8 @@ class MemoryCategoryRepo(Protocol):
         anchor_role: Literal["soul", "user"] | None | EllipsisType = ...,
         last_evidence_at: datetime | None | EllipsisType = ...,
         last_revised_at: datetime | None | EllipsisType = ...,
+        where: Mapping[str, Any] | None = None,
+        session: Any | None = None,
     ) -> MemoryCategory: ...
 
     def approve_category_summary(

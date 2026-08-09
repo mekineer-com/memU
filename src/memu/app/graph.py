@@ -10,6 +10,7 @@ import numpy as np
 
 from memu.app.category_summary_journal import update_category_summary_with_journal
 from memu.database.vector import cosine_similarity, cosine_topk
+from memu.utils.taxonomy import DOSSIER_KINDS
 
 SEMANTIC_PREDICATES = ["caused_by", "evokes", "conflicts_with", "parallels", "shaped_by"]
 
@@ -681,7 +682,14 @@ class GraphMixin:
         pending_categories = [
             self._category_node(category)
             for category in categories.values()
-            if category.summary is not None and category.summary != getattr(category, "approved_summary", None)
+            if category.summary is not None
+            and (
+                category.summary != getattr(category, "approved_summary", None)
+                or (
+                    category.kind in DOSSIER_KINDS
+                    and category.description != getattr(category, "approved_description", None)
+                )
+            )
         ]
         return {"items": pending_items, "categories": pending_categories}
 
@@ -957,6 +965,9 @@ class GraphMixin:
             "category_id": category.id,
             "label": category.name,
             "summary": category.summary or category.description,
+            "description": category.description,
+            "previous_description": getattr(category, "previous_description", None),
+            "approved_description": getattr(category, "approved_description", None),
             "previous_summary": getattr(category, "previous_summary", None),
             "approved_summary": getattr(category, "approved_summary", None),
             "created_at": _iso(category.created_at),

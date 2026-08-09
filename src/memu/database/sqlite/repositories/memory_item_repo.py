@@ -536,22 +536,33 @@ WHERE version = 1 AND model IN ({placeholders})
 
         return deleted
 
-    def approve_item(self, item_id: str, where: Mapping[str, Any] | None = None) -> MemoryItem:
-        with self._sessions.session() as session:
-            filters = [self._memory_item_model.id == item_id, *self._build_filters(self._memory_item_model, where)]
-            active_filter = self._active_item_filter(self._memory_item_model, include_superseded=False)
-            if active_filter is not None:
-                filters.append(active_filter)
-            row = session.exec(select(self._memory_item_model).where(*filters)).first()
-            if row is None:
-                msg = f"Item with id {item_id} not found"
-                raise KeyError(msg)
-            if row.approved_at is None:
-                row.approved_at = self._now()
-                session.add(row)
-                session.commit()
-                session.refresh(row)
-            return self._to_memory_item(row)
+    def approve_item(
+        self,
+        item_id: str,
+        where: Mapping[str, Any] | None = None,
+        *,
+        session: Any | None = None,
+    ) -> MemoryItem:
+        if session is None:
+            with self._sessions.session() as managed_session:
+                item = self.approve_item(item_id, where, session=managed_session)
+                managed_session.commit()
+                return item
+
+        filters = [self._memory_item_model.id == item_id, *self._build_filters(self._memory_item_model, where)]
+        active_filter = self._active_item_filter(self._memory_item_model, include_superseded=False)
+        if active_filter is not None:
+            filters.append(active_filter)
+        row = session.exec(select(self._memory_item_model).where(*filters)).first()
+        if row is None:
+            msg = f"Item with id {item_id} not found"
+            raise KeyError(msg)
+        if row.approved_at is None:
+            row.approved_at = self._now()
+            session.add(row)
+            session.flush()
+            session.refresh(row)
+        return self._to_memory_item(row)
 
     def hard_delete_item(self, item_id: str, where: Mapping[str, Any] | None = None) -> MemoryItem:
         category_item_model = self._sqla_models.CategoryItem

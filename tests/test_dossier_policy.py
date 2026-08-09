@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from pydantic import BaseModel
 
+from memu.app.dossier import DossierRevisionStaleError
 from memu.app.dossier_revision import render_memory_records, revision_status_items
 from memu.app.service import MemoryService
 from memu.database.models import MemoryCategory, MemoryItem, Triple
@@ -491,6 +492,12 @@ def test_relation_caller_session_does_not_mutate_cache(tmp_path) -> None:
     )
     relation = store.category_item_repo.link_item_category(item.id, category.id, SCOPE)
     assert [cached.id for cached in store.category_item_repo.relations] == [relation.id]
+    assert not store.category_item_repo.unlink_item_category(
+        item.id,
+        category.id,
+        OTHER_SCOPE,
+    )
+    assert [cached.id for cached in store.category_item_repo.relations] == [relation.id]
     store.category_item_repo.relations.clear()
 
     with store._sessions.session() as session:
@@ -510,6 +517,46 @@ def test_relation_caller_session_does_not_mutate_cache(tmp_path) -> None:
         assert all(rel.item_id != rolled_back.id for rel in store.category_item_repo.relations)
         session.rollback()
     assert store.category_item_repo.list_relations({"item_id": rolled_back.id}) == []
+
+
+def test_dossier_repository_writes_share_caller_transaction(tmp_path) -> None:
+    service = _service(tmp_path)
+    store = service.database
+    category = _category(service, "Health")
+    item = store.memory_item_repo.create_item(
+        memory_type="episode", summary="health", embedding=[1.0, 0.0], user_data=SCOPE
+    )
+    store.memory_item_repo.backfill_memory_refs(SCOPE)
+    store.category_item_repo.link_item_category(item.id, category.id, SCOPE)
+    cached = store.memory_category_repo.list_categories(SCOPE)[category.id]
+
+    with pytest.raises(KeyError):
+        store.memory_category_repo.update_category(
+            category_id=category.id,
+            description="wrong scope",
+            where=OTHER_SCOPE,
+        )
+
+    with store._sessions.session() as session:
+        changed = store.memory_category_repo.update_category(
+            category_id=category.id,
+            description="changed",
+            where=SCOPE,
+            session=session,
+        )
+        store.memory_item_repo.approve_item(item.id, SCOPE, session=session)
+        store.category_item_repo.unlink_item_category(
+            item.id, category.id, SCOPE, session=session
+        )
+        assert changed.description == "changed"
+        assert store.memory_category_repo.categories[category.id] == cached
+        session.rollback()
+
+    restored = store.memory_category_repo.list_categories(SCOPE)[category.id]
+    restored_item = store.memory_item_repo.list_items_by_ids({item.id}, SCOPE)[item.id]
+    assert restored.description == "Health description"
+    assert restored_item.approved_at is None
+    assert store.category_item_repo.list_relations({"item_id": item.id}) != []
 
 
 def test_due_dossiers_cover_first_revision_and_watermark(tmp_path) -> None:
@@ -971,6 +1018,207 @@ async def test_generate_dossier_revision_repairs_cited_unlinked_and_purges_linea
     assert result["add_item_ids"] == [cited_unlinked.id]
     assert result["cleanup_item_ids"] == [purged.id]
     assert result["cited_item_ids"] == [cited_unlinked.id]
+
+
+@pytest.mark.asyncio
+async def test_apply_dossier_revision_commits_one_reviewed_result(tmp_path, monkeypatch) -> None:
+    service, store, _anchors, category, pending, candidate, refs, bundle = _revision_case(
+        tmp_path,
+        summary="## Health\nEarlier account.",
+    )
+    prose = (
+        f"## Health\nRiver keeps a daily record [M{refs[pending.id]}] and prepares "
+        f"questions [M{refs[candidate.id]}]."
+    )
+    decision = {
+        "dossier_id": category.id,
+        "description": "River approaches health with steady preparation.",
+        "resulting_prose": prose,
+        "add_item_ids": [pending.id, candidate.id],
+        "remove_item_ids": [],
+        "cleanup_item_ids": [],
+        "cited_item_ids": [pending.id, candidate.id],
+    }
+    journal: list[dict] = []
+    monkeypatch.setattr(
+        "memu.app.dossier.append_category_summary_journal",
+        lambda **entry: journal.append(entry),
+    )
+    client = FakeEmbedClient()
+
+    revised = await service.apply_dossier_revision(
+        bundle,
+        decision,
+        SCOPE,
+        embedding_client=client,
+    )
+
+    relation_ids = {
+        relation.item_id
+        for relation in store.category_item_repo.list_relations(SCOPE)
+        if relation.category_id == category.id
+    }
+    approved = store.memory_item_repo.list_items_by_ids({pending.id, candidate.id}, SCOPE)
+    assert relation_ids == {pending.id, candidate.id}
+    assert all(item.approved_at is not None for item in approved.values())
+    assert revised.description == decision["description"]
+    assert revised.summary == prose
+    assert revised.previous_description == "Health description"
+    assert revised.previous_summary == "## Health\nEarlier account."
+    assert revised.approved_description is None and revised.approved_summary is None
+    assert revised.last_evidence_at == datetime(2026, 7, 19)
+    assert client.calls == [[f"Health: {decision['description']}"]]
+    assert journal[0]["edited_by"] == "dossier_revision"
+    assert journal[0]["summary_before"] == "## Health\nEarlier account."
+    assert journal[0]["summary_after"] == prose
+
+
+@pytest.mark.asyncio
+async def test_apply_dossier_revision_detects_lineage_race(tmp_path) -> None:
+    service, store, _anchors, category, pending, _candidate, refs, bundle = _revision_case(
+        tmp_path,
+        summary="## Health\nEarlier account.",
+    )
+    replacement = store.memory_item_repo.create_item(
+        memory_type="knowledge",
+        summary="replacement",
+        embedding=[1.0, 0.0],
+        user_data=SCOPE,
+    )
+    store.triple_repo.add(
+        Triple(
+            subject_id=pending.id,
+            subject_kind="memory",
+            predicate="evolved_into",
+            object_id=replacement.id,
+            object_kind="memory",
+            source_memory_id=replacement.id,
+        ),
+        user_data=SCOPE,
+    )
+    decision = {
+        "dossier_id": category.id,
+        "description": category.description,
+        "resulting_prose": f"## Health\nDaily record [M{refs[pending.id]}].",
+        "add_item_ids": [pending.id],
+        "remove_item_ids": [],
+        "cleanup_item_ids": [],
+        "cited_item_ids": [pending.id],
+    }
+
+    with pytest.raises(DossierRevisionStaleError, match="snapshot changed"):
+        await service.apply_dossier_revision(bundle, decision, SCOPE)
+    assert store.memory_item_repo.list_items_by_ids(
+        {pending.id}, SCOPE, include_superseded=True
+    )[pending.id].approved_at is None
+
+
+@pytest.mark.asyncio
+async def test_apply_dossier_revision_rolls_back_all_writes(tmp_path, monkeypatch) -> None:
+    service, store, _anchors, category, pending, candidate, refs, bundle = _revision_case(
+        tmp_path,
+        summary="## Health\nEarlier account.",
+    )
+    decision = {
+        "dossier_id": category.id,
+        "description": category.description,
+        "resulting_prose": (
+            f"## Health\nDaily record [M{refs[pending.id]}] and questions "
+            f"[M{refs[candidate.id]}]."
+        ),
+        "add_item_ids": [pending.id, candidate.id],
+        "remove_item_ids": [],
+        "cleanup_item_ids": [],
+        "cited_item_ids": [pending.id, candidate.id],
+    }
+    original_update = store.memory_category_repo.update_category
+
+    def fail_transaction(**kwargs):
+        if kwargs.get("session") is not None:
+            raise RuntimeError("injected failure")
+        return original_update(**kwargs)
+
+    monkeypatch.setattr(store.memory_category_repo, "update_category", fail_transaction)
+    with pytest.raises(RuntimeError, match="injected failure"):
+        await service.apply_dossier_revision(bundle, decision, SCOPE)
+
+    relations = store.category_item_repo.list_relations(SCOPE)
+    assert {relation.item_id for relation in relations} == {pending.id}
+    items = store.memory_item_repo.list_items_by_ids({pending.id, candidate.id}, SCOPE)
+    assert all(item.approved_at is None for item in items.values())
+
+
+@pytest.mark.asyncio
+async def test_apply_dossier_revision_keeps_empty_dossier_text(tmp_path, monkeypatch) -> None:
+    service, store, _anchors, category, pending, _candidate, _refs, bundle = _revision_case(
+        tmp_path,
+        summary="## Health\nHistorical account.",
+    )
+    journal: list[dict] = []
+    monkeypatch.setattr(
+        "memu.app.dossier.append_category_summary_journal",
+        lambda **entry: journal.append(entry),
+    )
+    client = FakeEmbedClient()
+    decision = {
+        "dossier_id": category.id,
+        "description": "Discarded rewrite.",
+        "resulting_prose": "",
+        "add_item_ids": [],
+        "remove_item_ids": [pending.id],
+        "cleanup_item_ids": [],
+        "cited_item_ids": [],
+    }
+
+    revised = await service.apply_dossier_revision(
+        bundle,
+        decision,
+        SCOPE,
+        embedding_client=client,
+    )
+
+    assert revised.description == "Health description"
+    assert revised.summary == "## Health\nHistorical account."
+    assert revised.last_evidence_at is None and revised.last_revised_at is not None
+    assert store.category_item_repo.list_relations({"category_id": category.id}) == []
+    assert client.calls == [] and journal == []
+
+
+@pytest.mark.asyncio
+async def test_apply_dossier_revision_rotates_description_without_prose_journal(
+    tmp_path, monkeypatch
+) -> None:
+    service, _store, _anchors, category, pending, _candidate, _refs, bundle = _revision_case(
+        tmp_path,
+        summary="## Health\nStable account.",
+    )
+    journal: list[dict] = []
+    monkeypatch.setattr(
+        "memu.app.dossier.append_category_summary_journal",
+        lambda **entry: journal.append(entry),
+    )
+    decision = {
+        "dossier_id": category.id,
+        "description": "A clearer personal brief.",
+        "resulting_prose": "## Health\nStable account.",
+        "add_item_ids": [pending.id],
+        "remove_item_ids": [],
+        "cleanup_item_ids": [],
+        "cited_item_ids": [],
+    }
+
+    revised = await service.apply_dossier_revision(
+        bundle,
+        decision,
+        SCOPE,
+        embedding_client=FakeEmbedClient(),
+    )
+
+    assert revised.previous_description == "Health description"
+    assert revised.description == "A clearer personal brief."
+    assert revised.previous_summary is None
+    assert revised.summary == "## Health\nStable account."
+    assert journal == []
 
 
 def test_prepare_anchor_revision_omits_duplicate_presence_and_uses_500_words(tmp_path) -> None:

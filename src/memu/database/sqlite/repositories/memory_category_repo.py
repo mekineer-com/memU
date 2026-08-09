@@ -60,6 +60,8 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
             description=row.description,
             embedding=self._normalize_embedding(self._get_row_embedding(row)),
             summary=row.summary,
+            previous_description=getattr(row, "previous_description", None),
+            approved_description=getattr(row, "approved_description", None),
             previous_summary=row.previous_summary,
             approved_summary=getattr(row, "approved_summary", None),
             kind=getattr(row, "kind", None),
@@ -100,7 +102,8 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
         for row in rows:
             cat = self._to_category(row)
             result[row.id] = cat
-            self.categories[row.id] = cat
+            if session is None:
+                self.categories[row.id] = cat
 
         return result
 
@@ -312,6 +315,7 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
             if row is None:
                 msg = f"Category with id {category_id} not found"
                 raise KeyError(msg)
+            row.approved_description = row.description
             row.approved_summary = row.summary
             session.add(row)
             session.commit()
@@ -328,6 +332,7 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
         description: str | None = None,
         embedding: list[float] | None = None,
         summary: str | None = None,
+        previous_description: str | None = None,
         previous_summary: str | None = None,
         kind: DossierKind | None | EllipsisType = ...,
         lore_subtype: str | None | EllipsisType = ...,
@@ -335,6 +340,8 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
         anchor_role: Literal["soul", "user"] | None | EllipsisType = ...,
         last_evidence_at: datetime | None | EllipsisType = ...,
         last_revised_at: datetime | None | EllipsisType = ...,
+        where: Mapping[str, Any] | None = None,
+        session: Any | None = None,
     ) -> MemoryCategory:
         """Update an existing category.
 
@@ -351,43 +358,68 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
         Raises:
             KeyError: If category not found.
         """
-        with self._sessions.session() as session:
-            stmt = select(self._memory_category_model).where(self._memory_category_model.id == category_id)
-            row = session.exec(stmt).first()
+        if session is None:
+            with self._sessions.session() as managed_session:
+                category = self.update_category(
+                    category_id=category_id,
+                    name=name,
+                    description=description,
+                    embedding=embedding,
+                    summary=summary,
+                    previous_description=previous_description,
+                    previous_summary=previous_summary,
+                    kind=kind,
+                    lore_subtype=lore_subtype,
+                    entity_id=entity_id,
+                    anchor_role=anchor_role,
+                    last_evidence_at=last_evidence_at,
+                    last_revised_at=last_revised_at,
+                    where=where,
+                    session=managed_session,
+                )
+                managed_session.commit()
+            self.categories[category.id] = category
+            return category
 
-            if row is None:
-                msg = f"Category with id {category_id} not found"
-                raise KeyError(msg)
+        filters = [
+            self._memory_category_model.id == category_id,
+            *self._build_filters(self._memory_category_model, where),
+        ]
+        row = session.exec(select(self._memory_category_model).where(*filters)).first()
 
-            if name is not None:
-                row.name = name
-            if description is not None:
-                row.description = description
-            if embedding is not None:
-                self._set_row_embedding(row, embedding)
-            if summary is not None:
-                row.summary = summary
-            if previous_summary is not None:
-                row.previous_summary = previous_summary
-            for field, value in (
-                ("kind", kind),
-                ("lore_subtype", lore_subtype),
-                ("entity_id", entity_id),
-                ("anchor_role", anchor_role),
-                ("last_evidence_at", last_evidence_at),
-                ("last_revised_at", last_revised_at),
-            ):
-                if value is not ...:
-                    setattr(row, field, value)
-            row.updated_at = self._now()
+        if row is None:
+            msg = f"Category with id {category_id} not found"
+            raise KeyError(msg)
 
-            session.add(row)
-            session.commit()
-            session.refresh(row)
+        if name is not None:
+            row.name = name
+        if description is not None:
+            row.description = description
+        if embedding is not None:
+            self._set_row_embedding(row, embedding)
+        if summary is not None:
+            row.summary = summary
+        if previous_description is not None:
+            row.previous_description = previous_description
+        if previous_summary is not None:
+            row.previous_summary = previous_summary
+        for field, value in (
+            ("kind", kind),
+            ("lore_subtype", lore_subtype),
+            ("entity_id", entity_id),
+            ("anchor_role", anchor_role),
+            ("last_evidence_at", last_evidence_at),
+            ("last_revised_at", last_revised_at),
+        ):
+            if value is not ...:
+                setattr(row, field, value)
+        row.updated_at = self._now()
 
-        cat = self._to_category(row)
-        self.categories[row.id] = cat
-        return cat
+        session.add(row)
+        session.flush()
+        session.refresh(row)
+
+        return self._to_category(row)
 
 
 __all__ = ["SQLiteMemoryCategoryRepo"]

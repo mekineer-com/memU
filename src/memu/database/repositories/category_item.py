@@ -27,6 +27,19 @@ class CategoryItemRepo(Protocol):
         session: Any | None = None,
     ) -> CategoryItem: ...
 
-    def unlink_item_category(self, item_id: str, category_id: str) -> None: ...
+    def unlink_item_category(
+        self,
+        item_id: str,
+        category_id: str,
+        where: Mapping[str, Any] | None = None,
+        *,
+        session: Any | None = None,
+    ) -> bool: ...
+
+    def refresh_category_relations(
+        self,
+        category_id: str,
+        where: Mapping[str, Any],
+    ) -> list[CategoryItem]: ...
 
     def get_item_categories(self, item_id: str) -> list[CategoryItem]: ...
