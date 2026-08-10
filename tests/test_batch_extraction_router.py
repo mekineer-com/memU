@@ -10,7 +10,11 @@ from memu.app.service import MemoryService
 
 
 def _service() -> MemoryService:
-    return MemoryService(database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}})
+    service = MemoryService(
+        database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
+    )
+    service._llm_clients["embedding"] = _EmbedStub()
+    return service
 
 
 class _RouterStub:
@@ -35,7 +39,6 @@ class _EmbedStub:
 @pytest.mark.asyncio
 async def test_route_segment_uses_excluded_types_model() -> None:
     service = _service()
-    service._category_prompt_str = "- Existing: An existing dossier"
     client = _RouterStub(
         '{"excluded_types": ["knowledge", "social"], "episodes": [{"title": "Anchor", "episode_summary": "Full story.", "episode_item": "Compact story.", "categories": ["Existing", "New domain"], "day": "2026-01-02"}]}'
     )
@@ -45,6 +48,7 @@ async def test_route_segment_uses_excluded_types_model() -> None:
         ["profile", "knowledge", "behavior", "social"],
         llm_client=client,
         source_days=["2026-01-02"],
+        categories_prompt_str="- Existing: An existing dossier",
     )
 
     assert routed == ["profile", "behavior"]
@@ -87,6 +91,7 @@ async def test_persist_plan_uses_short_episode_summary_as_item(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     service = _service()
+    monkeypatch.setattr(service, "file_category_proposals", lambda **_kwargs: ([], []))
     created_items: list[dict[str, object]] = []
 
     async def _resource(**_kwargs):
@@ -153,6 +158,7 @@ async def test_episode_items_use_their_own_embeddings(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     service = _service()
+    monkeypatch.setattr(service, "file_category_proposals", lambda **_kwargs: ([], []))
     created_items: list[dict[str, object]] = []
 
     async def _resource(**_kwargs):
@@ -229,6 +235,7 @@ async def test_persist_plan_keeps_segment_local_path_without_flattened_copy(
     tmp_path,
 ) -> None:
     service = _service()
+    monkeypatch.setattr(service, "file_category_proposals", lambda **_kwargs: ([], []))
     service.fs.base = tmp_path / "resources"
     local_path = tmp_path / "st_chats" / "chat" / "segments" / "2026-01-01.json"
     local_path.parent.mkdir(parents=True)
@@ -300,6 +307,21 @@ async def test_context_only_plan_creates_nothing() -> None:
     assert resources == []
     assert item_count == 0
     assert pending_segment_ids == []
+
+
+@pytest.mark.asyncio
+async def test_persist_index_skips_dynamic_review_without_new_items(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = _service()
+
+    async def _unexpected(**_kwargs):
+        raise AssertionError("memorize without new items must not process old dossier candidates")
+
+    monkeypatch.setattr(service, "prepare_dynamic_category_review", _unexpected)
+    state = {"items": [], "store": service.database, "user": {"user_id": "person", "soul_id": "soul"}}
+
+    assert await service._memorize_persist_and_index(state, None) is state
 
 
 @pytest.mark.asyncio
@@ -416,6 +438,11 @@ async def test_context_only_batch_skips_llm_and_returns_plural_empty_shape(
 
     monkeypatch.setattr(service, "_route_segment", _unexpected)
     monkeypatch.setattr(service, "_generate_entries_from_text", _unexpected)
+    monkeypatch.setattr(
+        service,
+        "_select_embedding_client",
+        lambda *_args, **_kwargs: pytest.fail("context-only batch must not select an embedding client"),
+    )
     monkeypatch.setattr(service, "_ensure_categories_ready", _noop_ensure)
     monkeypatch.setattr(service, "_list_declared_relationship_roster", lambda **_kwargs: [])
     monkeypatch.setattr(service, "_memorize_categorize_items", _categorize_empty)
@@ -446,6 +473,9 @@ async def test_context_only_batch_skips_llm_and_returns_plural_empty_shape(
             "pending_segment_ids": [],
         }
     ]
+    assert service.database.memory_category_repo.list_categories(
+        {"user_id": "test-user", "soul_id": "TestSoul"}
+    ) == {}
 
 
 @pytest.mark.asyncio

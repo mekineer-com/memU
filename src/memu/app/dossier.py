@@ -785,7 +785,7 @@ class DossierMixin:
         relevant = [
             categories[category_id]
             for category_id in newest_by_category
-            if category_id in categories
+            if category_id in categories and categories[category_id].anchor_role is None
         ]
         return sorted(
             relevant,
@@ -797,11 +797,76 @@ class DossierMixin:
             ),
         )
 
-    def build_dossier_index(self, where: Mapping[str, Any]) -> str:
-        return "\n".join(
-            _render_dossier_index_line(category)
-            for category in self.list_active_dossiers(where)[:DOSSIER_INDEX_LIMIT]
+    def build_dossier_index(
+        self,
+        where: Mapping[str, Any],
+        *,
+        dossiers: Sequence[MemoryCategory] | None = None,
+    ) -> str:
+        rows = list(dossiers) if dossiers is not None else self.list_active_dossiers(where)
+        rows = [
+            category
+            for category in rows
+            if category.anchor_role is None
+        ][:DOSSIER_INDEX_LIMIT]
+        return "\n".join(_render_dossier_index_line(category) for category in rows)
+
+    def require_dossier_cutover_ready(self, where: Mapping[str, Any]) -> None:
+        scope = _scope(where)
+        store = self._get_database()
+        memories = store.memory_item_repo.list_items(scope, include_embeddings=False)
+        categories = store.memory_category_repo.list_categories(scope)
+        relations = store.category_item_repo.list_relations(scope)
+        if not memories and not categories and not relations:
+            return
+
+        refs = [item.memory_ref for item in memories.values()]
+        if any(isinstance(ref, bool) or not isinstance(ref, int) or ref < 1 for ref in refs):
+            raise ValueError("Dossier cutover requires a positive [M#] reference on every active memory")
+        if len(refs) != len(set(refs)):
+            raise ValueError("Dossier cutover requires unique [M#] references within the scope")
+
+        invalid_kind = next((category for category in categories.values() if category.kind not in DOSSIER_KINDS), None)
+        if invalid_kind is not None:
+            raise ValueError(f"Dossier cutover found invalid kind on category: {invalid_kind.name}")
+        anchor_rows = [category for category in categories.values() if category.anchor_role is not None]
+        if sorted(category.anchor_role for category in anchor_rows) != ["soul", "user"]:
+            raise ValueError("Dossier cutover requires exactly one soul anchor and one user anchor")
+        anchors = {cast(str, category.anchor_role): category for category in anchor_rows}
+        _validate_anchors(anchors, scope)
+
+        ordinary = [category for category in categories.values() if category.anchor_role is None]
+        unapproved = next(
+            (
+                category
+                for category in ordinary
+                if not str(category.approved_description or "").strip()
+            ),
+            None,
         )
+        if unapproved is not None:
+            raise ValueError(f"Dossier cutover requires an approved description for: {unapproved.name}")
+
+        links_by_category: dict[str, set[str]] = {}
+        related_items = store.memory_item_repo.list_items_by_ids(
+            {relation.item_id for relation in relations},
+            scope,
+            include_superseded=True,
+            include_merged=True,
+        )
+        for relation in relations:
+            if relation.category_id not in categories or relation.item_id not in related_items:
+                raise ValueError(f"Dossier cutover found dangling or cross-scope relation: {relation.id}")
+            links_by_category.setdefault(relation.category_id, set()).add(relation.item_id)
+
+        by_ref = {cast(int, item.memory_ref): item.id for item in memories.values()}
+        for category in categories.values():
+            linked = links_by_category.get(category.id, set())
+            for memory_ref in self.extract_memory_refs(category.summary or ""):
+                if by_ref.get(memory_ref) not in linked:
+                    raise ValueError(
+                        f"Dossier {category.name} cites inactive or unlinked [M{memory_ref}]"
+                    )
 
     async def select_memorize_dossier_context(
         self,
@@ -916,10 +981,7 @@ class DossierMixin:
         )
         return {
             "categories_str": "\n".join(category_lines),
-            "dossier_index": "\n".join(
-                _render_dossier_index_line(category)
-                for category in active_candidates[:DOSSIER_INDEX_LIMIT]
-            ),
+            "dossier_index": self.build_dossier_index(scope, dossiers=active),
             "narrative_self": narrative,
             "anchor_dossiers": [anchors[role] for role in ("soul", "user")],
             "relevant_dossiers": relevant[:9],

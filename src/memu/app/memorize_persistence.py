@@ -153,13 +153,11 @@ async def _persist_memory_items(
     extract_model: str | None,
     message_happened_at_map: Mapping[int, Any] | None,
     session: Any | None,
-    maybe_create_dynamic_categories: Callable[..., Awaitable[list[Any]]],
     enable_confidence_normalization: bool,
     normalize_confidence: Callable[[list[Any]], list[Any]],
     find_supersede_targets: Callable[..., Awaitable[dict[int, str]]],
     hedge_summary_for_confidence: Callable[[str, float | None], str],
     resolve_entry_happened_at: Callable[[Sequence[int] | None, Mapping[int, Any] | None], Any | None],
-    map_category_names_to_ids: Callable[[list[str], Any], list[str]],
 ) -> tuple[list[Any], list[Any], dict[str, list[tuple[str, str]]], int]:
     summary_payloads = [entry.content for entry in structured_entries]
     item_embeddings = await embed_client.embed(summary_payloads) if summary_payloads else []
@@ -168,15 +166,6 @@ async def _persist_memory_items(
     category_memory_updates: dict[str, list[tuple[str, str]]] = {}
     superseded_targets: set[str] = set()
 
-    structured_entries = await maybe_create_dynamic_categories(
-        structured_entries=structured_entries,
-        item_embeddings=item_embeddings,
-        ctx=ctx,
-        store=store,
-        embed_client=embed_client,
-        user=user,
-        session=session,
-    )
     if enable_confidence_normalization:
         structured_entries = normalize_confidence(structured_entries)
     homeless_count = sum(1 for entry in structured_entries if not entry.categories)
@@ -252,17 +241,6 @@ async def _persist_memory_items(
                 user_data=dict(user or {}),
                 session=session,
             )
-        mapped_cat_ids = map_category_names_to_ids(entry.categories, ctx)
-        if resolved_summary.strip():
-            for cid in mapped_cat_ids:
-                category_memory_updates.setdefault(cid, []).append((item.id, resolved_summary))
-                rel_kwargs = {"item_id": item.id, "category_id": cid, "user_data": dict(user or {})}
-                if session is not None:
-                    rel = store.category_item_repo.link_item_category(**rel_kwargs, session=session)
-                else:
-                    rel = store.category_item_repo.link_item_category(**rel_kwargs)
-                rels.append(rel)
-
     if normalized_extract_model is not None and items:
         store.memory_item_repo.refresh_model_score_calibration(model=normalized_extract_model, session=session)
 

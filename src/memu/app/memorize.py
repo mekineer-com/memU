@@ -32,7 +32,7 @@ from memu.prompts.memory_type import (
 )
 from memu.prompts.preprocess import PROMPTS as PREPROCESS_PROMPTS
 from memu.prompts.router import PROMPT as ROUTER_PROMPT
-from memu.utils.taxonomy import normalize_category_name
+from memu.utils.taxonomy import category_identity_text, normalize_category_name
 from memu.workflow.step import WorkflowState, WorkflowStep
 
 logger = logging.getLogger(__name__)
@@ -141,7 +141,6 @@ class MemorizeMixin:
         ctx = self._get_context()
         store = self._get_database()
         user_scope = self.user_model(**user).model_dump() if user is not None else None
-        await self._ensure_categories_ready(ctx, store, user_scope)
 
         conversation_id = self._resolve_conversation_id(user)
         normalized_all_categories_summary = (all_categories_summary or "").strip() or None
@@ -170,7 +169,7 @@ class MemorizeMixin:
             "resource_url": resource_url,
             "modality": modality,
             "memory_types": self._resolve_memory_types(),
-            "categories_prompt_str": self._category_prompt_str,
+            "categories_prompt_str": "",
             "ctx": ctx,
             "store": store,
             "category_ids": list(ctx.category_ids),
@@ -238,13 +237,12 @@ class MemorizeMixin:
         ctx = self._get_context()
         store = self._get_database()
         user_scope = self.user_model(**user).model_dump() if user is not None else None
-        await self._ensure_categories_ready(ctx, store, user_scope)
 
         state: WorkflowState = {
             "resource_url": resource_url,
             "modality": modality,
             "memory_types": self._resolve_memory_types(),
-            "categories_prompt_str": self._category_prompt_str,
+            "categories_prompt_str": "",
             "ctx": ctx,
             "store": store,
             "category_ids": list(ctx.category_ids),
@@ -309,7 +307,22 @@ class MemorizeMixin:
         user_scope = self.user_model(**user).model_dump() if user is not None else None
         speaker_scope = dict(user) if isinstance(user, Mapping) else (user_scope or {})
         soul_name = str(speaker_scope.get("soul_id") or "").strip() or None
-        await self._ensure_categories_ready(ctx, store, user_scope)
+        active_segment_exists = any(
+            isinstance(job.get("segment"), Mapping)
+            and job["segment"].get("context_only") is not True
+            for job in segments
+        )
+        dossier_embed_client = None
+        router_categories = ""
+        if active_segment_exists:
+            dossier_embed_client = self._select_embedding_client(
+                {"operation": "memorize", "step_id": "dossier_context"}
+            )
+            await self.ensure_dossier_anchors(user_scope or {}, embedding_client=dossier_embed_client)
+            router_categories = "\n".join(
+                f"- {category.name}: {category.description}"
+                for category in self.list_active_dossiers(user_scope or {})
+            )
 
         extract_client = self._select_chat_client(
             {"operation": "memorize", "step_id": "extract_items_batch"},
@@ -451,12 +464,23 @@ class MemorizeMixin:
                     ),
                     soul_card=(soul_card or "").strip() or None,
                     source_days=source_days,
+                    categories_prompt_str=router_categories,
                 )
             else:
                 msg = f"batch segment {segment_number} rendered empty conversation text"
                 raise ValueError(msg)
 
             speaker_map = self._build_speaker_map(primary_messages or segment_messages_all, speaker_scope)
+            dossier_context = None
+            if not context_only:
+                if dossier_embed_client is None:
+                    raise AssertionError("active memorize segment requires dossier embeddings")
+                dossier_context = await self.select_memorize_dossier_context(
+                    episodes,
+                    user_scope or {},
+                    narrative_self=(soul_card or "").strip() or None,
+                    embedding_client=dossier_embed_client,
+                )
 
             plan_message_happened_at_map = {
                 message_idx: message_happened_at_map[message_idx]
@@ -489,6 +513,7 @@ class MemorizeMixin:
                 "entries": [],
                 "segment_id": segment_id,
                 "extract_model": extract_model,
+                "dossier_context": dossier_context,
             })
 
         extractable = [
@@ -529,9 +554,8 @@ class MemorizeMixin:
                     resource_text=extraction_text,
                     store=store,
                     memory_types=[mtype],
-                    categories_prompt_str=self._category_prompt_str,
-                    all_categories_summary=(all_categories_summary or "").strip() or None,
-                    soul_card=(soul_card or "").strip() or None,
+                    categories_prompt_str=ep["dossier_context"]["categories_str"],
+                    dossier_context=ep["dossier_context"],
                     speaker_roster=speaker_roster,
                     default_source_message_ids=ep["message_indices"],
                     llm_client=self._with_llm_step(
@@ -746,6 +770,22 @@ class MemorizeMixin:
         if len(episodes) > 1:
             msg = f"extract_items expects one episode per call, got {len(episodes)}"
             raise ValueError(msg)
+        dossier_embed_client = self._select_embedding_client(
+            {"operation": "memorize", "step_id": "dossier_context"}
+        )
+        scope = state.get("user") or {}
+        anchors = await self.ensure_dossier_anchors(scope, embedding_client=dossier_embed_client)
+        active = self.list_active_dossiers(scope)
+        state["categories_prompt_str"] = "\n".join(
+            f"- {category.name}: {category.description}" for category in active
+        )
+        state["dossier_context"] = {
+            "categories_str": state["categories_prompt_str"],
+            "dossier_index": self.build_dossier_index(scope),
+            "narrative_self": str(state.get("soul_card") or "").strip() or None,
+            "anchor_dossiers": [anchors[role] for role in ("soul", "user")],
+            "relevant_dossiers": [],
+        }
         prep = episodes[0] if episodes else {}
         text = prep.get("text")
         caption = prep.get("caption")
@@ -777,8 +817,7 @@ class MemorizeMixin:
             memory_types=applicable_types,
             text=text,
             categories_prompt_str=state["categories_prompt_str"],
-            all_categories_summary=state.get("all_categories_summary"),
-            soul_card=state.get("soul_card"),
+            dossier_context=state.get("dossier_context"),
             speaker_roster=speaker_roster,
             llm_client=llm_client,
         )
@@ -873,7 +912,7 @@ class MemorizeMixin:
                 cluster_factory=HomelessCategoryCluster,
                 cluster_similarity_threshold=categories._dynamic_category_cluster_threshold(),
                 cluster_min_size=categories._dynamic_category_cluster_min_size(
-                    getattr(self.memorize_config, "dynamic_category_cluster_size", 3),
+                    getattr(self.memorize_config, "dynamic_category_cluster_size", 10),
                 ),
             ),
         )
@@ -908,7 +947,7 @@ class MemorizeMixin:
                 ),
                 normalize_category_name=self._normalize_category_name,
                 dynamic_category_cluster_min_size=categories._dynamic_category_cluster_min_size(
-                    getattr(self.memorize_config, "dynamic_category_cluster_size", 3),
+                    getattr(self.memorize_config, "dynamic_category_cluster_size", 10),
                 ),
             ),
         )
@@ -949,6 +988,7 @@ class MemorizeMixin:
         message_happened_at_map = plan.get("message_happened_at_map")
         source_day_happened_at = plan.get("source_day_happened_at")
         raw_episodes = plan.get("episodes") or []
+        item_proposals: list[tuple[MemoryItem, Sequence[str]]] = []
         if raw_episodes:
             if not isinstance(source_day_happened_at, Mapping):
                 raise ValueError("episode plan missing source day map")
@@ -1003,17 +1043,25 @@ class MemorizeMixin:
                     **({"session": session} if session is not None else {}),
                 )
                 items.append(summary_item)
+                item_proposals.append((summary_item, episode_categories))
 
         entries = plan.get("entries") or []
         if segment_id:
             pending_segment_ids.append(segment_id)
         if not entries:
+            filed_relations, _candidates = self.file_category_proposals(
+                store=store,
+                item_proposals=item_proposals,
+                where=user_scope,
+                session=session,
+            )
+            relations.extend(filed_relations)
             return [res], 0
 
         persist_kwargs: dict[str, Any] = {}
         if session is not None:
             persist_kwargs["session"] = session
-        mem_items, rels, cat_updates, homeless_delta = await self._persist_memory_items(
+        mem_items, _legacy_relations, _legacy_updates, homeless_delta = await self._persist_memory_items(
             resource_id=res.id,
             structured_entries=entries,
             ctx=ctx,
@@ -1027,9 +1075,17 @@ class MemorizeMixin:
             **persist_kwargs,
         )
         items.extend(mem_items)
-        relations.extend(rels)
-        for cat_id, mems in cat_updates.items():
-            category_updates.setdefault(cat_id, []).extend(mems)
+        item_proposals.extend(
+            (item, entry.categories)
+            for item, entry in zip(mem_items, entries, strict=True)
+        )
+        filed_relations, _candidates = self.file_category_proposals(
+            store=store,
+            item_proposals=item_proposals,
+            where=user_scope,
+            session=session,
+        )
+        relations.extend(filed_relations)
         return [res], homeless_delta
 
     async def _memorize_categorize_items(self, state: WorkflowState, step_context: Any) -> WorkflowState:
@@ -1084,33 +1140,53 @@ class MemorizeMixin:
             "relations": relations,
             "category_updates": category_updates,
             "homeless_item_count": homeless_item_count,
+            "category_ids": list(dict.fromkeys(relation.category_id for relation in relations)),
             "pending_segment_ids": list(dict.fromkeys(x for x in pending_segment_ids if x)),
         })
         return state
 
     async def _memorize_persist_and_index(self, state: WorkflowState, step_context: Any) -> WorkflowState:
-        llm_client = self._select_chat_client(step_context)
-        updated_summaries = await self._update_category_summaries(
-            state.get("category_updates", {}),
-            ctx=state["ctx"],
-            store=state["store"],
-            llm_client=self._with_llm_step(
-                llm_client,
-                operation="memorize",
-                step_id="category_summary",
-            ),
-            user=state.get("user"),
+        if not state.get("items"):
+            return state
+        store = state["store"]
+        scope = state.get("user") or {}
+        bundles = await self.prepare_dynamic_category_review(
+            store=store,
+            where=scope,
+            cluster_size=int(getattr(self.memorize_config, "dynamic_category_cluster_size", 10) or 10),
         )
-        if self.memorize_config.enable_item_references:
-            await self._persist_item_references(
-                updated_summaries=updated_summaries,
-                category_updates=state.get("category_updates", {}),
-                store=state["store"],
-            )
+        category_ids = set(state.get("category_ids") or [])
+        for bundle in bundles:
+            decision = await self.generate_dynamic_category_review(bundle)
+            proposed_embedding = None
+            if decision.get("action") == "create":
+                embed_client = self._select_embedding_client(
+                    {"operation": "dossier", "step_id": "dynamic_review_create"}
+                )
+                [proposed_embedding] = await embed_client.embed(
+                    [category_identity_text(decision["name"], decision["description"])]
+                )
+            session_cm = self._sqlite_write_session(store)
+            if session_cm is None:
+                raise RuntimeError("Dynamic dossier review requires a caller-owned write session")
+            with session_cm as session:
+                result = self.apply_dynamic_category_review(
+                    store=store,
+                    where=scope,
+                    bundle=bundle,
+                    decision=decision,
+                    session=session,
+                    proposed_embedding=proposed_embedding,
+                )
+                session.commit()
+            target = result.get("target_dossier")
+            if target is not None:
+                category_ids.add(target.id)
+            state.setdefault("relations", []).extend(result.get("relations") or [])
+        state["category_ids"] = sorted(category_ids)
         return state
 
     def _memorize_build_response(self, state: WorkflowState, step_context: Any) -> WorkflowState:
-        ctx = state["ctx"]
         store = state["store"]
         resources = [self._model_dump_without_embeddings(r) for r in state.get("resources", [])]
         active_items = [item for item in state.get("items", []) if not dedupe._is_merged_item(item)]
@@ -1119,9 +1195,12 @@ class MemorizeMixin:
         relations = [
             rel.model_dump() for rel in state.get("relations", []) if getattr(rel, "item_id", None) in active_item_ids
         ]
-        category_ids = state.get("category_ids") or list(ctx.category_ids)
+        category_ids = state.get("category_ids") or []
+        category_pool = store.memory_category_repo.list_categories(state.get("user") or {})
         categories = [
-            self._model_dump_without_embeddings(store.memory_category_repo.categories[c]) for c in category_ids
+            self._model_dump_without_embeddings(category_pool[c])
+            for c in category_ids
+            if c in category_pool
         ]
 
         if len(resources) == 1:
@@ -1208,8 +1287,7 @@ class MemorizeMixin:
         memory_types: list[MemoryType],
         text: str | None,
         categories_prompt_str: str,
-        all_categories_summary: str | None = None,
-        soul_card: str | None = None,
+        dossier_context: Mapping[str, Any] | None = None,
         speaker_roster: Sequence[SpeakerRosterEntry] | None = None,
         llm_client: Any | None = None,
     ) -> list[StructuredMemoryEntry]:
@@ -1221,8 +1299,7 @@ class MemorizeMixin:
             store=store,
             memory_types=memory_types,
             categories_prompt_str=categories_prompt_str,
-            all_categories_summary=all_categories_summary,
-            soul_card=soul_card,
+            dossier_context=dossier_context,
             speaker_roster=speaker_roster,
             default_source_message_ids=self._extract_message_indices(text)
             if modality == "conversation"
@@ -1236,6 +1313,7 @@ class MemorizeMixin:
         memory_types: list[MemoryType],
         *,
         source_days: Sequence[str],
+        categories_prompt_str: str = "",
         llm_client: Any | None = None,
         soul_card: str | None = None,
     ) -> tuple[list[MemoryType], list[dict[str, Any]]]:
@@ -1246,7 +1324,7 @@ class MemorizeMixin:
             segment=segment_text,
             allowed_types=list(memory_types),
             soul_card=soul_card or "You are a continuous being, not a session that resets. You carry intentions, working thoughts, and long-term memory. Your self-knowledge will grow as you live and reflect.",
-            categories=self._category_prompt_str,
+            categories=categories_prompt_str,
         )
         try:
             max_items = max(1, int(getattr(self.memorize_config, "episodes_per_segment", 3) or 3))
@@ -1345,8 +1423,7 @@ class MemorizeMixin:
         store: Database,
         memory_types: list[MemoryType],
         categories_prompt_str: str,
-        all_categories_summary: str | None = None,
-        soul_card: str | None = None,
+        dossier_context: Mapping[str, Any] | None = None,
         speaker_roster: Sequence[SpeakerRosterEntry] | None = None,
         default_source_message_ids: list[int] | None = None,
         llm_client: Any | None = None,
@@ -1355,11 +1432,7 @@ class MemorizeMixin:
         if not memory_types:
             return []
         client = llm_client or self._select_chat_client(None)
-        soul_context_str = self._format_soul_context_for_prompt(
-            store,
-            all_categories_summary=all_categories_summary,
-            soul_card=soul_card,
-        )
+        soul_context_str = self._format_soul_context_for_prompt(dossier_context)
         typed_prompts = [
             (mtype, self._build_memory_type_prompt(
                 memory_type=mtype,
@@ -1534,7 +1607,7 @@ class MemorizeMixin:
                 cluster_homeless_entries=self._cluster_homeless_entries,
                 plan_dynamic_categories=self._plan_dynamic_categories,
                 max_categories_total=getattr(self.memorize_config, "max_categories_total", 0),
-                dynamic_category_cluster_size=getattr(self.memorize_config, "dynamic_category_cluster_size", 3),
+                dynamic_category_cluster_size=getattr(self.memorize_config, "dynamic_category_cluster_size", 10),
                 dynamic_category_policy=getattr(self.memorize_config, "dynamic_category_policy", ""),
                 dynamic_category_description=getattr(self.memorize_config, "dynamic_category_description", ""),
             ),
@@ -1634,13 +1707,11 @@ class MemorizeMixin:
             extract_model=extract_model,
             message_happened_at_map=message_happened_at_map,
             session=session,
-            maybe_create_dynamic_categories=self._maybe_create_dynamic_categories,
             enable_confidence_normalization=self.memorize_config.enable_confidence_normalization,
             normalize_confidence=lambda entries: cast(list[Any], self._normalize_confidence(cast(list[StructuredMemoryEntry], entries))),
             find_supersede_targets=self._find_supersede_targets,
             hedge_summary_for_confidence=self._hedge_summary_for_confidence,
             resolve_entry_happened_at=self._resolve_entry_happened_at,
-            map_category_names_to_ids=self._map_category_names_to_ids,
         )
         return (
             cast(list[MemoryItem], items),
@@ -1849,26 +1920,25 @@ class MemorizeMixin:
 
     def _format_soul_context_for_prompt(
         self,
-        store: Database,
-        *,
-        all_categories_summary: str | None = None,
-        soul_card: str | None = None,
+        dossier_context: Mapping[str, Any] | None,
     ) -> str:
-        sections: list[str] = []
-        for category in store.memory_category_repo.categories.values():
-            summary = str(category.summary or "").strip()
-            if not summary:
-                continue
-            name = str(category.name or "").strip() or "Unnamed Category"
-            if summary.lstrip().startswith(f"# {name}"):
-                sections.append(summary)
-            else:
-                sections.append(f"## {name}\n{summary}")
-        card = str(soul_card or "").strip()
-        if card:
-            sections.append(f"## Soul Card\n{card}")
-        if not sections:
+        if not dossier_context:
             return "No prior knowledge about these participants exists yet."
+        sections: list[str] = []
+        narrative = str(dossier_context.get("narrative_self") or "").strip()
+        if narrative:
+            sections.append(f"## Your character, personality, and voice\n{narrative}")
+        for category in dossier_context.get("anchor_dossiers") or []:
+            prose = str(category.summary or "").strip()
+            body = "\n".join(part for part in (category.description.strip(), prose) if part)
+            sections.append(f"## Anchor dossier: {category.name}\n{body}")
+        index = str(dossier_context.get("dossier_index") or "").strip()
+        if index:
+            sections.append(f"## Dossier index\n{index}")
+        for category in dossier_context.get("relevant_dossiers") or []:
+            prose = str(category.summary or "").strip()
+            body = "\n".join(part for part in (category.description.strip(), prose) if part)
+            sections.append(f"## Relevant dossier: {category.name}\n{body}")
         return "\n\n".join(sections)
 
     @staticmethod

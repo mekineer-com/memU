@@ -44,7 +44,7 @@ def _dynamic_category_cluster_threshold() -> float:
 
 
 def _dynamic_category_cluster_min_size(dynamic_category_cluster_size: Any) -> int:
-    cluster_size = int(dynamic_category_cluster_size or 3)
+    cluster_size = int(dynamic_category_cluster_size or 10)
     return max(2, cluster_size)
 
 
@@ -1130,7 +1130,7 @@ async def _maybe_create_dynamic_categories(
     await ensure_categories_ready(ctx, store, user)
 
     max_total = int(max_categories_total or 0)
-    min_mentions = int(dynamic_category_cluster_size or 3)
+    min_mentions = int(dynamic_category_cluster_size or 10)
     policy = str(dynamic_category_policy or "").strip()
     default_desc = str(dynamic_category_description or "").strip()
 

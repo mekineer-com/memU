@@ -106,6 +106,62 @@ def _seed_anchors(service: MemoryService) -> dict[str, MemoryCategory]:
     }
 
 
+def test_cutover_readiness_accepts_empty_and_valid_scopes(tmp_path) -> None:
+    service = _service(tmp_path)
+    service.require_dossier_cutover_ready(SCOPE)
+
+    anchors = _seed_anchors(service)
+    category = _category(service, "Health")
+    cleanup = _category(service, "Past project")
+    item = service.database.memory_item_repo.create_item(
+        memory_type="episode",
+        summary="A steady routine",
+        embedding=[1.0, 0.0],
+        user_data=SCOPE,
+    )
+    obsolete = service.database.memory_item_repo.create_item(
+        memory_type="episode", summary="Old project state", embedding=[1.0, 0.0], user_data=SCOPE
+    )
+    survivor = service.database.memory_item_repo.create_item(
+        memory_type="episode", summary="Current project state", embedding=[1.0, 0.0], user_data=SCOPE
+    )
+    refs = service.database.memory_item_repo.backfill_memory_refs(SCOPE)
+    service.database.memory_category_repo.update_category(
+        category_id=category.id,
+        summary=f"## Health\nA steady routine [M{refs[item.id]}].",
+    )
+    service.database.memory_category_repo.approve_category_summary(category.id, SCOPE)
+    service.database.memory_category_repo.approve_category_summary(cleanup.id, SCOPE)
+    service.database.category_item_repo.link_item_category(item.id, category.id, SCOPE)
+    service.database.category_item_repo.link_item_category(obsolete.id, cleanup.id, SCOPE)
+    service.database.memory_item_repo.update_item(item_id=obsolete.id, merged_into=survivor.id)
+
+    service.require_dossier_cutover_ready(SCOPE)
+    assert set(anchors) == {"soul", "user"}
+
+
+def test_cutover_readiness_rejects_unmigrated_and_unlinked_citations(tmp_path) -> None:
+    service = _service(tmp_path)
+    item = service.database.memory_item_repo.create_item(
+        memory_type="episode",
+        summary="An unreferenced memory",
+        embedding=[1.0, 0.0],
+        user_data=SCOPE,
+    )
+    with pytest.raises(ValueError, match=r"positive \[M#\]"):
+        service.require_dossier_cutover_ready(SCOPE)
+
+    service.database.memory_item_repo.backfill_memory_refs(SCOPE)
+    _seed_anchors(service)
+    category = _category(service, "Health", summary="## Health\nAn unlinked citation [M1].")
+    service.database.memory_category_repo.approve_category_summary(category.id, SCOPE)
+    with pytest.raises(ValueError, match=r"unlinked \[M1\]"):
+        service.require_dossier_cutover_ready(SCOPE)
+
+    service.database.category_item_repo.link_item_category(item.id, category.id, SCOPE)
+    service.require_dossier_cutover_ready(SCOPE)
+
+
 @pytest.mark.asyncio
 async def test_anchor_seeding_is_scoped_idempotent_and_immutable(tmp_path) -> None:
     service = _service(tmp_path)

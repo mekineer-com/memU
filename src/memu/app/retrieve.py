@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from pydantic import BaseModel
 
-from memu.database.vector import cosine_topk
+from memu.database.vector import cosine_topk, reciprocal_rank_fusion
 from memu.prompts.retrieve.pre_retrieval_decision import USER_PROMPT as PRE_RETRIEVAL_USER_PROMPT
 from memu.prompts.retrieve.pre_retrieval_decision import forced_query_system_prompt as _forced_query_system_prompt
 from memu.prompts.retrieve.pre_retrieval_decision import system_prompt_for_angle as _system_prompt_for_angle
@@ -266,21 +266,41 @@ class RetrieveMixin:
             return state
 
         embed_client = self._select_embedding_client(step_context)
-        store = state["store"]
         where_filters = state["where"]
-        category_pool = store.memory_category_repo.list_categories(where_filters)
+        category_rows = [
+            category
+            for category in self.list_active_dossiers(where_filters)
+            if category.anchor_role is None
+        ]
+        category_pool = {category.id: category for category in category_rows}
         qvec = (await embed_client.embed([state["active_query"]]))[0]
-        hits, summary_lookup = await self._rank_categories_by_summary(
+        identity = await self.search_dossiers(
             qvec,
-            self.retrieve_config.category.top_k,
-            store,
-            embed_client=embed_client,
-            categories=category_pool,
+            where=where_filters,
+            view="identity",
+            activity="active",
+            limit=self.retrieve_config.category.top_k,
+            min_score=-1.0,
+            categories=category_rows,
         )
-        cat_cfg = self.retrieve_config.category
-        if hits:
-            top_score = hits[0][1]
-            hits = [h for h in hits if h[1] >= cat_cfg.min_score and h[1] >= (top_score - cat_cfg.score_window)][:cat_cfg.max_count]
+        content = await self.search_dossiers(
+            qvec,
+            where=where_filters,
+            view="content",
+            activity="active",
+            limit=self.retrieve_config.category.top_k,
+            min_score=-1.0,
+            embedding_client=embed_client,
+            categories=category_rows,
+        )
+        hits = reciprocal_rank_fusion(
+            [(category.id, score) for category, score in identity],
+            [(category.id, score) for category, score in content],
+        )[:2]
+        summary_lookup = {
+            category.id: str(category.summary or "")
+            for category in category_rows
+        }
         state.update({
             "query_vector": qvec,
             "category_hits": hits,

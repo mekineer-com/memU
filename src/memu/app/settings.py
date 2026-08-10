@@ -276,6 +276,7 @@ class MemorizeConfig(BaseModel):
 
 class DefaultUserModel(BaseModel):
     user_id: str | None = None
+    soul_id: str | None = None
 
 
 class UserConfig(BaseModel):

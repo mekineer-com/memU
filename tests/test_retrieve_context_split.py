@@ -223,6 +223,52 @@ async def test_force_retrieve_skips_category_summary_search():
 
 
 @pytest.mark.asyncio
+async def test_route_category_fuses_active_non_anchor_dossiers():
+    mixin = RetrieveMixin()
+    anchor = SimpleNamespace(id="anchor", anchor_role="soul", summary="anchor prose")
+    alpha = SimpleNamespace(id="alpha", anchor_role=None, summary="alpha prose")
+    beta = SimpleNamespace(id="beta", anchor_role=None, summary="beta prose")
+    gamma = SimpleNamespace(id="gamma", anchor_role=None, summary="gamma prose")
+    mixin.list_active_dossiers = lambda _where: [anchor, alpha, beta, gamma]  # type: ignore[method-assign]
+    mixin.retrieve_config = SimpleNamespace(category=SimpleNamespace(top_k=10))
+    calls: list[tuple[str, list[str]]] = []
+
+    class EmbedClient:
+        async def embed(self, values):  # type: ignore[no-untyped-def]
+            assert values == ["health query"]
+            return [[1.0, 0.0]]
+
+    async def search(_query, *, view, categories, **_kwargs):  # type: ignore[no-untyped-def]
+        calls.append((view, [category.id for category in categories]))
+        if view == "identity":
+            return [(alpha, 0.9), (beta, 0.8), (gamma, 0.7)]
+        return [(beta, 0.9), (gamma, 0.8), (alpha, 0.7)]
+
+    mixin._select_embedding_client = lambda _ctx: EmbedClient()
+    mixin.search_dossiers = search  # type: ignore[method-assign]
+    state = {
+        "needs_retrieval": True,
+        "active_query": "health query",
+        "where": {"user_id": "person", "soul_id": "soul"},
+        "force_retrieve": False,
+    }
+
+    out = await mixin._rag_route_category(state, step_context=None)
+
+    assert calls == [
+        ("identity", ["alpha", "beta", "gamma"]),
+        ("content", ["alpha", "beta", "gamma"]),
+    ]
+    assert [category_id for category_id, _score in out["category_hits"]] == ["beta", "alpha"]
+    assert out["category_summary_lookup"] == {
+        "alpha": "alpha prose",
+        "beta": "beta prose",
+        "gamma": "gamma prose",
+    }
+    assert set(out["category_pool"]) == {"alpha", "beta", "gamma"}
+
+
+@pytest.mark.asyncio
 async def test_category_sufficiency_uses_second_step_mental_health_query():
     mixin = RetrieveMixin()
     mixin._select_chat_client = lambda _ctx: object()

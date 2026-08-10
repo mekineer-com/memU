@@ -66,9 +66,6 @@ async def test_persist_memory_items_stamps_extract_model_in_extra() -> None:
         categories=[],
         entities=[],
     )
-    async def _maybe_create_dynamic_categories(**kwargs: Any) -> list[Any]:
-        return list(kwargs["structured_entries"])
-
     async def _find_supersede_targets(**_kwargs: Any) -> dict[int, str]:
         return {}
 
@@ -84,13 +81,11 @@ async def test_persist_memory_items_stamps_extract_model_in_extra() -> None:
         extract_model="claude-opus-4-6",
         message_happened_at_map={1: "2026-05-22T12:00:00Z"},
         session=None,
-        maybe_create_dynamic_categories=_maybe_create_dynamic_categories,
         enable_confidence_normalization=False,
         normalize_confidence=lambda entries: entries,
         find_supersede_targets=_find_supersede_targets,
         hedge_summary_for_confidence=lambda summary, _confidence: summary,
         resolve_entry_happened_at=lambda source_ids, happened_map: happened_map.get(source_ids[0]) if source_ids else None,
-        map_category_names_to_ids=lambda _names, _ctx: [],
     )
 
     assert len(items) == 1
@@ -118,9 +113,6 @@ async def test_persist_memory_items_without_extract_model_does_not_set_extra() -
         categories=[],
         entities=[],
     )
-    async def _maybe_create_dynamic_categories(**kwargs: Any) -> list[Any]:
-        return list(kwargs["structured_entries"])
-
     async def _find_supersede_targets(**_kwargs: Any) -> dict[int, str]:
         return {}
 
@@ -136,13 +128,11 @@ async def test_persist_memory_items_without_extract_model_does_not_set_extra() -
         extract_model=None,
         message_happened_at_map={1: "2026-05-22T12:00:00Z"},
         session=None,
-        maybe_create_dynamic_categories=_maybe_create_dynamic_categories,
         enable_confidence_normalization=False,
         normalize_confidence=lambda entries: entries,
         find_supersede_targets=_find_supersede_targets,
         hedge_summary_for_confidence=lambda summary, _confidence: summary,
         resolve_entry_happened_at=lambda source_ids, happened_map: happened_map.get(source_ids[0]) if source_ids else None,
-        map_category_names_to_ids=lambda _names, _ctx: [],
     )
 
     assert len(store.memory_item_repo.calls) == 1
