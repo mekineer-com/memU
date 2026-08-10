@@ -670,13 +670,9 @@ def parse_dynamic_category_review(raw: str, bundle: Mapping[str, Any]) -> dict[s
     return decision
 
 
-async def generate_dynamic_category_review(
-    *,
+def render_dynamic_category_review_prompts(
     bundle: Mapping[str, Any],
-    select_chat_client: Callable[..., Any],
-    profile: str,
-    chat_client: Any | None = None,
-) -> dict[str, Any]:
+) -> tuple[str, str]:
     cluster_id, soul_anchor, candidate_memories, existing_dossiers = (
         _render_dynamic_category_review_bundle(bundle)
     )
@@ -686,13 +682,24 @@ async def generate_dynamic_category_review(
         candidate_memories=candidate_memories,
         existing_dossiers=existing_dossiers,
     )
-    if len((DYNAMIC_DOSSIER_REVIEW_SYSTEM_PROMPT + "\n" + user_prompt).split()) / 0.75 > 100_000:
+    return DYNAMIC_DOSSIER_REVIEW_SYSTEM_PROMPT, user_prompt
+
+
+async def generate_dynamic_category_review(
+    *,
+    bundle: Mapping[str, Any],
+    select_chat_client: Callable[..., Any],
+    profile: str,
+    chat_client: Any | None = None,
+) -> dict[str, Any]:
+    system_prompt, user_prompt = render_dynamic_category_review_prompts(bundle)
+    if len((system_prompt + "\n" + user_prompt).split()) / 0.75 > 100_000:
         raise ValueError("Dynamic dossier review prompt exceeds 100000 tokens")
     client = chat_client or select_chat_client(
         {"operation": "dossier", "step_id": "dynamic_review"},
         profile=profile,
     )
-    raw = await client.chat(user_prompt, system_prompt=DYNAMIC_DOSSIER_REVIEW_SYSTEM_PROMPT)
+    raw = await client.chat(user_prompt, system_prompt=system_prompt)
     return parse_dynamic_category_review(str(raw or ""), bundle)
 
 

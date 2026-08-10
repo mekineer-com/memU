@@ -41,6 +41,52 @@ class DossierRevisionStaleError(RuntimeError):
     pass
 
 
+def render_dossier_revision_prompts(bundle: Mapping[str, Any]) -> tuple[str, str]:
+    dossier = bundle["dossier"]
+    sectioned = label_sections(str(dossier.summary or ""))
+    current_prose = sectioned[0] if sectioned is not None else str(dossier.summary or "")
+    statuses = revision_status_items(bundle)
+    active_goals = list(bundle["active_life_goals"])
+    removed_goals = list(bundle["removed_life_goals"])
+    if active_goals or removed_goals:
+        goal_context = "\n".join(
+            [
+                "Active:",
+                *([f"- {goal}" for goal in active_goals] or ["(none)"]),
+                "Removed:",
+                *([f"- {goal}" for goal in removed_goals] or ["(none)"]),
+            ]
+        )
+    else:
+        goal_context = "(none)"
+
+    system_prompt = SYSTEM_PROMPT.format(
+        target_words=bundle["target_words"],
+        dossier_id=dossier.id,
+        soul_name=bundle["soul_name"],
+        user_name=bundle["user_name"],
+    )
+    if bundle["narrative_self"]:
+        system_prompt += "\n\n" + NARRATIVE_SELF_BLOCK.format(
+            narrative_self=bundle["narrative_self"]
+        )
+    user_prompt = USER_PROMPT.format(
+        soul_presence=bundle["soul_presence"],
+        dossier_index=bundle["dossier_index"] or "(none)",
+        goal_context_or_none=goal_context,
+        dossier_id=dossier.id,
+        dossier_kind=dossier.kind,
+        dossier_title=dossier.name,
+        dossier_description=dossier.description,
+        current_prose=current_prose or "(none)",
+        cited_memory_records=render_memory_records(statuses["cited"]),
+        candidate_memory_records=render_memory_records(statuses["search"]),
+        cleanup_memberships=render_memory_records(statuses["purged"]),
+        required_memory_records=render_memory_records(statuses["pending"]),
+    )
+    return system_prompt, user_prompt
+
+
 def _activity_key(category: MemoryCategory) -> tuple[int, float, str, str]:
     happened = category.last_evidence_at
     if happened is None:
@@ -450,48 +496,7 @@ class DossierMixin:
         *,
         chat_client: Any | None = None,
     ) -> dict[str, Any]:
-        dossier = bundle["dossier"]
-        sectioned = label_sections(str(dossier.summary or ""))
-        current_prose = sectioned[0] if sectioned is not None else str(dossier.summary or "")
-        statuses = revision_status_items(bundle)
-        active_goals = list(bundle["active_life_goals"])
-        removed_goals = list(bundle["removed_life_goals"])
-        if active_goals or removed_goals:
-            goal_context = "\n".join(
-                [
-                    "Active:",
-                    *([f"- {goal}" for goal in active_goals] or ["(none)"]),
-                    "Removed:",
-                    *([f"- {goal}" for goal in removed_goals] or ["(none)"]),
-                ]
-            )
-        else:
-            goal_context = "(none)"
-
-        system_prompt = SYSTEM_PROMPT.format(
-            target_words=bundle["target_words"],
-            dossier_id=dossier.id,
-            soul_name=bundle["soul_name"],
-            user_name=bundle["user_name"],
-        )
-        if bundle["narrative_self"]:
-            system_prompt += "\n\n" + NARRATIVE_SELF_BLOCK.format(
-                narrative_self=bundle["narrative_self"]
-            )
-        user_prompt = USER_PROMPT.format(
-            soul_presence=bundle["soul_presence"],
-            dossier_index=bundle["dossier_index"] or "(none)",
-            goal_context_or_none=goal_context,
-            dossier_id=dossier.id,
-            dossier_kind=dossier.kind,
-            dossier_title=dossier.name,
-            dossier_description=dossier.description,
-            current_prose=current_prose or "(none)",
-            cited_memory_records=render_memory_records(statuses["cited"]),
-            candidate_memory_records=render_memory_records(statuses["search"]),
-            cleanup_memberships=render_memory_records(statuses["purged"]),
-            required_memory_records=render_memory_records(statuses["pending"]),
-        )
+        system_prompt, user_prompt = render_dossier_revision_prompts(bundle)
         if len((system_prompt + "\n" + user_prompt).split()) / 0.75 > 100_000:
             raise ValueError("Dossier revision prompt exceeds 100000 tokens")
 

@@ -6,7 +6,7 @@ import pytest
 from pydantic import BaseModel
 
 from memu.app.dossier import DossierRevisionStaleError
-from memu.app.dossier_revision import render_memory_records, revision_status_items
+from memu.app.dossier_revision import label_sections, render_memory_records, revision_status_items
 from memu.app.service import MemoryService
 from memu.database.models import DossierCandidate, MemoryCategory, MemoryItem, Triple
 
@@ -46,6 +46,10 @@ class FakeChatClient:
     async def chat(self, prompt: str, system_prompt: str | None = None) -> str:
         self.calls.append((prompt, system_prompt))
         return self.response
+
+
+def test_single_markdown_section_is_structured_dossier_prose() -> None:
+    assert label_sections("## unlabeled") == ("S1\n## unlabeled", [("S1", "## unlabeled")])
 
 
 def _service(

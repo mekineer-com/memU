@@ -8,13 +8,13 @@
 | Package | Purpose |
 |---------|---------|
 | `app/service.py` | `MemoryService` — top-level facade, only public API |
-| `app/dossier.py` | Dossier core policy: soul/user anchors, active/inactive sets, sparse memorize context, deterministic compact index, identity/content search views, strict `[M#]` handles, dormant revision preparation/generation, and atomic revision apply |
-| `app/dossier_revision.py` | Pure dossier-revision rendering, strict XML normalization, and deterministic section-patch assembly |
+| `app/dossier.py` | Dossier core policy: soul/user anchors, active/inactive sets, sparse memorize context, deterministic compact index, identity/content search views, strict `[M#]` handles, revision preparation/generation, reusable prompt rendering, and atomic revision apply |
+| `app/dossier_revision.py` | Pure dossier-revision rendering, strict XML normalization, and deterministic section-patch assembly; one leading `##` section is structured prose |
 | `app/memorize.py` | Memorize workflow: preprocess → route → extract → store. Roster supports same-role ambiguity + relationship-entity triggers; dedupe keys by `(source_role, speaker_id, summary)`; parse failures retry once before propagating. |
 | `app/memorize_parsing.py` | Parsing/normalization seam: message-index extraction, source-message-id normalization, timestamp parsing, XML/JSON memory-type response parsing |
 | `app/memorize_speakers.py` | Speaker attribution seam: speaker-id slugging, roster construction/validation, prompt-label sanitization, speaker_ref resolution |
 | `app/memorize_dedupe.py` | Dedupe/supersession seam: semantic dedupe, similarity scoring, re-embed fallback, `replaces_previous_fact` supersede resolution |
-| `app/memorize_categories.py` | Category seam: shared clustering, legacy dynamic-category planning, and dormant durable proposal/review prepare-generate-apply operations. Runtime cutover remains Slice H. Seed defaults live in `mcp-memu-server/config.json`. |
+| `app/memorize_categories.py` | Category seam: shared clustering, legacy dynamic-category planning, and dormant durable proposal/review prepare-render-generate-apply operations. Runtime cutover remains Slice H. Seed defaults live in `mcp-memu-server/config.json`. |
 | `app/category_summary_journal.py` | Append-only category-summary journal under `memu/journal/`; writes journal then updates `MemoryCategory.summary` + `previous_summary` |
 | `app/graph.py` | `GraphMixin` — graph reads, Atomic read surfaces (atoms/tags/canvas/neighborhood/similar/search), memory/category edits, approval review, hard-delete. Edge predicates: `caused_by`, `evokes`, `conflicts_with`, `parallels`, `shaped_by`. |
 | `app/memorize_persistence.py` | Persistence seam: resource creation, item/link/triple writes, item-reference backfill, happened-at resolution |

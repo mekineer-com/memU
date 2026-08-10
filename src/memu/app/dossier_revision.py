@@ -25,7 +25,7 @@ def strip_memory_citations(text: str) -> str:
 
 def label_sections(prose: str) -> tuple[str, list[tuple[str, str]]] | None:
     matches = list(_HEADING.finditer(prose))
-    if len(matches) < 2 or matches[0].start() != 0:
+    if not matches or matches[0].start() != 0:
         return None
     sections = [
         (f"S{index + 1}", prose[match.start() : matches[index + 1].start() if index + 1 < len(matches) else None])
