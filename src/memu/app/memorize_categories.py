@@ -8,16 +8,25 @@ import re
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import UTC, date, datetime
 from typing import Any, cast
+from xml.etree.ElementTree import Element
+
+from defusedxml import ElementTree
 
 from memu.app.category_summary_journal import update_category_summary_with_journal
+from memu.database.models import MemoryCategory, MemoryItem
+from memu.database.vector import cosine_similarity, cosine_topk
 from memu.prompts.category_summary import (
     CUSTOM_PROMPT as CATEGORY_SUMMARY_CUSTOM_PROMPT,
 )
 from memu.prompts.category_summary import (
     PROMPT as CATEGORY_SUMMARY_PROMPT,
 )
-from memu.database.models import MemoryCategory, MemoryItem
-from memu.database.vector import cosine_similarity, cosine_topk
+from memu.prompts.dynamic_dossier_review import (
+    SYSTEM_PROMPT as DYNAMIC_DOSSIER_REVIEW_SYSTEM_PROMPT,
+)
+from memu.prompts.dynamic_dossier_review import (
+    USER_PROMPT as DYNAMIC_DOSSIER_REVIEW_USER_PROMPT,
+)
 from memu.utils.taxonomy import (
     DOSSIER_KINDS,
     category_identity_text,
@@ -456,6 +465,207 @@ async def prepare_dynamic_category_review(
             }
         )
     return bundles
+
+
+def _dynamic_review_candidate_ids(bundle: Mapping[str, Any]) -> list[str]:
+    candidate_ids = bundle.get("candidate_ids")
+    if not isinstance(candidate_ids, list) or any(
+        not isinstance(candidate_id, str) or not candidate_id for candidate_id in candidate_ids
+    ):
+        raise ValueError("Review bundle candidate IDs must be nonblank strings")
+    if len(candidate_ids) != len(set(candidate_ids)):
+        raise ValueError("Review bundle contains duplicate candidate IDs")
+    return candidate_ids
+
+
+def _render_dynamic_category_review_bundle(bundle: Mapping[str, Any]) -> tuple[str, str, str]:
+    cluster_id = bundle.get("cluster_id")
+    if not isinstance(cluster_id, str) or not cluster_id:
+        raise ValueError("Review bundle cluster ID is required")
+    candidate_ids = _dynamic_review_candidate_ids(bundle)
+    expected_ids = set(candidate_ids)
+    rendered_ids: list[str] = []
+    memory_blocks: list[str] = []
+    memories = bundle.get("memories")
+    if not isinstance(memories, list):
+        raise ValueError("Review bundle memories must be a list")
+    for entry in memories:
+        if not isinstance(entry, Mapping) or not isinstance(entry.get("item"), MemoryItem):
+            raise ValueError("Review bundle contains an invalid memory entry")
+        item = entry["item"]
+        if not isinstance(item.memory_ref, int) or isinstance(item.memory_ref, bool) or item.memory_ref < 1:
+            raise ValueError(f"Memory {item.id} has no valid [M#] reference")
+        candidates = entry.get("candidates")
+        if not isinstance(candidates, list) or not candidates:
+            raise ValueError(f"Memory {item.id} has no dossier candidates")
+        lines = [
+            f"[M{item.memory_ref}] type={item.memory_type}"
+            + (f" date={item.happened_at.date().isoformat()}" if item.happened_at is not None else ""),
+            f"Memory: {' '.join(item.summary.split())}",
+            "Candidate labels:",
+        ]
+        for candidate in candidates:
+            candidate_id = getattr(candidate, "id", None)
+            proposed_name = getattr(candidate, "proposed_name", None)
+            if candidate_id not in expected_ids or not isinstance(proposed_name, str) or not proposed_name.strip():
+                raise ValueError(f"Memory {item.id} contains an invalid dossier candidate")
+            rendered_ids.append(candidate_id)
+            day = getattr(candidate, "memory_day", None)
+            suffix = f" | day={day}" if isinstance(day, str) and day else ""
+            lines.append(f"- candidate_id={candidate_id} | label={proposed_name.strip()}{suffix}")
+        memory_blocks.append("\n".join(lines))
+    if len(rendered_ids) != len(set(rendered_ids)) or set(rendered_ids) != expected_ids:
+        raise ValueError("Review bundle candidate rows do not match candidate IDs")
+
+    dossier_lines: list[str] = []
+    dossier_ids: set[str] = set()
+    existing = bundle.get("existing_dossiers")
+    if not isinstance(existing, list):
+        raise ValueError("Review bundle existing dossiers must be a list")
+    for dossier in existing:
+        if not isinstance(dossier, MemoryCategory) or dossier.id in dossier_ids:
+            raise ValueError("Review bundle contains an invalid existing dossier")
+        dossier_ids.add(dossier.id)
+        dossier_lines.append(
+            f"- dossier_id={dossier.id} | kind={dossier.kind} | title={dossier.name}\n"
+            f"  Description: {' '.join(dossier.description.split())}"
+        )
+    return cluster_id, "\n\n".join(memory_blocks), "\n".join(dossier_lines) or "(none)"
+
+
+def _dynamic_review_children(root: Element) -> dict[str, Element]:
+    if (root.text or "").strip():
+        raise ValueError("Unexpected text inside dynamic dossier review root")
+    children: dict[str, Element] = {}
+    for child in root:
+        if child.tag in children:
+            raise ValueError(f"Duplicate dynamic dossier review element: {child.tag}")
+        if (child.tail or "").strip():
+            raise ValueError("Unexpected text inside dynamic dossier review root")
+        children[child.tag] = child
+    return children
+
+
+def _dynamic_review_leaf(element: Element) -> str:
+    if element.attrib or list(element):
+        raise ValueError(f"Expected plain text in {element.tag}")
+    return element.text or ""
+
+
+def _dynamic_review_id_list(element: Element) -> list[str]:
+    if element.attrib or (element.text or "").strip():
+        raise ValueError(f"Invalid {element.tag} wrapper")
+    values: list[str] = []
+    for child in element:
+        if child.tag != "candidate_id" or (child.tail or "").strip():
+            raise ValueError(f"Invalid candidate ID in {element.tag}")
+        value = _dynamic_review_leaf(child).strip()
+        if not value:
+            raise ValueError(f"Blank candidate ID in {element.tag}")
+        values.append(value)
+    if len(values) != len(set(values)):
+        raise ValueError(f"Duplicate candidate ID in {element.tag}")
+    return values
+
+
+def parse_dynamic_category_review(raw: str, bundle: Mapping[str, Any]) -> dict[str, Any]:
+    text = str(raw or "").strip()
+    if (
+        not text.startswith("<dynamic_dossier_review")
+        or not text.endswith("</dynamic_dossier_review>")
+        or "<!--" in text
+        or "<?" in text
+    ):
+        raise ValueError("Expected exact dynamic_dossier_review XML")
+    try:
+        root = ElementTree.fromstring(text)
+    except Exception as exc:
+        raise ValueError("Invalid dynamic dossier review XML") from exc
+    if root.tag != "dynamic_dossier_review" or set(root.attrib) != {"cluster_id"}:
+        raise ValueError("Expected exact dynamic_dossier_review root")
+    if root.attrib["cluster_id"] != bundle.get("cluster_id"):
+        raise ValueError("Dynamic dossier review cluster ID does not match request")
+
+    children = _dynamic_review_children(root)
+    action_element = children.get("action")
+    if action_element is None:
+        raise ValueError("Missing dynamic dossier review element: action")
+    action = _dynamic_review_leaf(action_element).strip()
+    common = {"action", "accepted_candidate_ids", "rejected_candidate_ids"}
+    action_fields = {
+        "existing": {"existing_dossier_id"},
+        "create": {"title", "description", "kind"},
+        "defer": set(),
+    }
+    if action not in action_fields:
+        raise ValueError(f"Invalid dynamic dossier review action: {action}")
+    expected = common | action_fields[action]
+    if set(children) != expected:
+        raise ValueError(
+            f"Dynamic dossier review {action} elements must be exactly: {sorted(expected)}"
+        )
+
+    accepted_ids = _dynamic_review_id_list(children["accepted_candidate_ids"])
+    rejected_ids = _dynamic_review_id_list(children["rejected_candidate_ids"])
+    bundle_ids = _dynamic_review_candidate_ids(bundle)
+    if set(accepted_ids) & set(rejected_ids) or set(accepted_ids + rejected_ids) != set(bundle_ids):
+        raise ValueError("Accepted and rejected candidate IDs must partition the bundle")
+    if action in {"existing", "create"} and not accepted_ids:
+        raise ValueError(f"Dynamic dossier review action {action} requires an accepted candidate")
+    if action == "defer" and accepted_ids:
+        raise ValueError("Deferred dynamic dossier review cannot accept candidates")
+
+    decision: dict[str, Any] = {
+        "cluster_id": root.attrib["cluster_id"],
+        "action": action,
+        "accepted_candidate_ids": accepted_ids,
+        "rejected_candidate_ids": rejected_ids,
+    }
+    if action == "existing":
+        target_id = _dynamic_review_leaf(children["existing_dossier_id"]).strip()
+        allowed_ids = {
+            dossier.id
+            for dossier in bundle.get("existing_dossiers", [])
+            if isinstance(dossier, MemoryCategory)
+        }
+        if not target_id or target_id not in allowed_ids:
+            raise ValueError("Existing dossier target was not supplied in the review bundle")
+        decision["existing_dossier_id"] = target_id
+    elif action == "create":
+        name = _dynamic_review_leaf(children["title"]).strip()
+        description = _dynamic_review_leaf(children["description"]).strip()
+        kind = _dynamic_review_leaf(children["kind"]).strip()
+        if not name:
+            raise ValueError("Created dossier title is required")
+        if not description:
+            raise ValueError("Created dossier description is required")
+        if kind not in DOSSIER_KINDS:
+            raise ValueError(f"Invalid dossier kind: {kind}")
+        decision.update({"name": name, "description": description, "kind": kind})
+    return decision
+
+
+async def generate_dynamic_category_review(
+    *,
+    bundle: Mapping[str, Any],
+    select_chat_client: Callable[..., Any],
+    profile: str,
+    chat_client: Any | None = None,
+) -> dict[str, Any]:
+    cluster_id, candidate_memories, existing_dossiers = _render_dynamic_category_review_bundle(bundle)
+    user_prompt = DYNAMIC_DOSSIER_REVIEW_USER_PROMPT.format(
+        cluster_id=cluster_id,
+        candidate_memories=candidate_memories,
+        existing_dossiers=existing_dossiers,
+    )
+    if len((DYNAMIC_DOSSIER_REVIEW_SYSTEM_PROMPT + "\n" + user_prompt).split()) / 0.75 > 100_000:
+        raise ValueError("Dynamic dossier review prompt exceeds 100000 tokens")
+    client = chat_client or select_chat_client(
+        {"operation": "dossier", "step_id": "dynamic_review"},
+        profile=profile,
+    )
+    raw = await client.chat(user_prompt, system_prompt=DYNAMIC_DOSSIER_REVIEW_SYSTEM_PROMPT)
+    return parse_dynamic_category_review(str(raw or ""), bundle)
 
 
 def apply_dynamic_category_review(

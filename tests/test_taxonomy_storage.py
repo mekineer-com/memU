@@ -550,6 +550,103 @@ async def test_dynamic_category_review_counts_canonical_memories_and_fails_on_ba
 
 
 @pytest.mark.asyncio
+async def test_dynamic_category_review_generation_is_strict_and_bundle_bound(tmp_path) -> None:
+    store = _store(tmp_path)
+    items = [_item(store, SCOPE, f"memory {index}") for index in range(2)]
+    candidates = [
+        store.dossier_candidate_repo.add_candidate(
+            proposed_name="garden rituals",
+            item_id=item.id,
+            where=SCOPE,
+            memory_day=f"2026-08-0{index + 1}",
+        )
+        for index, item in enumerate(items)
+    ]
+    existing = _category(store, SCOPE, "Garden Life", kind="lore")
+    store.memory_item_repo.backfill_memory_refs(SCOPE)
+
+    async def nearby(_query, **_kwargs):
+        return [(existing, 0.9)]
+
+    bundle = (
+        await memorize_categories.prepare_dynamic_category_review(
+            store=store,
+            where=SCOPE,
+            cluster_size=2,
+            search_dossiers=nearby,
+        )
+    )[0]
+    accepted, rejected = [candidate.id for candidate in candidates]
+    create_xml = f"""<dynamic_dossier_review cluster_id="{bundle['cluster_id']}">
+  <action>create</action>
+  <accepted_candidate_ids><candidate_id>{accepted}</candidate_id></accepted_candidate_ids>
+  <rejected_candidate_ids><candidate_id>{rejected}</candidate_id></rejected_candidate_ids>
+  <title>Garden Magic</title><description>A bright little world of growing things.</description><kind>lore</kind>
+</dynamic_dossier_review>"""
+
+    class ChatClient:
+        def __init__(self, response: str) -> None:
+            self.response = response
+            self.calls: list[tuple[str, str | None]] = []
+
+        async def chat(self, prompt: str, system_prompt: str | None = None) -> str:
+            self.calls.append((prompt, system_prompt))
+            return self.response
+
+    client = ChatClient(create_xml)
+    decision = await memorize_categories.generate_dynamic_category_review(
+        bundle=bundle,
+        select_chat_client=lambda *_args, **_kwargs: pytest.fail("injected client ignored"),
+        profile="category",
+        chat_client=client,
+    )
+    assert decision == {
+        "cluster_id": bundle["cluster_id"],
+        "action": "create",
+        "accepted_candidate_ids": [accepted],
+        "rejected_candidate_ids": [rejected],
+        "name": "Garden Magic",
+        "description": "A bright little world of growing things.",
+        "kind": "lore",
+    }
+    assert all(candidate.id in client.calls[0][0] for candidate in candidates)
+    assert "[M1]" in client.calls[0][0] and "[M2]" in client.calls[0][0]
+
+    existing_xml = f"""<dynamic_dossier_review cluster_id="{bundle['cluster_id']}">
+  <action>existing</action>
+  <accepted_candidate_ids><candidate_id>{accepted}</candidate_id></accepted_candidate_ids>
+  <rejected_candidate_ids><candidate_id>{rejected}</candidate_id></rejected_candidate_ids>
+  <existing_dossier_id>{existing.id}</existing_dossier_id>
+</dynamic_dossier_review>"""
+    assert memorize_categories.parse_dynamic_category_review(existing_xml, bundle)[
+        "existing_dossier_id"
+    ] == existing.id
+
+    defer_xml = f"""<dynamic_dossier_review cluster_id="{bundle['cluster_id']}">
+  <action>defer</action><accepted_candidate_ids></accepted_candidate_ids>
+  <rejected_candidate_ids><candidate_id>{accepted}</candidate_id><candidate_id>{rejected}</candidate_id></rejected_candidate_ids>
+</dynamic_dossier_review>"""
+    assert memorize_categories.parse_dynamic_category_review(defer_xml, bundle)["action"] == "defer"
+
+    invalid = [
+        f"```xml\n{create_xml}\n```",
+        create_xml.replace(bundle["cluster_id"], "foreign-cluster", 1),
+        create_xml.replace(rejected, "foreign-candidate"),
+        create_xml.replace(f"<candidate_id>{rejected}</candidate_id>", ""),
+        existing_xml.replace(existing.id, "foreign-dossier"),
+        existing_xml.replace(f"<candidate_id>{accepted}</candidate_id>", ""),
+        defer_xml.replace(
+            "<accepted_candidate_ids></accepted_candidate_ids>",
+            f"<accepted_candidate_ids><candidate_id>{accepted}</candidate_id></accepted_candidate_ids>",
+        ),
+        create_xml.replace("<kind>lore</kind>", "<kind>other</kind>"),
+    ]
+    for response in invalid:
+        with pytest.raises(ValueError):
+            memorize_categories.parse_dynamic_category_review(response, bundle)
+
+
+@pytest.mark.asyncio
 async def test_dynamic_category_review_apply_is_atomic_and_collision_safe(tmp_path) -> None:
     store = _store(tmp_path)
     items = [_item(store, SCOPE, f"memory {index}") for index in range(2)]

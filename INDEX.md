@@ -14,7 +14,7 @@
 | `app/memorize_parsing.py` | Parsing/normalization seam: message-index extraction, source-message-id normalization, timestamp parsing, XML/JSON memory-type response parsing |
 | `app/memorize_speakers.py` | Speaker attribution seam: speaker-id slugging, roster construction/validation, prompt-label sanitization, speaker_ref resolution |
 | `app/memorize_dedupe.py` | Dedupe/supersession seam: semantic dedupe, similarity scoring, re-embed fallback, `replaces_previous_fact` supersede resolution |
-| `app/memorize_categories.py` | Category seam: shared clustering, legacy dynamic-category planning, and dormant durable proposal/review operations. Runtime cutover remains Slice H. Seed defaults live in `mcp-memu-server/config.json`. |
+| `app/memorize_categories.py` | Category seam: shared clustering, legacy dynamic-category planning, and dormant durable proposal/review prepare-generate-apply operations. Runtime cutover remains Slice H. Seed defaults live in `mcp-memu-server/config.json`. |
 | `app/category_summary_journal.py` | Append-only category-summary journal under `memu/journal/`; writes journal then updates `MemoryCategory.summary` + `previous_summary` |
 | `app/graph.py` | `GraphMixin` — graph reads, Atomic read surfaces (atoms/tags/canvas/neighborhood/similar/search), memory/category edits, approval review, hard-delete. Edge predicates: `caused_by`, `evokes`, `conflicts_with`, `parallels`, `shaped_by`. |
 | `app/memorize_persistence.py` | Persistence seam: resource creation, item/link/triple writes, item-reference backfill, happened-at resolution |
@@ -55,8 +55,8 @@
 
 ## Prompts (`src/memu/prompts/`)
 
-`dossier_revision.py` contains Marcos-reviewed dossier revision prompts; the
-callable remains dormant until the taxonomy consolidation cutover.
+`dossier_revision.py` and `dynamic_dossier_review.py` contain Marcos-reviewed
+dossier prompts; both callables remain dormant until the taxonomy cutover.
 
 | Directory | Files | Purpose |
 |-----------|-------|---------|

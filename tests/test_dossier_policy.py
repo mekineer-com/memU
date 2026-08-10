@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from memu.app.dossier import DossierRevisionStaleError
 from memu.app.dossier_revision import render_memory_records, revision_status_items
 from memu.app.service import MemoryService
-from memu.database.models import MemoryCategory, MemoryItem, Triple
+from memu.database.models import DossierCandidate, MemoryCategory, MemoryItem, Triple
 
 
 class DossierScope(BaseModel):
@@ -1046,6 +1046,64 @@ async def test_generate_dossier_revision_selects_existing_category_profile(
         ({"operation": "dossier", "step_id": "revision"}, service.memorize_config.category_update_llm_profile)
     ]
     assert "# Your character, your personality, your voice" not in str(client.calls[0][1])
+
+
+@pytest.mark.asyncio
+async def test_generate_dynamic_category_review_reuses_profile_and_preflights(
+    tmp_path, monkeypatch
+) -> None:
+    service = _service(tmp_path)
+    item = MemoryItem(
+        memory_ref=1,
+        resource_id=None,
+        memory_type="episode",
+        summary="A small garden ritual became part of daily life.",
+        embedding=[1.0, 0.0],
+    )
+    candidate = DossierCandidate(
+        proposed_name="garden rituals",
+        normalized_name="garden rituals",
+        item_id=item.id,
+    )
+    bundle = {
+        "cluster_id": "cluster_1",
+        "candidate_ids": [candidate.id],
+        "memory_count": 1,
+        "memories": [{"item": item, "candidates": [candidate]}],
+        "existing_dossiers": [],
+    }
+    response = f"""<dynamic_dossier_review cluster_id="cluster_1">
+  <action>create</action>
+  <accepted_candidate_ids><candidate_id>{candidate.id}</candidate_id></accepted_candidate_ids>
+  <rejected_candidate_ids></rejected_candidate_ids>
+  <title>Garden Magic</title><description>A bright ritual of growing things.</description><kind>lore</kind>
+</dynamic_dossier_review>"""
+    client = FakeChatClient(response)
+    selected: list[tuple[object, object]] = []
+
+    def select(step_context, *, profile=None):
+        selected.append((step_context, profile))
+        return client
+
+    monkeypatch.setattr(service, "_select_chat_client", select)
+    decision = await service.generate_dynamic_category_review(bundle)
+
+    assert decision["name"] == "Garden Magic"
+    assert selected == [
+        (
+            {"operation": "dossier", "step_id": "dynamic_review"},
+            service.memorize_config.category_update_llm_profile,
+        )
+    ]
+
+    bundle["memories"][0]["item"] = item.model_copy(update={"summary": "word " * 80_000})
+    monkeypatch.setattr(
+        service,
+        "_select_chat_client",
+        lambda *_args, **_kwargs: pytest.fail("client selected before prompt preflight"),
+    )
+    with pytest.raises(ValueError, match="exceeds 100000 tokens"):
+        await service.generate_dynamic_category_review(bundle)
 
 
 @pytest.mark.asyncio

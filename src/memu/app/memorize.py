@@ -1571,6 +1571,19 @@ class MemorizeMixin:
             cosine_threshold=cosine_threshold,
         )
 
+    async def generate_dynamic_category_review(
+        self,
+        bundle: Mapping[str, Any],
+        *,
+        chat_client: Any | None = None,
+    ) -> dict[str, Any]:
+        return await categories.generate_dynamic_category_review(
+            bundle=bundle,
+            select_chat_client=self._select_chat_client,
+            profile=self.memorize_config.category_update_llm_profile,
+            chat_client=chat_client,
+        )
+
     def apply_dynamic_category_review(
         self,
         *,
