@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping, Sequence
 from typing import Any
-from xml.etree.ElementTree import Element
+from xml.etree.ElementTree import Element, tostring
 
 from defusedxml import ElementTree
 
@@ -68,7 +68,12 @@ def revision_status_items(bundle: Mapping[str, Any]) -> dict[str, list[MemoryIte
     }
 
 
-def parse_dossier_revision(raw: str, bundle: Mapping[str, Any]) -> dict[str, Any]:
+def parse_dossier_revision(
+    raw: str,
+    bundle: Mapping[str, Any],
+    *,
+    normalize_blank: bool = False,
+) -> dict[str, Any]:
     text = str(raw or "").strip()
     if (
         not text.startswith("<dossier_revision")
@@ -90,31 +95,17 @@ def parse_dossier_revision(raw: str, bundle: Mapping[str, Any]) -> dict[str, Any
 
     children = _singletons(
         root,
-        {"description", "prose_action", "prose", "prose_patches", "decisions"},
+        {"description", "prose_action", "prose_patches", "decisions"},
+        optional={"prose"},
     )
     description = _leaf_text(children["description"]).strip()
     if not description:
         raise ValueError("Dossier revision description is required")
-    action = _leaf_text(children["prose_action"]).strip()
-    prose = _leaf_text(children["prose"]).strip()
-    if action not in {"keep", "patch", "replace"}:
-        raise ValueError(f"Invalid dossier prose action: {action}")
-
-    current_prose = str(dossier.summary or "")
-    inventory = label_sections(current_prose)
-    patches = _parse_patches(children["prose_patches"])
-    if action == "keep":
-        if prose or patches:
-            raise ValueError("Keep requires empty prose and no patches")
-        resulting_prose = current_prose
-    elif action == "replace":
-        if inventory is not None or not prose or patches:
-            raise ValueError("Replace requires unstructured prose, full prose, and no patches")
-        resulting_prose = prose
-    else:
-        if inventory is None or prose or not patches:
-            raise ValueError("Patch requires a section inventory, no prose, and at least one patch")
-        resulting_prose = _apply_patches(inventory[1], patches)
+    action, resulting_prose = parse_section_revision(
+        children,
+        str(dossier.summary or ""),
+        normalize_blank=normalize_blank,
+    )
 
     statuses = revision_status_items(bundle)
     items = {
@@ -168,7 +159,171 @@ def parse_dossier_revision(raw: str, bundle: Mapping[str, Any]) -> dict[str, Any
     }
 
 
-def _singletons(root: Element, allowed: set[str]) -> dict[str, Element]:
+def parse_dossier_revision_batch(
+    raw: str,
+    bundles: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    text = str(raw or "").strip()
+    if (
+        not text.startswith("<dossier_revisions>")
+        or not text.endswith("</dossier_revisions>")
+        or "<!--" in text
+        or "<?" in text
+    ):
+        raise ValueError("Expected exact dossier_revisions XML")
+    try:
+        root = ElementTree.fromstring(text)
+    except Exception as exc:
+        raise ValueError("Invalid dossier revisions XML") from exc
+    if root.tag != "dossier_revisions" or root.attrib or (root.text or "").strip():
+        raise ValueError("Expected exact dossier_revisions root")
+
+    by_id: dict[str, Mapping[str, Any]] = {}
+    for bundle in bundles:
+        dossier_id = str(bundle["dossier"].id)
+        if dossier_id in by_id:
+            raise ValueError(f"Duplicate requested dossier id: {dossier_id}")
+        by_id[dossier_id] = bundle
+
+    parsed: dict[str, dict[str, Any]] = {}
+    for child in root:
+        if child.tag != "dossier_revision" or (child.tail or "").strip():
+            raise ValueError("Invalid dossier_revisions child")
+        dossier_id = child.attrib.get("dossier_id")
+        if dossier_id not in by_id:
+            raise ValueError(f"Unexpected dossier revision id: {dossier_id}")
+        if dossier_id in parsed:
+            raise ValueError(f"Duplicate dossier revision id: {dossier_id}")
+        child.tail = None
+        parsed[dossier_id] = parse_dossier_revision(
+            tostring(child, encoding="unicode"),
+            by_id[dossier_id],
+            normalize_blank=True,
+        )
+
+    missing = by_id.keys() - parsed.keys()
+    if missing:
+        raise ValueError(f"Missing dossier revision ids: {sorted(missing)}")
+    return [parsed[dossier_id] for dossier_id in by_id]
+
+
+def parse_anchor_revisions(
+    container: Element,
+    bundles: Mapping[str, Mapping[str, Any]],
+    *,
+    first_time: bool,
+) -> dict[str, dict[str, Any]]:
+    if container.tag != "anchor_revisions" or container.attrib or (container.text or "").strip():
+        raise ValueError("Expected exact anchor_revisions element")
+    if set(bundles) != {"soul", "user"}:
+        raise ValueError("Anchor revision requires soul and user bundles")
+
+    parsed: dict[str, dict[str, Any]] = {}
+    for child in container:
+        if (
+            child.tag != "anchor"
+            or set(child.attrib) != {"role"}
+            or (child.tail or "").strip()
+        ):
+            raise ValueError("Invalid anchor revision child")
+        role = child.attrib["role"]
+        if role not in bundles or role in parsed:
+            raise ValueError(f"Invalid or duplicate anchor role: {role}")
+        children = _singletons(
+            child,
+            {"description", "prose_action", "prose_patches"},
+        )
+        description = _leaf_text(children["description"]).strip()
+        if not description:
+            raise ValueError("Anchor revision description is required")
+        action, resulting_prose = parse_section_revision(
+            children,
+            str(bundles[role]["dossier"].summary or ""),
+            require_patch=first_time,
+            normalize_blank=True,
+        )
+
+        bundle = bundles[role]
+        evidence_items = {
+            item.id: item
+            for item in (*bundle["cited_items"], *bundle["candidate_items"])
+        }
+        by_ref = {f"[M{item.memory_ref}]": item for item in evidence_items.values()}
+        tokens = set(_MEMORY_TOKEN.findall(resulting_prose))
+        invalid_tokens = {token for token in tokens if _MEMORY_REF.fullmatch(token) is None}
+        if invalid_tokens:
+            raise ValueError(f"Invalid memory citations: {sorted(invalid_tokens)}")
+        resulting_refs = set(_MEMORY_REFS.findall(resulting_prose))
+        unknown_refs = resulting_refs - by_ref.keys()
+        if unknown_refs:
+            raise ValueError(
+                f"Anchor prose cites memories outside reflection evidence: {sorted(unknown_refs)}"
+            )
+        cited_ids = {by_ref[ref].id for ref in resulting_refs}
+        linked_ids = set(bundle["linked_item_ids"])
+        cleanup_ids = set(bundle["linked_inactive_item_ids"])
+        add_ids = cited_ids - linked_ids
+        if not add_ids <= set(bundle["actionable_item_ids"]):
+            raise ValueError("Anchor adds a memory outside actionable reflection evidence")
+        if cited_ids & cleanup_ids:
+            raise ValueError("Anchor prose cites an inactive memory")
+
+        parsed[role] = {
+            "anchor_role": role,
+            "dossier_id": bundle["dossier"].id,
+            "description": description,
+            "prose_action": action,
+            "resulting_prose": resulting_prose,
+            "add_item_ids": sorted(add_ids),
+            "remove_item_ids": [],
+            "cleanup_item_ids": sorted(cleanup_ids),
+            "cited_item_ids": sorted(cited_ids),
+        }
+
+    missing = bundles.keys() - parsed.keys()
+    if missing:
+        raise ValueError(f"Missing anchor revision roles: {sorted(missing)}")
+    return parsed
+
+
+def parse_section_revision(
+    children: Mapping[str, Element],
+    current_prose: str,
+    *,
+    require_patch: bool = False,
+    normalize_blank: bool = False,
+) -> tuple[str, str]:
+    action = _leaf_text(children["prose_action"]).strip()
+    prose_element = children.get("prose")
+    prose = _leaf_text(prose_element).strip() if prose_element is not None else ""
+    if action not in {"keep", "patch", "replace"}:
+        raise ValueError(f"Invalid dossier prose action: {action}")
+    if require_patch and action != "patch":
+        raise ValueError("First reflection requires an anchor patch")
+
+    normalized_prose = current_prose or ("## unlabeled" if normalize_blank else "")
+    inventory = label_sections(normalized_prose)
+    patches = _parse_patches(children["prose_patches"])
+    if action == "keep":
+        if prose or patches:
+            raise ValueError("Keep requires empty prose and no patches")
+        return action, normalized_prose
+    if action == "replace":
+        if inventory is not None or not prose or patches:
+            raise ValueError("Replace requires unstructured prose, full prose, and no patches")
+        return action, prose
+    if inventory is None or prose or not patches:
+        raise ValueError("Patch requires a section inventory, no prose, and at least one patch")
+    return action, _apply_patches(inventory[1], patches)
+
+
+def _singletons(
+    root: Element,
+    required: set[str],
+    *,
+    optional: set[str] | None = None,
+) -> dict[str, Element]:
+    allowed = required | (optional or set())
     if (root.text or "").strip():
         raise ValueError("Unexpected text inside dossier revision root")
     children: dict[str, Element] = {}
@@ -180,7 +335,7 @@ def _singletons(root: Element, allowed: set[str]) -> dict[str, Element]:
         if (child.tail or "").strip():
             raise ValueError("Unexpected text inside dossier revision root")
         children[child.tag] = child
-    missing = allowed - children.keys()
+    missing = required - children.keys()
     if missing:
         raise ValueError(f"Missing dossier revision elements: {sorted(missing)}")
     return children

@@ -490,6 +490,74 @@ class DossierMixin:
             ),
         }
 
+    def prepare_anchor_revision(
+        self,
+        role: AnchorRole,
+        where: Mapping[str, Any],
+        actionable_item_ids: Sequence[str],
+    ) -> dict[str, Any]:
+        if role not in {"soul", "user"}:
+            raise ValueError(f"Invalid anchor role: {role}")
+        scope = _scope(where)
+        store = self._get_database()
+        anchors = store.memory_category_repo.list_anchor_categories(scope)
+        _validate_anchors(anchors, scope)
+        if set(anchors) != {"soul", "user"}:
+            raise ValueError("Anchor revision requires seeded soul and user anchors")
+        anchor = anchors[role]
+
+        relations = [
+            relation
+            for relation in store.category_item_repo.list_relations(scope)
+            if relation.category_id == anchor.id
+        ]
+        linked_items, linked_inactive_ids = _load_linked_items(store, relations, scope)
+        actionable_ids = set(actionable_item_ids)
+        if len(actionable_ids) != len(actionable_item_ids):
+            raise ValueError("Anchor revision evidence contains duplicate memories")
+        active_actionable = store.memory_item_repo.list_items_by_ids(actionable_ids, scope)
+        if set(active_actionable) != actionable_ids:
+            raise ValueError("Anchor revision evidence contains inactive or wrong-scope memories")
+
+        cited_items: dict[str, MemoryItem] = {}
+        for memory_ref in self.extract_memory_refs(anchor.summary or ""):
+            item = store.memory_item_repo.get_item_by_memory_ref(memory_ref, scope)
+            if item is None or item.id not in linked_items:
+                raise ValueError(f"Anchor citation [M{memory_ref}] is not an anchor membership")
+            cited_items[item.id] = item
+        shown_items = {
+            **cited_items,
+            **active_actionable,
+            **{item_id: linked_items[item_id] for item_id in linked_inactive_ids},
+        }
+        missing_refs = sorted(item.id for item in shown_items.values() if item.memory_ref is None)
+        if missing_refs:
+            raise ValueError(f"Anchor revision memories lack stable references: {missing_refs}")
+
+        return {
+            "dossier": anchor,
+            "category_updated_at": anchor.updated_at,
+            "relation_tokens": sorted(
+                (relation.id, relation.created_at, relation.updated_at) for relation in relations
+            ),
+            "linked_item_ids": sorted(linked_items),
+            "linked_inactive_item_ids": sorted(linked_inactive_ids),
+            "cited_unlinked_item_ids": [],
+            "shown_inactive_item_ids": sorted(linked_inactive_ids),
+            "shown_item_tokens": sorted(
+                (item.id, item.updated_at, item.memory_ref, item.merged_into)
+                for item in shown_items.values()
+            ),
+            "cited_items": sorted(cited_items.values(), key=_item_sort_key),
+            "pending_items": [],
+            "cleanup_items": sorted(
+                (linked_items[item_id] for item_id in linked_inactive_ids),
+                key=_item_sort_key,
+            ),
+            "candidate_items": sorted(active_actionable.values(), key=_item_sort_key),
+            "actionable_item_ids": sorted(actionable_ids),
+        }
+
     async def generate_dossier_revision(
         self,
         bundle: Mapping[str, Any],
@@ -514,6 +582,8 @@ class DossierMixin:
         where: Mapping[str, Any],
         *,
         embedding_client: Any | None = None,
+        _allow_empty_text: bool = False,
+        _journal_actor: str = "dossier_revision",
     ) -> MemoryCategory:
         scope = _scope(where)
         dossier = bundle["dossier"]
@@ -547,7 +617,7 @@ class DossierMixin:
         provisional_members = (snapshot_linked_ids | add_ids) - remove_ids - cleanup_ids
 
         embedding: list[float] | None = None
-        if provisional_members and description != dossier.description:
+        if (provisional_members or _allow_empty_text) and description != dossier.description:
             client = embedding_client or self._select_embedding_client(
                 {"operation": "dossier", "step_id": "update_identity"}
             )
@@ -682,8 +752,8 @@ class DossierMixin:
                 max((_item_time(item) for item in final_items.values()), default=None)
             )
             completed_at = datetime.now(UTC)
-            description_changed = bool(resulting_members) and description != current.description
-            prose_changed = bool(resulting_members) and prose != str(current.summary or "")
+            description_changed = (bool(resulting_members) or _allow_empty_text) and description != current.description
+            prose_changed = (bool(resulting_members) or _allow_empty_text) and prose != str(current.summary or "")
             update: dict[str, Any] = {
                 "category_id": current.id,
                 "last_evidence_at": last_evidence_at,
@@ -720,11 +790,33 @@ class DossierMixin:
                     summary_before=prose_before,
                     summary_after=str(committed.summary or ""),
                     scope=scope,
-                    edited_by="dossier_revision",
+                    edited_by=_journal_actor,
                 )
             except Exception:
                 logger.exception("Failed to journal committed dossier revision %s", committed.id)
         return fresh
+
+    async def apply_anchor_revision(
+        self,
+        bundle: Mapping[str, Any],
+        decision: Mapping[str, Any],
+        where: Mapping[str, Any],
+        *,
+        embedding_client: Any | None = None,
+    ) -> MemoryCategory:
+        anchor = bundle.get("dossier")
+        if not isinstance(anchor, MemoryCategory) or anchor.anchor_role not in {"soul", "user"}:
+            raise ValueError("Anchor revision bundle has no dossier anchor")
+        if decision.get("anchor_role") != anchor.anchor_role:
+            raise ValueError("Anchor revision role does not match bundle")
+        return await self.apply_dossier_revision(
+            bundle,
+            decision,
+            where,
+            embedding_client=embedding_client,
+            _allow_empty_text=True,
+            _journal_actor="anchor_revision",
+        )
 
     def list_active_dossiers(self, where: Mapping[str, Any]) -> list[MemoryCategory]:
         scope = _scope(where)

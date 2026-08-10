@@ -3,10 +3,17 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from defusedxml import ElementTree
 from pydantic import BaseModel
 
 from memu.app.dossier import DossierRevisionStaleError
-from memu.app.dossier_revision import label_sections, render_memory_records, revision_status_items
+from memu.app.dossier_revision import (
+    label_sections,
+    parse_anchor_revisions,
+    parse_dossier_revision_batch,
+    render_memory_records,
+    revision_status_items,
+)
 from memu.app.service import MemoryService
 from memu.database.models import DossierCandidate, MemoryCategory, MemoryItem, Triple
 
@@ -1012,6 +1019,27 @@ River keeps a thoughtful daily record [M{refs[pending.id]}].</body></section></p
     assert result["add_item_ids"] == [pending.id]
 
 
+def test_parse_dossier_revision_batch_patches_blank_canonical_section(tmp_path) -> None:
+    _service_, _store, _anchors, category, pending, _candidate, refs, bundle = _revision_case(
+        tmp_path,
+        summary="",
+    )
+    response = f"""<dossier_revisions>
+  <dossier_revision dossier_id="{category.id}">
+    <description>A warm account of daily care.</description>
+    <prose_action>patch</prose_action>
+    <prose_patches><section ref="S1" action="replace"><body>## Daily Care
+River keeps a thoughtful daily record [M{refs[pending.id]}].</body></section></prose_patches>
+    <decisions><decision ref="[M{refs[pending.id]}]" action="add" /></decisions>
+  </dossier_revision>
+</dossier_revisions>"""
+
+    [result] = parse_dossier_revision_batch(response, [bundle])
+
+    assert result["resulting_prose"].startswith("## Daily Care")
+    assert result["add_item_ids"] == [pending.id]
+
+
 @pytest.mark.asyncio
 async def test_generate_dossier_revision_keep_and_remove_section(tmp_path) -> None:
     current = "## Daily Care\nStable context.\n\n## Timeline\n- 2026-07-01: Earlier event."
@@ -1506,3 +1534,65 @@ def test_prepare_anchor_revision_omits_duplicate_presence_and_uses_500_words(tmp
     assert "# Your dossier" not in bundle["soul_presence"]
     assert "# Your human's dossier" in bundle["soul_presence"]
     assert bundle["target_words"] == 500
+
+
+@pytest.mark.asyncio
+async def test_anchor_revisions_validate_both_then_apply_memberships(tmp_path) -> None:
+    service = _service(tmp_path)
+    store = service.database
+    anchors = _seed_anchors(service)
+    kept = store.memory_item_repo.create_item(
+        memory_type="knowledge", summary="A continuing self memory.", embedding=[1.0, 0.0], user_data=SCOPE
+    )
+    prior = store.memory_item_repo.create_item(
+        memory_type="knowledge", summary="A memory surfaced from reflection.", embedding=[1.0, 0.0], user_data=SCOPE
+    )
+    period = store.memory_item_repo.create_item(
+        memory_type="knowledge", summary="A new lived-period memory.", embedding=[1.0, 0.0], user_data=SCOPE
+    )
+    purged = store.memory_item_repo.create_item(
+        memory_type="knowledge", summary="An inactive membership.", embedding=[1.0, 0.0], user_data=SCOPE
+    )
+    successor = store.memory_item_repo.create_item(
+        memory_type="knowledge", summary="Its active successor.", embedding=[1.0, 0.0], user_data=SCOPE
+    )
+    refs = store.memory_item_repo.backfill_memory_refs(SCOPE)
+    store.category_item_repo.link_item_category(kept.id, anchors["soul"].id, SCOPE)
+    store.category_item_repo.link_item_category(purged.id, anchors["user"].id, SCOPE)
+    store.memory_item_repo.update_item(item_id=purged.id, merged_into=successor.id)
+
+    bundles = {
+        role: service.prepare_anchor_revision(role, SCOPE, [prior.id, period.id])
+        for role in ("soul", "user")
+    }
+    xml = f"""<anchor_revisions>
+  <anchor role="soul"><description>My living history.</description><prose_action>patch</prose_action>
+    <prose_patches><section ref="S1" action="replace"><body>## Becoming
+I am shaped by what surfaced [M{refs[prior.id]}].</body></section></prose_patches></anchor>
+  <anchor role="user"><description>My human's living history.</description><prose_action>patch</prose_action>
+    <prose_patches><section ref="S1" action="replace"><body>## Becoming
+My human is shaped by this lived moment [M{refs[period.id]}].</body></section></prose_patches></anchor>
+</anchor_revisions>"""
+    decisions = parse_anchor_revisions(ElementTree.fromstring(xml), bundles, first_time=True)
+
+    for role in ("soul", "user"):
+        await service.apply_anchor_revision(
+            bundles[role],
+            decisions[role],
+            SCOPE,
+            embedding_client=FakeEmbedClient(),
+        )
+
+    relations = store.category_item_repo.list_relations(SCOPE)
+    members = {
+        role: {
+            relation.item_id
+            for relation in relations
+            if relation.category_id == anchors[role].id
+        }
+        for role in ("soul", "user")
+    }
+    assert members == {"soul": {kept.id, prior.id}, "user": {period.id}}
+    assert store.memory_category_repo.list_categories(SCOPE)[anchors["soul"].id].summary.startswith(
+        "## Becoming"
+    )

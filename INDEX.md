@@ -55,8 +55,8 @@
 
 ## Prompts (`src/memu/prompts/`)
 
-`dossier_revision.py` and `dynamic_dossier_review.py` contain Marcos-reviewed
-dossier prompts; both callables remain dormant until the taxonomy cutover.
+`dossier_revision.py`, `dynamic_dossier_review.py`, and `consolidation/` contain
+Marcos-reviewed dossier prompts.
 
 | Directory | Files | Purpose |
 |-----------|-------|---------|
@@ -66,7 +66,7 @@ dossier prompts; both callables remain dormant until the taxonomy cutover.
 | `router/router.py` | — | Route input by excluded memory types; produce 1–3 titled episodes with separate full summaries, compact items, category proposals, and a source-valid day |
 | `retrieve/` | `pre_retrieval_decision.py` | Retrieve/no-retrieve and active-query prompt |
 | `category_summary/` | `category.py`, `category_with_refs.py` | Category synthesis; treat `[reinforced Nx]` markers as frequency signals, not one-off facts |
-| `consolidation/` | `consolidation.py` | Consolidation prompt: narrative_self, life_goals, intentions, edges, companion_memory |
+| `consolidation/` | `dossiers.py`, `anchors.py` | Two-call reflection prompts: due life-domain dossiers, then narrative_self + soul/user anchors + goals + intentions + edges + companion memory |
 
 ## Task → Files
 
