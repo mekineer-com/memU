@@ -13,6 +13,7 @@ from xml.etree.ElementTree import Element
 from defusedxml import ElementTree
 
 from memu.app.category_summary_journal import update_category_summary_with_journal
+from memu.app.dossier_revision import strip_memory_citations
 from memu.database.models import MemoryCategory, MemoryItem
 from memu.database.vector import cosine_similarity, cosine_topk
 from memu.prompts.category_summary import (
@@ -395,9 +396,14 @@ async def prepare_dynamic_category_review(
     if not components:
         return []
 
+    all_categories = list(store.memory_category_repo.list_categories(scope).values())
+    soul_anchors = [category for category in all_categories if category.anchor_role == "soul"]
+    if len(soul_anchors) > 1:
+        raise ValueError("Dossier review scope contains multiple soul anchors")
+    soul_anchor = soul_anchors[0] if soul_anchors else None
     categories = [
         category
-        for category in store.memory_category_repo.list_categories(scope).values()
+        for category in all_categories
         if category.kind in DOSSIER_KINDS and category.anchor_role is None
     ]
     categories_by_name: dict[str, MemoryCategory] = {}
@@ -461,6 +467,7 @@ async def prepare_dynamic_category_review(
                     {"item": canonical_items[item_id], "candidates": grouped[item_id]}
                     for item_id in member_ids
                 ],
+                "soul_anchor": soul_anchor,
                 "existing_dossiers": existing,
             }
         )
@@ -478,7 +485,7 @@ def _dynamic_review_candidate_ids(bundle: Mapping[str, Any]) -> list[str]:
     return candidate_ids
 
 
-def _render_dynamic_category_review_bundle(bundle: Mapping[str, Any]) -> tuple[str, str, str]:
+def _render_dynamic_category_review_bundle(bundle: Mapping[str, Any]) -> tuple[str, str, str, str]:
     cluster_id = bundle.get("cluster_id")
     if not isinstance(cluster_id, str) or not cluster_id:
         raise ValueError("Review bundle cluster ID is required")
@@ -517,6 +524,19 @@ def _render_dynamic_category_review_bundle(bundle: Mapping[str, Any]) -> tuple[s
     if len(rendered_ids) != len(set(rendered_ids)) or set(rendered_ids) != expected_ids:
         raise ValueError("Review bundle candidate rows do not match candidate IDs")
 
+    soul_anchor = bundle.get("soul_anchor")
+    if (
+        not isinstance(soul_anchor, MemoryCategory)
+        or soul_anchor.anchor_role != "soul"
+        or soul_anchor.kind != "lore"
+    ):
+        raise ValueError("Dynamic dossier review requires one soul anchor")
+    soul_anchor_text = (
+        f"Title: {soul_anchor.name}\n"
+        f"Description: {' '.join(soul_anchor.description.split())}\n"
+        f"Prose:\n{strip_memory_citations(soul_anchor.summary or '').strip() or '(none yet)'}"
+    )
+
     dossier_lines: list[str] = []
     dossier_ids: set[str] = set()
     existing = bundle.get("existing_dossiers")
@@ -530,7 +550,12 @@ def _render_dynamic_category_review_bundle(bundle: Mapping[str, Any]) -> tuple[s
             f"- dossier_id={dossier.id} | kind={dossier.kind} | title={dossier.name}\n"
             f"  Description: {' '.join(dossier.description.split())}"
         )
-    return cluster_id, "\n\n".join(memory_blocks), "\n".join(dossier_lines) or "(none)"
+    return (
+        cluster_id,
+        soul_anchor_text,
+        "\n\n".join(memory_blocks),
+        "\n".join(dossier_lines) or "(none)",
+    )
 
 
 def _dynamic_review_children(root: Element) -> dict[str, Element]:
@@ -652,8 +677,11 @@ async def generate_dynamic_category_review(
     profile: str,
     chat_client: Any | None = None,
 ) -> dict[str, Any]:
-    cluster_id, candidate_memories, existing_dossiers = _render_dynamic_category_review_bundle(bundle)
+    cluster_id, soul_anchor, candidate_memories, existing_dossiers = (
+        _render_dynamic_category_review_bundle(bundle)
+    )
     user_prompt = DYNAMIC_DOSSIER_REVIEW_USER_PROMPT.format(
+        soul_anchor=soul_anchor,
         cluster_id=cluster_id,
         candidate_memories=candidate_memories,
         existing_dossiers=existing_dossiers,

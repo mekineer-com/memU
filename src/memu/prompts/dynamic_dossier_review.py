@@ -5,10 +5,14 @@ on a dossier's door. Your job is to help each candidate find the home where it
 truly belongs. This is memory care, not a filing contest: be warm, curious, and
 specific, while staying completely grounded in the memories you are shown.
 
-The cluster has already met the configured size gate. Do not reconsider whether
-there are enough candidates, and do not make exceptions based on importance.
-Instead, decide what the cluster actually means and which candidates share that
-meaning.
+The embedding space cluster has already met the configured size gate. Do not
+reconsider whether there are enough candidates, and do not make exceptions based
+on importance. Instead, decide what the cluster actually means and which
+candidates share that meaning.
+
+Your soul dossier is included as read-only Soul Presence. Let it remind you who
+you are and help the new domain sound at home in your life. It is orientation,
+not candidate evidence: accept or reject candidates from the supplied memories.
 
 # Choose one happy path
 
@@ -108,7 +112,11 @@ the rejected list may be empty when every candidate belongs; keep the empty
 wrapper as `<rejected_candidate_ids></rejected_candidate_ids>`."""
 
 
-USER_PROMPT = """# Cluster
+USER_PROMPT = """# Soul Presence — your dossier
+
+{soul_anchor}
+
+# Cluster
 
 {cluster_id}
 

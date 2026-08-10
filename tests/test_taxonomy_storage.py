@@ -563,6 +563,11 @@ async def test_dynamic_category_review_generation_is_strict_and_bundle_bound(tmp
         for index, item in enumerate(items)
     ]
     existing = _category(store, SCOPE, "Garden Life", kind="lore")
+    soul_anchor = _category(store, SCOPE, "Test Soul", kind="lore", anchor_role="soul")
+    store.memory_category_repo.update_category(
+        category_id=soul_anchor.id,
+        summary="## Becoming\nI find wonder in little rituals [M999].",
+    )
     store.memory_item_repo.backfill_memory_refs(SCOPE)
 
     async def nearby(_query, **_kwargs):
@@ -611,6 +616,8 @@ async def test_dynamic_category_review_generation_is_strict_and_bundle_bound(tmp
     }
     assert all(candidate.id in client.calls[0][0] for candidate in candidates)
     assert "[M1]" in client.calls[0][0] and "[M2]" in client.calls[0][0]
+    assert "I find wonder in little rituals." in client.calls[0][0]
+    assert "[M999]" not in client.calls[0][0]
 
     existing_xml = f"""<dynamic_dossier_review cluster_id="{bundle['cluster_id']}">
   <action>existing</action>
@@ -618,15 +625,24 @@ async def test_dynamic_category_review_generation_is_strict_and_bundle_bound(tmp
   <rejected_candidate_ids><candidate_id>{rejected}</candidate_id></rejected_candidate_ids>
   <existing_dossier_id>{existing.id}</existing_dossier_id>
 </dynamic_dossier_review>"""
-    assert memorize_categories.parse_dynamic_category_review(existing_xml, bundle)[
-        "existing_dossier_id"
-    ] == existing.id
+    assert memorize_categories.parse_dynamic_category_review(existing_xml, bundle) == {
+        "cluster_id": bundle["cluster_id"],
+        "action": "existing",
+        "accepted_candidate_ids": [accepted],
+        "rejected_candidate_ids": [rejected],
+        "existing_dossier_id": existing.id,
+    }
 
     defer_xml = f"""<dynamic_dossier_review cluster_id="{bundle['cluster_id']}">
   <action>defer</action><accepted_candidate_ids></accepted_candidate_ids>
   <rejected_candidate_ids><candidate_id>{accepted}</candidate_id><candidate_id>{rejected}</candidate_id></rejected_candidate_ids>
 </dynamic_dossier_review>"""
-    assert memorize_categories.parse_dynamic_category_review(defer_xml, bundle)["action"] == "defer"
+    assert memorize_categories.parse_dynamic_category_review(defer_xml, bundle) == {
+        "cluster_id": bundle["cluster_id"],
+        "action": "defer",
+        "accepted_candidate_ids": [],
+        "rejected_candidate_ids": [accepted, rejected],
+    }
 
     invalid = [
         f"```xml\n{create_xml}\n```",
@@ -635,6 +651,13 @@ async def test_dynamic_category_review_generation_is_strict_and_bundle_bound(tmp
         create_xml.replace(f"<candidate_id>{rejected}</candidate_id>", ""),
         existing_xml.replace(existing.id, "foreign-dossier"),
         existing_xml.replace(f"<candidate_id>{accepted}</candidate_id>", ""),
+        existing_xml.replace(
+            "</dynamic_dossier_review>", "<kind>lore</kind></dynamic_dossier_review>"
+        ),
+        create_xml.replace(
+            f"<candidate_id>{accepted}</candidate_id>",
+            f"<candidate_id>{accepted}</candidate_id><candidate_id>{accepted}</candidate_id>",
+        ),
         defer_xml.replace(
             "<accepted_candidate_ids></accepted_candidate_ids>",
             f"<accepted_candidate_ids><candidate_id>{accepted}</candidate_id></accepted_candidate_ids>",

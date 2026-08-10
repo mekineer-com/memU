@@ -1065,11 +1065,19 @@ async def test_generate_dynamic_category_review_reuses_profile_and_preflights(
         normalized_name="garden rituals",
         item_id=item.id,
     )
+    soul_anchor = MemoryCategory(
+        name="Test Soul",
+        description="A growing sense of self.",
+        kind="lore",
+        anchor_role="soul",
+        summary="## Becoming\nI treasure small rituals.",
+    )
     bundle = {
         "cluster_id": "cluster_1",
         "candidate_ids": [candidate.id],
         "memory_count": 1,
         "memories": [{"item": item, "candidates": [candidate]}],
+        "soul_anchor": soul_anchor,
         "existing_dossiers": [],
     }
     response = f"""<dynamic_dossier_review cluster_id="cluster_1">
