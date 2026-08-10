@@ -17,7 +17,7 @@ from memu.app import memorize_dedupe as dedupe
 from memu.app import memorize_categories as categories
 from memu.app import memorize_segments as segment_helpers
 from memu.app import memorize_persistence as persistence
-from memu.app.settings import CategoryConfig, CustomPrompt
+from memu.app.settings import CustomPrompt
 from memu.database.models import CategoryItem, MemoryCategory, MemoryItem, MemoryType, Resource
 from memu.database.vector import cosine_similarity
 from memu.prompts.memory_type import (
@@ -66,13 +66,6 @@ class SpeakerRosterEntry(NamedTuple):
     coarse_role: str
 
 
-class HomelessCategoryCluster(NamedTuple):
-    cluster_id: str
-    entry_indexes: list[int]
-    label_counts: dict[str, int]
-    average_salience: float | None
-    max_salience: float | None
-    examples: list[str]
 
 
 if TYPE_CHECKING:
@@ -85,9 +78,6 @@ if TYPE_CHECKING:
 class MemorizeMixin:
     if TYPE_CHECKING:
         memorize_config: MemorizeConfig
-        category_configs: list[CategoryConfig]
-        category_config_map: dict[str, CategoryConfig]
-        _category_prompt_str: str
         fs: LocalFS
         _run_workflow: Callable[..., Awaitable[WorkflowState]]
         _get_context: Callable[[], Context]
@@ -126,7 +116,6 @@ class MemorizeMixin:
         user: dict[str, Any] | None = None,
         raw_text: str | None = None,
         local_path: str | None = None,
-        all_categories_summary: str | None = None,
         soul_card: str | None = None,
         memory_retrieve_history: list[str] | None = None,
         memory_prior_context: list[str] | None = None,
@@ -143,7 +132,6 @@ class MemorizeMixin:
         user_scope = self.user_model(**user).model_dump() if user is not None else None
 
         conversation_id = self._resolve_conversation_id(user)
-        normalized_all_categories_summary = (all_categories_summary or "").strip() or None
         normalized_soul_card = (soul_card or "").strip() or None
 
         if modality == "conversation":
@@ -158,7 +146,6 @@ class MemorizeMixin:
                 user=user,
                 raw_text=segment_raw_text,
                 local_path=segment_local_path,
-                all_categories_summary=normalized_all_categories_summary,
                 soul_card=normalized_soul_card,
                 memory_retrieve_history=memory_retrieve_history,
                 memory_prior_context=memory_prior_context,
@@ -175,7 +162,6 @@ class MemorizeMixin:
             "category_ids": list(ctx.category_ids),
             "user": user_scope,
             "conversation_id": conversation_id,
-            "all_categories_summary": normalized_all_categories_summary,
             "memory_retrieve_history": memory_retrieve_history,
             "memory_prior_context": memory_prior_context,
             "soul_card": normalized_soul_card,
@@ -200,7 +186,6 @@ class MemorizeMixin:
         user: dict[str, Any] | None = None,
         raw_text: str | None = None,
         local_path: str | None = None,
-        all_categories_summary: str | None = None,
         soul_card: str | None = None,
         memory_retrieve_history: list[str] | None = None,
         memory_prior_context: list[str] | None = None,
@@ -218,7 +203,6 @@ class MemorizeMixin:
                     }
                 ],
                 user=user,
-                all_categories_summary=all_categories_summary,
                 soul_card=soul_card,
                 memory_retrieve_history=memory_retrieve_history,
                 memory_prior_context=memory_prior_context,
@@ -248,7 +232,6 @@ class MemorizeMixin:
             "category_ids": list(ctx.category_ids),
             "user": user_scope,
             "conversation_id": conversation_id or self._resolve_conversation_id(user),
-            "all_categories_summary": (all_categories_summary or "").strip() or None,
             "memory_retrieve_history": memory_retrieve_history,
             "memory_prior_context": memory_prior_context,
             "soul_card": (soul_card or "").strip() or None,
@@ -288,7 +271,6 @@ class MemorizeMixin:
         modality: str,
         segments: Sequence[Mapping[str, Any]],
         user: dict[str, Any] | None = None,
-        all_categories_summary: str | None = None,
         soul_card: str | None = None,
         memory_retrieve_history: list[str] | None = None,
         memory_prior_context: list[str] | None = None,
@@ -686,7 +668,7 @@ class MemorizeMixin:
                 role="categorize",
                 handler=self._memorize_categorize_items,
                 requires={"segment_plans", "ctx", "store", "local_path", "modality", "user"},
-                produces={"resources", "items", "relations", "category_updates", "homeless_item_count"},
+                produces={"resources", "items", "relations", "homeless_item_count"},
                 capabilities={"db", "vector"},
                 config={"embed_llm_profile": "embedding"},
             ),
@@ -694,16 +676,16 @@ class MemorizeMixin:
                 step_id="dedupe_merge",
                 role="dedupe_merge",
                 handler=self._memorize_dedupe_merge,
-                requires={"items", "relations", "category_updates", "store", "user"},
-                produces={"items", "relations", "category_updates"},
+                requires={"items", "relations", "store", "user"},
+                produces={"items", "relations"},
                 capabilities={"db"},
             ),
             WorkflowStep(
                 step_id="persist_index",
                 role="persist",
                 handler=self._memorize_persist_and_index,
-                requires={"category_updates", "ctx", "store"},
-                produces={"categories"},
+                requires={"items", "relations", "category_ids", "store", "user"},
+                produces={"relations", "category_ids"},
                 capabilities={"db", "llm"},
                 config={"chat_llm_profile": self.memorize_config.category_update_llm_profile},
             ),
@@ -894,63 +876,6 @@ class MemorizeMixin:
             token_freq=token_freq,
         )
 
-    def _cluster_homeless_entries(
-        self,
-        *,
-        filtered_entries: list[StructuredMemoryEntry],
-        per_entry_unknowns: Sequence[list[str]],
-        item_embeddings: Sequence[Any] | None = None,
-    ) -> tuple[list[HomelessCategoryCluster], dict[int, str]]:
-        return cast(
-            tuple[list[HomelessCategoryCluster], dict[int, str]],
-            categories._cluster_homeless_entries(
-                filtered_entries=cast(list[Any], filtered_entries),
-                per_entry_unknowns=per_entry_unknowns,
-                item_embeddings=item_embeddings,
-                normalize_embedding_vector=dedupe._normalize_embedding_vector,
-                cosine_similarity=cosine_similarity,
-                cluster_factory=HomelessCategoryCluster,
-                cluster_similarity_threshold=categories._dynamic_category_cluster_threshold(),
-                cluster_min_size=categories._dynamic_category_cluster_min_size(
-                    getattr(self.memorize_config, "dynamic_category_cluster_size", 10),
-                ),
-            ),
-        )
-
-    async def _plan_dynamic_categories(
-        self,
-        *,
-        ctx: Context,
-        store: Database,
-        strong_clusters: Sequence[HomelessCategoryCluster],
-        ungrouped_unknown_counts: Mapping[str, int],
-        ungrouped_unknown_examples: Mapping[str, list[str]],
-        min_mentions: int,
-        policy: str,
-        default_desc: str,
-    ) -> tuple[dict[str, str], dict[str, str], dict[str, str]]:
-        return cast(
-            tuple[dict[str, str], dict[str, str], dict[str, str]],
-            await categories._plan_dynamic_categories(
-                ctx=ctx,
-                store=store,
-                strong_clusters=cast(Sequence[Any], strong_clusters),
-                ungrouped_unknown_counts=ungrouped_unknown_counts,
-                ungrouped_unknown_examples=ungrouped_unknown_examples,
-                min_mentions=min_mentions,
-                policy=policy,
-                default_desc=default_desc,
-                fallback_category_configs=self.memorize_config.memory_categories or [],
-                llm_client=self._select_chat_client(
-                    {"operation": "memorize", "step_id": "dynamic_category_planner"},
-                    profile=getattr(self.memorize_config, "category_update_llm_profile", "default"),
-                ),
-                normalize_category_name=self._normalize_category_name,
-                dynamic_category_cluster_min_size=categories._dynamic_category_cluster_min_size(
-                    getattr(self.memorize_config, "dynamic_category_cluster_size", 10),
-                ),
-            ),
-        )
 
     async def _process_plan(
         self,
@@ -965,7 +890,6 @@ class MemorizeMixin:
         conversation_id: str | None,
         items: list[MemoryItem],
         relations: list[CategoryItem],
-        category_updates: dict[str, list[tuple[str, str]]],
         pending_segment_ids: list[str],
         session: Any = None,
     ) -> tuple[list[Resource], int]:
@@ -1061,7 +985,7 @@ class MemorizeMixin:
         persist_kwargs: dict[str, Any] = {}
         if session is not None:
             persist_kwargs["session"] = session
-        mem_items, _legacy_relations, _legacy_updates, homeless_delta = await self._persist_memory_items(
+        mem_items, homeless_delta = await self._persist_memory_items(
             resource_id=res.id,
             structured_entries=entries,
             ctx=ctx,
@@ -1097,7 +1021,6 @@ class MemorizeMixin:
         resources: list[Resource] = []
         items: list[MemoryItem] = []
         relations: list[CategoryItem] = []
-        category_updates: dict[str, list[tuple[str, str]]] = {}
         pending_segment_ids: list[str] = []
         user_scope = state.get("user", {})
         homeless_item_count = 0
@@ -1112,7 +1035,6 @@ class MemorizeMixin:
             conversation_id=state.get("conversation_id"),
             items=items,
             relations=relations,
-            category_updates=category_updates,
             pending_segment_ids=pending_segment_ids,
         )
 
@@ -1138,7 +1060,6 @@ class MemorizeMixin:
             "resources": resources,
             "items": items,
             "relations": relations,
-            "category_updates": category_updates,
             "homeless_item_count": homeless_item_count,
             "category_ids": list(dict.fromkeys(relation.category_id for relation in relations)),
             "pending_segment_ids": list(dict.fromkeys(x for x in pending_segment_ids if x)),
@@ -1576,42 +1497,6 @@ class MemorizeMixin:
     ) -> list[StructuredMemoryEntry]:
         return cast(list[StructuredMemoryEntry], speakers._decorate_entries_with_plan_context(entries, message_indices=message_indices))
 
-    async def _maybe_create_dynamic_categories(
-        self,
-        *,
-        structured_entries: list[StructuredMemoryEntry],
-        item_embeddings: Sequence[Any] | None = None,
-        ctx: Context,
-        store: Database,
-        embed_client: Any,
-        user: Mapping[str, Any] | None = None,
-        session: Any | None = None,
-    ) -> list[StructuredMemoryEntry]:
-        return cast(
-            list[StructuredMemoryEntry],
-            await categories._maybe_create_dynamic_categories(
-                structured_entries=cast(list[Any], structured_entries),
-                item_embeddings=item_embeddings,
-                ctx=ctx,
-                store=store,
-                embed_client=embed_client,
-                user=user,
-                session=session,
-                ensure_categories_ready=lambda ctx_arg, store_arg, user_arg: self._ensure_categories_ready(
-                    ctx_arg,
-                    store_arg,
-                    user_arg,
-                    embedding_client=embed_client,
-                ),
-                normalize_category_name=self._normalize_category_name,
-                cluster_homeless_entries=self._cluster_homeless_entries,
-                plan_dynamic_categories=self._plan_dynamic_categories,
-                max_categories_total=getattr(self.memorize_config, "max_categories_total", 0),
-                dynamic_category_cluster_size=getattr(self.memorize_config, "dynamic_category_cluster_size", 10),
-                dynamic_category_policy=getattr(self.memorize_config, "dynamic_category_policy", ""),
-                dynamic_category_description=getattr(self.memorize_config, "dynamic_category_description", ""),
-            ),
-        )
 
     def file_category_proposals(
         self,
@@ -1692,8 +1577,8 @@ class MemorizeMixin:
         extract_model: str | None = None,
         message_happened_at_map: Mapping[int, Any] | None = None,
         session: Any | None = None,
-    ) -> tuple[list[MemoryItem], list[CategoryItem], dict[str, list[tuple[str, str]]], int]:
-        items, rels, category_memory_updates, homeless_count = await persistence._persist_memory_items(
+    ) -> tuple[list[MemoryItem], int]:
+        items, homeless_count = await persistence._persist_memory_items(
             resource_id=resource_id,
             structured_entries=cast(list[Any], structured_entries),
             ctx=ctx,
@@ -1713,12 +1598,7 @@ class MemorizeMixin:
             hedge_summary_for_confidence=self._hedge_summary_for_confidence,
             resolve_entry_happened_at=self._resolve_entry_happened_at,
         )
-        return (
-            cast(list[MemoryItem], items),
-            cast(list[CategoryItem], rels),
-            category_memory_updates,
-            homeless_count,
-        )
+        return cast(list[MemoryItem], items), homeless_count
 
     def _supersede_similarity_threshold(self) -> float:
         return dedupe._supersede_similarity_threshold(
@@ -1745,58 +1625,6 @@ class MemorizeMixin:
         )
 
     @staticmethod
-    def _category_scope_key(user_scope: Mapping[str, Any] | None) -> str:
-        return categories._category_scope_key(user_scope)
-
-    async def _ensure_categories_ready(
-        self,
-        ctx: Context,
-        store: Database,
-        user_scope: Mapping[str, Any] | None = None,
-        *,
-        embedding_client: Any | None = None,
-    ) -> None:
-        await categories._ensure_categories_ready(
-            ctx,
-            store,
-            user_scope,
-            category_scope_key=self._category_scope_key,
-            initialize_categories=lambda ctx_arg, store_arg, user_arg, scope_key=None: self._initialize_categories(
-                ctx_arg,
-                store_arg,
-                user_arg,
-                scope_key=scope_key,
-                embedding_client=embedding_client,
-            ),
-        )
-
-    async def _initialize_categories(
-        self,
-        ctx: Context,
-        store: Database,
-        user: Mapping[str, Any] | None = None,
-        *,
-        scope_key: str | None = None,
-        embedding_client: Any | None = None,
-    ) -> None:
-        await categories._initialize_categories(
-            ctx,
-            store,
-            user,
-            scope_key=scope_key,
-            category_scope_key=self._category_scope_key,
-            category_configs=self.category_configs,
-            embedding_client=embedding_client,
-            select_embedding_client=self._select_embedding_client,
-            category_embedding_text=self._category_embedding_text,
-        )
-
-    @staticmethod
-    def _category_embedding_text(cat: CategoryConfig) -> str:
-        return categories._category_embedding_text(cat)
-
-    def _map_category_names_to_ids(self, names: list[str], ctx: Context) -> list[str]:
-        return categories._map_category_names_to_ids(names, ctx)
 
     async def _split_into_episodes(
         self, *, local_path: str, text: str | None, modality: str, llm_client: Any | None = None
@@ -1897,26 +1725,6 @@ class MemorizeMixin:
             parse_multimodal_response=self._parse_multimodal_response,
         )
 
-    def _format_categories_for_prompt(self, categories: list[CategoryConfig]) -> str:
-        if not categories:
-            base = "No categories provided."
-        else:
-            lines = []
-            for cat in categories:
-                name = cat.name.strip() or "Untitled"
-                desc = cat.description.strip()
-                lines.append(f"- {name}: {desc}" if desc else f"- {name}")
-            base = "\n".join(lines)
-
-        max_total = int(getattr(self.memorize_config, "max_categories_total", 0) or 0)
-        policy = str(getattr(self.memorize_config, "dynamic_category_policy", "") or "").strip()
-        note = "\n\n" + (policy + "\n\n" if policy else "")
-        note += (
-            "If none of the existing categories fit, you may propose a NEW category name. "
-            "Keep it broad (a life domain), not a specific event. "
-            f"Max total categories: {max_total or 'unlimited'}."
-        )
-        return base + note
 
     def _format_soul_context_for_prompt(
         self,
@@ -2092,87 +1900,6 @@ class MemorizeMixin:
             while "\n\n\n" in rendered:
                 rendered = rendered.replace("\n\n\n", "\n\n")
         return rendered
-
-    def _build_item_ref_id(self, item_id: str) -> str:
-        return persistence._build_item_ref_id(item_id)
-
-    async def _persist_item_references(
-        self,
-        *,
-        updated_summaries: dict[str, str],
-        category_updates: dict[str, list[tuple[str, str]]],
-        store: Database,
-    ) -> None:
-        await persistence._persist_item_references(
-            updated_summaries=updated_summaries,
-            category_updates=category_updates,
-            store=store,
-            build_item_ref_id=self._build_item_ref_id,
-        )
-
-    @staticmethod
-    def _looks_like_identifier_value(value: str) -> bool:
-        return persistence._looks_like_identifier_value(value)
-
-    def _summary_user_name(self, user_scope: Mapping[str, Any] | None, *, default: str) -> str:
-        scope = user_scope or {}
-        raw_name = scope.get("user_name")
-        if raw_name is not None:
-            explicit_name = str(raw_name).strip()
-            if explicit_name:
-                return explicit_name
-
-        raw_user_id = scope.get("user_id")
-        if raw_user_id is None:
-            return default
-        fallback = str(raw_user_id).strip()
-        if not fallback:
-            return default
-        if self._looks_like_identifier_value(fallback):
-            return default
-        return fallback
-
-    def _build_category_summary_prompt(
-        self,
-        *,
-        category: MemoryCategory,
-        new_memories: list[str] | list[tuple[str, str]],
-        user: dict[str, Any] | None = None,
-    ) -> str:
-        return categories._build_category_summary_prompt(
-            category=category,
-            new_memories=new_memories,
-            user=user,
-            memorize_config=self.memorize_config,
-            category_config_map=self.category_config_map,
-            build_item_ref_id=self._build_item_ref_id,
-            resolve_custom_prompt=self._resolve_custom_prompt,
-            summary_user_name=lambda scope: self._summary_user_name(scope, default="the user"),
-            escape_prompt_value=self._escape_prompt_value,
-        )
-
-    async def _update_category_summaries(
-        self,
-        updates: dict[str, list[tuple[str, str]]] | dict[str, list[str]],
-        ctx: Context,
-        store: Database,
-        llm_client: Any | None = None,
-        user: dict[str, Any] | None = None,
-    ) -> dict[str, str]:
-        client = llm_client or self._select_chat_client(None)
-        return await categories._update_category_summaries(
-            updates,
-            store=store,
-            llm_client=client,
-            user=user,
-            build_category_summary_prompt=lambda category, memories, user_scope: self._build_category_summary_prompt(
-                category=category,
-                new_memories=memories,
-                user=user_scope,
-            ),
-            summary_user_name=lambda scope: self._summary_user_name(scope, default=""),
-        )
-
     @staticmethod
     def _dedupe_message_indices(values: Sequence[int | float | str]) -> list[int]:
         return parsing._dedupe_message_indices(values)

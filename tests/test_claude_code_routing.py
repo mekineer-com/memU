@@ -49,13 +49,6 @@ class _FakeClaudeJSONClient(_FakeClaudeCLIClient):
         )
 
 
-class _FakeClaudeCategoryPlannerClient(_FakeClaudeCLIClient):
-    async def chat(self, prompt: str, **kwargs: object):
-        self.last_prompt = prompt
-        self.last_chat_kwargs = dict(kwargs)
-        return '{"create":[],"map":[]}'
-
-
 def _service(**kwargs) -> MemoryService:
     return MemoryService(
         database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
@@ -227,31 +220,6 @@ def test_select_chat_client_without_context_uses_default_profile(monkeypatch) ->
 
     assert isinstance(client, LLMClientWrapper)
     assert isinstance(client._client, HTTPLLMClient)
-
-
-@pytest.mark.asyncio
-async def test_dynamic_category_planner_uses_claude_code_selector(monkeypatch) -> None:
-    monkeypatch.setattr(service_module, "ClaudeCLIClient", _FakeClaudeCategoryPlannerClient)
-    service = _service(claude_code=True, claude_code_model="claude-opus-4-7")
-    ctx = SimpleNamespace(category_ids=[], category_name_to_id={})
-
-    out = await service._plan_dynamic_categories(
-        ctx=ctx,
-        store=SimpleNamespace(memory_category_repo=SimpleNamespace(categories={})),
-        strong_clusters=[],
-        ungrouped_unknown_counts={"health": 2},
-        ungrouped_unknown_examples={"health": ["Marcos discussed wheat reactions."]},
-        min_mentions=2,
-        policy="",
-        default_desc="",
-    )
-
-    assert out == ({}, {}, {})
-    assert isinstance(service._claude_cli_internal_client, _FakeClaudeCategoryPlannerClient)
-    assert service._claude_cli_internal_client.chat_model == "claude-opus-4-7"
-    assert service._claude_cli_internal_client.last_prompt is not None
-    assert "UNGROUPED UNKNOWN LABELS" in service._claude_cli_internal_client.last_prompt
-    assert "health" in service._claude_cli_internal_client.last_prompt
 
 
 @pytest.mark.asyncio

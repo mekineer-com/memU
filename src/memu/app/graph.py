@@ -608,7 +608,9 @@ class GraphMixin:
         self,
         item_id: str,
         *,
-        summary: str,
+        summary: str | None = None,
+        title: str | None = None,
+        description: str | None = None,
         where: Mapping[str, Any] | None = None,
         edited_by: str | None = None,
         approved: bool = False,
@@ -620,25 +622,37 @@ class GraphMixin:
         if kind != "category" or not raw_id:
             raise ValueError("only category summaries are editable")
 
-        clean = str(summary or "").strip()
-        if not clean:
+        clean = str(summary or "").strip() if summary is not None else None
+        clean_title = str(title or "").strip() if title is not None else None
+        clean_description = str(description or "").strip() if description is not None else None
+        if summary is not None and not clean:
             raise ValueError("summary is required")
+        if title is not None and not clean_title:
+            raise ValueError("title is required")
+        if description is not None and not clean_description:
+            raise ValueError("description is required")
+        if clean is None and clean_title is None and clean_description is None:
+            raise ValueError("title, description, or summary is required")
         current = store.memory_category_repo.list_categories(where).get(raw_id)
         if current is None:
             msg = f"Category with id {raw_id} not found"
             raise KeyError(msg)
-        if str(current.summary or "").strip() == clean:
-            if approved:
-                store.memory_category_repo.approve_category_summary(raw_id, where=where)
-            return self.graph_memory(f"category:{raw_id}", where=where)
+        if clean_title is not None or clean_description is not None:
+            await self.update_dossier(
+                raw_id,
+                where or {},
+                name=clean_title,
+                description=clean_description,
+            )
 
-        update_category_summary_with_journal(
-            store,
-            category_id=raw_id,
-            summary=clean,
-            where=where,
-            edited_by=edited_by,
-        )
+        if clean is not None and str(current.summary or "").strip() != clean:
+            update_category_summary_with_journal(
+                store,
+                category_id=raw_id,
+                summary=clean,
+                where=where,
+                edited_by=edited_by,
+            )
         if approved:
             store.memory_category_repo.approve_category_summary(raw_id, where=where)
         return self.graph_memory(f"category:{raw_id}", where=where)

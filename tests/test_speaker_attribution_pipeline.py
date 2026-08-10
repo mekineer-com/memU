@@ -115,7 +115,7 @@ def test_attribution_pipeline_fills_user_and_soul_speakers_with_fallback_indices
             user=user_data,
         )
 
-    items, _rels, _updates, _ = asyncio.run(_persist())
+    items, _ = asyncio.run(_persist())
     assert len(items) == 2
 
     loaded_user = store.memory_item_repo.get_item(items[0].id)

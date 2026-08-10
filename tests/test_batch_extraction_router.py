@@ -106,7 +106,6 @@ async def test_persist_plan_uses_short_episode_summary_as_item(
     embed_client = _EmbedStub()
     happened_at = datetime(2026, 1, 2, 10, tzinfo=UTC)
     relations: list[object] = []
-    category_updates: dict[str, list[tuple[str, str]]] = {}
 
     await service._process_plan(
         {
@@ -137,7 +136,6 @@ async def test_persist_plan_uses_short_episode_summary_as_item(
         conversation_id="chat",
         items=[],
         relations=relations,
-        category_updates=category_updates,
         pending_segment_ids=[],
     )
 
@@ -149,7 +147,6 @@ async def test_persist_plan_uses_short_episode_summary_as_item(
     assert created_items[0]["extra"]["memory_date"] == "2026-01-02"
     assert created_items[0]["happened_at"] == happened_at
     assert relations == []
-    assert category_updates == {}
     assert embed_client.payloads == [["Anchor: Full short story."]]
 
 
@@ -209,7 +206,6 @@ async def test_episode_items_use_their_own_embeddings(
         conversation_id="chat",
         items=[],
         relations=[],
-        category_updates={},
         pending_segment_ids=[],
     )
 
@@ -268,7 +264,6 @@ async def test_persist_plan_keeps_segment_local_path_without_flattened_copy(
         conversation_id="chat",
         items=[],
         relations=[],
-        category_updates={},
         pending_segment_ids=[],
     )
 
@@ -300,7 +295,6 @@ async def test_context_only_plan_creates_nothing() -> None:
         conversation_id="background",
         items=[],
         relations=[],
-        category_updates={},
         pending_segment_ids=pending_segment_ids,
     )
 
@@ -357,12 +351,8 @@ async def test_batch_router_failure_stops_before_persistence(monkeypatch: pytest
         persistence_started = True
         raise AssertionError("persistence must not start after router failure")
 
-    async def _noop_ensure(*_args, **_kwargs):
-        return None
-
     monkeypatch.setattr(service, "_route_segment", _fail_route)
     monkeypatch.setattr(service, "_memorize_categorize_items", _mark_persistence)
-    monkeypatch.setattr(service, "_ensure_categories_ready", _noop_ensure)
     monkeypatch.setattr(service, "_list_declared_relationship_roster", lambda **_kwargs: [])
 
     with pytest.raises(ValueError, match="Router reply still invalid"):
@@ -388,10 +378,6 @@ async def test_batch_router_failure_stops_before_persistence(monkeypatch: pytest
 async def test_batch_rejects_active_segment_without_source_date(monkeypatch: pytest.MonkeyPatch) -> None:
     service = _service()
 
-    async def _noop_ensure(*_args, **_kwargs):
-        return None
-
-    monkeypatch.setattr(service, "_ensure_categories_ready", _noop_ensure)
     monkeypatch.setattr(service, "_list_declared_relationship_roster", lambda **_kwargs: [])
 
     with pytest.raises(ValueError, match="has no source date"):
@@ -414,9 +400,6 @@ async def test_context_only_batch_skips_llm_and_returns_plural_empty_shape(
 
     async def _unexpected(*_args, **_kwargs):
         raise AssertionError("context-only batch must not call an LLM")
-
-    async def _noop_ensure(*_args, **_kwargs):
-        return None
 
     async def _categorize_empty(state, _step_context):
         assert state["segment_plans"][0]["context_only"] is True
@@ -443,7 +426,6 @@ async def test_context_only_batch_skips_llm_and_returns_plural_empty_shape(
         "_select_embedding_client",
         lambda *_args, **_kwargs: pytest.fail("context-only batch must not select an embedding client"),
     )
-    monkeypatch.setattr(service, "_ensure_categories_ready", _noop_ensure)
     monkeypatch.setattr(service, "_list_declared_relationship_roster", lambda **_kwargs: [])
     monkeypatch.setattr(service, "_memorize_categorize_items", _categorize_empty)
     monkeypatch.setattr(service, "_memorize_dedupe_merge", _noop_step)
@@ -504,9 +486,6 @@ async def test_batch_full_exclusion_runs_all_types_and_keeps_episodes(
         routed_types.extend(memory_types)
         return []
 
-    async def _noop_ensure(*_args, **_kwargs):
-        return None
-
     async def _capture_categorize(state, _step_context):
         persisted_episodes.extend(state["segment_plans"][0]["episodes"])
         state.update(resources=[], items=[], relations=[], pending_segment_ids=[])
@@ -521,7 +500,6 @@ async def test_batch_full_exclusion_runs_all_types_and_keeps_episodes(
 
     monkeypatch.setattr(service, "_route_segment", _route)
     monkeypatch.setattr(service, "_generate_entries_from_text", _capture_extract)
-    monkeypatch.setattr(service, "_ensure_categories_ready", _noop_ensure)
     monkeypatch.setattr(service, "_list_declared_relationship_roster", lambda **_kwargs: [])
     monkeypatch.setattr(service, "_memorize_categorize_items", _capture_categorize)
     monkeypatch.setattr(service, "_memorize_dedupe_merge", _noop_step)
@@ -573,9 +551,6 @@ async def test_memorize_segments_batch_passes_segment_speaker_rosters_without_se
     service = _service()
     user_scope = {"user_id": "Marcos", "soul_id": "Echo"}
 
-    async def _noop_ensure_categories_ready(_ctx, _store, _user_scope=None) -> None:
-        return None
-
     async def _route_profile_only(*_args, **_kwargs):
         return ["profile"], [{"title": "Anchor", "summary": "Full story.", "item": "Compact story."}]
 
@@ -586,7 +561,6 @@ async def test_memorize_segments_batch_passes_segment_speaker_rosters_without_se
         state.setdefault("resources", [])
         state.setdefault("items", [])
         state.setdefault("relations", [])
-        state.setdefault("category_updates", {})
         state.setdefault("pending_segment_ids", [])
         return state
 
@@ -609,7 +583,6 @@ async def test_memorize_segments_batch_passes_segment_speaker_rosters_without_se
         })
         return []
 
-    monkeypatch.setattr(service, "_ensure_categories_ready", _noop_ensure_categories_ready)
     monkeypatch.setattr(service, "_route_segment", _route_profile_only)
     monkeypatch.setattr(service, "_memorize_categorize_items", _noop_categorize)
     monkeypatch.setattr(service, "_memorize_dedupe_merge", _noop_step)
@@ -723,9 +696,6 @@ async def test_memorize_segment_direct_uses_grouped_chat_renderer(
         captured["extract_text"] = kwargs["resource_text"]
         return []
 
-    async def _noop_ensure_categories_ready(_ctx, _store, _user_scope=None) -> None:
-        return None
-
     async def _noop_step(state, _step_context):
         return state
 
@@ -733,7 +703,6 @@ async def test_memorize_segment_direct_uses_grouped_chat_renderer(
         state.setdefault("resources", [])
         state.setdefault("items", [])
         state.setdefault("relations", [])
-        state.setdefault("category_updates", {})
         state.setdefault("pending_segment_ids", [])
         return state
 
@@ -746,7 +715,6 @@ async def test_memorize_segment_direct_uses_grouped_chat_renderer(
         }
         return state
 
-    monkeypatch.setattr(service, "_ensure_categories_ready", _noop_ensure_categories_ready)
     monkeypatch.setattr(service, "_select_chat_client", lambda *_args, **_kwargs: SimpleNamespace(chat_model="test"))
     monkeypatch.setattr(service, "_list_declared_relationship_roster", lambda **_kwargs: [])
     monkeypatch.setattr(service, "_route_segment", _route_profile_only)

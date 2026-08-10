@@ -276,6 +276,11 @@ class DossierMixin:
             category_id=category_id,
             name=final_name if name is not None else None,
             description=final_description if description is not None else None,
+            previous_description=(
+                current.description
+                if description is not None and final_description != current.description
+                else None
+            ),
             embedding=embedding,
             kind=kind,
             lore_subtype=lore_subtype,

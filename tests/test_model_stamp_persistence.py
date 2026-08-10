@@ -69,7 +69,7 @@ async def test_persist_memory_items_stamps_extract_model_in_extra() -> None:
     async def _find_supersede_targets(**_kwargs: Any) -> dict[int, str]:
         return {}
 
-    items, rels, cat_updates, homeless = await persistence._persist_memory_items(
+    items, homeless = await persistence._persist_memory_items(
         resource_id="res-1",
         structured_entries=[entry],
         ctx=SimpleNamespace(),
@@ -89,8 +89,6 @@ async def test_persist_memory_items_stamps_extract_model_in_extra() -> None:
     )
 
     assert len(items) == 1
-    assert rels == []
-    assert cat_updates == {}
     assert homeless == 1
     assert len(store.memory_item_repo.calls) == 1
     assert store.memory_item_repo.calls[0]["extra"] == {"model": "claude-opus-4-6"}

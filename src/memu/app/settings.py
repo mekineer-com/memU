@@ -3,12 +3,6 @@ from typing import Annotated, Any, Literal
 
 from pydantic import AfterValidator, BaseModel, BeforeValidator, Field, RootModel, StringConstraints, model_validator
 
-from memu.prompts.category_summary import (
-    DEFAULT_CATEGORY_SUMMARY_PROMPT_ORDINAL,
-)
-from memu.prompts.category_summary import (
-    PROMPT as CATEGORY_SUMMARY_PROMPT,
-)
 from memu.prompts.memory_type import (
     DEFAULT_MEMORY_CUSTOM_PROMPT_ORDINAL,
     DEFAULT_MEMORY_TYPES,
@@ -59,20 +53,6 @@ def complete_prompt_blocks(prompt: CustomPrompt, default_blocks: Mapping[str, in
 
 
 CompleteMemoryTypePrompt = AfterValidator(lambda v: complete_prompt_blocks(v, DEFAULT_MEMORY_CUSTOM_PROMPT_ORDINAL))
-
-
-CompleteCategoryPrompt = AfterValidator(lambda v: complete_prompt_blocks(v, DEFAULT_CATEGORY_SUMMARY_PROMPT_ORDINAL))
-
-
-class CategoryConfig(BaseModel):
-    name: str
-    description: str = ""
-    target_length: int | None = None
-    summary_prompt: str | Annotated[CustomPrompt, CompleteCategoryPrompt] | None = None
-
-
-def _default_memory_categories() -> list[CategoryConfig]:
-    return []
 
 
 class LLMConfig(BaseModel):
@@ -171,7 +151,6 @@ class RetrieveConfig(BaseModel):
 
 
 class MemorizeConfig(BaseModel):
-    category_assign_threshold: float = Field(default=0.25)
     multimodal_preprocess_prompts: dict[str, str | CustomPrompt] = Field(
         default_factory=dict,
         description="Optional mapping of modality -> preprocess system prompt.",
@@ -186,10 +165,6 @@ class MemorizeConfig(BaseModel):
         description="User prompt overrides for each memory type extraction.",
     )
     memory_extract_llm_profile: str = Field(default="default", description="LLM profile for memory extract.")
-    memory_categories: list[CategoryConfig] = Field(
-        default_factory=_default_memory_categories,
-        description="Global memory category definitions embedded at service startup.",
-    )
     episodes_per_segment: int = Field(
         default=3,
         description="Maximum number of episodes the extraction router can return for one conversation segment.",
@@ -218,36 +193,11 @@ class MemorizeConfig(BaseModel):
         ge=0,
         description="Maximum active non-anchor dossiers retained per dossier kind.",
     )
-    max_categories_total: int = Field(
-        default=12,
-        description="Maximum total number of categories allowed (configured + dynamically created).",
-    )
-    dynamic_category_description: str = Field(
-        default=(
-            "Categories are life domains and are thus broad by nature. "
-            "Life domains are the core, interconnected areas of a being's existence—such as health, relationships, work, and finances."
-        ),
-        description="Default description for dynamically created categories.",
-    )
-
-    dynamic_category_policy: str = Field(
-        default="",
-        description="Optional extra guidance used when proposing/creating new categories. Leave empty to use only dynamic_category_description + rules.",
-    )
-    default_category_summary_prompt: str | Annotated[CustomPrompt, CompleteCategoryPrompt] = Field(
-        default=CATEGORY_SUMMARY_PROMPT,
-        description="Default system prompt for auto-generated category summaries.",
-    )
     category_summary_target_words: int = Field(
         default=300,
         description="Target maximum word count for auto-generated category summaries.",
     )
     category_update_llm_profile: str = Field(default="default", description="LLM profile for category summary.")
-    # Reference tracking for category summaries
-    enable_item_references: bool = Field(
-        default=False,
-        description="Enable inline [ref:ITEM_ID] citations in category summaries linking to source memory items.",
-    )
     semantic_dedupe_enabled: bool = Field(
         default=True,
         description="Enable conservative post-persist semantic dedupe in memorize workflow.",

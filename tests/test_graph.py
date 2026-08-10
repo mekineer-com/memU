@@ -11,7 +11,6 @@ from pydantic import BaseModel
 
 from memu.app import category_summary_journal
 from memu.app.graph import GraphMixin
-from memu.app.memorize_categories import _update_category_summaries
 from memu.app.service import MemoryService
 from memu.database.models import Triple
 
@@ -1324,47 +1323,6 @@ def test_graph_update_category_summary_journal_failure_leaves_db_unchanged(monke
     assert saved.previous_summary is None
 
 
-def test_update_category_summaries_journals_pipeline_overwrite(monkeypatch, tmp_path):
-    monkeypatch.setattr(category_summary_journal, "JOURNAL_DIR", tmp_path)
-    service = MemoryService(
-        database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
-        user_config={"model": GraphScope},
-    )
-    store = service._get_database()
-    scope = {"user_id": "pipeline", "soul_id": "s"}
-    category = store.memory_category_repo.get_or_create_category(
-        name="People",
-        description="",
-        embedding=[0.1],
-        user_data=scope,
-    )
-    store.memory_category_repo.update_category(category_id=category.id, summary="old pipeline summary")
-
-    class _LLM:
-        async def chat(self, _prompt):
-            return "pipeline summary"
-
-    updated = asyncio.run(
-        _update_category_summaries(
-            {category.id: ["new memory"]},
-            store=store,
-            llm_client=_LLM(),
-            user=scope,
-            build_category_summary_prompt=lambda *_args: "prompt",
-            summary_user_name=lambda _user: "",
-        )
-    )
-
-    saved = store.memory_category_repo.list_categories(scope)[category.id]
-    entry = json.loads((tmp_path / "s.summary_journal.jsonl").read_text(encoding="utf-8").splitlines()[0])
-    assert updated == {category.id: "pipeline summary"}
-    assert saved.summary == "pipeline summary"
-    assert saved.previous_summary == "old pipeline summary"
-    assert entry["summary_before"] == "old pipeline summary"
-    assert entry["summary_after"] == "pipeline summary"
-    assert entry["edited_by"] == "pipeline"
-
-
 def test_append_soul_summary_journal(monkeypatch, tmp_path):
     monkeypatch.setattr(category_summary_journal, "JOURNAL_DIR", tmp_path)
 
@@ -1382,41 +1340,3 @@ def test_append_soul_summary_journal(monkeypatch, tmp_path):
     assert entry["summary_id"] == "soul-summary:narrative_self"
     assert entry["summary_before"] == "before"
     assert entry["summary_after"] == "after"
-
-
-def test_update_category_summaries_empty_pipeline_output_keeps_old_summary(monkeypatch, tmp_path):
-    monkeypatch.setattr(category_summary_journal, "JOURNAL_DIR", tmp_path)
-    service = MemoryService(
-        database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
-        user_config={"model": GraphScope},
-    )
-    store = service._get_database()
-    scope = {"user_id": "pipeline_empty", "soul_id": "s"}
-    category = store.memory_category_repo.get_or_create_category(
-        name="People",
-        description="",
-        embedding=[0.1],
-        user_data=scope,
-    )
-    store.memory_category_repo.update_category(category_id=category.id, summary="old summary")
-
-    class _LLM:
-        async def chat(self, _prompt):
-            return "```markdown\n   \n```"
-
-    updated = asyncio.run(
-        _update_category_summaries(
-            {category.id: ["new memory"]},
-            store=store,
-            llm_client=_LLM(),
-            user=scope,
-            build_category_summary_prompt=lambda *_args: "prompt",
-            summary_user_name=lambda _user: "",
-        )
-    )
-
-    saved = store.memory_category_repo.list_categories(scope)[category.id]
-    assert updated == {}
-    assert saved.summary == "old summary"
-    assert saved.previous_summary is None
-    assert list(tmp_path.iterdir()) == []

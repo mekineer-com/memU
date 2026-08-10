@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -14,7 +13,6 @@ from memu.app.memorize import MemorizeMixin
 from memu.app.retrieve import RetrieveMixin
 from memu.app.settings import (
     BlobConfig,
-    CategoryConfig,
     DatabaseConfig,
     LLMConfig,
     LLMProfilesConfig,
@@ -42,11 +40,7 @@ TConfigModel = TypeVar("TConfigModel", bound=BaseModel)
 
 @dataclass
 class Context:
-    categories_ready: bool = False
     category_ids: list[str] = field(default_factory=list)
-    category_name_to_id: dict[str, str] = field(default_factory=dict)
-    category_scope_key: str | None = None
-    _init_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
 
 class MemoryService(DossierMixin, GraphMixin, MemorizeMixin, RetrieveMixin):
@@ -86,12 +80,7 @@ class MemoryService(DossierMixin, GraphMixin, MemorizeMixin, RetrieveMixin):
         self._claude_code_timeout_seconds = int(claude_code_timeout_seconds)
 
         self.fs = LocalFS(self.blob_config.resources_dir)
-        self.category_configs: list[CategoryConfig] = list(self.memorize_config.memory_categories or [])
-        self.category_config_map: dict[str, CategoryConfig] = {cfg.name: cfg for cfg in self.category_configs}
-        self._category_prompt_str = self._format_categories_for_prompt(self.category_configs)
-
-        self._context = Context(categories_ready=not bool(self.category_configs))
-        self._category_summary_embedding_cache: dict[str, tuple[str, list[float]]] = {}
+        self._context = Context()
         self._dossier_content_embedding_cache: dict[str, tuple[str, list[float]]] = {}
 
         self.database: Database = build_database(

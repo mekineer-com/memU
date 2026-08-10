@@ -14,10 +14,10 @@
 | `app/memorize_parsing.py` | Parsing/normalization seam: message-index extraction, source-message-id normalization, timestamp parsing, XML/JSON memory-type response parsing |
 | `app/memorize_speakers.py` | Speaker attribution seam: speaker-id slugging, roster construction/validation, prompt-label sanitization, speaker_ref resolution |
 | `app/memorize_dedupe.py` | Dedupe/supersession seam: semantic dedupe, similarity scoring, re-embed fallback, `replaces_previous_fact` supersede resolution |
-| `app/memorize_categories.py` | Category seam: shared clustering, legacy dynamic-category planning, and dormant durable proposal/review prepare-render-generate-apply operations. Runtime cutover remains Slice H. Seed defaults live in `mcp-memu-server/config.json`. |
+| `app/memorize_categories.py` | Dossier filing seam: category proposals, reviewed candidate clustering, and dynamic dossier prepare-render-generate-apply operations. |
 | `app/category_summary_journal.py` | Append-only category-summary journal under `memu/journal/`; writes journal then updates `MemoryCategory.summary` + `previous_summary` |
 | `app/graph.py` | `GraphMixin` — graph reads, Atomic read surfaces (atoms/tags/canvas/neighborhood/similar/search), memory/category edits, approval review, hard-delete. Edge predicates: `caused_by`, `evokes`, `conflicts_with`, `parallels`, `shaped_by`. |
-| `app/memorize_persistence.py` | Persistence seam: resource creation, item/link/triple writes, item-reference backfill, happened-at resolution |
+| `app/memorize_persistence.py` | Persistence seam: resource creation, item/triple writes, and happened-at resolution |
 | `app/memorize_segments.py` | Segment/preprocess seam: modality dispatch, segment text prep, background-tail summarization, rolling-summary merge, `on_extraction_progress` callback |
 | `app/retrieve.py` | Retrieve workflow: derive `active_query` → embed → rank → judge. `force_retrieve` skips the retrieve/no-retrieve gate. |
 | `app/settings.py` | Pydantic config models (MemorizeConfig, RetrieveConfig, LLMProfile, etc.) |
@@ -65,7 +65,6 @@ Marcos-reviewed dossier prompts.
 | `preprocess/` | `document.py`, `image.py`, `audio.py`, `video.py` | Input normalization for non-chat modalities |
 | `router/router.py` | — | Route input by excluded memory types; produce 1–3 titled episodes with separate full summaries, compact items, category proposals, and a source-valid day |
 | `retrieve/` | `pre_retrieval_decision.py` | Retrieve/no-retrieve and active-query prompt |
-| `category_summary/` | `category.py`, `category_with_refs.py` | Category synthesis; treat `[reinforced Nx]` markers as frequency signals, not one-off facts |
 | `consolidation/` | `dossiers.py`, `anchors.py` | Two-call reflection prompts: due life-domain dossiers, then narrative_self + soul/user anchors + goals + intentions + edges + companion memory |
 
 ## Task → Files
@@ -75,7 +74,7 @@ Marcos-reviewed dossier prompts.
 | Add memory type | `prompts/memory_type/__init__.py`, `database/models.py` | New `prompts/memory_type/{type}.py`, update PROMPTS dict + MemoryType literal |
 | Tune extraction | `prompts/memory_type/{type}.py` | Edit PROMPT / CUSTOM_PROMPT |
 | Tune routing | `prompts/router/router.py` | Edit routing prompt directly |
-| Change categories | `app/settings.py`, `prompts/category_summary/` | Prompt file + settings; seed defaults in `mcp-memu-server/config.json` |
+| Change dossier runtime | `app/dossier.py`, `app/memorize_categories.py`, `prompts/consolidation/` | Keep filing, revision, and reflection contracts aligned |
 | Modify retrieval | `app/retrieve.py`, `app/settings.py`, `prompts/retrieve/pre_retrieval_decision.py` | — |
 | Add LLM provider | `llm/backends/base.py` | New `llm/backends/{provider}.py`, register in `llm/wrapper.py` |
 | Add embedding provider | `embedding/backends/base.py` | New `embedding/backends/{provider}.py`, register in `embedding/http_client.py` |

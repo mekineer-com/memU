@@ -28,13 +28,11 @@ class RetrieveMixin:
         _run_workflow: Callable[..., Awaitable[WorkflowState]]
         _get_context: Callable[[], Context]
         _get_database: Callable[[], Database]
-        _ensure_categories_ready: Callable[[Context, Database], Awaitable[None]]
         _select_chat_client: Callable[..., Any]
         _select_embedding_client: Callable[[Mapping[str, Any] | None], Any]
         _model_dump_without_embeddings: Callable[[BaseModel], dict[str, Any]]
         _extract_json_blob: Callable[[str], str]
         _escape_prompt_value: Callable[[str], str]
-        _category_summary_embedding_cache: dict[str, tuple[str, list[float]]]
         user_model: type[BaseModel]
 
     async def retrieve(
@@ -578,37 +576,6 @@ class RetrieveMixin:
         state["response"] = response
         return state
 
-    async def _rank_categories_by_summary(
-        self,
-        query_vec: list[float],
-        top_k: int,
-        store: Database,
-        embed_client: Any | None = None,
-        categories: Mapping[str, Any] | None = None,
-    ) -> tuple[list[tuple[str, float]], dict[str, str]]:
-        category_pool = categories if categories is not None else store.memory_category_repo.categories
-        entries = [(cid, cat.summary) for cid, cat in category_pool.items() if cat.summary]
-        if not entries:
-            return [], {}
-        cache = self._category_summary_embedding_cache
-        missing_entries: list[tuple[str, str]] = []
-        for cid, summary in entries:
-            cached = cache.get(cid)
-            if cached is None or cached[0] != summary:
-                missing_entries.append((cid, summary))
-
-        if missing_entries:
-            client = embed_client or self._select_embedding_client(
-                {"operation": "retrieve", "step_id": "category_summary_embedding"}
-            )
-            missing_embeddings = await client.embed([summary for _, summary in missing_entries])
-            for (cid, summary), emb in zip(missing_entries, missing_embeddings, strict=True):
-                cache[cid] = (summary, emb)
-
-        corpus = [(cid, cache[cid][1]) for cid, _ in entries]
-        hits = cosine_topk(query_vec, corpus, k=top_k)
-        summary_lookup = dict(entries)
-        return hits, summary_lookup
 
     async def _decide_if_retrieval_needed(
         self,

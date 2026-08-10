@@ -145,30 +145,6 @@ def _choose_survivor_and_redundant(left: Any, right: Any) -> tuple[Any, Any]:
     return right, left
 
 
-def _filter_merged_from_category_updates(
-    updates: Any,
-    merged_ids: set[str],
-) -> dict[str, list[tuple[str, str]]]:
-    if not isinstance(updates, dict):
-        return {}
-    filtered: dict[str, list[tuple[str, str]]] = {}
-    for category_id, item_tuples in updates.items():
-        if not isinstance(item_tuples, list):
-            continue
-        kept: list[tuple[str, str]] = []
-        for entry in item_tuples:
-            if not isinstance(entry, (tuple, list)) or len(entry) != 2:
-                continue
-            item_id = str(entry[0]).strip()
-            summary = str(entry[1])
-            if not item_id or item_id in merged_ids:
-                continue
-            kept.append((item_id, summary))
-        if kept:
-            filtered[str(category_id)] = kept
-    return filtered
-
-
 def _dedupe_summary_tokens(summary: Any) -> set[str]:
     text = str(summary or "").lower()
     if not text:
@@ -423,7 +399,6 @@ async def _memorize_dedupe_merge(
     state["relations"] = [
         rel for rel in (state.get("relations") or []) if getattr(rel, "item_id", None) not in merged_ids
     ]
-    state["category_updates"] = _filter_merged_from_category_updates(state.get("category_updates"), merged_ids)
     return state
 
 

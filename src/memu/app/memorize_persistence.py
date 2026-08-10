@@ -6,66 +6,6 @@ from typing import Any
 from memu.database.models import Triple
 
 
-def _build_item_ref_id(item_id: str) -> str:
-    return item_id.replace("-", "")[:6]
-
-
-def _extract_refs_from_summaries(summaries: dict[str, str]) -> set[str]:
-    from memu.utils.references import extract_references
-
-    refs: set[str] = set()
-    for summary in summaries.values():
-        refs.update(extract_references(summary))
-    return refs
-
-
-async def _persist_item_references(
-    *,
-    updated_summaries: dict[str, str],
-    category_updates: dict[str, list[tuple[str, str]]],
-    store: Any,
-    build_item_ref_id: Callable[[str], str],
-) -> None:
-    referenced_short_ids = _extract_refs_from_summaries(updated_summaries)
-    if not referenced_short_ids:
-        return
-
-    short_id_to_item_id: dict[str, str] = {}
-    for item_tuples in category_updates.values():
-        for item_id, _summary in item_tuples:
-            short_id = build_item_ref_id(item_id)
-            short_id_to_item_id[short_id] = item_id
-
-    for short_id in referenced_short_ids:
-        matched_item_id = short_id_to_item_id.get(short_id)
-        if matched_item_id:
-            store.memory_item_repo.update_item(
-                item_id=matched_item_id,
-                extra={"ref_id": short_id},
-            )
-
-
-def _looks_like_identifier_value(value: str) -> bool:
-    import re
-
-    text = value.strip()
-    if not text:
-        return True
-    lowered = text.lower()
-    if re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", lowered):
-        return True
-    if re.fullmatch(r"[0-9a-f]{24,}", lowered):
-        return True
-    if " " in text:
-        return False
-    if len(text) < 12:
-        return False
-    if not re.fullmatch(r"[A-Za-z0-9_-]+", text):
-        return False
-    has_digit = any(ch.isdigit() for ch in text)
-    has_sep = ("-" in text) or ("_" in text)
-    return has_digit and has_sep
-
 
 def _resolve_entry_happened_at(
     source_message_ids: Sequence[int] | None,
@@ -158,12 +98,10 @@ async def _persist_memory_items(
     find_supersede_targets: Callable[..., Awaitable[dict[int, str]]],
     hedge_summary_for_confidence: Callable[[str, float | None], str],
     resolve_entry_happened_at: Callable[[Sequence[int] | None, Mapping[int, Any] | None], Any | None],
-) -> tuple[list[Any], list[Any], dict[str, list[tuple[str, str]]], int]:
+) -> tuple[list[Any], int]:
     summary_payloads = [entry.content for entry in structured_entries]
     item_embeddings = await embed_client.embed(summary_payloads) if summary_payloads else []
     items: list[Any] = []
-    rels: list[Any] = []
-    category_memory_updates: dict[str, list[tuple[str, str]]] = {}
     superseded_targets: set[str] = set()
 
     if enable_confidence_normalization:
@@ -244,4 +182,4 @@ async def _persist_memory_items(
     if normalized_extract_model is not None and items:
         store.memory_item_repo.refresh_model_score_calibration(model=normalized_extract_model, session=session)
 
-    return items, rels, category_memory_updates, homeless_count
+    return items, homeless_count
