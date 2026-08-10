@@ -937,6 +937,26 @@ River records each day with care [M{refs[pending.id]}].</body></section>
 
 
 @pytest.mark.asyncio
+async def test_generate_dossier_revision_patches_single_unlabeled_section(tmp_path) -> None:
+    service, _store, _anchors, category, pending, _candidate, refs, bundle = _revision_case(
+        tmp_path,
+        summary="## unlabeled",
+    )
+    response = f"""<dossier_revision dossier_id="{category.id}">
+  <description>A warm account of daily care.</description>
+  <prose_action>patch</prose_action><prose></prose>
+  <prose_patches><section ref="S1" action="replace"><body>## Daily Care
+River keeps a thoughtful daily record [M{refs[pending.id]}].</body></section></prose_patches>
+  <decisions><decision ref="[M{refs[pending.id]}]" action="add" /></decisions>
+</dossier_revision>"""
+
+    result = await service.generate_dossier_revision(bundle, chat_client=FakeChatClient(response))
+
+    assert result["resulting_prose"].startswith("## Daily Care")
+    assert result["add_item_ids"] == [pending.id]
+
+
+@pytest.mark.asyncio
 async def test_generate_dossier_revision_keep_and_remove_section(tmp_path) -> None:
     current = "## Daily Care\nStable context.\n\n## Timeline\n- 2026-07-01: Earlier event."
     service, _store, _anchors, category, pending, _candidate, refs, bundle = _revision_case(
