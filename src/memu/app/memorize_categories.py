@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import logging
 import math
-import re
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import UTC, date, datetime
 from typing import Any, cast
@@ -29,20 +28,6 @@ from memu.utils.taxonomy import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-def _dynamic_category_cluster_threshold() -> float:
-    return 0.75
-
-
-def _dynamic_category_cluster_min_size(dynamic_category_cluster_size: Any) -> int:
-    cluster_size = int(dynamic_category_cluster_size or 10)
-    return max(2, cluster_size)
-
-
-def _step_label(value: Any) -> str:
-    label = re.sub(r"[^A-Za-z0-9_-]+", "_", str(value or "").strip()).strip("_")
-    return label or "unknown"
 
 
 def _partition_category_names(
@@ -110,77 +95,6 @@ def _connected_components(
             )
         components.append(sorted(component))
     return components
-
-
-def _cluster_homeless_entries(
-    *,
-    filtered_entries: list[Any],
-    per_entry_unknowns: Sequence[list[str]],
-    item_embeddings: Sequence[Any] | None = None,
-    normalize_embedding_vector: Callable[[Any], list[float] | None],
-    cosine_similarity: Callable[[Sequence[float], Sequence[float]], float],
-    cluster_factory: Callable[..., Any],
-    cluster_similarity_threshold: float,
-    cluster_min_size: int,
-) -> tuple[list[Any], dict[int, str]]:
-    if not filtered_entries or not item_embeddings:
-        return [], {}
-
-    normalized_embeddings: list[list[float] | None] = [
-        normalize_embedding_vector(raw) for raw in item_embeddings[: len(filtered_entries)]
-    ]
-    if len(normalized_embeddings) < len(filtered_entries):
-        normalized_embeddings.extend([None] * (len(filtered_entries) - len(normalized_embeddings)))
-
-    candidate_indexes = [
-        idx
-        for idx, (entry, unknowns, embedding) in enumerate(
-            zip(filtered_entries, per_entry_unknowns, normalized_embeddings, strict=True)
-        )
-        if not entry.categories and unknowns and embedding is not None
-    ]
-    if len(candidate_indexes) < 2:
-        return [], {}
-
-    clusters: list[Any] = []
-    entry_cluster_ids: dict[int, str] = {}
-    components = _connected_components(
-        candidate_indexes,
-        normalized_embeddings,
-        cosine_similarity=cosine_similarity,
-        threshold=cluster_similarity_threshold,
-    )
-    for component in components:
-        if len(component) < cluster_min_size:
-            continue
-
-        label_counts: dict[str, int] = {}
-        saliences: list[float] = []
-        examples: list[str] = []
-        for entry_idx in component:
-            for label in per_entry_unknowns[entry_idx]:
-                label_counts[label] = label_counts.get(label, 0) + 1
-            salience = filtered_entries[entry_idx].reflection_salience
-            if salience is not None:
-                saliences.append(salience)
-            content = filtered_entries[entry_idx].content.strip()
-            if content and len(examples) < 4:
-                examples.append(content)
-
-        cluster_id = f"cluster_{len(clusters) + 1}"
-        cluster = cluster_factory(
-            cluster_id=cluster_id,
-            entry_indexes=component,
-            label_counts=label_counts,
-            average_salience=(sum(saliences) / len(saliences)) if saliences else None,
-            max_salience=max(saliences) if saliences else None,
-            examples=examples,
-        )
-        clusters.append(cluster)
-        for entry_idx in component:
-            entry_cluster_ids[entry_idx] = cluster_id
-
-    return clusters, entry_cluster_ids
 
 
 def _unit_vector(values: Sequence[float], *, label: str) -> list[float]:
