@@ -2,15 +2,14 @@ from __future__ import annotations
 
 import json
 import logging
-import math
 import re
 from collections.abc import Sequence
-from datetime import UTC, datetime
 from typing import Any
 from xml.etree.ElementTree import Element
 
 import defusedxml.ElementTree as ET
-import pendulum
+
+from memu.app.memorize_segments import grouped_chat_happened_at
 
 logger = logging.getLogger(__name__)
 
@@ -97,65 +96,11 @@ def _extract_conversation_messages(raw_text: Any) -> list[tuple[int, dict[str, A
     return list(enumerate(messages))
 
 
-def _parse_message_happened_at(raw: Any) -> Any | None:
-    if isinstance(raw, (int, float)) and math.isfinite(raw):
-        try:
-            ts = datetime.fromtimestamp(float(raw) / 1000.0, tz=UTC)
-            return pendulum.datetime(
-                ts.year,
-                ts.month,
-                ts.day,
-                0,
-                0,
-                0,
-                0,
-                tz="UTC",
-            )
-        except (ValueError, OverflowError, OSError):
-            return None
-    if not isinstance(raw, str) or not raw.strip():
-        return None
-    try:
-        parsed = pendulum.parse(raw, strict=False)
-    except (ValueError, OverflowError):
-        return None
-    if not isinstance(parsed, pendulum.DateTime):
-        return None
-    if parsed.tzinfo is None:
-        parsed = pendulum.datetime(
-            parsed.year,
-            parsed.month,
-            parsed.day,
-            parsed.hour,
-            parsed.minute,
-            parsed.second,
-            parsed.microsecond,
-            tz="UTC",
-        )
-    parsed_utc = parsed.in_timezone("UTC")
-    return pendulum.datetime(
-        parsed_utc.year,
-        parsed_utc.month,
-        parsed_utc.day,
-        0,
-        0,
-        0,
-        0,
-        tz="UTC",
-    )
-
-
 def _extract_message_happened_at_map(raw_text: Any) -> dict[int, Any]:
     messages = _extract_conversation_messages(raw_text)
     out: dict[int, Any] = {}
     for idx, msg in messages:
-        happened_at = _parse_message_happened_at(msg.get("ts_ms"))
-        if happened_at is None:
-            happened_at = _parse_message_happened_at(msg.get("timestamp"))
-        if happened_at is None:
-            happened_at = _parse_message_happened_at(msg.get("received_at"))
-        if happened_at is None:
-            happened_at = _parse_message_happened_at(msg.get("created_at"))
+        happened_at = grouped_chat_happened_at(msg)
         if happened_at is not None:
             out[idx] = happened_at
     return out

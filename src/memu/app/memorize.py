@@ -962,6 +962,7 @@ class MemorizeMixin:
                     user_data=dict(user_scope or {}),
                     conversation_id=conversation_id,
                     segment_id=segment_id,
+                    source_message_ids=list(plan.get("message_indices") or []),
                     happened_at=happened_at_value,
                     extra=extra_payload,
                     **({"session": session} if session is not None else {}),
@@ -1290,25 +1291,35 @@ class MemorizeMixin:
                 if item is not None and not isinstance(item, str):
                     raise ValueError("router episode_item must be a string or null")
                 normalized_summary = summary.strip()
-                normalized_item = str(item or "").strip() or normalized_summary
+                normalized_item = str(item or "").strip()
+                if (
+                    not normalized_item
+                    and len(re.findall(r"[.!?](?:\s|$)", normalized_summary)) > 2
+                ):
+                    raise ValueError("router episode_item is required for summaries over two sentences")
+                normalized_item = normalized_item or normalized_summary
                 raw_categories = row.get("categories")
+                if not isinstance(raw_categories, list) or not raw_categories:
+                    raise ValueError("router categories must be a non-empty string list")
                 episode_categories: list[str] = []
-                if isinstance(raw_categories, list):
-                    for category in raw_categories:
-                        normalized = category.strip() if isinstance(category, str) else ""
-                        if normalized and normalized not in episode_categories:
-                            episode_categories.append(normalized)
-                        if len(episode_categories) == 3:
-                            break
+                for category in raw_categories:
+                    normalized = category.strip() if isinstance(category, str) else ""
+                    if not normalized:
+                        raise ValueError("router categories must contain non-blank strings")
+                    if normalized not in episode_categories:
+                        episode_categories.append(normalized)
+                if len(episode_categories) > 3:
+                    raise ValueError("router categories must contain at most three values")
                 day = row.get("day")
-                normalized_day = day.strip() if isinstance(day, str) and day.strip() in source_days else source_days[0]
+                if not isinstance(day, str) or day.strip() not in source_days:
+                    raise ValueError("router episode day must match a source day")
                 episodes.append(
                     {
                         "title": title.strip(),
                         "summary": normalized_summary,
                         "item": normalized_item,
                         "categories": episode_categories,
-                        "day": normalized_day,
+                        "day": day.strip(),
                     }
                 )
             return routed_types, episodes
@@ -1476,11 +1487,16 @@ class MemorizeMixin:
         if len(entries) < 2:
             return entries
 
-        seen_exact: set[tuple[str, str | None, str]] = set()
+        seen_exact: set[tuple[str, str | None, str | None, str]] = set()
         kept: list[StructuredMemoryEntry] = []
         for entry in entries:
             normalized_summary = re.sub(r"\s+", " ", (entry.content or "").strip())
-            exact_key = (entry.memory_type, entry.source_role, normalized_summary.casefold())
+            exact_key = (
+                entry.memory_type,
+                entry.source_role,
+                entry.speaker_id,
+                normalized_summary.casefold(),
+            )
             if exact_key in seen_exact:
                 continue
             seen_exact.add(exact_key)

@@ -59,7 +59,13 @@ async def test_route_segment_never_accepts_more_than_three_episodes() -> None:
     service = _service()
     service.memorize_config.episodes_per_segment = 99
     rows = [
-        {"title": f"Moment {index}", "episode_summary": "A small story.", "episode_item": None}
+        {
+            "title": f"Moment {index}",
+            "episode_summary": "A small story.",
+            "episode_item": None,
+            "categories": ["Daily life"],
+            "day": "2026-01-02",
+        }
         for index in range(4)
     ]
 
@@ -106,7 +112,7 @@ async def test_route_segment_ignores_full_exclusion(caplog: pytest.LogCaptureFix
     client = _RouterStub(
         '{"excluded_types": ["profile", "knowledge"], "episodes": '
         '[{"title": "Anchor", "episode_summary": "Full story.", "episode_item": null, '
-        '"categories": 42, "day": null}]}'
+        '"categories": ["Daily life"], "day": "2026-01-02"}]}'
     )
 
     routed, episodes = await service._route_segment(
@@ -118,9 +124,48 @@ async def test_route_segment_ignores_full_exclusion(caplog: pytest.LogCaptureFix
 
     assert routed == ["profile", "knowledge"]
     assert episodes[0]["item"] == "Full story."
-    assert episodes[0]["categories"] == []
+    assert episodes[0]["categories"] == ["Daily life"]
     assert episodes[0]["day"] == "2026-01-02"
     assert "excluded every configured memory type" in caplog.text
+
+
+@pytest.mark.parametrize(
+    "episode",
+    [
+        {
+            "title": "Missing category", "episode_summary": "Short story.",
+            "episode_item": None, "day": "2026-01-02",
+        },
+        {
+            "title": "Bad category", "episode_summary": "Short story.",
+            "episode_item": None, "categories": 42, "day": "2026-01-02",
+        },
+        {
+            "title": "Bad day", "episode_summary": "Short story.",
+            "episode_item": None, "categories": ["Daily life"], "day": "2026-01-03",
+        },
+        {
+            "title": "Verbose", "episode_summary": "First. Second. Third.",
+            "episode_item": None, "categories": ["Daily life"], "day": "2026-01-02",
+        },
+    ],
+)
+@pytest.mark.asyncio
+async def test_route_segment_retries_required_episode_metadata(
+    episode: dict[str, object],
+) -> None:
+    service = _service()
+    client = _RouterStub(json.dumps({"excluded_types": [], "episodes": [episode]}))
+
+    with pytest.raises(ValueError):
+        await service._route_segment(
+            "episode text",
+            ["profile"],
+            llm_client=client,
+            source_days=["2026-01-02"],
+        )
+
+    assert len(client.prompts) == 2
 
 
 @pytest.mark.asyncio
@@ -160,6 +205,7 @@ async def test_persist_plan_uses_short_episode_summary_as_item(
             "message_happened_at_map": {},
             "source_day_happened_at": {"2026-01-02": happened_at},
             "segment_id": "chat:0-1",
+            "message_indices": [2, 4],
             "segment_messages": [],
         },
         modality="conversation",
@@ -183,6 +229,7 @@ async def test_persist_plan_uses_short_episode_summary_as_item(
     assert created_items[0]["extra"]["episode_categories"] == ["Unmatched proposal"]
     assert created_items[0]["extra"]["memory_date"] == "2026-01-02"
     assert created_items[0]["happened_at"] == happened_at
+    assert created_items[0]["source_message_ids"] == [2, 4]
     assert relations == []
     assert embed_client.payloads == [["Anchor: Full short story."]]
 

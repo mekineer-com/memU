@@ -279,7 +279,7 @@ def parse_happened_at(raw: Any) -> datetime | None:
         if abs(epoch) > 1_000_000_000_000:
             epoch = epoch / 1000.0
         try:
-            parsed = datetime.fromtimestamp(epoch, tz=timezone.utc)
+            parsed = datetime.fromtimestamp(epoch)
         except (OverflowError, OSError, ValueError):
             return None
     elif isinstance(raw, str):
@@ -299,9 +299,7 @@ def parse_happened_at(raw: Any) -> datetime | None:
             return None
     if parsed is None:
         return None
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone()
+    return parsed.replace(tzinfo=None)
 
 
 def format_relative_time_label(happened_at: Any, *, now: datetime | None = None) -> str | None:
