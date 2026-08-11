@@ -37,6 +37,8 @@ Dossiers are composed of memory references: styled as a diary, referenced like a
 `[M#]` means the full memory is present and available for you to work with.
 `[#]` is a read-only citation inside context prose; it can help you understand the story, but it is not available for decisions, new citations, or edges.
 
+A full memory under an inactive-citations heading is no longer active. Remove or replace its citation in that anchor's prose; do not cite it again.
+
 Every `[M#]` you add to anchor prose must have been supplied in full. Citing it also affirms that it belongs to that anchor, but citations are not the anchor's complete membership list. Removing a citation edits the prose; it does not by itself say that the memory no longer belongs.
 
 Both `Memories surfaced from my subconscious` and `Memories from this reflection period` contain full `[M#]` memories. You may cite a memory from either section in either anchor when it belongs there.
@@ -290,11 +292,17 @@ USER_PROMPT = r"""
 # Memories cited by your dossier anchor
 {soul_anchor_cited_memory_items}
 
+# Inactive memories cited by your dossier anchor
+{soul_anchor_inactive_cited_memory_items}
+
 # Your human's current dossier anchor
 {user_anchor}
 
 # Memories cited by your human's dossier anchor
 {user_anchor_cited_memory_items}
+
+# Inactive memories cited by your human's dossier anchor
+{user_anchor_inactive_cited_memory_items}
 
 # Current dossier index
 {dossier_index}

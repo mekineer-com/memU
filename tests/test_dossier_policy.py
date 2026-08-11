@@ -988,6 +988,13 @@ async def test_generate_dossier_revision_replaces_unstructured_prose_once(tmp_pa
     client = FakeChatClient(response)
     before = store.category_item_repo.list_relations(SCOPE)
 
+    plain = response.replace(
+        f"## Health\nA living account [M{refs[pending.id]}] [M{refs[candidate.id]}].",
+        f"A still-unstructured account [M{refs[pending.id]}] [M{refs[candidate.id]}].",
+    )
+    with pytest.raises(ValueError, match="structured full prose"):
+        await service.generate_dossier_revision(bundle, chat_client=FakeChatClient(plain))
+
     result = await service.generate_dossier_revision(bundle, chat_client=client)
 
     assert len(client.calls) == 1
@@ -1070,6 +1077,26 @@ River keeps a thoughtful daily record [M{refs[pending.id]}].</body></section></p
     assert result["resulting_prose"].startswith("## Daily Care")
     assert result["add_item_ids"] == [pending.id]
 
+    empty_bundle = dict(bundle)
+    empty_bundle.update({
+        "linked_item_ids": [],
+        "pending_items": [],
+        "candidate_items": [],
+    })
+    keep = f"""<dossier_revisions><dossier_revision dossier_id="{category.id}">
+  <description>A dossier waiting for its first memories.</description>
+  <prose_action>keep</prose_action><prose_patches></prose_patches><decisions></decisions>
+</dossier_revision></dossier_revisions>"""
+    [kept] = parse_dossier_revision_batch(keep, [empty_bundle])
+    assert kept["resulting_prose"] == ""
+
+    wider_than_prompt = keep.replace(
+        "<prose_action>keep</prose_action>",
+        "<prose_action>replace</prose_action><prose>## New\nText.</prose>",
+    )
+    with pytest.raises(ValueError, match="Unknown dossier revision element: prose"):
+        parse_dossier_revision_batch(wider_than_prompt, [empty_bundle])
+
 
 @pytest.mark.asyncio
 async def test_generate_dossier_revision_keep_and_remove_section(tmp_path) -> None:
@@ -1147,7 +1174,7 @@ async def test_generate_dossier_revision_rejects_oversized_prompt_before_client_
     service, _store, _anchors, _category_row, _pending, _candidate, _refs, bundle = _revision_case(
         tmp_path
     )
-    bundle["narrative_self"] = "word " * 75_001
+    bundle["narrative_self"] = "x" * 400_001
     monkeypatch.setattr(
         service,
         "_select_chat_client",
@@ -1646,6 +1673,18 @@ I am shaped by what surfaced [M{refs[prior.id]}].</body></section></prose_patche
 My human is shaped by this lived moment [M{refs[period.id]}].</body></section></prose_patches></anchor>
 </anchor_revisions>"""
     decisions = parse_anchor_revisions(ElementTree.fromstring(xml), bundles, first_time=True)
+
+    ungrounded_description = xml.replace(
+        "<description>My living history.</description>",
+        "<description>My living history [M999].</description>",
+        1,
+    )
+    with pytest.raises(ValueError, match="description cannot contain memory citations"):
+        parse_anchor_revisions(
+            ElementTree.fromstring(ungrounded_description),
+            bundles,
+            first_time=True,
+        )
 
     for role in ("soul", "user"):
         await service.apply_anchor_revision(

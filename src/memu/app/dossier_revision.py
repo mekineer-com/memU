@@ -21,6 +21,10 @@ def contains_memory_reference_token(text: str) -> bool:
     return _MEMORY_TOKEN.search(text) is not None
 
 
+def estimate_prompt_tokens(text: str) -> int:
+    return max(int(len(text.split()) / 0.75), (len(text) + 3) // 4)
+
+
 def strip_memory_citations(text: str) -> str:
     stripped = _MEMORY_REFS.sub("", text)
     stripped = re.sub(r"[ \t]+([.,;:!?])", r"\1", stripped)
@@ -76,6 +80,7 @@ def parse_dossier_revision(
     raw: str,
     bundle: Mapping[str, Any],
     *,
+    batch: bool = False,
     normalize_blank: bool = False,
 ) -> dict[str, Any]:
     text = str(raw or "").strip()
@@ -100,14 +105,13 @@ def parse_dossier_revision(
     children = _singletons(
         root,
         {"description", "prose_action", "prose_patches", "decisions"},
-        optional={"prose"},
+        optional=set() if batch else {"prose"},
     )
-    description = _leaf_text(children["description"]).strip()
-    if not description:
-        raise ValueError("Dossier revision description is required")
+    description = _parse_description(children["description"])
     action, resulting_prose = parse_section_revision(
         children,
         str(dossier.summary or ""),
+        allow_replace=not batch,
         normalize_blank=normalize_blank,
     )
 
@@ -203,6 +207,7 @@ def parse_dossier_revision_batch(
         parsed[dossier_id] = parse_dossier_revision(
             tostring(child, encoding="unicode"),
             by_id[dossier_id],
+            batch=True,
             normalize_blank=True,
         )
 
@@ -238,9 +243,7 @@ def parse_anchor_revisions(
             child,
             {"description", "prose_action", "prose_patches"},
         )
-        description = _leaf_text(children["description"]).strip()
-        if not description:
-            raise ValueError("Anchor revision description is required")
+        description = _parse_description(children["description"])
         action, resulting_prose = parse_section_revision(
             children,
             str(bundles[role]["dossier"].summary or ""),
@@ -295,6 +298,7 @@ def parse_section_revision(
     children: Mapping[str, Element],
     current_prose: str,
     *,
+    allow_replace: bool = True,
     require_patch: bool = False,
     normalize_blank: bool = False,
 ) -> tuple[str, str]:
@@ -303,6 +307,8 @@ def parse_section_revision(
     prose = _leaf_text(prose_element).strip() if prose_element is not None else ""
     if action not in {"keep", "patch", "replace"}:
         raise ValueError(f"Invalid dossier prose action: {action}")
+    if not allow_replace and action == "replace":
+        raise ValueError("Batch dossier revision does not allow replace")
     if require_patch and action != "patch":
         raise ValueError("First reflection requires an anchor patch")
 
@@ -312,14 +318,25 @@ def parse_section_revision(
     if action == "keep":
         if prose or patches:
             raise ValueError("Keep requires empty prose and no patches")
-        return action, normalized_prose
+        return action, current_prose
     if action == "replace":
-        if inventory is not None or not prose or patches:
-            raise ValueError("Replace requires unstructured prose, full prose, and no patches")
+        if inventory is not None or not prose or patches or label_sections(prose) is None:
+            raise ValueError(
+                "Replace requires unstructured current prose, structured full prose, and no patches"
+            )
         return action, prose
     if inventory is None or prose or not patches:
         raise ValueError("Patch requires a section inventory, no prose, and at least one patch")
     return action, _apply_patches(inventory[1], patches)
+
+
+def _parse_description(element: Element) -> str:
+    description = _leaf_text(element).strip()
+    if not description:
+        raise ValueError("Dossier revision description is required")
+    if contains_memory_reference_token(description):
+        raise ValueError("Dossier revision description cannot contain memory citations")
+    return description
 
 
 def _singletons(

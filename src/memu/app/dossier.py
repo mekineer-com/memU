@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 
 from memu.app.category_summary_journal import append_category_summary_journal
 from memu.app.dossier_revision import (
+    estimate_prompt_tokens,
     label_sections,
     parse_dossier_revision,
     render_memory_records,
@@ -629,7 +630,7 @@ class DossierMixin:
         chat_client: Any | None = None,
     ) -> dict[str, Any]:
         system_prompt, user_prompt = render_dossier_revision_prompts(bundle)
-        if len((system_prompt + "\n" + user_prompt).split()) / 0.75 > 100_000:
+        if estimate_prompt_tokens(system_prompt + "\n" + user_prompt) > 100_000:
             raise ValueError("Dossier revision prompt exceeds 100000 tokens")
 
         client = chat_client or self._select_chat_client(
