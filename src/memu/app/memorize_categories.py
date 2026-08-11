@@ -10,7 +10,7 @@ from xml.etree.ElementTree import Element
 
 from defusedxml import ElementTree
 
-from memu.app.dossier_revision import strip_memory_citations
+from memu.app.dossier_revision import contains_memory_reference_token, strip_memory_citations
 from memu.database.models import MemoryCategory, MemoryItem
 from memu.database.vector import cosine_similarity, cosine_topk
 from memu.prompts.dynamic_dossier_review import (
@@ -570,6 +570,8 @@ def parse_dynamic_category_review(raw: str, bundle: Mapping[str, Any]) -> dict[s
             raise ValueError("Created dossier title is required")
         if not description:
             raise ValueError("Created dossier description is required")
+        if contains_memory_reference_token(name) or contains_memory_reference_token(description):
+            raise ValueError("Created dossier identity cannot contain memory citations")
         if kind not in DOSSIER_KINDS:
             raise ValueError(f"Invalid dossier kind: {kind}")
         decision.update({"name": name, "description": description, "kind": kind})
@@ -659,7 +661,47 @@ def apply_dynamic_category_review(
     if missing:
         raise KeyError(f"Dossier candidates not found in scope: {sorted(missing)}")
     if any(candidate.resolved_category_id is not None for candidate in current.values()):
-        raise ValueError("Review bundle contains already-resolved candidates")
+        accepted = [current[candidate_id] for candidate_id in accepted_ids]
+        rejected = [current[candidate_id] for candidate_id in rejected_ids]
+        target_ids = {candidate.resolved_category_id for candidate in accepted}
+        if len(target_ids) != 1 or None in target_ids or any(
+            candidate.resolved_category_id is not None for candidate in rejected
+        ):
+            raise ValueError("Review bundle conflicts with prior candidate resolution")
+        prior_target_id = cast(str, next(iter(target_ids)))
+        target = store.memory_category_repo.list_categories(scope, session=session).get(
+            prior_target_id
+        )
+        if target is None or target.anchor_role is not None:
+            raise ValueError("Prior review target is no longer valid")
+        if action == "existing":
+            supplied_ids = {category.id for category in bundle.get("existing_dossiers", [])}
+            if target_id != prior_target_id or target_id not in supplied_ids:
+                raise ValueError("Review replay targets a different dossier")
+        elif action != "create" or (
+            target_id is not None
+            or (target.name, target.description, target.kind) != (name, description, kind)
+        ):
+            raise ValueError("Review replay does not match the created dossier")
+        reviewed_item_ids = {
+            entry["item"].id
+            for entry in bundle["memories"]
+            if any(candidate.id in accepted_ids for candidate in entry["candidates"])
+        }
+        relations = [
+            relation
+            for relation in store.category_item_repo.list_relations(scope, session=session)
+            if relation.category_id == prior_target_id and relation.item_id in reviewed_item_ids
+        ]
+        if {relation.item_id for relation in relations} != reviewed_item_ids:
+            raise ValueError("Review replay is missing its original dossier memberships")
+        return {
+            "status": "existing" if action == "existing" else "created",
+            "target_dossier": target,
+            "relations": relations,
+            "resolved_candidates": accepted,
+            "considered_candidates": list(current.values()),
+        }
     _, canonical = _load_candidate_lineage(
         store,
         {candidate.item_id for candidate in current.values()},
@@ -669,6 +711,20 @@ def apply_dynamic_category_review(
     all_categories = store.memory_category_repo.list_categories(
         scope, session=session
     )
+    reviewed_items = {entry["item"].id: entry["item"] for entry in bundle["memories"]}
+    current_items = {item.id: item for item in canonical.values()}
+    if {
+        item_id: (item.updated_at, item.memory_ref, item.merged_into)
+        for item_id, item in reviewed_items.items()
+    } != {
+        item_id: (item.updated_at, item.memory_ref, item.merged_into)
+        for item_id, item in current_items.items()
+    } or any(
+        (fresh := all_categories.get(category.id)) is None
+        or fresh.updated_at != category.updated_at
+        for category in bundle.get("existing_dossiers", [])
+    ):
+        raise ValueError("Dynamic dossier review context changed before apply")
     categories = {
         category_id: category
         for category_id, category in all_categories.items()

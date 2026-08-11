@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import logging
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from time import perf_counter
@@ -8,11 +9,12 @@ from typing import Any
 
 import numpy as np
 
-from memu.app.category_summary_journal import update_category_summary_with_journal
+from memu.app.category_summary_journal import append_category_summary_journal
 from memu.database.vector import cosine_similarity, cosine_topk
 from memu.utils.taxonomy import DOSSIER_KINDS
 
 SEMANTIC_PREDICATES = ["caused_by", "evokes", "conflicts_with", "parallels", "shaped_by"]
+logger = logging.getLogger(__name__)
 
 
 def _iso(value: Any) -> str | None:
@@ -637,22 +639,26 @@ class GraphMixin:
         if current is None:
             msg = f"Category with id {raw_id} not found"
             raise KeyError(msg)
-        if clean_title is not None or clean_description is not None:
+        summary_changed = clean is not None and str(current.summary or "").strip() != clean
+        if clean_title is not None or clean_description is not None or summary_changed:
             await self.update_dossier(
                 raw_id,
                 where or {},
                 name=clean_title,
                 description=clean_description,
+                summary=clean if summary_changed else None,
             )
-
-        if clean is not None and str(current.summary or "").strip() != clean:
-            update_category_summary_with_journal(
-                store,
-                category_id=raw_id,
-                summary=clean,
-                where=where,
-                edited_by=edited_by,
-            )
+        if summary_changed:
+            try:
+                append_category_summary_journal(
+                    category_id=raw_id,
+                    summary_before=str(current.summary or ""),
+                    summary_after=clean,
+                    scope=where,
+                    edited_by=edited_by,
+                )
+            except Exception:
+                logger.exception("Failed to journal committed category edit %s", raw_id)
         if approved:
             store.memory_category_repo.approve_category_summary(raw_id, where=where)
         return self.graph_memory(f"category:{raw_id}", where=where)

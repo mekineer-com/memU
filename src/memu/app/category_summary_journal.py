@@ -60,39 +60,3 @@ def append_category_summary_journal(
         scope=scope,
         edited_by=edited_by,
     )
-
-
-def update_category_summary_with_journal(
-    store: Any,
-    *,
-    category_id: str,
-    summary: str,
-    where: Mapping[str, Any] | None = None,
-    edited_by: str | None = None,
-) -> Any:
-    categories = store.memory_category_repo.list_categories(where)
-    current = categories.get(category_id)
-    if current is None:
-        msg = f"Category with id {category_id} not found"
-        raise KeyError(msg)
-
-    clean = str(summary or "").strip()
-    if not clean:
-        raise ValueError("summary is required")
-
-    before = str(current.summary or "")
-    if before.strip() == clean:
-        return current
-
-    append_category_summary_journal(
-        category_id=category_id,
-        summary_before=before,
-        summary_after=clean,
-        scope=where,
-        edited_by=edited_by,
-    )
-    return store.memory_category_repo.update_category(
-        category_id=category_id,
-        summary=clean,
-        previous_summary=before,
-    )

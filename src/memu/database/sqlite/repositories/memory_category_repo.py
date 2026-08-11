@@ -83,7 +83,7 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
         """List categories matching the where clause.
 
         Args:
-            where: Optional filter conditions.
+            where: Complete user and soul scope.
 
         Returns:
             Dictionary of category ID to MemoryCategory mapping.
@@ -173,7 +173,7 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
             rows = session.exec(stmt).all()
         return [self._to_category(row) for row in rows]
 
-    def clear_categories(self, where: Mapping[str, Any] | None = None) -> dict[str, MemoryCategory]:
+    def clear_categories(self, where: Mapping[str, Any]) -> dict[str, MemoryCategory]:
         """Clear scoped taxonomy state matching the where clause.
 
         Args:
@@ -182,7 +182,7 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
         Returns:
             Dictionary of deleted category ID to MemoryCategory mapping.
         """
-        scope = self._require_scope(where) if where is not None else None
+        scope = self._require_scope(where)
         filters = self._build_filters(self._memory_category_model, scope)
         with self._sessions.session() as session:
             stmt = select(self._memory_category_model)
@@ -205,15 +205,10 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
 
             for cat_id in deleted:
                 self.categories.pop(cat_id, None)
-            if scope is None:
-                self._state.relations.clear()
-            else:
-                deleted_ids = set(deleted)
-                self._state.relations[:] = [
-                    relation
-                    for relation in self._state.relations
-                    if relation.category_id not in deleted_ids
-                ]
+            deleted_ids = set(deleted)
+            self._state.relations[:] = [
+                relation for relation in self._state.relations if relation.category_id not in deleted_ids
+            ]
 
         return deleted
 
@@ -293,12 +288,12 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
                 **user_data,
             )
             self._set_row_embedding(row, embedding)
-            session.add(row)
             try:
-                session.flush()
+                with session.begin_nested():
+                    session.add(row)
+                    session.flush()
                 session.refresh(row)
             except IntegrityError:
-                session.rollback()
                 existing = session.exec(stmt).first()
                 if existing is None:
                     raise

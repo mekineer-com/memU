@@ -212,20 +212,29 @@ class DossierMixin:
         if len(embeddings) != len(missing):
             raise ValueError("Anchor embedding response count does not match input")
 
-        for (role, name), raw_embedding in zip(missing, embeddings, strict=True):
-            embedding = _embedding_vector(raw_embedding, label=f"{role} anchor")
-            anchor = store.memory_category_repo.get_or_create_category(
-                name=name,
-                description=descriptions[role],
-                embedding=embedding,
-                user_data=scope,
-                kind="lore",
-                lore_subtype="person",
-                anchor_role=role,
-            )
-            if anchor.anchor_role != role or anchor.kind != "lore":
-                raise ValueError(f"Cannot seed {role} dossier anchor; title was claimed concurrently")
-            anchors[role] = anchor
+        vectors = [
+            _embedding_vector(raw, label=f"{role} anchor")
+            for (role, _), raw in zip(missing, embeddings, strict=True)
+        ]
+        session_cm = self._sqlite_write_session(store)
+        if session_cm is None:
+            raise RuntimeError("Dossier anchor seeding requires SQLite")
+        with session_cm as session:
+            for (role, name), embedding in zip(missing, vectors, strict=True):
+                anchor = store.memory_category_repo.get_or_create_category(
+                    name=name,
+                    description=descriptions[role],
+                    embedding=embedding,
+                    user_data=scope,
+                    kind="lore",
+                    lore_subtype="person",
+                    anchor_role=role,
+                    session=session,
+                )
+                if anchor.anchor_role != role or anchor.kind != "lore":
+                    raise ValueError(f"Cannot seed {role} dossier anchor; title was claimed concurrently")
+                anchors[role] = anchor
+            session.commit()
         return anchors
 
     async def update_dossier(
@@ -235,6 +244,7 @@ class DossierMixin:
         *,
         name: str | None = None,
         description: str | None = None,
+        summary: str | None = None,
         kind: DossierKind | None | EllipsisType = ...,
         lore_subtype: str | None | EllipsisType = ...,
         entity_id: str | None | EllipsisType = ...,
@@ -281,6 +291,8 @@ class DossierMixin:
                 if description is not None and final_description != current.description
                 else None
             ),
+            summary=summary.strip() if summary is not None else None,
+            previous_summary=current.summary if summary is not None and current.summary is not None else None,
             embedding=embedding,
             kind=kind,
             lore_subtype=lore_subtype,

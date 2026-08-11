@@ -17,6 +17,10 @@ _MEMORY_REFS = re.compile(r"\[M[1-9][0-9]*\]")
 _MEMORY_TOKEN = re.compile(r"\[M[^\]\r\n]*\]")
 
 
+def contains_memory_reference_token(text: str) -> bool:
+    return _MEMORY_TOKEN.search(text) is not None
+
+
 def strip_memory_citations(text: str) -> str:
     stripped = _MEMORY_REFS.sub("", text)
     stripped = re.sub(r"[ \t]+([.,;:!?])", r"\1", stripped)

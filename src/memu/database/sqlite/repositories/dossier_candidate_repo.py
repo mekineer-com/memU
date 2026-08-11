@@ -69,6 +69,13 @@ class SQLiteDossierCandidateRepo(SQLiteRepoBase, DossierCandidateRepo):
                 return candidate
 
         scope = self._require_scope(where)
+        if session.exec(
+            select(self._sqla_models.MemoryItem).where(
+                self._sqla_models.MemoryItem.id == item_id,
+                *self._build_filters(self._sqla_models.MemoryItem, scope),
+            )
+        ).first() is None:
+            raise KeyError(f"Memory item with id {item_id} not found in scope")
         normalized_name = normalize_category_name(proposed_name)
         if normalized_name is None:
             raise ValueError("Dossier candidate name must contain letters or digits")
@@ -140,9 +147,10 @@ class SQLiteDossierCandidateRepo(SQLiteRepoBase, DossierCandidateRepo):
             raise KeyError(f"Dossier candidates not found in scope: {sorted(ids - found)}")
         now = self._now()
         for row in rows:
-            row.last_considered_at = considered_at
-            row.updated_at = now
-            session.add(row)
+            if row.last_considered_at is None:
+                row.last_considered_at = considered_at
+                row.updated_at = now
+                session.add(row)
         session.flush()
         return [self._to_candidate(row) for row in sorted(rows, key=lambda value: (value.created_at, value.id))]
 

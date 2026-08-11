@@ -1199,7 +1199,7 @@ VALUES ('old', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'episode', 'old approved', 
     assert pending_ids == {new.id}
 
 
-def test_graph_update_category_summary_journals_before_db_update(monkeypatch, tmp_path):
+def test_graph_update_category_summary_commits_identity_and_prose_then_journals(monkeypatch, tmp_path):
     monkeypatch.setattr(category_summary_journal, "JOURNAL_DIR", tmp_path)
     service = MemoryService(
         database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
@@ -1215,10 +1215,18 @@ def test_graph_update_category_summary_journals_before_db_update(monkeypatch, tm
     )
     store.memory_category_repo.update_category(category_id=category.id, summary="old category summary")
 
+    class _Embedder:
+        async def embed(self, _texts):
+            return [[0.2]]
+
+    service._select_embedding_client = lambda _ctx: _Embedder()  # type: ignore[method-assign]
+
     updated = asyncio.run(
         service.graph_update_category_summary(
             f"category:{category.id}",
             summary=" new category summary ",
+            title="Friends",
+            description="People I care about",
             where=scope,
             edited_by="surfer",
         )
@@ -1231,7 +1239,11 @@ def test_graph_update_category_summary_journals_before_db_update(monkeypatch, tm
     assert updated["previous_summary"] == "old category summary"
     assert saved.summary == "new category summary"
     assert saved.previous_summary == "old category summary"
-    assert saved.embedding == pytest.approx([0.1])
+    assert (saved.name, saved.description, saved.embedding) == (
+        "Friends",
+        "People I care about",
+        pytest.approx([0.2]),
+    )
     assert entry["summary_before"] == "old category summary"
     assert entry["summary_after"] == "new category summary"
     assert entry["edited_by"] == "surfer"
@@ -1297,7 +1309,7 @@ def test_graph_update_category_summary_out_of_scope_does_not_journal(monkeypatch
     assert list(tmp_path.iterdir()) == []
 
 
-def test_graph_update_category_summary_journal_failure_leaves_db_unchanged(monkeypatch, tmp_path):
+def test_graph_update_category_summary_journal_failure_keeps_db_update(monkeypatch, tmp_path):
     blocked = tmp_path / "blocked"
     blocked.write_text("", encoding="utf-8")
     monkeypatch.setattr(category_summary_journal, "JOURNAL_DIR", blocked)
@@ -1315,12 +1327,11 @@ def test_graph_update_category_summary_journal_failure_leaves_db_unchanged(monke
     )
     store.memory_category_repo.update_category(category_id=category.id, summary="old")
 
-    with pytest.raises(FileExistsError):
-        asyncio.run(service.graph_update_category_summary(category.id, summary="new", where=scope))
+    asyncio.run(service.graph_update_category_summary(category.id, summary="new", where=scope))
 
     saved = store.memory_category_repo.list_categories(scope)[category.id]
-    assert saved.summary == "old"
-    assert saved.previous_summary is None
+    assert saved.summary == "new"
+    assert saved.previous_summary == "old"
 
 
 def test_append_soul_summary_journal(monkeypatch, tmp_path):

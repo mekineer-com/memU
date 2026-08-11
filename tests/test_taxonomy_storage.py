@@ -295,6 +295,7 @@ def test_description_approval_backfill_runs_once(tmp_path) -> None:
 def test_candidate_lifecycle_is_durable_idempotent_and_scope_safe(tmp_path) -> None:
     store = _store(tmp_path)
     item = _item(store, SCOPE)
+    other_item = _item(store, OTHER_SCOPE)
     first = store.dossier_candidate_repo.add_candidate(
         proposed_name="Health Span",
         item_id=item.id,
@@ -311,7 +312,7 @@ def test_candidate_lifecycle_is_durable_idempotent_and_scope_safe(tmp_path) -> N
     )
     other = store.dossier_candidate_repo.add_candidate(
         proposed_name="Health Span",
-        item_id=item.id,
+        item_id=other_item.id,
         where=OTHER_SCOPE,
     )
     assert duplicate.id == first.id
@@ -699,6 +700,7 @@ async def test_dynamic_category_review_generation_is_strict_and_bundle_bound(tmp
             f"<accepted_candidate_ids><candidate_id>{accepted}</candidate_id></accepted_candidate_ids>",
         ),
         create_xml.replace("<kind>lore</kind>", "<kind>other</kind>"),
+        create_xml.replace("<title>Garden Magic</title>", "<title>Garden [M999]</title>"),
     ]
     for response in invalid:
         with pytest.raises(ValueError):
@@ -782,7 +784,7 @@ async def test_dynamic_category_review_apply_is_atomic_and_collision_safe(tmp_pa
     assert exact_collision["status"] == "collision"
     assert exact_collision["target_dossier"].id == legacy_exact.id
 
-    bundle["existing_dossiers"] = [existing]
+    bundle["existing_dossiers"] = [store.memory_category_repo.list_categories(SCOPE)[existing.id]]
     existing_decision = {
         "cluster_id": bundle["cluster_id"],
         "action": "existing",
@@ -811,6 +813,15 @@ async def test_dynamic_category_review_apply_is_atomic_and_collision_safe(tmp_pa
         if candidate.id == accepted
     )
     assert store.category_item_repo.get_item_categories(accepted_item_id)[0].category_id == existing.id
+    with store._sessions.session() as session:
+        replay = memorize_categories.apply_dynamic_category_review(
+            store=store,
+            where=SCOPE,
+            bundle=bundle,
+            decision=existing_decision,
+            session=session,
+        )
+    assert replay["status"] == "existing"
 
 
 @pytest.mark.asyncio
@@ -877,9 +888,47 @@ async def test_dynamic_category_review_defer_stamps_only_valid_decisions(tmp_pat
         row.last_considered_at is not None
         for row in store.dossier_candidate_repo.list_candidates(SCOPE)
     )
+    considered_at = [
+        row.last_considered_at for row in store.dossier_candidate_repo.list_candidates(SCOPE)
+    ]
+    with store._sessions.session() as session:
+        memorize_categories.apply_dynamic_category_review(
+            store=store, where=SCOPE, bundle=bundle, decision=deferred, session=session
+        )
+        session.commit()
+    assert [
+        row.last_considered_at for row in store.dossier_candidate_repo.list_candidates(SCOPE)
+    ] == considered_at
     assert await memorize_categories.prepare_dynamic_category_review(
         store=store,
         where=SCOPE,
         cluster_size=2,
         search_dossiers=no_hits,
     ) == []
+
+    race = _store(tmp_path, "review-race.db")
+    race_items = [_item(race, SCOPE, f"race {index}") for index in range(2)]
+    for item in race_items:
+        race.dossier_candidate_repo.add_candidate(
+            proposed_name="race", item_id=item.id, where=SCOPE
+        )
+    race_bundle = (
+        await memorize_categories.prepare_dynamic_category_review(
+            store=race, where=SCOPE, cluster_size=2, search_dossiers=no_hits
+        )
+    )[0]
+    race.memory_item_repo.update_item(item_id=race_items[0].id, summary="changed")
+    race_decision = {
+        "cluster_id": race_bundle["cluster_id"],
+        "action": "defer",
+        "accepted_candidate_ids": [],
+        "rejected_candidate_ids": race_bundle["candidate_ids"],
+    }
+    with race._sessions.session() as session, pytest.raises(ValueError, match="context changed"):
+        memorize_categories.apply_dynamic_category_review(
+            store=race,
+            where=SCOPE,
+            bundle=race_bundle,
+            decision=race_decision,
+            session=session,
+        )
