@@ -85,6 +85,7 @@ class MemoryItemRepo(Protocol):
         conversation_id: str | None = None,
         segment_id: str | None = None,
         unresolved: str | None = None,
+        session: Any | None = None,
     ) -> MemoryItem: ...
 
     def update_item(

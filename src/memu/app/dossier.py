@@ -932,18 +932,6 @@ class DossierMixin:
         anchors = {cast(str, category.anchor_role): category for category in anchor_rows}
         _validate_anchors(anchors, scope)
 
-        ordinary = [category for category in categories.values() if category.anchor_role is None]
-        unapproved = next(
-            (
-                category
-                for category in ordinary
-                if not str(category.approved_description or "").strip()
-            ),
-            None,
-        )
-        if unapproved is not None:
-            raise ValueError(f"Dossier cutover requires an approved description for: {unapproved.name}")
-
         links_by_category: dict[str, set[str]] = {}
         related_items = store.memory_item_repo.list_items_by_ids(
             {relation.item_id for relation in relations},

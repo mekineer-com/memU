@@ -49,7 +49,7 @@ def _category(
     )
 
 
-def test_fresh_schema_is_additive_and_runtime_creation_stays_inert(tmp_path) -> None:
+def test_fresh_schema_is_additive_and_runtime_creation_allocates_reference(tmp_path) -> None:
     store = _store(tmp_path)
     item = _item(store, SCOPE)
     category = _category(store, SCOPE, "ordinary")
@@ -73,7 +73,7 @@ def test_fresh_schema_is_additive_and_runtime_creation_stays_inert(tmp_path) -> 
         "previous_description",
         "approved_description",
     } <= category_columns
-    assert item.memory_ref is None
+    assert item.memory_ref == 1
     assert category.kind is None
     assert store.dossier_candidate_repo.list_candidates(SCOPE) == []
 
@@ -120,10 +120,9 @@ def test_memory_ref_allocator_is_scoped_atomic_and_never_rewinds(tmp_path) -> No
     assert store.memory_item_repo.allocate_memory_ref(OTHER_SCOPE) == 1
 
     item = _item(store, SCOPE)
-    with store._sessions.engine.begin() as conn:
-        conn.exec_driver_sql("UPDATE memory_items SET memory_ref = 20 WHERE id = ?", (item.id,))
+    assert item.memory_ref == 21
     store.memory_item_repo.hard_delete_item(item.id, SCOPE)
-    assert store.memory_item_repo.allocate_memory_ref(SCOPE) == 21
+    assert store.memory_item_repo.allocate_memory_ref(SCOPE) == 22
 
 
 def test_memory_ref_caller_session_rollback_does_not_commit_counter(tmp_path) -> None:
@@ -134,6 +133,35 @@ def test_memory_ref_caller_session_rollback_does_not_commit_counter(tmp_path) ->
     assert store.memory_item_repo.allocate_memory_ref(SCOPE) == 1
 
 
+def test_create_item_allocates_reference_in_caller_transaction(tmp_path) -> None:
+    store = _store(tmp_path)
+    with store._sessions.session() as session:
+        item = store.memory_item_repo.create_item(
+            memory_type="episode",
+            summary="transactional memory",
+            embedding=[1.0, 0.0],
+            user_data=SCOPE,
+            session=session,
+        )
+        assert item.memory_ref == 1
+        session.rollback()
+
+    assert store.memory_item_repo.list_items(SCOPE) == {}
+    assert store.memory_item_repo.allocate_memory_ref(SCOPE) == 1
+
+
+def test_memory_ref_allocator_rejects_non_positive_counter(tmp_path) -> None:
+    store = _store(tmp_path)
+    assert store.memory_item_repo.allocate_memory_ref(SCOPE) == 1
+    with store._sessions.engine.begin() as conn:
+        conn.exec_driver_sql("UPDATE memory_ref_counters SET next_value = 0")
+
+    with pytest.raises(RuntimeError, match="counter must be positive"):
+        store.memory_item_repo.allocate_memory_ref(SCOPE)
+    with store._sessions.engine.connect() as conn:
+        assert conn.exec_driver_sql("SELECT next_value FROM memory_ref_counters").scalar_one() == 0
+
+
 def test_memory_ref_backfill_is_deterministic_and_includes_merged_items(tmp_path) -> None:
     store = _store(tmp_path)
     first = _item(store, SCOPE, "first")
@@ -142,6 +170,7 @@ def test_memory_ref_backfill_is_deterministic_and_includes_merged_items(tmp_path
     with store._sessions.engine.begin() as conn:
         conn.exec_driver_sql("UPDATE memory_items SET created_at = ? WHERE id IN (?, ?)", (same_time, first.id, second.id))
         conn.exec_driver_sql("UPDATE memory_items SET merged_into = ? WHERE id = ?", (first.id, second.id))
+        conn.exec_driver_sql("UPDATE memory_items SET memory_ref = NULL")
         timestamps_before = dict(
             conn.exec_driver_sql(
                 "SELECT id, updated_at FROM memory_items WHERE id IN (?, ?)", (first.id, second.id)
@@ -179,6 +208,8 @@ def test_memory_ref_backfill_repairs_counter_and_rejects_mixed_state(tmp_path) -
     unassigned = _item(mixed, SCOPE, "unassigned")
     with mixed._sessions.engine.begin() as conn:
         conn.exec_driver_sql("UPDATE memory_items SET memory_ref = 1 WHERE id = ?", (assigned.id,))
+        conn.exec_driver_sql("UPDATE memory_items SET memory_ref = NULL WHERE id = ?", (unassigned.id,))
+        conn.exec_driver_sql("DELETE FROM memory_ref_counters")
     with pytest.raises(RuntimeError, match="mixed assigned/unassigned"):
         mixed.memory_item_repo.backfill_memory_refs(SCOPE)
     with mixed._sessions.engine.connect() as conn:
@@ -186,6 +217,13 @@ def test_memory_ref_backfill_repairs_counter_and_rejects_mixed_state(tmp_path) -
         counter_count = conn.exec_driver_sql("SELECT COUNT(*) FROM memory_ref_counters").scalar()
     assert rows == {assigned.id: 1, unassigned.id: None}
     assert counter_count == 0
+
+    invalid = _store(tmp_path, "invalid.db")
+    invalid_item = _item(invalid, SCOPE)
+    with invalid._sessions.engine.begin() as conn:
+        conn.exec_driver_sql("UPDATE memory_items SET memory_ref = 0 WHERE id = ?", (invalid_item.id,))
+    with pytest.raises(RuntimeError, match="non-positive"):
+        invalid.memory_item_repo.backfill_memory_refs(SCOPE)
 
 
 def test_dossier_fields_anchors_and_activity_order_round_trip(tmp_path) -> None:
@@ -568,8 +606,6 @@ async def test_dynamic_category_review_generation_is_strict_and_bundle_bound(tmp
         category_id=soul_anchor.id,
         summary="## Becoming\nI find wonder in little rituals [M999].",
     )
-    store.memory_item_repo.backfill_memory_refs(SCOPE)
-
     async def nearby(_query, **_kwargs):
         return [(existing, 0.9)]
 
@@ -709,6 +745,7 @@ async def test_dynamic_category_review_apply_is_atomic_and_collision_safe(tmp_pa
         )
         session.rollback()
     assert result["status"] == "created"
+    assert result["target_dossier"].approved_description is None
     assert all(category.name != "Created Topic" for category in store.memory_category_repo.list_categories(SCOPE).values())
     assert all(row.last_considered_at is None for row in store.dossier_candidate_repo.list_candidates(SCOPE))
 

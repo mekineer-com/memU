@@ -278,7 +278,10 @@ WHERE version = 1 AND model IN ({placeholders})
             index_elements=[*[getattr(model, field) for field in self._scope_fields], model.counter_key],
             set_={"next_value": model.next_value + 1, "updated_at": now},
         ).returning(model.next_value)
-        return int(session.execute(upsert).scalar_one()) - 1
+        memory_ref = int(session.execute(upsert).scalar_one()) - 1
+        if memory_ref < 1:
+            raise RuntimeError("Memory reference counter must be positive")
+        return memory_ref
 
     def get_item_by_memory_ref(self, memory_ref: int, where: Mapping[str, Any]) -> MemoryItem | None:
         scope = self._require_scope(where)
@@ -335,6 +338,8 @@ WHERE version = 1 AND model IN ({placeholders})
                         session.add(row)
                 else:
                     refs = [int(row.memory_ref) for row in rows]
+                    if any(memory_ref < 1 for memory_ref in refs):
+                        raise RuntimeError("Memory reference backfill found non-positive references")
                     if len(refs) != len(set(refs)):
                         raise RuntimeError("Memory reference backfill found duplicate references")
 
@@ -649,6 +654,7 @@ WHERE version = 1 AND model IN ({placeholders})
         merged_extra: dict[str, Any] = dict(extra or {})
         create_user_data = dict(user_data or {})
         create_user_data.pop("conversation_id", None)
+        memory_ref = self.allocate_memory_ref(create_user_data, session=session)
         conv_id = self._resolve_conversation_id(conversation_id, user_data)
         now = self._now()
         row = self._memory_item_model(
@@ -667,6 +673,7 @@ WHERE version = 1 AND model IN ({placeholders})
             conversation_id=conv_id,
             segment_id=segment_id,
             unresolved=unresolved,
+            memory_ref=memory_ref,
             extra=merged_extra if merged_extra else {},
             created_at=now,
             updated_at=now,

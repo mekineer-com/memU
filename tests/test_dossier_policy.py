@@ -132,19 +132,20 @@ def test_cutover_readiness_accepts_empty_and_valid_scopes(tmp_path) -> None:
     survivor = service.database.memory_item_repo.create_item(
         memory_type="episode", summary="Current project state", embedding=[1.0, 0.0], user_data=SCOPE
     )
-    refs = service.database.memory_item_repo.backfill_memory_refs(SCOPE)
+    refs = {row.id: row.memory_ref for row in (item, obsolete, survivor)}
     service.database.memory_category_repo.update_category(
         category_id=category.id,
         summary=f"## Health\nA steady routine [M{refs[item.id]}].",
     )
-    service.database.memory_category_repo.approve_category_summary(category.id, SCOPE)
-    service.database.memory_category_repo.approve_category_summary(cleanup.id, SCOPE)
     service.database.category_item_repo.link_item_category(item.id, category.id, SCOPE)
     service.database.category_item_repo.link_item_category(obsolete.id, cleanup.id, SCOPE)
     service.database.memory_item_repo.update_item(item_id=obsolete.id, merged_into=survivor.id)
 
     service.require_dossier_cutover_ready(SCOPE)
     assert set(anchors) == {"soul", "user"}
+    assert category.approved_description is None
+    service.database.close()
+    _service(tmp_path).require_dossier_cutover_ready(SCOPE)
 
 
 def test_cutover_readiness_rejects_unmigrated_and_unlinked_citations(tmp_path) -> None:
@@ -155,6 +156,8 @@ def test_cutover_readiness_rejects_unmigrated_and_unlinked_citations(tmp_path) -
         embedding=[1.0, 0.0],
         user_data=SCOPE,
     )
+    with service.database._sessions.engine.begin() as conn:
+        conn.exec_driver_sql("UPDATE memory_items SET memory_ref = NULL WHERE id = ?", (item.id,))
     with pytest.raises(ValueError, match=r"positive \[M#\]"):
         service.require_dossier_cutover_ready(SCOPE)
 
@@ -889,6 +892,8 @@ def test_prepare_dossier_revision_requires_refs_and_goal_kind(tmp_path) -> None:
     )
     store.category_item_repo.link_item_category(item.id, category.id, SCOPE)
 
+    with store._sessions.engine.begin() as conn:
+        conn.exec_driver_sql("UPDATE memory_items SET memory_ref = NULL WHERE id = ?", (item.id,))
     with pytest.raises(ValueError, match="lack stable references"):
         service.prepare_dossier_revision(category.id, SCOPE)
 
@@ -928,7 +933,7 @@ def _revision_case(tmp_path, *, summary: str = "", kind: str = "topic"):
         happened_at=datetime(2026, 7, 19, tzinfo=UTC),
         user_data=SCOPE,
     )
-    refs = store.memory_item_repo.backfill_memory_refs(SCOPE)
+    refs = {pending.id: pending.memory_ref, candidate.id: candidate.memory_ref}
     store.category_item_repo.link_item_category(pending.id, category.id, SCOPE)
     bundle = service.prepare_dossier_revision(
         category.id,
