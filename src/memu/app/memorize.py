@@ -1248,7 +1248,7 @@ class MemorizeMixin:
             categories=categories_prompt_str,
         )
         try:
-            max_items = max(1, int(getattr(self.memorize_config, "episodes_per_segment", 3) or 3))
+            max_items = min(3, max(1, int(getattr(self.memorize_config, "episodes_per_segment", 3) or 3)))
         except (TypeError, ValueError):
             max_items = 3
 
@@ -1623,8 +1623,6 @@ class MemorizeMixin:
                 threshold=self._supersede_similarity_threshold(),
             ),
         )
-
-    @staticmethod
 
     async def _split_into_episodes(
         self, *, local_path: str, text: str | None, modality: str, llm_client: Any | None = None

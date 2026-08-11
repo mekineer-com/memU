@@ -10,3 +10,9 @@ def test_memorize_config_rejects_removed_conversation_preprocess_prompt() -> Non
 
 def test_category_summary_defaults_to_300_words() -> None:
     assert MemorizeConfig().category_summary_target_words == 300
+
+
+@pytest.mark.parametrize("value", [0, 4])
+def test_episodes_per_segment_stays_within_router_contract(value: int) -> None:
+    with pytest.raises(ValueError):
+        MemorizeConfig(episodes_per_segment=value)

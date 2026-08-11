@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from memu.app import memorize_parsing as parsing
+from memu.app import memorize_segments
 from memu.app.memorize import SpeakerRosterEntry
 from memu.app.service import MemoryService
 
@@ -34,6 +35,42 @@ class _EmbedStub:
     async def embed(self, payloads: list[str]) -> list[list[float]]:
         self.payloads.append(list(payloads))
         return [[float(index), 1.0] for index, _payload in enumerate(payloads, start=1)]
+
+
+@pytest.mark.asyncio
+async def test_split_into_episodes_remains_bound_to_service(monkeypatch: pytest.MonkeyPatch) -> None:
+    service = _service()
+
+    async def _fake_split(**kwargs):
+        assert kwargs["memorize_config"] is service.memorize_config
+        return [{"text": "A lively fictional moment.", "caption": None}]
+
+    monkeypatch.setattr(memorize_segments, "_split_into_episodes", _fake_split)
+
+    assert await service._split_into_episodes(
+        local_path="fictional.txt",
+        text="A lively fictional moment.",
+        modality="document",
+    ) == [{"text": "A lively fictional moment.", "caption": None}]
+
+
+@pytest.mark.asyncio
+async def test_route_segment_never_accepts_more_than_three_episodes() -> None:
+    service = _service()
+    service.memorize_config.episodes_per_segment = 99
+    rows = [
+        {"title": f"Moment {index}", "episode_summary": "A small story.", "episode_item": None}
+        for index in range(4)
+    ]
+
+    _routed, episodes = await service._route_segment(
+        "fictional conversation",
+        ["knowledge"],
+        llm_client=_RouterStub(json.dumps({"excluded_types": [], "episodes": rows})),
+        source_days=["2026-01-02"],
+    )
+
+    assert len(episodes) == 3
 
 
 @pytest.mark.asyncio
