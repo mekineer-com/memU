@@ -546,11 +546,19 @@ async def test_dynamic_category_review_counts_canonical_memories_and_fails_on_ba
     middle = _item(store, SCOPE, "middle")
     survivor = _item(store, SCOPE, "survivor")
     other = _item(store, SCOPE, "other")
-    store.memory_item_repo.update_item(item_id=source.id, merged_into=middle.id)
-    store.memory_item_repo.update_item(item_id=middle.id, merged_into=survivor.id)
+    category = _category(store, SCOPE, "Existing", kind="topic")
+    store.category_item_repo.link_item_category(source.id, category.id, SCOPE)
+    store.category_item_repo.link_item_category(survivor.id, category.id, SCOPE)
     store.dossier_candidate_repo.add_candidate(proposed_name="topic", item_id=source.id, where=SCOPE)
     store.dossier_candidate_repo.add_candidate(proposed_name="topic", item_id=middle.id, where=SCOPE)
     store.dossier_candidate_repo.add_candidate(proposed_name="topic", item_id=other.id, where=SCOPE)
+    store.memory_item_repo.update_item(item_id=source.id, merged_into=middle.id)
+    store.memory_item_repo.update_item(item_id=middle.id, merged_into=survivor.id)
+
+    relations = store.category_item_repo.list_relations(SCOPE)
+    assert [(row.item_id, row.category_id) for row in relations] == [(survivor.id, category.id)]
+    candidates = store.dossier_candidate_repo.list_candidates(SCOPE)
+    assert {row.item_id for row in candidates} == {survivor.id, other.id}
 
     async def no_hits(_query, **_kwargs):
         return []
@@ -562,16 +570,10 @@ async def test_dynamic_category_review_counts_canonical_memories_and_fails_on_ba
         search_dossiers=no_hits,
     )
     assert bundles[0]["memory_count"] == 2
-    assert len(bundles[0]["candidate_ids"]) == 3
+    assert len(bundles[0]["candidate_ids"]) == 2
 
-    store.memory_item_repo.update_item(item_id=survivor.id, merged_into=source.id)
-    with pytest.raises(ValueError, match="merge cycle"):
-        await memorize_categories.prepare_dynamic_category_review(
-            store=store,
-            where=SCOPE,
-            cluster_size=2,
-            search_dossiers=no_hits,
-        )
+    with pytest.raises(KeyError, match="Active merge target"):
+        store.memory_item_repo.update_item(item_id=survivor.id, merged_into=source.id)
 
     broken = _store(tmp_path, "broken.db")
     deleted = _item(broken, SCOPE)

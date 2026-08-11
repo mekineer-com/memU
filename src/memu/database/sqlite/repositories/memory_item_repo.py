@@ -383,6 +383,7 @@ WHERE version = 1 AND model IN ({placeholders})
         where: Mapping[str, Any] | None = None,
         *,
         include_superseded: bool = False,
+        include_merged: bool = False,
         include_embeddings: bool = True,
     ) -> dict[str, MemoryItem]:
         """List memory items matching the where clause.
@@ -402,7 +403,9 @@ WHERE version = 1 AND model IN ({placeholders})
                 stmt = stmt.options(defer(self._memory_item_model.embedding))
             filters = self._build_filters(self._memory_item_model, where)
             active_filter = self._active_item_filter(
-                self._memory_item_model, include_superseded=include_superseded
+                self._memory_item_model,
+                include_superseded=include_superseded,
+                include_merged=include_merged,
             )
             if active_filter is not None:
                 filters.append(active_filter)
@@ -743,6 +746,76 @@ WHERE version = 1 AND model IN ({placeholders})
         if embedding is not None:
             self._set_row_embedding(row, embedding)
         if merged_into is not None:
+            if merged_into == item_id:
+                raise ValueError("A memory cannot merge into itself")
+            scope = {field: getattr(row, field) for field in self._scope_fields}
+            target_filters = [
+                self._memory_item_model.id == merged_into,
+                *self._build_filters(self._memory_item_model, scope),
+            ]
+            active_filter = self._active_item_filter(self._memory_item_model)
+            if active_filter is not None:
+                target_filters.append(active_filter)
+            if session.exec(select(self._memory_item_model).where(*target_filters)).first() is None:
+                raise KeyError(f"Active merge target {merged_into} not found in scope")
+
+            now = self._now()
+            relation_model = self._sqla_models.CategoryItem
+            for relation in session.exec(
+                select(relation_model).where(
+                    relation_model.item_id == item_id,
+                    *self._build_filters(relation_model, scope),
+                )
+            ).all():
+                existing = session.exec(
+                    select(relation_model).where(
+                        relation_model.item_id == merged_into,
+                        relation_model.category_id == relation.category_id,
+                        *self._build_filters(relation_model, scope),
+                    )
+                ).first()
+                if existing is None:
+                    relation.item_id = merged_into
+                    relation.updated_at = now
+                    session.add(relation)
+                else:
+                    existing.updated_at = now
+                    session.add(existing)
+                    session.delete(relation)
+
+            candidate_model = self._sqla_models.DossierCandidate
+            for candidate in session.exec(
+                select(candidate_model).where(
+                    candidate_model.item_id == item_id,
+                    *self._build_filters(candidate_model, scope),
+                )
+            ).all():
+                existing = session.exec(
+                    select(candidate_model).where(
+                        candidate_model.item_id == merged_into,
+                        candidate_model.normalized_name == candidate.normalized_name,
+                        *self._build_filters(candidate_model, scope),
+                    )
+                ).first()
+                if existing is None:
+                    candidate.item_id = merged_into
+                    candidate.updated_at = now
+                    session.add(candidate)
+                else:
+                    if (
+                        existing.resolved_category_id
+                        and candidate.resolved_category_id
+                        and existing.resolved_category_id != candidate.resolved_category_id
+                    ):
+                        raise ValueError("Merged dossier candidates resolve to different categories")
+                    if existing.resolved_category_id is None and candidate.resolved_category_id is not None:
+                        existing.resolved_category_id = candidate.resolved_category_id
+                        existing.resolved_at = candidate.resolved_at
+                    if existing.last_considered_at is None:
+                        existing.last_considered_at = candidate.last_considered_at
+                    existing.updated_at = now
+                    session.add(existing)
+                    session.delete(candidate)
             row.merged_into = merged_into
         if unresolved is not None:
             row.unresolved = unresolved

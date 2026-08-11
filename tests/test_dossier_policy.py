@@ -339,8 +339,10 @@ def test_dossiers_for_segments_use_exact_active_evidence_and_ignore_recall_quota
     assert service.list_active_dossiers(SCOPE) == []
     tied_ids = sorted((beta.id, tied.id))
     assert [row.id for row in service.list_dossiers_for_segments(SCOPE, segment_ids=["selected"])] == [
-        *tied_ids,
         alpha.id,
+        merged.id,
+        superseded.id,
+        *tied_ids,
     ]
     assert service.list_dossiers_for_segments(SCOPE, segment_ids=[]) == []
 
@@ -696,9 +698,11 @@ def test_due_dossiers_cover_first_revision_and_watermark(tmp_path) -> None:
     store = service.database
     due = _category(service, "Due")
     clean = _category(service, "Clean")
+    excluded = _category(service, "Excluded")
     anchor = _seed_anchors(service)["soul"]
     due_item = store.memory_item_repo.create_item(
-        memory_type="episode", summary="due", embedding=[1.0, 0.0], user_data=SCOPE
+        memory_type="episode", summary="due", embedding=[1.0, 0.0], user_data=SCOPE,
+        segment_id="selected",
     )
     clean_item = store.memory_item_repo.create_item(
         memory_type="episode", summary="clean", embedding=[1.0, 0.0], user_data=SCOPE
@@ -706,15 +710,27 @@ def test_due_dossiers_cover_first_revision_and_watermark(tmp_path) -> None:
     anchor_item = store.memory_item_repo.create_item(
         memory_type="episode", summary="anchor", embedding=[1.0, 0.0], user_data=SCOPE
     )
+    excluded_item = store.memory_item_repo.create_item(
+        memory_type="episode",
+        summary="excluded",
+        embedding=[1.0, 0.0],
+        user_data=SCOPE,
+        segment_id="later",
+    )
     store.category_item_repo.link_item_category(due_item.id, due.id, SCOPE)
     clean_relation = store.category_item_repo.link_item_category(clean_item.id, clean.id, SCOPE)
     store.category_item_repo.link_item_category(anchor_item.id, anchor.id, SCOPE)
+    store.category_item_repo.link_item_category(excluded_item.id, excluded.id, SCOPE)
     revised_at = clean_relation.created_at + timedelta(seconds=1)
     store.memory_category_repo.update_category(
         category_id=clean.id, last_revised_at=revised_at
     )
 
-    assert [category.id for category in service.list_due_dossiers(SCOPE)] == [due.id]
+    assert {category.id for category in service.list_due_dossiers(SCOPE)} == {due.id, excluded.id}
+    assert [
+        category.id
+        for category in service.list_due_dossiers(SCOPE, segment_ids=["selected"])
+    ] == [due.id]
     with pytest.raises(ValueError, match="not due for revision"):
         service.prepare_dossier_revision(clean.id, SCOPE)
 
@@ -739,7 +755,7 @@ def test_due_dossiers_include_linked_merge_and_supersession(tmp_path) -> None:
     superseded_rel = store.category_item_repo.link_item_category(
         superseded_item.id, superseded_category.id, SCOPE
     )
-    revised_at = max(merged_rel.created_at, superseded_rel.created_at) + timedelta(seconds=1)
+    revised_at = max(merged_rel.created_at, superseded_rel.created_at)
     for category in (merged_category, superseded_category):
         store.memory_category_repo.update_category(
             category_id=category.id,
@@ -813,7 +829,17 @@ def test_prepare_dossier_revision_bounds_actionable_evidence(tmp_path) -> None:
         last_revised_at=revised_at,
     )
     store.category_item_repo.link_item_category(pending.id, category.id, SCOPE)
-    store.memory_item_repo.update_item(item_id=cleanup.id, merged_into=candidate.id)
+    store.triple_repo.add(
+        Triple(
+            subject_id=cleanup.id,
+            subject_kind="memory",
+            predicate="evolved_into",
+            object_id=candidate.id,
+            object_kind="memory",
+            source_memory_id=candidate.id,
+        ),
+        user_data=SCOPE,
+    )
 
     bundle = service.prepare_dossier_revision(
         category.id,
@@ -832,8 +858,8 @@ def test_prepare_dossier_revision_bounds_actionable_evidence(tmp_path) -> None:
     assert bundle["cleanup_memberships"] == [{
         "item_id": cleanup.id,
         "memory_ref": refs[cleanup.id],
-        "lineage_state": "merged",
-        "merged_into": candidate.id,
+        "lineage_state": "superseded",
+        "merged_into": None,
     }]
     assert [item.id for item in bundle["cleanup_items"]] == [cleanup.id]
     assert [item.id for item in bundle["candidate_items"]] == [candidate.id]
@@ -1244,15 +1270,43 @@ async def test_generate_dossier_revision_repairs_cited_unlinked_and_purges_linea
     cited_unlinked = store.memory_item_repo.create_item(
         memory_type="knowledge", summary="A cited independent fact.", embedding=[1.0, 0.0], user_data=SCOPE
     )
+    inactive_unlinked = store.memory_item_repo.create_item(
+        memory_type="knowledge", summary="An inactive independent fact.", embedding=[1.0, 0.0], user_data=SCOPE
+    )
     refs = store.memory_item_repo.backfill_memory_refs(SCOPE)
     relation = store.category_item_repo.link_item_category(purged.id, category.id, SCOPE)
     store.memory_category_repo.update_category(
         category_id=category.id,
-        summary=f"Old [M{refs[purged.id]}], current [M{refs[cited_unlinked.id]}].",
+        summary=(
+            f"Old [M{refs[purged.id]}], current [M{refs[cited_unlinked.id]}], "
+            f"inactive [M{refs[inactive_unlinked.id]}]."
+        ),
         last_revised_at=relation.created_at + timedelta(microseconds=1),
     )
-    store.memory_item_repo.update_item(item_id=purged.id, merged_into=survivor.id)
+    store.triple_repo.add(
+        Triple(
+            subject_id=purged.id,
+            subject_kind="memory",
+            predicate="evolved_into",
+            object_id=survivor.id,
+            object_kind="memory",
+            source_memory_id=survivor.id,
+        ),
+        user_data=SCOPE,
+    )
+    store.triple_repo.add(
+        Triple(
+            subject_id=inactive_unlinked.id,
+            subject_kind="memory",
+            predicate="evolved_into",
+            object_id=survivor.id,
+            object_kind="memory",
+            source_memory_id=survivor.id,
+        ),
+        user_data=SCOPE,
+    )
     bundle = service.prepare_dossier_revision(category.id, SCOPE)
+    assert {item.id for item in bundle["cleanup_items"]} == {purged.id, inactive_unlinked.id}
     response = f"""<dossier_revision dossier_id="{category.id}">
   <description>The current independent fact.</description><prose_action>replace</prose_action>
   <prose>## Health\nCurrent [M{refs[cited_unlinked.id]}].</prose>
@@ -1419,10 +1473,13 @@ async def test_apply_dossier_revision_rolls_back_all_writes(tmp_path, monkeypatc
 
 @pytest.mark.asyncio
 async def test_apply_dossier_revision_keeps_empty_dossier_text(tmp_path, monkeypatch) -> None:
-    service, store, _anchors, category, pending, _candidate, _refs, bundle = _revision_case(
+    service, store, _anchors, category, pending, _candidate, refs, bundle = _revision_case(
         tmp_path,
-        summary="## Health\nHistorical account.",
+        summary=None,
     )
+    old_prose = f"## Health\nHistorical account [M{refs[pending.id]}]."
+    store.memory_category_repo.update_category(category_id=category.id, summary=old_prose)
+    bundle = service.prepare_dossier_revision(category.id, SCOPE)
     journal: list[dict] = []
     monkeypatch.setattr(
         "memu.app.dossier.append_category_summary_journal",
@@ -1454,7 +1511,7 @@ async def test_apply_dossier_revision_keeps_empty_dossier_text(tmp_path, monkeyp
         relation.category_id != category.id
         for relation in store.category_item_repo.relations
     )
-    assert client.calls == [] and journal == []
+    assert client.calls == [] and journal[0]["summary_before"] == old_prose
 
 
 @pytest.mark.asyncio
@@ -1564,7 +1621,17 @@ async def test_anchor_revisions_validate_both_then_apply_memberships(tmp_path) -
     refs = store.memory_item_repo.backfill_memory_refs(SCOPE)
     store.category_item_repo.link_item_category(kept.id, anchors["soul"].id, SCOPE)
     store.category_item_repo.link_item_category(purged.id, anchors["user"].id, SCOPE)
-    store.memory_item_repo.update_item(item_id=purged.id, merged_into=successor.id)
+    store.triple_repo.add(
+        Triple(
+            subject_id=purged.id,
+            subject_kind="memory",
+            predicate="evolved_into",
+            object_id=successor.id,
+            object_kind="memory",
+            source_memory_id=successor.id,
+        ),
+        user_data=SCOPE,
+    )
 
     bundles = {
         role: service.prepare_anchor_revision(role, SCOPE, [prior.id, period.id])

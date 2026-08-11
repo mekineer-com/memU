@@ -403,6 +403,30 @@ async def test_persist_index_skips_dynamic_review_without_new_items(
 
 
 @pytest.mark.asyncio
+async def test_persist_index_processes_committed_candidate_work_without_new_items(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = _service()
+    called = False
+
+    async def _prepare(**_kwargs):
+        nonlocal called
+        called = True
+        return []
+
+    monkeypatch.setattr(service, "prepare_dynamic_category_review", _prepare)
+    state = {
+        "items": [],
+        "active_candidate_work_committed": True,
+        "store": service.database,
+        "user": {"user_id": "person", "soul_id": "soul"},
+    }
+
+    assert await service._memorize_persist_and_index(state, None) is state
+    assert called
+
+
+@pytest.mark.asyncio
 async def test_route_segment_raises_on_unparseable_router_response() -> None:
     service = _service()
     client = _RouterStub("not-json-and-no-json-blob")

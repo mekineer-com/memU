@@ -132,6 +132,33 @@ def _load_linked_items(
     return items, item_ids - active_ids
 
 
+def _selected_evidence_ids(
+    store: Database,
+    scope: Mapping[str, str],
+    segment_ids: Sequence[str],
+) -> set[str]:
+    selected = set(segment_ids)
+    if not selected:
+        return set()
+    items = store.memory_item_repo.list_items(
+        scope,
+        include_superseded=True,
+        include_merged=True,
+        include_embeddings=False,
+    )
+    evidence_ids = {item.id for item in items.values() if item.segment_id in selected}
+    for item_id in list(evidence_ids):
+        current = items[item_id]
+        seen: set[str] = set()
+        while current.merged_into:
+            if current.id in seen or current.merged_into not in items:
+                raise ValueError(f"Invalid merged memory lineage at {current.id}")
+            seen.add(current.id)
+            current = items[current.merged_into]
+            evidence_ids.add(current.id)
+    return evidence_ids
+
+
 def _content_text(category: MemoryCategory) -> str:
     identity = category_identity_text(category.name, category.description)
     summary = str(category.summary or "").strip()
@@ -301,11 +328,19 @@ class DossierMixin:
             last_revised_at=last_revised_at,
         )
 
-    def list_due_dossiers(self, where: Mapping[str, Any]) -> list[MemoryCategory]:
+    def list_due_dossiers(
+        self,
+        where: Mapping[str, Any],
+        *,
+        segment_ids: Sequence[str] | None = None,
+    ) -> list[MemoryCategory]:
         scope = _scope(where)
         store = self._get_database()
         categories = store.memory_category_repo.list_categories(scope)
         relations = store.category_item_repo.list_relations(scope)
+        if segment_ids is not None:
+            evidence_ids = _selected_evidence_ids(store, scope, segment_ids)
+            relations = [relation for relation in relations if relation.item_id in evidence_ids]
         _linked_items, inactive_ids = _load_linked_items(store, relations, scope)
 
         actionable: list[tuple[float, MemoryCategory]] = []
@@ -324,12 +359,12 @@ class DossierMixin:
                 due_relations = [
                     relation
                     for relation in category_relations
-                    if _timestamp(relation.created_at) > revised_at
+                    if _timestamp(relation.updated_at) > revised_at
                     or relation.item_id in inactive_ids
                 ]
             if due_relations:
                 actionable.append(
-                    (min(_timestamp(relation.created_at) for relation in due_relations), category)
+                    (min(_timestamp(relation.updated_at) for relation in due_relations), category)
                 )
 
         actionable.sort(
@@ -376,7 +411,7 @@ class DossierMixin:
         pending_relations = [
             relation
             for relation in relations
-            if revised_at is None or _timestamp(relation.created_at) > revised_at
+            if revised_at is None or _timestamp(relation.updated_at) > revised_at
         ]
         pending_ids = {relation.item_id for relation in pending_relations}
         if not pending_ids and not linked_inactive_ids:
@@ -412,6 +447,18 @@ class DossierMixin:
             missing = set(candidate_ids) - candidate_items.keys()
             if missing:
                 raise KeyError(f"Dossier candidate memories disappeared: {sorted(missing)}")
+
+        evolved_ids = {
+            edge.object_id
+            for item_id in linked_inactive_ids
+            for edge in store.triple_repo.get_edges_from(
+                item_id, predicate="evolved_into", where=scope
+            )
+            if edge.object_kind == "memory"
+        }
+        candidate_items.update(
+            store.memory_item_repo.list_items_by_ids(evolved_ids, scope)
+        )
 
         prompt_items = {
             item_id: item
@@ -468,7 +515,7 @@ class DossierMixin:
             ),
             "cleanup_memberships": cleanup,
             "cleanup_items": sorted(
-                (linked_items[item_id] for item_id in linked_inactive_ids), key=_item_sort_key
+                (all_shown_items[item_id] for item_id in shown_inactive_ids), key=_item_sort_key
             ),
             "candidate_items": sorted(candidate_items.values(), key=_item_sort_key),
             "untouched_item_ids": sorted(
@@ -632,6 +679,8 @@ class DossierMixin:
         cited_ids = decision_ids("cited_item_ids")
         snapshot_linked_ids = set(bundle["linked_item_ids"])
         provisional_members = (snapshot_linked_ids | add_ids) - remove_ids - cleanup_ids
+        if not provisional_members and not _allow_empty_text and not cited_ids:
+            prose = strip_memory_citations(str(dossier.summary or ""))
 
         embedding: list[float] | None = None
         if (provisional_members or _allow_empty_text) and description != dossier.description:
@@ -770,7 +819,7 @@ class DossierMixin:
             )
             completed_at = datetime.now(UTC)
             description_changed = (bool(resulting_members) or _allow_empty_text) and description != current.description
-            prose_changed = (bool(resulting_members) or _allow_empty_text) and prose != str(current.summary or "")
+            prose_changed = prose != str(current.summary or "")
             update: dict[str, Any] = {
                 "category_id": current.id,
                 "last_evidence_at": last_evidence_at,
@@ -877,14 +926,17 @@ class DossierMixin:
         store = self._get_database()
         categories = store.memory_category_repo.list_categories(scope)
         relations = store.category_item_repo.list_relations(scope)
+        evidence_ids = _selected_evidence_ids(store, scope, segment_ids)
         items = store.memory_item_repo.list_items_by_ids(
             {relation.item_id for relation in relations},
             scope,
+            include_superseded=True,
+            include_merged=True,
         )
         newest_by_category: dict[str, float] = {}
         for relation in relations:
             item = items.get(relation.item_id)
-            if item is None or item.segment_id not in selected_ids:
+            if item is None or relation.item_id not in evidence_ids:
                 continue
             newest_by_category[relation.category_id] = max(
                 newest_by_category.get(relation.category_id, float("-inf")),

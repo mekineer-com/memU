@@ -119,7 +119,8 @@ def parse_dossier_revision(
     }
     by_ref = {f"[M{item.memory_ref}]": item for item in items.values()}
     decisions = _parse_decisions(children["decisions"], by_ref, statuses)
-    cleanup_ids = {item.id for item in statuses["purged"]}
+    purged_ids = {item.id for item in statuses["purged"]}
+    cleanup_ids = set(bundle["linked_inactive_item_ids"])
     remove_ids = {by_ref[ref].id for ref, decision in decisions.items() if decision == "remove"}
     add_ids = {by_ref[ref].id for ref, decision in decisions.items() if decision == "add"}
 
@@ -132,7 +133,7 @@ def parse_dossier_revision(
     if unknown_refs:
         raise ValueError(f"Resulting prose cites memories outside review context: {sorted(unknown_refs)}")
     inactive_refs = {
-        ref for ref in resulting_refs if by_ref[ref].id in cleanup_ids
+        ref for ref in resulting_refs if by_ref[ref].id in purged_ids
     }
     if inactive_refs:
         raise ValueError(f"Resulting prose cites purged memories: {sorted(inactive_refs)}")

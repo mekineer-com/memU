@@ -890,6 +890,7 @@ class MemorizeMixin:
         conversation_id: str | None,
         items: list[MemoryItem],
         relations: list[CategoryItem],
+        candidate_work: list[Any] | None = None,
         pending_segment_ids: list[str],
         session: Any = None,
     ) -> tuple[list[Resource], int]:
@@ -974,13 +975,15 @@ class MemorizeMixin:
         if segment_id:
             pending_segment_ids.append(segment_id)
         if not entries:
-            filed_relations, _candidates = self.file_category_proposals(
+            filed_relations, candidates = self.file_category_proposals(
                 store=store,
                 item_proposals=item_proposals,
                 where=user_scope,
                 session=session,
             )
             relations.extend(filed_relations)
+            if candidate_work is not None:
+                candidate_work.extend(candidates)
             return [res], 0
 
         persist_kwargs: dict[str, Any] = {}
@@ -1004,13 +1007,15 @@ class MemorizeMixin:
             (item, entry.categories)
             for item, entry in zip(mem_items, entries, strict=True)
         )
-        filed_relations, _candidates = self.file_category_proposals(
+        filed_relations, candidates = self.file_category_proposals(
             store=store,
             item_proposals=item_proposals,
             where=user_scope,
             session=session,
         )
         relations.extend(filed_relations)
+        if candidate_work is not None:
+            candidate_work.extend(candidates)
         return [res], homeless_delta
 
     async def _memorize_categorize_items(self, state: WorkflowState, step_context: Any) -> WorkflowState:
@@ -1022,6 +1027,7 @@ class MemorizeMixin:
         resources: list[Resource] = []
         items: list[MemoryItem] = []
         relations: list[CategoryItem] = []
+        candidate_work: list[Any] = []
         pending_segment_ids: list[str] = []
         user_scope = state.get("user", {})
         homeless_item_count = 0
@@ -1036,6 +1042,7 @@ class MemorizeMixin:
             conversation_id=state.get("conversation_id"),
             items=items,
             relations=relations,
+            candidate_work=candidate_work,
             pending_segment_ids=pending_segment_ids,
         )
 
@@ -1062,13 +1069,14 @@ class MemorizeMixin:
             "items": items,
             "relations": relations,
             "homeless_item_count": homeless_item_count,
+            "active_candidate_work_committed": bool(candidate_work),
             "category_ids": list(dict.fromkeys(relation.category_id for relation in relations)),
             "pending_segment_ids": list(dict.fromkeys(x for x in pending_segment_ids if x)),
         })
         return state
 
     async def _memorize_persist_and_index(self, state: WorkflowState, step_context: Any) -> WorkflowState:
-        if not state.get("items"):
+        if not state.get("items") and not state.get("active_candidate_work_committed"):
             return state
         store = state["store"]
         scope = state.get("user") or {}
