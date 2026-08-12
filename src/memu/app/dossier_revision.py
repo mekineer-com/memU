@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping, Sequence
+from datetime import datetime
 from typing import Any
 from xml.etree.ElementTree import Element, tostring
 
 from defusedxml import ElementTree
 
 from memu.database.models import MemoryItem
+from memu.utils.conversation import format_relative_time_label, parse_happened_at
 
 _HEADING = re.compile(r"(?m)^## [^\r\n]+\r?$")
 # Model output is a trust boundary: these accept only exact [M#] tokens, unlike
@@ -45,12 +47,32 @@ def label_sections(prose: str) -> tuple[str, list[tuple[str, str]]] | None:
     return "\n".join(f"{label}\n{section}" for label, section in sections), sections
 
 
-def render_memory_records(items: Sequence[MemoryItem]) -> str:
+def render_memory_record(
+    memory_ref: int,
+    memory_type: str,
+    happened_at: Any,
+    summary: str,
+    *,
+    now: datetime | None = None,
+) -> str:
+    happened = parse_happened_at(happened_at)
+    day = happened.date().isoformat() if happened is not None else "unknown date"
+    relative = format_relative_time_label(happened, now=now)
+    time_label = f"{day}, {relative}" if relative else day
+    return f"[M{memory_ref}] [{memory_type}] ({time_label}) {' '.join(summary.split())}"
+
+
+def render_memory_records(items: Sequence[MemoryItem], *, now: datetime | None = None) -> str:
     if not items:
         return "(none)"
     return "\n".join(
-        f"[M{item.memory_ref}] ({(item.happened_at or item.created_at).date().isoformat()}) "
-        f"{' '.join(item.summary.split())}"
+        render_memory_record(
+            item.memory_ref,
+            item.memory_type,
+            item.happened_at or item.created_at,
+            item.summary,
+            now=now,
+        )
         for item in items
     )
 
