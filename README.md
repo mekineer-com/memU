@@ -2,7 +2,7 @@
 
 Local-first memory engine for AI companions. Extracts, stores, and retrieves structured memories from conversation history.
 
-This is a private fork of the upstream NevaMind memU project, significantly diverged. It is not affiliated with NevaMind-AI and does not connect to any cloud service.
+Based on [memU v1.4.0](https://github.com/NevaMind-AI/memU/blob/v1.4.0/README.md), significantly diverged. Private fork, not affiliated with NevaMind-AI. Does not connect to any cloud service.
 
 ---
 
