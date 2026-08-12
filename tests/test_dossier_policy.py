@@ -1012,6 +1012,23 @@ async def test_generate_dossier_revision_replaces_unstructured_prose_once(tmp_pa
 
 
 @pytest.mark.asyncio
+async def test_generate_dossier_revision_replaces_unlabeled_placeholder(tmp_path) -> None:
+    service, _store, _anchors, category, pending, _candidate, refs, bundle = _revision_case(
+        tmp_path, summary="## unlabeled"
+    )
+    response = f"""<dossier_revision dossier_id="{category.id}">
+  <description>A personal brief.</description>
+  <prose_action>replace</prose_action>
+  <prose>## Health\nA living account [M{refs[pending.id]}].</prose>
+  <decisions><decision ref="[M{refs[pending.id]}]" action="add" /></decisions>
+</dossier_revision>"""
+
+    result = await service.generate_dossier_revision(bundle, chat_client=FakeChatClient(response))
+
+    assert result["resulting_prose"] == f"## Health\nA living account [M{refs[pending.id]}]."
+
+
+@pytest.mark.asyncio
 async def test_generate_dossier_revision_patches_sections_without_touching_others(tmp_path) -> None:
     original_first = "## Daily Care\nOriginal first section.\n\n"
     original_second = "## Timeline\n- 2026-07-01: Earlier event.\n"

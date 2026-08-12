@@ -343,7 +343,12 @@ def parse_section_revision(
             raise ValueError("Keep requires empty prose and no patches")
         return action, current_prose
     if action == "replace":
-        if inventory is not None or not prose or patches or label_sections(prose) is None:
+        if (
+            (inventory is not None and normalized_prose.strip() != "## unlabeled")
+            or not prose
+            or patches
+            or label_sections(prose) is None
+        ):
             raise ValueError(
                 "Replace requires unstructured current prose, structured full prose, and no patches"
             )
