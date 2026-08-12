@@ -106,12 +106,17 @@ def parse_dossier_revision(
     normalize_blank: bool = False,
 ) -> dict[str, Any]:
     text = str(raw or "").strip()
+    start = text.find("<dossier_revision")
+    end = text.find("</dossier_revision>", start) + len("</dossier_revision>")
     if (
-        not text.startswith("<dossier_revision")
-        or not text.endswith("</dossier_revision>")
-        or "<!--" in text
-        or "<?" in text
+        start < 0
+        or end < len("</dossier_revision>")
+        or text.find("<dossier_revision", start + 1) >= 0
+        or text.find("</dossier_revision>", end) >= 0
     ):
+        raise ValueError("Expected exact dossier_revision XML")
+    text = text[start:end]
+    if "<!--" in text or "<?" in text:
         raise ValueError("Expected exact dossier_revision XML")
     try:
         root = ElementTree.fromstring(text)

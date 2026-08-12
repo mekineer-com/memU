@@ -1161,7 +1161,7 @@ async def test_generate_dossier_revision_validates_decisions_and_xml(tmp_path) -
         await service.generate_dossier_revision(bundle, chat_client=FakeChatClient(malformed_ref))
 
     wrapped = f"```xml\n{missing_pending}\n```"
-    with pytest.raises(ValueError, match="Expected exact dossier_revision XML"):
+    with pytest.raises(ValueError, match="Pending memories require decisions"):
         await service.generate_dossier_revision(bundle, chat_client=FakeChatClient(wrapped))
 
     stray_patch_text = missing_pending.replace(
