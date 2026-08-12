@@ -189,7 +189,7 @@ def relative_score_fusion(*ranked_lists: list[tuple[str, float]]) -> list[tuple[
 
 
 def autocut_first_cluster(ranked: list[tuple[str, float]]) -> list[tuple[str, float]]:
-    """Return results through the first score discontinuity (Weaviate autocut=1)."""
+    """Return results through the first discontinuity in the normalized score curve."""
     if len(ranked) <= 1 or ranked[0][1] == ranked[-1][1]:
         return ranked
     step = 1.0 / (len(ranked) - 1)

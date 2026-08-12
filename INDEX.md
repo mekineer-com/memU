@@ -27,7 +27,7 @@
 | `database/factory.py` | `build_database()` — sqlite backend selector (Postgres removed) |
 | `database/interfaces.py` | `Database` Protocol — the repo surface engine code programs against |
 | `database/state.py` | `DatabaseState` dataclass — in-memory cache of loaded categories/resources |
-| `database/vector.py` | `cosine_topk`, `reciprocal_rank_fusion`, `salience_score`, `rerank_by_salience` |
+| `database/vector.py` | `cosine_topk`, `reciprocal_rank_fusion`, `relative_score_fusion`, `autocut_first_cluster`, `salience_score`, `rerank_by_salience` |
 | `database/sqlite/sqlite.py` | `SQLiteStore` — concrete backend; idempotent `_ensure_*_columns` migration helpers |
 | `database/sqlite/schema.py` | Per-scope SQLAlchemy model factory (`get_sqlite_sqlalchemy_models`) |
 | `database/sqlite/models.py` | Per-table model classes + `build_sqlite_table_model` |
@@ -51,7 +51,6 @@
 | `workflow/` | DAG runner: `step.py` (unit), `pipeline.py` (graph), `runner.py` (executor), `interceptor.py` (hook mechanism) |
 | `blob/local_fs.py` | Local filesystem media storage |
 | `utils/conversation.py` | Canonical source for all AI-facing chat display: `format_grouped_chat_history()`, platform/chat headings, date dividers, `My Activities:` always first. Used by turn_contract, consolidation, and memorize rendering. |
-| `utils/references.py` | Legacy `[ref:ITEM_ID]` inline citations in category summaries; canonical dossier citations use `[M#]` |
 | `utils/taxonomy.py` | Shared dossier kinds, scope/embedding validation, category-name normalization, and title/description identity text |
 | `utils/video.py` | Video processing utilities for frame extraction |
 
