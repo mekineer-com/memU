@@ -987,7 +987,7 @@ async def test_generate_dossier_revision_replaces_unstructured_prose_once(tmp_pa
     <decision ref="[M{refs[candidate.id]}]" action="add" />
   </decisions>
 </dossier_revision>"""
-    client = FakeChatClient(response)
+    client = FakeChatClient(response.replace("  <prose_patches></prose_patches>\n", ""))
     before = store.category_item_repo.list_relations(SCOPE)
 
     plain = response.replace(

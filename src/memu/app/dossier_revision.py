@@ -126,9 +126,10 @@ def parse_dossier_revision(
 
     children = _singletons(
         root,
-        {"description", "prose_action", "prose_patches", "decisions"},
-        optional=set() if batch else {"prose"},
+        {"description", "prose_action", "decisions"},
+        optional={"prose_patches"} if batch else {"prose", "prose_patches"},
     )
+    children.setdefault("prose_patches", Element("prose_patches"))
     description = _parse_description(children["description"])
     action, resulting_prose = parse_section_revision(
         children,
