@@ -172,3 +172,36 @@ def reciprocal_rank_fusion(
     if max_score > 0:
         scores = {doc_id: s / max_score for doc_id, s in scores.items()}
     return sorted(scores.items(), key=lambda x: x[1], reverse=True)
+
+
+def relative_score_fusion(*ranked_lists: list[tuple[str, float]]) -> list[tuple[str, float]]:
+    """Merge result lists after independently normalizing their scores to [0, 1]."""
+    scores: dict[str, float] = {}
+    for ranked in ranked_lists:
+        if not ranked:
+            continue
+        values = [score for _item_id, score in ranked]
+        low, high = min(values), max(values)
+        for item_id, score in ranked:
+            normalized = 1.0 if high == low else (score - low) / (high - low)
+            scores[item_id] = scores.get(item_id, 0.0) + normalized
+    return sorted(scores.items(), key=lambda item: (-item[1], item[0]))
+
+
+def autocut_first_cluster(ranked: list[tuple[str, float]]) -> list[tuple[str, float]]:
+    """Return results through the first score discontinuity (Weaviate autocut=1)."""
+    if len(ranked) <= 1 or ranked[0][1] == ranked[-1][1]:
+        return ranked
+    step = 1.0 / (len(ranked) - 1)
+    first, last = ranked[0][1], ranked[-1][1]
+    diffs = [
+        ((score - first) / (last - first)) - index * step
+        for index, (_item_id, score) in enumerate(ranked)
+    ]
+    for index in range(1, len(diffs)):
+        if index == len(diffs) - 1:
+            if len(diffs) > 2 and diffs[index] > diffs[index - 1] and diffs[index] > diffs[index - 2]:
+                return ranked[:index]
+        elif diffs[index] > diffs[index - 1] and diffs[index] > diffs[index + 1]:
+            return ranked[:index]
+    return ranked

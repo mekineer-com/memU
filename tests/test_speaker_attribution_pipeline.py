@@ -109,7 +109,6 @@ def test_attribution_pipeline_fills_user_and_soul_speakers_with_fallback_indices
         return await service._persist_memory_items(
             resource_id="res-1",
             structured_entries=attributed,
-            ctx=ctx,
             store=store,
             embed_client=_EmbedClient(),
             user=user_data,

@@ -19,7 +19,6 @@ from memu.app import memorize_segments as segment_helpers
 from memu.app import memorize_persistence as persistence
 from memu.app.settings import CustomPrompt
 from memu.database.models import CategoryItem, MemoryCategory, MemoryItem, MemoryType, Resource
-from memu.database.vector import cosine_similarity
 from memu.prompts.memory_type import (
     CUSTOM_PROMPTS as MEMORY_TYPE_CUSTOM_PROMPTS,
 )
@@ -992,7 +991,6 @@ class MemorizeMixin:
         mem_items, homeless_delta = await self._persist_memory_items(
             resource_id=res.id,
             structured_entries=entries,
-            ctx=ctx,
             store=store,
             embed_client=embed_client,
             user=user_scope,
@@ -1592,7 +1590,6 @@ class MemorizeMixin:
         *,
         resource_id: str,
         structured_entries: list[StructuredMemoryEntry],
-        ctx: Context,
         store: Database,
         embed_client: Any | None = None,
         user: Mapping[str, Any] | None = None,
@@ -1605,7 +1602,6 @@ class MemorizeMixin:
         items, homeless_count = await persistence._persist_memory_items(
             resource_id=resource_id,
             structured_entries=cast(list[Any], structured_entries),
-            ctx=ctx,
             store=store,
             embed_client=embed_client or self._select_embedding_client(
                 {"operation": "memorize", "step_id": "persist_memory_items"}

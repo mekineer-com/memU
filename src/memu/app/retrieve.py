@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from pydantic import BaseModel
 
-from memu.database.vector import cosine_topk, reciprocal_rank_fusion
+from memu.database.vector import autocut_first_cluster, cosine_topk, relative_score_fusion
 from memu.prompts.retrieve.pre_retrieval_decision import USER_PROMPT as PRE_RETRIEVAL_USER_PROMPT
 from memu.prompts.retrieve.pre_retrieval_decision import forced_query_system_prompt as _forced_query_system_prompt
 from memu.prompts.retrieve.pre_retrieval_decision import system_prompt_for_angle as _system_prompt_for_angle
@@ -291,10 +291,11 @@ class RetrieveMixin:
             embedding_client=embed_client,
             categories=category_rows,
         )
-        hits = reciprocal_rank_fusion(
+        fused = relative_score_fusion(
             [(category.id, score) for category, score in identity],
             [(category.id, score) for category, score in content],
-        )[:2]
+        )[: self.retrieve_config.category.max_count]
+        hits = autocut_first_cluster(fused)
         summary_lookup = {
             category.id: str(category.summary or "")
             for category in category_rows

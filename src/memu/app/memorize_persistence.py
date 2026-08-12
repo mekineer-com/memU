@@ -84,7 +84,6 @@ async def _persist_memory_items(
     *,
     resource_id: str,
     structured_entries: list[Any],
-    ctx: Any,
     store: Any,
     embed_client: Any,
     user: Mapping[str, Any] | None,

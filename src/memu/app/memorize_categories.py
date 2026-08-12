@@ -158,6 +158,7 @@ def _load_candidate_lineage(
     return loaded, canonical
 
 
+# Marcos' reminder: a category is a dossier.
 def file_category_proposals(
     *,
     store: Any,

@@ -72,7 +72,6 @@ async def test_persist_memory_items_stamps_extract_model_in_extra() -> None:
     items, homeless = await persistence._persist_memory_items(
         resource_id="res-1",
         structured_entries=[entry],
-        ctx=SimpleNamespace(),
         store=store,
         embed_client=_StubEmbedClient(),
         user={"user_id": "u1", "soul_id": "s1"},
@@ -117,7 +116,6 @@ async def test_persist_memory_items_without_extract_model_does_not_set_extra() -
     await persistence._persist_memory_items(
         resource_id="res-1",
         structured_entries=[entry],
-        ctx=SimpleNamespace(),
         store=store,
         embed_client=_StubEmbedClient(),
         user={"user_id": "u1", "soul_id": "s1"},

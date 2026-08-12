@@ -98,11 +98,8 @@ class BlobConfig(BaseModel):
 
 
 class RetrieveCategoryConfig(BaseModel):
-    enabled: bool = Field(default=True, description="Whether to enable category retrieval.")
     top_k: int = Field(default=5, description="Total number of categories to retrieve.")
-    min_score: float = Field(default=0.40)
-    score_window: float = Field(default=0.07)
-    max_count: int = Field(default=2)
+    max_count: int = Field(default=4, ge=1, le=4, description="Maximum dossiers returned after autocut.")
 
 
 class RetrieveItemConfig(BaseModel):

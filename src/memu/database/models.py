@@ -84,6 +84,7 @@ class MemoryItem(BaseRecord):
     # - tool_calls: list[dict] - Tool call history for tool memories
 
 
+# Marcos' reminder: a category is a dossier.
 class MemoryCategory(BaseRecord):
     name: str
     description: str

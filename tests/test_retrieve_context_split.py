@@ -229,8 +229,9 @@ async def test_route_category_fuses_active_non_anchor_dossiers():
     alpha = SimpleNamespace(id="alpha", anchor_role=None, summary="alpha prose")
     beta = SimpleNamespace(id="beta", anchor_role=None, summary="beta prose")
     gamma = SimpleNamespace(id="gamma", anchor_role=None, summary="gamma prose")
-    mixin.list_active_dossiers = lambda _where: [anchor, alpha, beta, gamma]  # type: ignore[method-assign]
-    mixin.retrieve_config = SimpleNamespace(category=SimpleNamespace(top_k=10))
+    delta = SimpleNamespace(id="delta", anchor_role=None, summary="delta prose")
+    mixin.list_active_dossiers = lambda _where: [anchor, alpha, beta, gamma, delta]  # type: ignore[method-assign]
+    mixin.retrieve_config = SimpleNamespace(category=SimpleNamespace(top_k=10, max_count=4))
     calls: list[tuple[str, list[str]]] = []
 
     class EmbedClient:
@@ -241,8 +242,8 @@ async def test_route_category_fuses_active_non_anchor_dossiers():
     async def search(_query, *, view, categories, **_kwargs):  # type: ignore[no-untyped-def]
         calls.append((view, [category.id for category in categories]))
         if view == "identity":
-            return [(alpha, 0.9), (beta, 0.8), (gamma, 0.7)]
-        return [(beta, 0.9), (gamma, 0.8), (alpha, 0.7)]
+            return [(alpha, 0.90), (beta, 0.89), (gamma, 0.20), (delta, 0.10)]
+        return [(beta, 0.90), (alpha, 0.88), (gamma, 0.20), (delta, 0.10)]
 
     mixin._select_embedding_client = lambda _ctx: EmbedClient()
     mixin.search_dossiers = search  # type: ignore[method-assign]
@@ -256,16 +257,17 @@ async def test_route_category_fuses_active_non_anchor_dossiers():
     out = await mixin._rag_route_category(state, step_context=None)
 
     assert calls == [
-        ("identity", ["alpha", "beta", "gamma"]),
-        ("content", ["alpha", "beta", "gamma"]),
+        ("identity", ["alpha", "beta", "gamma", "delta"]),
+        ("content", ["alpha", "beta", "gamma", "delta"]),
     ]
     assert [category_id for category_id, _score in out["category_hits"]] == ["beta", "alpha"]
     assert out["category_summary_lookup"] == {
         "alpha": "alpha prose",
         "beta": "beta prose",
         "gamma": "gamma prose",
+        "delta": "delta prose",
     }
-    assert set(out["category_pool"]) == {"alpha", "beta", "gamma"}
+    assert set(out["category_pool"]) == {"alpha", "beta", "gamma", "delta"}
 
 
 @pytest.mark.asyncio

@@ -8,12 +8,26 @@ from sqlalchemy import event
 
 from memu.database.models import Triple
 from memu.database.sqlite.sqlite import SQLiteStore
-from memu.database.vector import cosine_topk, reciprocal_rank_fusion
+from memu.database.vector import (
+    autocut_first_cluster,
+    cosine_topk,
+    reciprocal_rank_fusion,
+    relative_score_fusion,
+)
 
 
 class SearchScope(BaseModel):
     user_id: str | None = None
     soul_id: str | None = None
+
+
+def test_relative_score_fusion_supports_first_cluster_autocut() -> None:
+    fused = relative_score_fusion(
+        [("alpha", 0.90), ("beta", 0.89), ("gamma", 0.20), ("delta", 0.10)],
+        [("beta", 0.90), ("alpha", 0.88), ("gamma", 0.20), ("delta", 0.10)],
+    )
+
+    assert [item_id for item_id, _score in autocut_first_cluster(fused)] == ["beta", "alpha"]
 
 
 @pytest.fixture

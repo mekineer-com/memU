@@ -32,6 +32,7 @@ if TYPE_CHECKING:
     from memu.database.interfaces import Database
 
 DOSSIER_INDEX_LIMIT = 20
+# Marcos' reminder: a category is a dossier.
 MEMORY_REF_PATTERN = re.compile(r"^\[M([1-9][0-9]*)\]$")
 MEMORY_REF_SCAN_PATTERN = re.compile(r"\[M[0-9][^\]\r\n]*\]")
 AnchorRole = Literal["soul", "user"]
