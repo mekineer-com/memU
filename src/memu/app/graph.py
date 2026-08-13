@@ -148,6 +148,34 @@ def _pack_embedding(values: list[float]) -> str:
 
 
 class GraphMixin:
+    def _graph_active_category_ids(self, where: Mapping[str, Any] | None) -> set[str]:
+        return {category.id for category in self.list_active_dossiers(where or {})}
+
+    def _scoped_category_node(
+        self,
+        category: Any,
+        *,
+        where: Mapping[str, Any] | None,
+        active_category_ids: set[str],
+    ) -> dict[str, Any]:
+        citations = []
+        # ponytail: N+1 citation lookups; batch WHERE IN if scale matters.
+        for memory_ref in self.extract_memory_refs(category.summary or ""):
+            try:
+                item = self.resolve_memory_ref(memory_ref, where or {})
+            except KeyError:
+                continue
+            citations.append({
+                "ref": self.format_memory_ref(memory_ref),
+                "memory_id": item.id,
+                "summary": item.summary,
+            })
+        return self._category_node(
+            category,
+            active=category.id in active_category_ids,
+            citations=citations,
+        )
+
     def graph_memory(self, item_id: str, *, where: Mapping[str, Any] | None = None) -> dict[str, Any] | None:
         store = self._get_database()
         item_id = str(item_id or "")
@@ -156,7 +184,13 @@ class GraphMixin:
             kind, raw_id = "memory", kind
         if kind == "category":
             category = store.memory_category_repo.list_categories(where).get(raw_id)
-            return self._category_node(category) if category is not None else None
+            if category is None:
+                return None
+            return self._scoped_category_node(
+                category,
+                where=where,
+                active_category_ids=self._graph_active_category_ids(where),
+            )
         if kind == "entity":
             entity = next((entity for entity in store.entity_repo.list_all(where) if entity.id == raw_id), None)
             return self._entity_node(entity) if entity is not None else None
@@ -195,6 +229,7 @@ class GraphMixin:
         limit = max(1, min(int(limit or 50), 200))
         offset = max(0, int(offset or 0))
         categories = store.memory_category_repo.list_categories(where)
+        active_category_ids = self._graph_active_category_ids(where) if categories else set()
         relations = store.category_item_repo.list_relations(where)
         raw_category_id = str(category_id or "").removeprefix("category:")
         item_category_ids: dict[str, list[str]] = {}
@@ -214,7 +249,11 @@ class GraphMixin:
             for item in items
         ]
         category_nodes = [
-            self._category_node(category)
+            self._scoped_category_node(
+                category,
+                where=where,
+                active_category_ids=active_category_ids,
+            )
             for category in categories.values()
             if not raw_category_id or category.id == raw_category_id
         ]
@@ -244,12 +283,13 @@ class GraphMixin:
         store = self._get_database()
         min_count = max(0, int(min_count or 0))
         categories = store.memory_category_repo.list_categories(where)
+        active_category_ids = self._graph_active_category_ids(where) if categories else set()
         counts = dict.fromkeys(categories, 0)
         for rel in store.category_item_repo.list_relations(where):
             if rel.category_id in counts:
                 counts[rel.category_id] += 1
         return [
-            self._atomic_tag(category, counts[category.id])
+            self._atomic_tag(category, counts[category.id], active=category.id in active_category_ids)
             for category in sorted(categories.values(), key=lambda category: category.name.lower())
             if counts[category.id] >= min_count
         ]
@@ -667,6 +707,7 @@ class GraphMixin:
         store = self._get_database()
         items = store.memory_item_repo.list_items(where)
         categories = store.memory_category_repo.list_categories(where)
+        active_category_ids = self._graph_active_category_ids(where) if categories else set()
         relations = store.category_item_repo.list_relations(where)
         category_names_by_item: dict[str, list[str]] = {}
         category_ids_by_item: dict[str, list[str]] = {}
@@ -700,7 +741,11 @@ class GraphMixin:
                 node["similarity"] = cluster_info["similarity"]
             pending_items.append(node)
         pending_categories = [
-            self._category_node(category)
+            self._scoped_category_node(
+                category,
+                where=where,
+                active_category_ids=active_category_ids,
+            )
             for category in categories.values()
             if category.summary is not None
             and (
@@ -782,6 +827,7 @@ class GraphMixin:
 
         pool = store.memory_item_repo.list_items(where)
         categories = store.memory_category_repo.list_categories(where)
+        active_category_ids = self._graph_active_category_ids(where) if categories else set()
         if since_days is not None:
             cutoff = datetime.now(UTC) - timedelta(days=max(1, int(since_days)))
             pool = {
@@ -838,7 +884,11 @@ class GraphMixin:
                     category_scores[category.id] = max(category_scores.get(category.id, 0.0), 1.0)
         for category_id, score in category_scores.items():
             if category_id in categories:
-                node = self._category_node(categories[category_id])
+                node = self._scoped_category_node(
+                    categories[category_id],
+                    where=where,
+                    active_category_ids=active_category_ids,
+                )
                 node["score"] = score
                 nodes.append(node)
         nodes.sort(key=lambda node: node.get("score", 0.0), reverse=True)
@@ -899,6 +949,7 @@ class GraphMixin:
         }
 
         categories = store.memory_category_repo.list_categories(scope)
+        active_category_ids = self._graph_active_category_ids(scope) if categories else set()
         relations = store.category_item_repo.list_relations(scope)
         category_names_by_item: dict[str, list[str]] = {item_id: [] for item_id in selected_ids}
         category_ids: set[str] = set()
@@ -948,7 +999,15 @@ class GraphMixin:
             for item_id in selected_ids
             if item_id in all_items
         ]
-        nodes.extend(self._category_node(categories[cat_id]) for cat_id in category_ids if cat_id in categories)
+        nodes.extend(
+            self._scoped_category_node(
+                categories[cat_id],
+                where=scope,
+                active_category_ids=active_category_ids,
+            )
+            for cat_id in category_ids
+            if cat_id in categories
+        )
         nodes.extend(self._entity_node(entities[entity_id]) for entity_id in entity_ids if entity_id in entities)
 
         nodes.sort(key=lambda node: (node["kind"], node.get("happened_at") or "", node["id"]))
@@ -978,7 +1037,12 @@ class GraphMixin:
         }
 
     @staticmethod
-    def _category_node(category: Any) -> dict[str, Any]:
+    def _category_node(
+        category: Any,
+        *,
+        active: bool,
+        citations: list[dict[str, Any]],
+    ) -> dict[str, Any]:
         return {
             "id": f"category:{category.id}",
             "kind": "category",
@@ -990,6 +1054,13 @@ class GraphMixin:
             "approved_description": getattr(category, "approved_description", None),
             "previous_summary": getattr(category, "previous_summary", None),
             "approved_summary": getattr(category, "approved_summary", None),
+            "category_kind": getattr(category, "kind", None),
+            "lore_subtype": getattr(category, "lore_subtype", None),
+            "anchor_role": getattr(category, "anchor_role", None),
+            "active": active,
+            "last_evidence_at": _iso(getattr(category, "last_evidence_at", None)),
+            "last_revised_at": _iso(getattr(category, "last_revised_at", None)),
+            "citations": citations,
             "created_at": _iso(category.created_at),
             "updated_at": _iso(category.updated_at),
             "category_names": [],
@@ -1010,7 +1081,7 @@ class GraphMixin:
             }
             for cat_id, name in zip(node.get("category_ids", []), node.get("category_names", []), strict=False)
         ]
-        return {
+        atom = {
             "id": node["id"],
             "title": node.get("label") or node["id"],
             "snippet": text,
@@ -1025,9 +1096,24 @@ class GraphMixin:
             "tagging_error": None,
             "tags": tags,
         }
+        for field in (
+            "description",
+            "approved_description",
+            "approved_summary",
+            "category_kind",
+            "lore_subtype",
+            "anchor_role",
+            "active",
+            "last_evidence_at",
+            "last_revised_at",
+            "citations",
+        ):
+            if field in node:
+                atom[field] = node[field]
+        return atom
 
     @staticmethod
-    def _atomic_tag(category: Any, count: int) -> dict[str, Any]:
+    def _atomic_tag(category: Any, count: int, *, active: bool) -> dict[str, Any]:
         return {
             "id": f"category:{category.id}",
             "name": category.name,
@@ -1038,6 +1124,9 @@ class GraphMixin:
             "atom_count": count,
             "children_total": 0,
             "children": [],
+            "category_kind": getattr(category, "kind", None),
+            "anchor_role": getattr(category, "anchor_role", None),
+            "active": active,
         }
 
     @staticmethod

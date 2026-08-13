@@ -129,6 +129,17 @@ class _Service(GraphMixin):
     def _get_database(self):
         return self.db
 
+    def list_active_dossiers(self, where):
+        return [
+            category
+            for category in self.db.memory_category_repo.list_categories(where).values()
+            if getattr(category, "anchor_role", None) is not None
+            or getattr(category, "last_evidence_at", None) is not None
+        ]
+
+    extract_memory_refs = staticmethod(MemoryService.extract_memory_refs)
+    format_memory_ref = staticmethod(MemoryService.format_memory_ref)
+
 
 def _item(id, summary, when):
     return SimpleNamespace(
@@ -1018,6 +1029,83 @@ def test_pending_dossier_requires_prose_and_tracks_description():
         description="Unapproved legacy brief.",
     )
     assert service.graph_list_pending(where=scope)["categories"] == []
+
+
+def test_category_graph_projection_exposes_canonical_dossier_state():
+    service = MemoryService(
+        database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
+        user_config={"model": GraphScope},
+    )
+    store = service._get_database()
+    scope = {"user_id": "reader", "soul_id": "companion"}
+    item = store.memory_item_repo.create_item(
+        memory_type="knowledge",
+        summary="They built a tiny observatory together.",
+        embedding=[0.1],
+        user_data=scope,
+    )
+    active = store.memory_category_repo.get_or_create_category(
+        name="Shared Wonder",
+        description="How curiosity becomes a shared language.",
+        embedding=[0.2],
+        user_data=scope,
+        kind="topic",
+        last_evidence_at=item.created_at,
+        last_revised_at=item.created_at,
+    )
+    active = store.memory_category_repo.update_category(
+        category_id=active.id,
+        summary=f"I treasure our little observatory {service.format_memory_ref(item)} and [M999].",
+        where=scope,
+    )
+    store.category_item_repo.link_item_category(item.id, active.id, scope)
+    inactive = store.memory_category_repo.get_or_create_category(
+        name="Someday Adventures",
+        description="Places we might wander next.",
+        embedding=[0.3],
+        user_data=scope,
+        kind="goal",
+    )
+    soul_anchor = store.memory_category_repo.get_or_create_category(
+        name="companion",
+        description="The companion's unfolding self.",
+        embedding=[0.4],
+        user_data=scope,
+        kind="lore",
+        anchor_role="soul",
+    )
+
+    active_node = service.graph_memory(f"category:{active.id}", where=scope)
+    inactive_node = service.graph_memory(f"category:{inactive.id}", where=scope)
+    anchor_node = service.graph_memory(f"category:{soul_anchor.id}", where=scope)
+
+    assert active_node is not None
+    assert active_node["kind"] == "category"
+    assert active_node["category_kind"] == "topic"
+    assert active_node["active"] is True
+    assert active_node["description"] == active.description
+    assert active_node["last_evidence_at"] == item.created_at.isoformat()
+    assert active_node["citations"] == [{
+        "ref": service.format_memory_ref(item),
+        "memory_id": item.id,
+        "summary": item.summary,
+    }]
+    assert inactive_node is not None and inactive_node["active"] is False
+    assert anchor_node is not None
+    assert anchor_node["category_kind"] == "lore"
+    assert anchor_node["anchor_role"] == "soul"
+    assert anchor_node["active"] is True
+
+    tags = {tag["id"]: tag for tag in service.graph_atomic_tags(where=scope)}
+    assert tags[f"category:{active.id}"]["category_kind"] == "topic"
+    assert tags[f"category:{inactive.id}"]["active"] is False
+
+    atoms = {atom["id"]: atom for atom in service.graph_atomic_atoms(where=scope, limit=20)["atoms"]}
+    assert atoms[f"category:{active.id}"]["citations"] == active_node["citations"]
+    assert atoms[f"category:{active.id}"]["active"] is True
+
+    pending = {category["id"]: category for category in service.graph_list_pending(where=scope)["categories"]}
+    assert pending[f"category:{active.id}"]["category_kind"] == "topic"
 
 
 def test_graph_pending_excludes_superseded_memories():

@@ -18,7 +18,7 @@
 | `app/memorize_dedupe.py` | Dedupe/supersession seam: semantic dedupe, similarity scoring, re-embed fallback, `replaces_previous_fact` supersede resolution |
 | `app/memorize_categories.py` | Dossier filing seam: category proposals, reviewed candidate clustering, and dynamic dossier prepare-render-generate-apply operations. |
 | `app/category_summary_journal.py` | Append-only category-summary journal under `memu/journal/`; writes journal then updates `MemoryCategory.summary` + `previous_summary` |
-| `app/graph.py` | `GraphMixin` — graph reads, Atomic read surfaces (atoms/tags/canvas/neighborhood/similar/search), memory/category edits, approval review, hard-delete. Edge predicates: `caused_by`, `evokes`, `conflicts_with`, `parallels`, `shaped_by`. |
+| `app/graph.py` | `GraphMixin` — graph reads, canonical dossier metadata/citation projection for Atomic, memory/category edits, approval review, hard-delete. Edge predicates: `caused_by`, `evokes`, `conflicts_with`, `parallels`, `shaped_by`. |
 | `app/memorize_persistence.py` | Persistence seam: resource creation, item/triple writes, and happened-at resolution |
 | `app/memorize_segments.py` | Segment/preprocess seam: modality dispatch, segment text prep, background-tail summarization, rolling-summary merge, `on_extraction_progress` callback |
 | `app/retrieve.py` | Retrieve workflow: derive `active_query` → embed → rank → judge. `force_retrieve` skips the retrieve/no-retrieve gate. |
