@@ -1408,9 +1408,11 @@ class MemorizeMixin:
                     speaker_roster=speaker_roster,
                     source_days=source_days,
                 )
-            except ValueError:
+            except ValueError as exc:
                 self._dump_unparseable_reply(response, mtype, attempt=1)
-                logger.error("Extraction reply unparseable for memory_type=%s — retrying", mtype)
+                logger.error(
+                    "Extraction reply invalid for memory_type=%s — retrying: %s", mtype, exc
+                )
                 retry_response = await client.chat(prompt)
                 try:
                     self._parse_structured_entries(

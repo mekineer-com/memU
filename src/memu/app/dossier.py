@@ -43,7 +43,9 @@ class DossierRevisionStaleError(RuntimeError):
     pass
 
 
-def render_dossier_revision_prompts(bundle: Mapping[str, Any]) -> tuple[str, str]:
+def render_dossier_revision_prompts(
+    bundle: Mapping[str, Any], *, include_relative: bool = True
+) -> tuple[str, str]:
     dossier = bundle["dossier"]
     sectioned = label_sections(str(dossier.summary or ""))
     current_prose = sectioned[0] if sectioned is not None else str(dossier.summary or "")
@@ -81,10 +83,18 @@ def render_dossier_revision_prompts(bundle: Mapping[str, Any]) -> tuple[str, str
         dossier_title=dossier.name,
         dossier_description=dossier.description,
         current_prose=current_prose or "(none)",
-        cited_memory_records=render_memory_records(statuses["cited"]),
-        candidate_memory_records=render_memory_records(statuses["search"]),
-        cleanup_memberships=render_memory_records(statuses["purged"]),
-        required_memory_records=render_memory_records(statuses["pending"]),
+        cited_memory_records=render_memory_records(
+            statuses["cited"], include_relative=include_relative
+        ),
+        candidate_memory_records=render_memory_records(
+            statuses["search"], include_relative=include_relative
+        ),
+        cleanup_memberships=render_memory_records(
+            statuses["purged"], include_relative=include_relative
+        ),
+        required_memory_records=render_memory_records(
+            statuses["pending"], include_relative=include_relative
+        ),
     )
     return system_prompt, user_prompt
 

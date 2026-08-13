@@ -885,6 +885,9 @@ def test_revision_memory_records_are_one_line() -> None:
     assert render_memory_records(
         [item], now=datetime(2026, 8, 18, tzinfo=UTC)
     ) == "[M12] [knowledge] (2026-07-18, 1 month ago) First line. Second line."
+    assert render_memory_records(
+        [item], now=datetime(2026, 8, 18, tzinfo=UTC), include_relative=False
+    ) == "[M12] [knowledge] (2026-07-18) First line. Second line."
 
 
 def test_revision_status_precedence_is_disjoint() -> None:

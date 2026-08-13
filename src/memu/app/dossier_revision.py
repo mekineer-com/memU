@@ -54,15 +54,21 @@ def render_memory_record(
     summary: str,
     *,
     now: datetime | None = None,
+    include_relative: bool = True,
 ) -> str:
     happened = parse_happened_at(happened_at)
     day = happened.date().isoformat() if happened is not None else "unknown date"
-    relative = format_relative_time_label(happened, now=now)
+    relative = format_relative_time_label(happened, now=now) if include_relative else None
     time_label = f"{day}, {relative}" if relative else day
     return f"[M{memory_ref}] [{memory_type}] ({time_label}) {' '.join(summary.split())}"
 
 
-def render_memory_records(items: Sequence[MemoryItem], *, now: datetime | None = None) -> str:
+def render_memory_records(
+    items: Sequence[MemoryItem],
+    *,
+    now: datetime | None = None,
+    include_relative: bool = True,
+) -> str:
     if not items:
         return "(none)"
     return "\n".join(
@@ -72,6 +78,7 @@ def render_memory_records(items: Sequence[MemoryItem], *, now: datetime | None =
             item.happened_at or item.created_at,
             item.summary,
             now=now,
+            include_relative=include_relative,
         )
         for item in items
     )
