@@ -50,27 +50,3 @@ def test_resolve_entry_happened_at_uses_memory_selected_day() -> None:
 
     assert service._resolve_entry_happened_at("2025-01-26", happened_at_map) == datetime.fromtimestamp(1737936000)
     assert service._resolve_entry_happened_at(None, happened_at_map) is None
-
-
-def test_resolve_source_message_ids_always_uses_episode_provenance() -> None:
-    service = _service()
-    episode = [0, 1, 2, 3]
-
-    assert service._resolve_source_message_ids(None, episode) == episode
-    assert service._resolve_source_message_ids([], episode) == episode
-    assert service._resolve_source_message_ids([99], episode) == episode
-    assert service._resolve_source_message_ids([1, 2], episode) == episode
-    assert service._resolve_source_message_ids([1, 99], episode) == episode
-    assert service._resolve_source_message_ids([1, 2], None) == []
-
-
-def test_resolve_source_message_ids_handles_malformed_input_without_raising() -> None:
-    # The resolver is the boundary that prevents stale LLM output from turning
-    # generalized memories back into individual-message memories.
-    service = _service()
-    episode = [0, 1, 2]
-
-    assert service._resolve_source_message_ids("unexpected string", episode) == episode
-    assert service._resolve_source_message_ids({"malformed": "dict"}, episode) == episode
-    assert service._resolve_source_message_ids(42, episode) == episode
-    assert service._resolve_source_message_ids([None, "x", 2.5, {"k": 1}], episode) == episode

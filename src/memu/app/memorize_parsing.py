@@ -46,24 +46,6 @@ def _dedupe_message_indices(values: Sequence[int | float | str]) -> list[int]:
     return out
 
 
-def _coerce_to_iterable(values: Any) -> Sequence[Any]:
-    if isinstance(values, (list, tuple)):
-        return values
-    return []
-
-
-def _resolve_source_message_ids(
-    values: Any,
-    allowed_values: Any = None,
-) -> list[int]:
-    allowed = _dedupe_message_indices(_coerce_to_iterable(allowed_values))
-    if allowed:
-        return allowed
-    # Extraction no longer asks the model to cite individual messages. If the
-    # caller has no episode/segment provenance, do not trust stale emitted IDs.
-    return []
-
-
 def _extract_message_indices(text: str | None) -> list[int]:
     if not isinstance(text, str) or not text.strip():
         return []

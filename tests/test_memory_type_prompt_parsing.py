@@ -44,7 +44,7 @@ def test_memory_type_target_items_uses_min_chunk_tokens() -> None:
 
 
 @pytest.mark.parametrize("memory_type", ["knowledge", "behavior"])
-def test_parse_structured_entries_ignores_stale_source_ids(memory_type: MemoryType) -> None:
+def test_parse_structured_entries_uses_segment_provenance(memory_type: MemoryType) -> None:
     service = _service()
 
     response = """
@@ -54,10 +54,6 @@ def test_parse_structured_entries_ignores_stale_source_ids(memory_type: MemoryTy
         <source_role>user</source_role>
         <confidence>0.8</confidence>
         <reflection_salience>0.72</reflection_salience>
-        <source_message_ids>
-            <id>3</id>
-            <id>5</id>
-        </source_message_ids>
         <categories>
             <category>Communication</category>
         </categories>

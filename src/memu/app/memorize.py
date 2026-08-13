@@ -1478,13 +1478,7 @@ class MemorizeMixin:
                     if parsed_confidence is not None and 0.0 <= parsed_confidence <= 1.0:
                         confidence = parsed_confidence
 
-                # Memory items are generalized from the episode, not based on
-                # individual messages. This stores code-owned provenance for the
-                # whole episode/segment; stale emitted IDs are ignored.
-                source_message_ids = self._resolve_source_message_ids(
-                    entry.get("source_message_ids"),
-                    default_source_message_ids,
-                )
+                source_message_ids = self._dedupe_message_indices(default_source_message_ids or [])
 
                 reflection_salience = self._normalize_reflection_salience(entry.get("reflection_salience"))
                 emotional_intensity = self._normalize_reflection_salience(entry.get("emotional_intensity"))
@@ -1951,21 +1945,6 @@ class MemorizeMixin:
     @staticmethod
     def _dedupe_message_indices(values: Sequence[int | float | str]) -> list[int]:
         return parsing._dedupe_message_indices(values)
-
-    def _resolve_source_message_ids(
-        self,
-        values: Any,
-        allowed_values: Any = None,
-    ) -> list[int]:
-        """Resolve DB provenance IDs to the full episode/segment range.
-
-        Memories are not based on individual messages. The persisted
-        `source_message_ids` column is provenance coverage for the generalized
-        episode/segment memory. Prompts stopped requesting the field in 02d8bde;
-        stale emitted IDs are ignored so the model cannot narrow a memory to one
-        line again.
-        """
-        return parsing._resolve_source_message_ids(values, allowed_values)
 
     @staticmethod
     def _extract_message_indices(text: str | None) -> list[int]:
