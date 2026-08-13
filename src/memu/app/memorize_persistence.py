@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
 
 from memu.database.models import Triple
@@ -8,20 +8,12 @@ from memu.database.models import Triple
 
 
 def _resolve_entry_happened_at(
-    source_message_ids: Sequence[int] | None,
-    message_happened_at_map: Mapping[int, Any] | None,
+    memory_date: str | None,
+    source_day_happened_at: Mapping[str, Any] | None,
 ) -> Any | None:
-    if not message_happened_at_map:
+    if not memory_date or not source_day_happened_at:
         return None
-    for message_idx in source_message_ids or []:
-        happened_at = message_happened_at_map.get(int(message_idx))
-        if happened_at is not None:
-            return happened_at
-    for message_idx in sorted(message_happened_at_map):
-        happened_at = message_happened_at_map.get(message_idx)
-        if happened_at is not None:
-            return happened_at
-    return None
+    return source_day_happened_at.get(memory_date)
 
 
 async def _create_resource_with_caption(
@@ -90,13 +82,12 @@ async def _persist_memory_items(
     conversation_id: str | None,
     segment_id: str | None,
     extract_model: str | None,
-    message_happened_at_map: Mapping[int, Any] | None,
+    source_day_happened_at: Mapping[str, Any] | None,
     session: Any | None,
     enable_confidence_normalization: bool,
     normalize_confidence: Callable[[list[Any]], list[Any]],
     find_supersede_targets: Callable[..., Awaitable[dict[int, str]]],
     hedge_summary_for_confidence: Callable[[str, float | None], str],
-    resolve_entry_happened_at: Callable[[Sequence[int] | None, Mapping[int, Any] | None], Any | None],
 ) -> tuple[list[Any], int]:
     summary_payloads = [entry.content for entry in structured_entries]
     item_embeddings = await embed_client.embed(summary_payloads) if summary_payloads else []
@@ -126,7 +117,7 @@ async def _persist_memory_items(
             "speaker_label": entry.speaker_label,
             "confidence": entry.confidence,
             "source_message_ids": entry.source_message_ids,
-            "happened_at": resolve_entry_happened_at(entry.source_message_ids, message_happened_at_map),
+            "happened_at": _resolve_entry_happened_at(entry.memory_date, source_day_happened_at),
             "reflection_salience": entry.reflection_salience,
             "emotional_intensity": entry.emotional_intensity,
             "conversation_id": conversation_id,

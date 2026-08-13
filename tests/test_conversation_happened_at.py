@@ -41,22 +41,15 @@ def test_grouped_chat_happened_at_preserves_calendar_only_day() -> None:
     assert grouped_chat_happened_at({"received_at": "2026-01-02"}) == datetime(2026, 1, 2)
 
 
-def test_resolve_entry_happened_at_uses_episode_provenance_start() -> None:
+def test_resolve_entry_happened_at_uses_memory_selected_day() -> None:
     service = _service()
-    raw_text = json.dumps([
-        {"role": "user", "content": "zero", "ts_ms": 1737849600000},
-        {"role": "assistant", "content": "one", "ts_ms": 1737849660000},
-    ])
+    happened_at_map = {
+        "2025-01-25": datetime.fromtimestamp(1737849600),
+        "2025-01-26": datetime.fromtimestamp(1737936000),
+    }
 
-    happened_at_map = service._extract_message_happened_at_map(raw_text)
-
-    direct = service._resolve_entry_happened_at([1], happened_at_map)
-    fallback = service._resolve_entry_happened_at([], happened_at_map)
-
-    assert direct is not None
-    assert fallback is not None
-    assert direct == datetime.fromtimestamp(1737849660)
-    assert fallback == datetime.fromtimestamp(1737849600)
+    assert service._resolve_entry_happened_at("2025-01-26", happened_at_map) == datetime.fromtimestamp(1737936000)
+    assert service._resolve_entry_happened_at(None, happened_at_map) is None
 
 
 def test_resolve_source_message_ids_always_uses_episode_provenance() -> None:

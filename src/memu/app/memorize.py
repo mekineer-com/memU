@@ -57,6 +57,7 @@ class StructuredMemoryEntry(NamedTuple):
     entities: list[dict[str, str]] | None = None
     speaker_id: str | None = None
     speaker_label: str | None = None
+    memory_date: str | None = None
 
 
 class SpeakerRosterEntry(NamedTuple):
@@ -539,6 +540,7 @@ class MemorizeMixin:
                     dossier_context=ep["dossier_context"],
                     speaker_roster=speaker_roster,
                     default_source_message_ids=ep["message_indices"],
+                    source_days=tuple(ep["source_day_happened_at"]),
                     llm_client=self._with_llm_step(
                         extract_client,
                         operation="memorize",
@@ -800,6 +802,13 @@ class MemorizeMixin:
             categories_prompt_str=state["categories_prompt_str"],
             dossier_context=state.get("dossier_context"),
             speaker_roster=speaker_roster,
+            source_days=tuple(
+                dict.fromkeys(
+                    happened_at.date().isoformat()
+                    for message_idx in message_indices
+                    if (happened_at := message_happened_at_map.get(message_idx)) is not None
+                )
+            ),
             llm_client=llm_client,
         )
         structured_entries = self._decorate_entries_with_plan_context(
@@ -812,6 +821,9 @@ class MemorizeMixin:
             for message_idx in message_indices
             if message_idx in message_happened_at_map
         }
+        source_day_happened_at: dict[str, Any] = {}
+        for happened_at in plan_message_happened_at_map.values():
+            source_day_happened_at.setdefault(happened_at.date().isoformat(), happened_at)
 
         segment_id = str(prep.get("segment_id") or "").strip() or None
         if not segment_id:
@@ -826,6 +838,7 @@ class MemorizeMixin:
             "caption": caption,
             "message_indices": message_indices,
             "message_happened_at_map": plan_message_happened_at_map,
+            "source_day_happened_at": source_day_happened_at,
             "entries": structured_entries,
             "segment_id": segment_id,
             "memory_retrieve_history": state.get("memory_retrieve_history"),
@@ -909,7 +922,6 @@ class MemorizeMixin:
             episode_local_path = str(episode_file)
 
         segment_id = str(plan.get("segment_id") or "").strip() or None
-        message_happened_at_map = plan.get("message_happened_at_map")
         source_day_happened_at = plan.get("source_day_happened_at")
         raw_episodes = plan.get("episodes") or []
         item_proposals: list[tuple[MemoryItem, Sequence[str]]] = []
@@ -997,7 +1009,7 @@ class MemorizeMixin:
             conversation_id=conversation_id,
             segment_id=segment_id,
             extract_model=str(plan.get("extract_model") or "").strip() or None,
-            message_happened_at_map=message_happened_at_map,
+            source_day_happened_at=source_day_happened_at,
             **persist_kwargs,
         )
         items.extend(mem_items)
@@ -1217,6 +1229,7 @@ class MemorizeMixin:
         categories_prompt_str: str,
         dossier_context: Mapping[str, Any] | None = None,
         speaker_roster: Sequence[SpeakerRosterEntry] | None = None,
+        source_days: Sequence[str] | None = None,
         llm_client: Any | None = None,
     ) -> list[StructuredMemoryEntry]:
         if not memory_types or not text:
@@ -1229,6 +1242,7 @@ class MemorizeMixin:
             categories_prompt_str=categories_prompt_str,
             dossier_context=dossier_context,
             speaker_roster=speaker_roster,
+            source_days=source_days,
             default_source_message_ids=self._extract_message_indices(text)
             if modality == "conversation"
             else None,
@@ -1364,6 +1378,7 @@ class MemorizeMixin:
         dossier_context: Mapping[str, Any] | None = None,
         speaker_roster: Sequence[SpeakerRosterEntry] | None = None,
         default_source_message_ids: list[int] | None = None,
+        source_days: Sequence[str] | None = None,
         llm_client: Any | None = None,
         target_items_by_type: Mapping[str, str] | None = None,
     ) -> list[StructuredMemoryEntry]:
@@ -1387,13 +1402,23 @@ class MemorizeMixin:
         responses = list(await asyncio.gather(*tasks))
         for i, ((mtype, prompt), response) in enumerate(zip(valid_pairs, responses)):
             try:
-                parsing._parse_memory_type_response_xml(response)
+                self._parse_structured_entries(
+                    [mtype], [response],
+                    default_source_message_ids=default_source_message_ids,
+                    speaker_roster=speaker_roster,
+                    source_days=source_days,
+                )
             except ValueError:
                 self._dump_unparseable_reply(response, mtype, attempt=1)
                 logger.error("Extraction reply unparseable for memory_type=%s — retrying", mtype)
                 retry_response = await client.chat(prompt)
                 try:
-                    parsing._parse_memory_type_response_xml(retry_response)
+                    self._parse_structured_entries(
+                        [mtype], [retry_response],
+                        default_source_message_ids=default_source_message_ids,
+                        speaker_roster=speaker_roster,
+                        source_days=source_days,
+                    )
                 except ValueError as exc:
                     self._dump_unparseable_reply(retry_response, mtype, attempt=2)
                     snippet = repr(retry_response[:200])
@@ -1406,6 +1431,7 @@ class MemorizeMixin:
             responses,
             default_source_message_ids=default_source_message_ids,
             speaker_roster=speaker_roster,
+            source_days=source_days,
         )
 
     @staticmethod
@@ -1419,6 +1445,7 @@ class MemorizeMixin:
         *,
         default_source_message_ids: list[int] | None = None,
         speaker_roster: Sequence[SpeakerRosterEntry] | None = None,
+        source_days: Sequence[str] | None = None,
     ) -> list[StructuredMemoryEntry]:
         entries: list[StructuredMemoryEntry] = []
         for mtype, response in zip(memory_types, responses, strict=True):
@@ -1427,6 +1454,9 @@ class MemorizeMixin:
                 content = (entry.get("content") or "").strip()
                 if not content:
                     continue
+                memory_date = str(entry.get("day") or "").strip() or None
+                if source_days and memory_date not in source_days:
+                    raise ValueError("memory day must match a source day")
                 source_role_raw = entry.get("source_role")
                 source_role = None
                 if isinstance(source_role_raw, str):
@@ -1482,6 +1512,7 @@ class MemorizeMixin:
                         entities,
                         parsed_speaker_id,
                         parsed_speaker_label,
+                        memory_date,
                     )
                 )
         return self._prune_extracted_entry_duplicates(entries)
@@ -1596,7 +1627,7 @@ class MemorizeMixin:
         conversation_id: str | None = None,
         segment_id: str | None = None,
         extract_model: str | None = None,
-        message_happened_at_map: Mapping[int, Any] | None = None,
+        source_day_happened_at: Mapping[str, Any] | None = None,
         session: Any | None = None,
     ) -> tuple[list[MemoryItem], int]:
         items, homeless_count = await persistence._persist_memory_items(
@@ -1610,13 +1641,12 @@ class MemorizeMixin:
             conversation_id=conversation_id,
             segment_id=segment_id,
             extract_model=extract_model,
-            message_happened_at_map=message_happened_at_map,
+            source_day_happened_at=source_day_happened_at,
             session=session,
             enable_confidence_normalization=self.memorize_config.enable_confidence_normalization,
             normalize_confidence=lambda entries: cast(list[Any], self._normalize_confidence(cast(list[StructuredMemoryEntry], entries))),
             find_supersede_targets=self._find_supersede_targets,
             hedge_summary_for_confidence=self._hedge_summary_for_confidence,
-            resolve_entry_happened_at=self._resolve_entry_happened_at,
         )
         return cast(list[MemoryItem], items), homeless_count
 
@@ -2011,10 +2041,10 @@ class MemorizeMixin:
 
     def _resolve_entry_happened_at(
         self,
-        source_message_ids: Sequence[int] | None,
-        message_happened_at_map: Mapping[int, Any] | None,
+        memory_date: str | None,
+        source_day_happened_at: Mapping[str, Any] | None,
     ) -> Any | None:
-        return persistence._resolve_entry_happened_at(source_message_ids, message_happened_at_map)
+        return persistence._resolve_entry_happened_at(memory_date, source_day_happened_at)
 
     def _prepare_episode(
         self,

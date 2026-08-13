@@ -51,6 +51,25 @@ class _RouterStub:
 
 
 @pytest.mark.asyncio
+async def test_extraction_retries_day_outside_segment(monkeypatch: pytest.MonkeyPatch) -> None:
+    service = _service()
+    monkeypatch.setattr(service, "_format_soul_context_for_prompt", lambda *a, **kw: "")
+    invalid = _VALID_XML.replace("<content>", "<day>2026-01-01</day><content>")
+    valid = _VALID_XML.replace("<content>", "<day>2026-01-02</day><content>")
+
+    entries = await service._generate_entries_from_text(
+        resource_text="2026-01-02: Something happened.",
+        store=None,  # type: ignore[arg-type]
+        memory_types=["knowledge"],
+        categories_prompt_str="communication",
+        source_days=["2026-01-02"],
+        llm_client=_ExtractionStub(first=invalid, second=valid),
+    )
+
+    assert entries[0].memory_date == "2026-01-02"
+
+
+@pytest.mark.asyncio
 async def test_extraction_retry_succeeds_and_logs_error(
     caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
 ) -> None:

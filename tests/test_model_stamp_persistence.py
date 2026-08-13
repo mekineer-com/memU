@@ -63,6 +63,7 @@ async def test_persist_memory_items_stamps_extract_model_in_extra() -> None:
         source_message_ids=[1],
         reflection_salience=0.7,
         emotional_intensity=0.4,
+        memory_date="2026-05-22",
         categories=[],
         entities=[],
     )
@@ -78,18 +79,18 @@ async def test_persist_memory_items_stamps_extract_model_in_extra() -> None:
         conversation_id="conv-1",
         segment_id="ep-1",
         extract_model="claude-opus-4-6",
-        message_happened_at_map={1: "2026-05-22T12:00:00Z"},
+        source_day_happened_at={"2026-05-22": "2026-05-22T12:00:00Z"},
         session=None,
         enable_confidence_normalization=False,
         normalize_confidence=lambda entries: entries,
         find_supersede_targets=_find_supersede_targets,
         hedge_summary_for_confidence=lambda summary, _confidence: summary,
-        resolve_entry_happened_at=lambda source_ids, happened_map: happened_map.get(source_ids[0]) if source_ids else None,
     )
 
     assert len(items) == 1
     assert homeless == 1
     assert len(store.memory_item_repo.calls) == 1
+    assert store.memory_item_repo.calls[0]["happened_at"] == "2026-05-22T12:00:00Z"
     assert store.memory_item_repo.calls[0]["extra"] == {"model": "claude-opus-4-6"}
     assert store.memory_item_repo.calibration_calls == ["claude-opus-4-6"]
 
@@ -107,6 +108,7 @@ async def test_persist_memory_items_without_extract_model_does_not_set_extra() -
         source_message_ids=[1],
         reflection_salience=0.7,
         emotional_intensity=0.4,
+        memory_date="2026-05-22",
         categories=[],
         entities=[],
     )
@@ -122,13 +124,12 @@ async def test_persist_memory_items_without_extract_model_does_not_set_extra() -
         conversation_id="conv-1",
         segment_id="ep-1",
         extract_model=None,
-        message_happened_at_map={1: "2026-05-22T12:00:00Z"},
+        source_day_happened_at={"2026-05-22": "2026-05-22T12:00:00Z"},
         session=None,
         enable_confidence_normalization=False,
         normalize_confidence=lambda entries: entries,
         find_supersede_targets=_find_supersede_targets,
         hedge_summary_for_confidence=lambda summary, _confidence: summary,
-        resolve_entry_happened_at=lambda source_ids, happened_map: happened_map.get(source_ids[0]) if source_ids else None,
     )
 
     assert len(store.memory_item_repo.calls) == 1

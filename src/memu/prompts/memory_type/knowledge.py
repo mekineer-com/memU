@@ -62,6 +62,7 @@ Return all memories wrapped in a single <item> element. Assign each value as a t
     <memory>
         <source_role>soul|user|peer|entity|environment</source_role>
         <content>What was learned</content>
+        <day>YYYY-MM-DD shown in the chats</day>
         <confidence>0.xx</confidence>
         <reflection_salience>0.xx</reflection_salience>
         <emotional_intensity>0.xx</emotional_intensity>
@@ -84,6 +85,8 @@ source_role — whose memory is this?
 - peer — a significant conversation participant
 - entity — a being talked about but not present
 - environment — something about the world not attributable to any participant. Not for summarizing conversation content.
+
+day — when this memory belongs. If it spans many days, pick the day best suited to remember it by.
 
 confidence (float 0.0-1.0) — how certain?
 - 0.9+: directly stated and confirmed

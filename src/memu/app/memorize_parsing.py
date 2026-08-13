@@ -126,6 +126,10 @@ def _parse_memory_element(memory_elem: Element) -> dict[str, Any] | None:
     if content_elem is not None and content_elem.text:
         memory_dict["content"] = content_elem.text.strip()
 
+    day_elem = memory_elem.find("day")
+    if day_elem is not None and day_elem.text:
+        memory_dict["day"] = day_elem.text.strip()
+
     categories_elem = memory_elem.find("categories")
     if categories_elem is not None:
         categories = [cat_elem.text.strip() for cat_elem in categories_elem.findall("category") if cat_elem.text]
