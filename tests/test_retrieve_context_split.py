@@ -417,6 +417,60 @@ async def test_requested_memories_supplement_top_k_and_dedupe_overlap():
 
 
 @pytest.mark.asyncio
+async def test_entity_seed_memories_have_relevance_floor():
+    mixin = RetrieveMixin()
+    mixin.retrieve_config = SimpleNamespace(
+        item=SimpleNamespace(
+            top_k=1,
+            ranking="similarity",
+            recency_decay_days=30,
+            fts_enabled=False,
+            fts_top_k=20,
+            rrf_k=60,
+        ),
+        graph=SimpleNamespace(enabled=True, max_graph_results=3, min_entity_similarity=0.3),
+    )
+    relevant = SimpleNamespace(id="relevant", embedding=[0.8, 0.2])
+    irrelevant = SimpleNamespace(id="irrelevant", embedding=[0.0, 1.0])
+    repo = SimpleNamespace(
+        list_items=lambda *_args, **_kwargs: {},
+        get_item_by_memory_ref=lambda *_args, **_kwargs: None,
+        vector_search_items=lambda *_args, **_kwargs: [],
+        list_items_by_ids=lambda *_args, **_kwargs: {
+            relevant.id: relevant,
+            irrelevant.id: irrelevant,
+        },
+    )
+    store = SimpleNamespace(
+        memory_item_repo=repo,
+        triple_repo=SimpleNamespace(get_connected_memory_edges=lambda *_args, **_kwargs: []),
+    )
+    mixin._find_entity_matches = (  # type: ignore[method-assign]
+        lambda *_args, **_kwargs: [SimpleNamespace(name="River")]
+    )
+    mixin._get_entity_seed_memory_ids = lambda *_args, **_kwargs: (  # type: ignore[method-assign]
+        [relevant.id, irrelevant.id],
+        {relevant.id: "via River", irrelevant.id: "via River"},
+    )
+
+    out = await mixin._rag_recall_items(
+        {
+            "needs_retrieval": True,
+            "proceed_to_items": True,
+            "requested_memory_refs": [],
+            "active_query": "River shared reality",
+            "query_vector": [1.0, 0.0],
+            "store": store,
+            "where": {"user_id": "person", "soul_id": "soul"},
+        },
+        step_context=None,
+    )
+
+    assert out["item_hits"] == [(relevant.id, 0.0)]
+    assert out["graph_provenance"] == {relevant.id: "via River"}
+
+
+@pytest.mark.asyncio
 async def test_force_retrieve_uses_sufficiency_ai_query_for_items():
     mixin = RetrieveMixin()
     mixin._select_chat_client = lambda _ctx: object()

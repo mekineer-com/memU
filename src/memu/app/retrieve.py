@@ -469,7 +469,22 @@ class RetrieveMixin:
                     where_filters,
                     as_of=state.get("as_of"),
                 )
-                graph_provenance.update(provenance)
+                entity_items = store.memory_item_repo.list_items_by_ids(
+                    set(entity_seed_ids),
+                    where_filters,
+                    include_superseded=include_superseded,
+                    include_embeddings=True,
+                )
+                entity_seed_ids = [
+                    item_id
+                    for item_id, score in cosine_topk(
+                        qvec,
+                        ((item_id, item.embedding) for item_id, item in entity_items.items()),
+                        k=len(entity_items),
+                    )
+                    if score >= graph_cfg.min_entity_similarity
+                ]
+                graph_provenance.update({item_id: provenance[item_id] for item_id in entity_seed_ids})
 
             vector_ids = [item_id for item_id, _ in vector_hits]
             all_seed_ids = list(dict.fromkeys(vector_ids + entity_seed_ids))

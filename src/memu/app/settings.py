@@ -136,6 +136,12 @@ class RetrieveResourceConfig(BaseModel):
 class RetrieveGraphConfig(BaseModel):
     enabled: bool = Field(default=True, description="Enable graph-based retrieval alongside vector search.")
     max_graph_results: int = Field(default=3, description="Max graph-expanded results per retrieval.")
+    min_entity_similarity: float = Field(
+        default=0.3,
+        ge=-1.0,
+        le=1.0,
+        description="Minimum query cosine similarity for memories reached through an entity mention.",
+    )
 
 
 class RetrieveConfig(BaseModel):
