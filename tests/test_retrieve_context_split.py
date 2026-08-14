@@ -1,3 +1,4 @@
+from datetime import UTC, date, datetime
 from types import SimpleNamespace
 
 import pytest
@@ -87,6 +88,18 @@ def test_system_prompt_forbids_answering_user_in_route_step():
 def test_memory_ref_output_is_opt_in_for_category_sufficiency():
     assert "<memory_refs>" not in system_prompt_for_angle(0)
     assert "<memory_refs>" in system_prompt_for_angle(0, include_memory_refs=True)
+    assert "<temporal_start>" in system_prompt_for_angle(0)
+    assert "<temporal_end>" in system_prompt_for_angle(0)
+
+
+def test_extract_temporal_range_accepts_open_bounds_and_rejects_bad_ranges():
+    mixin = RetrieveMixin()
+    assert mixin._extract_temporal_range(
+        "<temporal_start>2026-07-01</temporal_start><temporal_end></temporal_end>"
+    ) == (date(2026, 7, 1), None)
+    assert mixin._extract_temporal_range(
+        "<temporal_start>2026-08-01</temporal_start><temporal_end>2026-07-01</temporal_end>"
+    ) == (None, None)
 
 
 @pytest.mark.asyncio
@@ -164,7 +177,14 @@ async def test_route_intention_disables_mental_health_query_extraction():
         llm_client=None,
     ):
         captured["include_mental_health_query"] = include_mental_health_query
-        return True, "rewritten", "<mental_health_query>sleep hygiene</mental_health_query>"
+        return (
+            True,
+            "rewritten",
+            (
+                "<mental_health_query>sleep hygiene</mental_health_query>"
+                "<temporal_start>2026-07-01</temporal_start><temporal_end>2026-07-31</temporal_end>"
+            ),
+        )
 
     mixin._decide_if_retrieval_needed = _fake_decide  # type: ignore[method-assign]
     state = {
@@ -178,6 +198,8 @@ async def test_route_intention_disables_mental_health_query_extraction():
 
     assert captured["include_mental_health_query"] is False
     assert out["mental_health_query"] is None
+    assert out["temporal_start"] == date(2026, 7, 1)
+    assert out["temporal_end"] == date(2026, 7, 31)
 
 
 @pytest.mark.asyncio
@@ -292,6 +314,8 @@ async def test_category_sufficiency_uses_second_step_mental_health_query():
         "where": {},
         "mental_health_enabled": True,
         "mental_health_query": "first-step-query",
+        "temporal_start": date(2026, 6, 1),
+        "temporal_end": None,
     }
 
     async def _fake_decide(  # type: ignore[no-untyped-def]
@@ -303,7 +327,14 @@ async def test_category_sufficiency_uses_second_step_mental_health_query():
         llm_client=None,
     ):
         captured["new_message"] = new_message
-        return False, "second-step-rewrite", "<mental_health_query>second step query</mental_health_query>"
+        return (
+            False,
+            "second-step-rewrite",
+            (
+                "<mental_health_query>second step query</mental_health_query>"
+                "<temporal_start>2026-07-01</temporal_start><temporal_end>2026-07-31</temporal_end>"
+            ),
+        )
 
     mixin._decide_if_retrieval_needed = _fake_decide  # type: ignore[method-assign]
 
@@ -313,6 +344,8 @@ async def test_category_sufficiency_uses_second_step_mental_health_query():
     assert out["mental_health_query"] == "second step query"
     assert out["active_query"] == "second-step-rewrite"
     assert out["proceed_to_items"] is False
+    assert out["temporal_start"] == date(2026, 6, 1)
+    assert out["temporal_end"] is None
 
 
 @pytest.mark.asyncio
@@ -340,7 +373,10 @@ async def test_category_sufficiency_requests_visible_memory_refs():
         return (
             False,
             "shared reality",
-            "<decision>NO_RETRIEVE</decision><memory_refs>[M2] bad [M0] [M3]</memory_refs>",
+            (
+                "<decision>NO_RETRIEVE</decision><memory_refs>[M2] bad [M0] [M3]</memory_refs>"
+                "<temporal_start>2026-05-01</temporal_start><temporal_end>2026-05-31</temporal_end>"
+            ),
         )
 
     mixin._decide_if_retrieval_needed = _fake_decide  # type: ignore[method-assign]
@@ -350,6 +386,8 @@ async def test_category_sufficiency_requests_visible_memory_refs():
     assert "<memory_refs>" in str(captured["system_prompt"])
     assert out["requested_memory_refs"] == [2, 3]
     assert out["proceed_to_items"] is False
+    assert out["temporal_start"] == date(2026, 5, 1)
+    assert out["temporal_end"] == date(2026, 5, 31)
 
 
 @pytest.mark.asyncio
@@ -368,8 +406,8 @@ async def test_requested_memories_supplement_top_k_and_dedupe_overlap():
     )
     exact = SimpleNamespace(id="exact")
     inactive = SimpleNamespace(id="inactive")
-    ordinary_a = SimpleNamespace(id="ordinary-a")
-    ordinary_b = SimpleNamespace(id="ordinary-b")
+    ordinary_a = SimpleNamespace(id="ordinary-a", happened_at=datetime(2026, 6, 1, tzinfo=UTC))
+    ordinary_b = SimpleNamespace(id="ordinary-b", happened_at=datetime(2026, 7, 10, tzinfo=UTC))
     pool = {item.id: item for item in (exact, ordinary_a, ordinary_b)}
     search_calls: list[int] = []
 
@@ -400,6 +438,18 @@ async def test_requested_memories_supplement_top_k_and_dedupe_overlap():
         "ordinary-b",
     ]
     assert search_calls == [2]
+
+    state["temporal_start"] = date(2026, 7, 1)
+    state["temporal_end"] = date(2026, 7, 31)
+    out = await mixin._rag_recall_items(state, step_context=None)
+    assert [item_id for item_id, _score in out["item_hits"]] == [
+        "exact",
+        "ordinary-b",
+        "ordinary-a",
+    ]
+    assert search_calls[-1] == 20
+    state["temporal_start"] = None
+    state["temporal_end"] = None
 
     repo.vector_search_items = lambda *_args, **_kwargs: [("exact", 0.9), ("ordinary-a", 0.8)]
     out = await mixin._rag_recall_items(state, step_context=None)

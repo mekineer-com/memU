@@ -21,7 +21,7 @@
 | `app/graph.py` | `GraphMixin` — graph reads, canonical dossier metadata/citation projection for Atomic, memory/category edits, approval review, hard-delete. Edge predicates: `caused_by`, `evokes`, `conflicts_with`, `parallels`, `shaped_by`. |
 | `app/memorize_persistence.py` | Persistence seam: resource creation, item/triple writes, and happened-at resolution |
 | `app/memorize_segments.py` | Segment/preprocess seam: modality dispatch, segment text prep, background-tail summarization, rolling-summary merge, `on_extraction_progress` callback |
-| `app/retrieve.py` | Retrieve workflow: derive `active_query` → dossier sufficiency (optional exact `[M#]` follow-up) → hybrid/graph recall. Exact requested memories supplement item `top_k`; entity-linked graph additions must clear the configured query-similarity floor. `force_retrieve` skips the retrieve/no-retrieve gate. |
+| `app/retrieve.py` | Retrieve workflow: derive `active_query` plus optional temporal bounds → dossier sufficiency (optional exact `[M#]` follow-up) → hybrid/graph recall. Temporal matches are softly promoted; exact requested memories supplement item `top_k`; entity-linked graph additions must clear the configured query-similarity floor. `force_retrieve` skips the retrieve/no-retrieve gate. |
 | `app/settings.py` | Pydantic config models (MemorizeConfig, RetrieveConfig, LLMProfile, etc.) |
 | `database/models.py` | Backend-agnostic records, including dossier metadata, scoped `memory_ref`, and `DossierCandidate` |
 | `database/factory.py` | `build_database()` — sqlite backend selector (Postgres removed) |
@@ -65,7 +65,7 @@ Marcos-reviewed dossier prompts.
 | `memory_type/__init__.py` | — | PROMPTS dict, DEFAULT_MEMORY_TYPES list |
 | `preprocess/` | `document.py`, `image.py`, `audio.py`, `video.py` | Input normalization for non-chat modalities |
 | `router/router.py` | — | Route input by excluded memory types; produce 1–3 titled episodes with separate full summaries, compact items, category proposals, and a source-valid day |
-| `retrieve/` | `pre_retrieval_decision.py` | Retrieve/no-retrieve and active-query prompt |
+| `retrieve/` | `pre_retrieval_decision.py` | Retrieve/no-retrieve, active-query, and optional temporal-bound prompt |
 | `consolidation/` | `dossiers.py`, `anchors.py` | Two-call reflection prompts: due life-domain dossiers, then narrative_self + soul/user anchors + goals + intentions + edges + companion memory |
 
 ## Task → Files

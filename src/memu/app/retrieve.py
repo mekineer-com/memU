@@ -3,15 +3,25 @@ from __future__ import annotations
 import logging
 import re
 from collections.abc import Awaitable, Callable, Mapping, Sequence
-from datetime import datetime
+from datetime import date, datetime
 from typing import TYPE_CHECKING, Any, cast
 
 from pydantic import BaseModel
 
-from memu.database.vector import autocut_first_cluster, cosine_topk, relative_score_fusion
-from memu.prompts.retrieve.pre_retrieval_decision import USER_PROMPT as PRE_RETRIEVAL_USER_PROMPT
-from memu.prompts.retrieve.pre_retrieval_decision import forced_query_system_prompt as _forced_query_system_prompt
-from memu.prompts.retrieve.pre_retrieval_decision import system_prompt_for_angle as _system_prompt_for_angle
+from memu.database.vector import (
+    autocut_first_cluster,
+    cosine_topk,
+    relative_score_fusion,
+)
+from memu.prompts.retrieve.pre_retrieval_decision import (
+    USER_PROMPT as PRE_RETRIEVAL_USER_PROMPT,
+)
+from memu.prompts.retrieve.pre_retrieval_decision import (
+    forced_query_system_prompt as _forced_query_system_prompt,
+)
+from memu.prompts.retrieve.pre_retrieval_decision import (
+    system_prompt_for_angle as _system_prompt_for_angle,
+)
 from memu.workflow.step import WorkflowState, WorkflowStep
 
 logger = logging.getLogger(__name__)
@@ -104,7 +114,7 @@ class RetrieveMixin:
                 role="route_intention",
                 handler=self._rag_route_intention,
                 requires={"new_message", "context_queries"},
-                produces={"needs_retrieval", "active_query"},
+                produces={"needs_retrieval", "active_query", "temporal_start", "temporal_end"},
                 capabilities={"llm"},
                 config={"chat_llm_profile": self.retrieve_config.sufficiency_check_llm_profile},
             ),
@@ -131,7 +141,13 @@ class RetrieveMixin:
                     "store",
                     "where",
                 },
-                produces={"proceed_to_items", "query_vector", "requested_memory_refs"},
+                produces={
+                    "proceed_to_items",
+                    "query_vector",
+                    "requested_memory_refs",
+                    "temporal_start",
+                    "temporal_end",
+                },
                 capabilities={"llm"},
                 config={
                     "chat_llm_profile": self.retrieve_config.sufficiency_check_llm_profile,
@@ -222,6 +238,8 @@ class RetrieveMixin:
                 "needs_retrieval": True,
                 "active_query": "",
                 "mental_health_query": None,
+                "temporal_start": None,
+                "temporal_end": None,
                 "proceed_to_items": False,
                 "proceed_to_resources": False,
             })
@@ -242,11 +260,14 @@ class RetrieveMixin:
             llm_client=llm_client,
         )
         mental_health_query = self._extract_mental_health_query(raw_response) if mental_health_enabled else None
+        temporal_start, temporal_end = self._extract_temporal_range(raw_response)
 
         state.update({
             "needs_retrieval": needs_retrieval,
             "active_query": active_query,
             "mental_health_query": mental_health_query,
+            "temporal_start": temporal_start,
+            "temporal_end": temporal_end,
             "proceed_to_items": False,
             "proceed_to_resources": False,
         })
@@ -358,6 +379,8 @@ class RetrieveMixin:
         state["requested_memory_refs"] = (
             self.extract_memory_refs(raw_response, strict=False) if retrieved_content else []
         )
+        if state.get("temporal_start") is None and state.get("temporal_end") is None:
+            state["temporal_start"], state["temporal_end"] = self._extract_temporal_range(raw_response)
         if mental_health_enabled:
             mental_health_query = self._extract_mental_health_query(raw_response)
             if mental_health_query:
@@ -441,9 +464,16 @@ class RetrieveMixin:
             state["query_vector"] = qvec
         item_cfg = self.retrieve_config.item
 
+        temporal_start = state.get("temporal_start")
+        temporal_end = state.get("temporal_end")
+        search_top_k = (
+            max(item_cfg.top_k, item_cfg.fts_top_k)
+            if temporal_start is not None or temporal_end is not None
+            else item_cfg.top_k
+        )
         vector_hits = store.memory_item_repo.vector_search_items(
             qvec,
-            item_cfg.top_k,
+            search_top_k,
             where=where_filters,
             ranking=item_cfg.ranking,
             recency_decay_days=item_cfg.recency_decay_days,
@@ -453,6 +483,20 @@ class RetrieveMixin:
             rrf_k=item_cfg.rrf_k,
             include_superseded=include_superseded,
         )
+        if temporal_start is not None or temporal_end is not None:
+
+            def in_range(hit: tuple[str, float]) -> bool:
+                item = items_pool.get(hit[0])
+                happened_at = getattr(item, "happened_at", None)
+                if happened_at is None:
+                    return False
+                happened_day = happened_at.date() if isinstance(happened_at, datetime) else happened_at
+                return not (
+                    temporal_start is not None and happened_day < temporal_start
+                    or temporal_end is not None and happened_day > temporal_end
+                )
+
+            vector_hits = sorted(vector_hits, key=lambda hit: not in_range(hit))[: item_cfg.top_k]
 
         graph_cfg = self.retrieve_config.graph
         graph_provenance: dict[str, str] = {}
@@ -560,6 +604,8 @@ class RetrieveMixin:
             "needs_retrieval": bool(state.get("needs_retrieval")),
             "new_message": state["new_message"],
             "active_query": state.get("active_query", ""),
+            "temporal_start": state["temporal_start"].isoformat() if state.get("temporal_start") else None,
+            "temporal_end": state["temporal_end"].isoformat() if state.get("temporal_end") else None,
             "mental_health_query": state.get("mental_health_query"),
             "categories": [],
             "items": [],
@@ -756,7 +802,11 @@ class RetrieveMixin:
         match = re.search(r"<active_query>(.*?)</active_query>", raw, re.IGNORECASE | re.DOTALL)
         if match:
             return match.group(1).strip()
-        match = re.search(r"<active_query>(.*?)(?:</[^>]*query>|<mental_health_query>|$)", raw, re.IGNORECASE | re.DOTALL)
+        match = re.search(
+            r"<active_query>(.*?)(?:</[^>]*query>|<mental_health_query>|<temporal_start>|$)",
+            raw,
+            re.IGNORECASE | re.DOTALL,
+        )
         if match:
             return match.group(1).strip()
         return None
@@ -767,6 +817,26 @@ class RetrieveMixin:
             text = match.group(1).strip()
             return text or None
         return None
+
+    @staticmethod
+    def _extract_temporal_range(raw: str) -> tuple[date | None, date | None]:
+        values: list[date | None] = []
+        for tag in ("temporal_start", "temporal_end"):
+            match = re.search(rf"<{tag}>(.*?)</{tag}>", raw or "", re.IGNORECASE | re.DOTALL)
+            text = match.group(1).strip() if match else ""
+            if not text:
+                values.append(None)
+                continue
+            try:
+                values.append(date.fromisoformat(text))
+            except ValueError:
+                logger.warning("Ignoring invalid retrieval %s=%r", tag, text)
+                return None, None
+        start, end = values
+        if start is not None and end is not None and start > end:
+            logger.warning("Ignoring reversed retrieval temporal range %s..%s", start, end)
+            return None, None
+        return start, end
 
     def _materialize_hits(self, hits: Sequence[tuple[str, float]], pool: dict[str, Any]) -> list[dict[str, Any]]:
         out = []

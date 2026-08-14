@@ -28,6 +28,26 @@ _MEMORY_REF_OUTPUT = """
 """
 
 
+_TEMPORAL_GUIDANCE = """
+If calendar time would materially narrow which memories are useful, also give the relevant date range.
+
+Resolve relative expressions using today's date from your context. Use YYYY-MM-DD. Either boundary may be empty for an open-ended range. For one exact day, use that date for both boundaries.
+
+Do not invent dates. If the timing is unknowable until memories are retrieved, or is relative to an event rather than a calendar date, preserve that meaning in active_query and leave both date fields empty.
+"""
+
+
+_TEMPORAL_OUTPUT = """
+<temporal_start>
+YYYY-MM-DD or empty.
+</temporal_start>
+
+<temporal_end>
+YYYY-MM-DD or empty.
+</temporal_end>
+"""
+
+
 _OUTPUT_SHAPE_WITH_MH = """
 **Return only the XML blocks below**
 Do not add any prose, dialogue, markdown, or extra sections.
@@ -121,12 +141,13 @@ def system_prompt_for_angle(
     include_memory_refs: bool = False,
 ) -> str:
     rewrite = _REWRITE_ANGLES.get(int(angle or 0) % len(_REWRITE_ANGLES), _ANGLE_0_REWRITE)
-    prompt = _COMMON_HEAD + rewrite
+    prompt = _COMMON_HEAD + rewrite + _TEMPORAL_GUIDANCE
     if include_mental_health_query:
         prompt += _MH_REWRITE_GUIDANCE
     if include_memory_refs:
         prompt += _MEMORY_REF_GUIDANCE
     prompt += _OUTPUT_SHAPE_WITH_MH if include_mental_health_query else _OUTPUT_SHAPE_NO_MH
+    prompt += _TEMPORAL_OUTPUT
     if include_memory_refs:
         prompt += _MEMORY_REF_OUTPUT
     return prompt
@@ -134,8 +155,21 @@ def system_prompt_for_angle(
 
 def forced_query_system_prompt(*, include_mental_health_query: bool = True) -> str:
     if include_mental_health_query:
-        return _FORCED_QUERY_HEAD + _ANGLE_0_REWRITE + _MH_REWRITE_GUIDANCE + _QUERY_ONLY_OUTPUT_SHAPE_WITH_MH
-    return _FORCED_QUERY_HEAD + _ANGLE_0_REWRITE + _QUERY_ONLY_OUTPUT_SHAPE_NO_MH
+        return (
+            _FORCED_QUERY_HEAD
+            + _ANGLE_0_REWRITE
+            + _TEMPORAL_GUIDANCE
+            + _MH_REWRITE_GUIDANCE
+            + _QUERY_ONLY_OUTPUT_SHAPE_WITH_MH
+            + _TEMPORAL_OUTPUT
+        )
+    return (
+        _FORCED_QUERY_HEAD
+        + _ANGLE_0_REWRITE
+        + _TEMPORAL_GUIDANCE
+        + _QUERY_ONLY_OUTPUT_SHAPE_NO_MH
+        + _TEMPORAL_OUTPUT
+    )
 
 
 SYSTEM_PROMPT = system_prompt_for_angle(0)
