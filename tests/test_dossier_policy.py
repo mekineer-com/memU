@@ -852,6 +852,7 @@ def test_prepare_dossier_revision_bounds_actionable_evidence(tmp_path) -> None:
     assert service.extract_memory_refs("[Speaker] [M] [M2] [M2]") == [2]
     with pytest.raises(ValueError, match="Invalid memory reference"):
         service.extract_memory_refs("bad [M0]")
+    assert service.extract_memory_refs("[M2] bad [M0] [M3]", strict=False) == [2, 3]
     assert {item.id for item in bundle["cited_items"]} == {cited.id, cited_unlinked.id}
     assert bundle["cited_unlinked_item_ids"] == [cited_unlinked.id]
     assert [item.id for item in bundle["pending_items"]] == [pending.id]

@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from memu.app.dossier import DossierMixin
 from memu.app.retrieve import RetrieveMixin
 from memu.prompts.retrieve.pre_retrieval_decision import system_prompt_for_angle
 
@@ -81,6 +82,11 @@ def test_system_prompt_forbids_answering_user_in_route_step():
     assert "Do not add any prose, dialogue, markdown, or extra sections" in prompt
     assert "<active_query>" in prompt
     assert "<rewritten_query>" not in prompt
+
+
+def test_memory_ref_output_is_opt_in_for_category_sufficiency():
+    assert "<memory_refs>" not in system_prompt_for_angle(0)
+    assert "<memory_refs>" in system_prompt_for_angle(0, include_memory_refs=True)
 
 
 @pytest.mark.asyncio
@@ -307,6 +313,107 @@ async def test_category_sufficiency_uses_second_step_mental_health_query():
     assert out["mental_health_query"] == "second step query"
     assert out["active_query"] == "second-step-rewrite"
     assert out["proceed_to_items"] is False
+
+
+@pytest.mark.asyncio
+async def test_category_sufficiency_requests_visible_memory_refs():
+    mixin = RetrieveMixin()
+    mixin._select_chat_client = lambda _ctx: object()
+    mixin.extract_memory_refs = DossierMixin.extract_memory_refs
+    category = SimpleNamespace(name="Shared Reality", summary="# Shared Reality\nTrust [M2].")
+    state = {
+        "needs_retrieval": True,
+        "new_message": "What made that real?",
+        "active_query": "shared reality",
+        "context_queries": [],
+        "category_pool": {"c1": category},
+        "category_summary_lookup": {"c1": category.summary},
+        "category_hits": [("c1", 0.9)],
+        "store": object(),
+        "where": {},
+        "mental_health_enabled": False,
+    }
+    captured: dict[str, object] = {}
+
+    async def _fake_decide(*_args, **kwargs):  # type: ignore[no-untyped-def]
+        captured.update(kwargs)
+        return (
+            False,
+            "shared reality",
+            "<decision>NO_RETRIEVE</decision><memory_refs>[M2] bad [M0] [M3]</memory_refs>",
+        )
+
+    mixin._decide_if_retrieval_needed = _fake_decide  # type: ignore[method-assign]
+
+    out = await mixin._rag_category_sufficiency(state, step_context=None)
+
+    assert "<memory_refs>" in str(captured["system_prompt"])
+    assert out["requested_memory_refs"] == [2, 3]
+    assert out["proceed_to_items"] is False
+
+
+@pytest.mark.asyncio
+async def test_requested_memories_supplement_top_k_and_dedupe_overlap():
+    mixin = RetrieveMixin()
+    mixin.retrieve_config = SimpleNamespace(
+        item=SimpleNamespace(
+            top_k=2,
+            ranking="similarity",
+            recency_decay_days=0,
+            fts_enabled=True,
+            fts_top_k=20,
+            rrf_k=60,
+        ),
+        graph=SimpleNamespace(enabled=False),
+    )
+    exact = SimpleNamespace(id="exact")
+    inactive = SimpleNamespace(id="inactive")
+    ordinary_a = SimpleNamespace(id="ordinary-a")
+    ordinary_b = SimpleNamespace(id="ordinary-b")
+    pool = {item.id: item for item in (exact, ordinary_a, ordinary_b)}
+    search_calls: list[int] = []
+
+    def search(_query, top_k, **_kwargs):  # type: ignore[no-untyped-def]
+        search_calls.append(top_k)
+        return [(ordinary_a.id, 0.9), (ordinary_b.id, 0.8)]
+
+    repo = SimpleNamespace(
+        list_items=lambda *_args, **_kwargs: pool,
+        get_item_by_memory_ref=lambda ref, _where: {7: exact, 8: inactive}.get(ref),
+        vector_search_items=search,
+    )
+
+    state = {
+        "needs_retrieval": True,
+        "proceed_to_items": True,
+        "requested_memory_refs": [7, 8, 999],
+        "active_query": "shared reality",
+        "query_vector": [1.0, 0.0],
+        "store": SimpleNamespace(memory_item_repo=repo),
+        "where": {"user_id": "person", "soul_id": "soul"},
+    }
+
+    out = await mixin._rag_recall_items(state, step_context=None)
+    assert [item_id for item_id, _score in out["item_hits"]] == [
+        "exact",
+        "ordinary-a",
+        "ordinary-b",
+    ]
+    assert search_calls == [2]
+
+    repo.vector_search_items = lambda *_args, **_kwargs: [("exact", 0.9), ("ordinary-a", 0.8)]
+    out = await mixin._rag_recall_items(state, step_context=None)
+    assert [item_id for item_id, _score in out["item_hits"]] == ["exact", "ordinary-a"]
+
+    state["proceed_to_items"] = False
+    state["requested_memory_refs"] = [7]
+
+    def fail_search(*_args, **_kwargs):  # type: ignore[no-untyped-def]
+        raise AssertionError("NO_RETRIEVE must not run ordinary search")
+
+    repo.vector_search_items = fail_search
+    out = await mixin._rag_recall_items(state, step_context=None)
+    assert out["item_hits"] == [("exact", 0.0)]
 
 
 @pytest.mark.asyncio

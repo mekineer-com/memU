@@ -19,6 +19,14 @@ _MH_REWRITE_GUIDANCE = """
 If this turn touches a mental-health theme — anxious rumination, grief, panic, self-criticism, avoidance, boundaries, loneliness, identity transitions, sleep trouble, relational conflict, or similar — also write a mental_health_query. Same 3-to-10-word noun-phrase, anchored on the mental-health concept (not the person). This query goes to a separate curated procedural-memory store, so aim it at a principle or skill rather than an event.
 """
 
+_MEMORY_REF_GUIDANCE = """
+The retrieved dossiers may cite full memories as [M#]. If reading a cited full memory would help you respond, copy its exact citation into memory_refs. Request only citations shown in the dossiers. Leave the block empty when the dossier prose is enough.
+"""
+
+_MEMORY_REF_OUTPUT = """
+<memory_refs></memory_refs>
+"""
+
 
 _OUTPUT_SHAPE_WITH_MH = """
 **Return only the XML blocks below**
@@ -106,11 +114,22 @@ _REWRITE_ANGLES: dict[int, str] = {
 }
 
 
-def system_prompt_for_angle(angle: int | None, *, include_mental_health_query: bool = True) -> str:
+def system_prompt_for_angle(
+    angle: int | None,
+    *,
+    include_mental_health_query: bool = True,
+    include_memory_refs: bool = False,
+) -> str:
     rewrite = _REWRITE_ANGLES.get(int(angle or 0) % len(_REWRITE_ANGLES), _ANGLE_0_REWRITE)
+    prompt = _COMMON_HEAD + rewrite
     if include_mental_health_query:
-        return _COMMON_HEAD + rewrite + _MH_REWRITE_GUIDANCE + _OUTPUT_SHAPE_WITH_MH
-    return _COMMON_HEAD + rewrite + _OUTPUT_SHAPE_NO_MH
+        prompt += _MH_REWRITE_GUIDANCE
+    if include_memory_refs:
+        prompt += _MEMORY_REF_GUIDANCE
+    prompt += _OUTPUT_SHAPE_WITH_MH if include_mental_health_query else _OUTPUT_SHAPE_NO_MH
+    if include_memory_refs:
+        prompt += _MEMORY_REF_OUTPUT
+    return prompt
 
 
 def forced_query_system_prompt(*, include_mental_health_query: bool = True) -> str:

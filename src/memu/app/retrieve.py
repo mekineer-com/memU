@@ -33,6 +33,7 @@ class RetrieveMixin:
         _model_dump_without_embeddings: Callable[[BaseModel], dict[str, Any]]
         _extract_json_blob: Callable[[str], str]
         _escape_prompt_value: Callable[[str], str]
+        extract_memory_refs: Callable[..., list[int]]
         user_model: type[BaseModel]
 
     async def retrieve(
@@ -130,7 +131,7 @@ class RetrieveMixin:
                     "store",
                     "where",
                 },
-                produces={"proceed_to_items", "query_vector"},
+                produces={"proceed_to_items", "query_vector", "requested_memory_refs"},
                 capabilities={"llm"},
                 config={
                     "chat_llm_profile": self.retrieve_config.sufficiency_check_llm_profile,
@@ -149,6 +150,7 @@ class RetrieveMixin:
                     "where",
                     "active_query",
                     "query_vector",
+                    "requested_memory_refs",
                 },
                 produces={"item_hits", "query_vector"},
                 capabilities={"vector"},
@@ -311,6 +313,7 @@ class RetrieveMixin:
     async def _rag_category_sufficiency(self, state: WorkflowState, step_context: Any) -> WorkflowState:
         if not state.get("needs_retrieval"):
             state["proceed_to_items"] = False
+            state["requested_memory_refs"] = []
             return state
 
         retrieved_content = ""
@@ -344,9 +347,17 @@ class RetrieveMixin:
                 state["new_message"],
                 state["context_queries"],
                 retrieved_content=retrieved_content,
+                system_prompt=_system_prompt_for_angle(
+                    0,
+                    include_mental_health_query=mental_health_enabled,
+                    include_memory_refs=bool(retrieved_content),
+                ),
                 include_mental_health_query=mental_health_enabled,
                 llm_client=llm_client,
             )
+        state["requested_memory_refs"] = (
+            self.extract_memory_refs(raw_response, strict=False) if retrieved_content else []
+        )
         if mental_health_enabled:
             mental_health_query = self._extract_mental_health_query(raw_response)
             if mental_health_query:
@@ -397,7 +408,10 @@ class RetrieveMixin:
         return memory_ids, provenance
 
     async def _rag_recall_items(self, state: WorkflowState, step_context: Any) -> WorkflowState:
-        if not state.get("needs_retrieval") or not state.get("proceed_to_items"):
+        requested_refs = state.get("requested_memory_refs") or []
+        if not state.get("needs_retrieval") or (
+            not state.get("proceed_to_items") and not requested_refs
+        ):
             state["item_hits"] = []
             return state
 
@@ -409,6 +423,17 @@ class RetrieveMixin:
             include_superseded=include_superseded,
             include_embeddings=False,
         )
+        exact_ids: list[str] = []
+        for memory_ref in requested_refs:
+            item = store.memory_item_repo.get_item_by_memory_ref(memory_ref, where_filters)
+            if item is not None and item.id in items_pool and item.id not in exact_ids:
+                exact_ids.append(item.id)
+        if not state.get("proceed_to_items"):
+            state["item_hits"] = [(item_id, 0.0) for item_id in exact_ids]
+            state["item_pool"] = items_pool
+            state["graph_provenance"] = {}
+            state["graph_edges"] = {}
+            return state
         qvec = state.get("query_vector")
         if qvec is None:
             embed_client = self._select_embedding_client(step_context)
@@ -480,7 +505,10 @@ class RetrieveMixin:
             # score=0.0 is a sentinel for graph-expanded hits (no cosine score); not a weak match
             vector_hits = list(vector_hits) + [(mid, 0.0) for mid in deduped]
 
-        state["item_hits"] = vector_hits
+        exact_id_set = set(exact_ids)
+        state["item_hits"] = [(item_id, 0.0) for item_id in exact_ids] + [
+            hit for hit in vector_hits if hit[0] not in exact_id_set
+        ]
         state["item_pool"] = items_pool
         state["graph_provenance"] = graph_provenance
         state["graph_edges"] = graph_edges

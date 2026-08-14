@@ -390,13 +390,11 @@ class DossierMixin:
         return [category for _timestamp_value, category in actionable]
 
     @staticmethod
-    def extract_memory_refs(text: str) -> list[int]:
-        return list(
-            dict.fromkeys(
-                DossierMixin.parse_memory_ref(token)
-                for token in MEMORY_REF_SCAN_PATTERN.findall(text or "")
-            )
-        )
+    def extract_memory_refs(text: str, *, strict: bool = True) -> list[int]:
+        tokens = MEMORY_REF_SCAN_PATTERN.findall(text or "")
+        if not strict:
+            tokens = [token for token in tokens if MEMORY_REF_PATTERN.fullmatch(token)]
+        return list(dict.fromkeys(DossierMixin.parse_memory_ref(token) for token in tokens))
 
     def prepare_dossier_revision(
         self,
