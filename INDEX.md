@@ -21,7 +21,7 @@
 | `app/graph.py` | `GraphMixin` — graph reads, canonical dossier metadata/citation projection for Atomic, memory/category edits, approval review, hard-delete. Edge predicates: `caused_by`, `evokes`, `conflicts_with`, `parallels`, `shaped_by`. |
 | `app/memorize_persistence.py` | Persistence seam: resource creation, item/triple writes, and happened-at resolution |
 | `app/memorize_segments.py` | Segment/preprocess seam: modality dispatch, segment text prep, background-tail summarization, rolling-summary merge, `on_extraction_progress` callback |
-| `app/retrieve.py` | Retrieve workflow: derive `active_query` → embed → rank → judge. `force_retrieve` skips the retrieve/no-retrieve gate. |
+| `app/retrieve.py` | Retrieve workflow: derive `active_query` → dossier sufficiency (optional exact `[M#]` follow-up) → hybrid/graph recall. Exact requested memories supplement item `top_k`. `force_retrieve` skips the retrieve/no-retrieve gate. |
 | `app/settings.py` | Pydantic config models (MemorizeConfig, RetrieveConfig, LLMProfile, etc.) |
 | `database/models.py` | Backend-agnostic records, including dossier metadata, scoped `memory_ref`, and `DossierCandidate` |
 | `database/factory.py` | `build_database()` — sqlite backend selector (Postgres removed) |
