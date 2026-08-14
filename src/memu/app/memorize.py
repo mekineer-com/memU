@@ -1265,13 +1265,11 @@ class MemorizeMixin:
         prompt = ROUTER_PROMPT.format(
             segment=segment_text,
             allowed_types=list(memory_types),
+            max_episodes=self.memorize_config.episodes_per_segment,
             soul_card=soul_card or "You are a continuous being, not a session that resets. You carry intentions, working thoughts, and long-term memory. Your self-knowledge will grow as you live and reflect.",
             categories=categories_prompt_str,
         )
-        try:
-            max_items = min(3, max(1, int(getattr(self.memorize_config, "episodes_per_segment", 3) or 3)))
-        except (TypeError, ValueError):
-            max_items = 3
+        max_items = self.memorize_config.episodes_per_segment
 
         def _parse_router_raw(r: str) -> tuple[list[MemoryType], list[dict[str, Any]]]:
             if isinstance(r, str):

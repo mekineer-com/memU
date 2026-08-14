@@ -55,9 +55,9 @@ async def test_split_into_episodes_remains_bound_to_service(monkeypatch: pytest.
 
 
 @pytest.mark.asyncio
-async def test_route_segment_never_accepts_more_than_three_episodes() -> None:
+async def test_route_segment_uses_configured_episode_limit() -> None:
     service = _service()
-    service.memorize_config.episodes_per_segment = 99
+    service.memorize_config.episodes_per_segment = 4
     rows = [
         {
             "title": f"Moment {index}",
@@ -68,15 +68,17 @@ async def test_route_segment_never_accepts_more_than_three_episodes() -> None:
         }
         for index in range(4)
     ]
+    client = _RouterStub(json.dumps({"excluded_types": [], "episodes": rows}))
 
     _routed, episodes = await service._route_segment(
         "fictional conversation",
         ["knowledge"],
-        llm_client=_RouterStub(json.dumps({"excluded_types": [], "episodes": rows})),
+        llm_client=client,
         source_days=["2026-01-02"],
     )
 
-    assert len(episodes) == 3
+    assert len(episodes) == 4
+    assert "Write 1-4 meaningful stories" in client.prompts[0]
 
 
 @pytest.mark.asyncio

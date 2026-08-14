@@ -28,7 +28,7 @@ JSON only. No explanation. No markdown.
 Of these memory types: {allowed_types}
 Are any not relevant? Write the excluded type(s) in the JSON.
 
-Write episodes as 1-3 meaningful stories. Always write at least one episode. Each episode needs:
+Write 1-{max_episodes} meaningful stories as episodes. Always write at least one episode. Each episode needs:
 - title: very short topical anchor
 - episode_summary: a short paragraph capturing what matters. Write in first person for your observations, third person for the user. Focus on what shifted or was revealed — not a play-by-play.
 - episode_item: if the episode_summary is more than two sentences, a 1-2 sentence distillation for long-term memory; otherwise null

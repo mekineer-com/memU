@@ -488,6 +488,7 @@ class RetrieveMixin:
             def in_range(hit: tuple[str, float]) -> bool:
                 item = items_pool.get(hit[0])
                 happened_at = getattr(item, "happened_at", None)
+                # ponytail: undated memories stay eligible but rank after known in-range matches.
                 if happened_at is None:
                     return False
                 happened_day = happened_at.date() if isinstance(happened_at, datetime) else happened_at

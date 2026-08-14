@@ -1036,8 +1036,9 @@ class DossierMixin:
         embedding_client: Any | None = None,
     ) -> dict[str, Any]:
         scope = _scope(where)
-        if not 1 <= len(episodes) <= 3:
-            raise ValueError("Memorize dossier context requires one to three episodes")
+        max_episodes = self.memorize_config.episodes_per_segment
+        if not 1 <= len(episodes) <= max_episodes:
+            raise ValueError(f"Memorize dossier context requires one to {max_episodes} episodes")
 
         episode_texts: list[str] = []
         for episode in episodes:

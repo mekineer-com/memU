@@ -12,7 +12,10 @@ def test_category_summary_defaults_to_300_words() -> None:
     assert MemorizeConfig().category_summary_target_words == 300
 
 
-@pytest.mark.parametrize("value", [0, 4])
-def test_episodes_per_segment_stays_within_router_contract(value: int) -> None:
+def test_episodes_per_segment_must_be_positive() -> None:
     with pytest.raises(ValueError):
-        MemorizeConfig(episodes_per_segment=value)
+        MemorizeConfig(episodes_per_segment=0)
+
+
+def test_episodes_per_segment_accepts_configured_limit() -> None:
+    assert MemorizeConfig(episodes_per_segment=4).episodes_per_segment == 4
