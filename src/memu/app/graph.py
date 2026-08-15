@@ -11,7 +11,7 @@ import numpy as np
 from sqlalchemy import text
 
 from memu.app.category_summary_journal import append_category_summary_journal
-from memu.database.models import Triple, normalize_entity_name
+from memu.database.models import Triple, entity_is_ignored, normalize_entity_name
 from memu.database.vector import cosine_similarity, cosine_topk
 from memu.utils.taxonomy import DOSSIER_KINDS
 
@@ -26,6 +26,12 @@ class EntityMergeConflictError(ValueError):
         super().__init__("; ".join(conflicts))
         self.canonical = canonical
         self.duplicate = duplicate
+        self.conflicts = conflicts
+
+
+class EntityActionConflictError(ValueError):
+    def __init__(self, conflicts: list[str]) -> None:
+        super().__init__("; ".join(conflicts))
         self.conflicts = conflicts
 
 
@@ -468,11 +474,84 @@ class GraphMixin:
         return self.graph_atomic_entity(entity.id, where=where)
 
     @staticmethod
-    def _entity_merge_scope(where: Mapping[str, Any]) -> dict[str, Any]:
+    def _entity_scope(where: Mapping[str, Any]) -> dict[str, Any]:
         scope = {key: str(where.get(key) or "").strip() for key in ("user_id", "soul_id")}
         if not all(scope.values()):
-            raise ValueError("entity merge requires user_id and soul_id")
+            raise ValueError("entity action requires user_id and soul_id")
         return scope
+
+    def graph_set_entity_ignored(
+        self,
+        entity_id: str,
+        *,
+        ignored: bool,
+        where: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        scope = self._entity_scope(where)
+        store = self._get_database()
+        with store._sessions.session() as session:
+            session.execute(text("BEGIN IMMEDIATE"))
+            with store.entity_repo.write_lock():
+                matches = store.entity_repo.list_by_ids({entity_id}, scope, session=session)
+                if not matches:
+                    raise KeyError(f"entity not found in scope: {entity_id}")
+                entity = matches[0]
+                if (entity.properties or {}).get("origin") == "user_declared":
+                    raise EntityActionConflictError(["Relationships use Deactivate and Restore"])
+                store.entity_repo.update(
+                    entity_id,
+                    where=scope,
+                    property_updates={"ignored": True} if ignored else None,
+                    property_removals=None if ignored else {"ignored"},
+                    session=session,
+                )
+                session.commit()
+        return self.graph_atomic_entity(entity_id, where=scope) or {}
+
+    def graph_delete_entity(
+        self,
+        entity_id: str,
+        *,
+        where: Mapping[str, Any],
+    ) -> None:
+        scope = self._entity_scope(where)
+        store = self._get_database()
+        with store._sessions.session() as session:
+            session.execute(text("BEGIN IMMEDIATE"))
+            with store.entity_repo.write_lock():
+                matches = store.entity_repo.list_by_ids({entity_id}, scope, session=session)
+                if not matches:
+                    raise KeyError(f"entity not found in scope: {entity_id}")
+                entity = matches[0]
+                properties = dict(entity.properties or {})
+                conflicts: list[str] = []
+                if properties.get("origin") == "user_declared":
+                    conflicts.append("Relationships cannot be deleted")
+                if properties.get("source_refs"):
+                    conflicts.append("Entity has a source identity")
+                categories = [
+                    category.name
+                    for category in store.memory_category_repo.list_categories(scope, session=session).values()
+                    if category.entity_id == entity_id
+                ]
+                if categories:
+                    conflicts.append(f"Dossiers: {', '.join(sorted(categories, key=str.casefold))}")
+                speaker_items = store.memory_item_repo.list_by_speaker_id(
+                    f"entity:{entity_id}", scope, session
+                )
+                if speaker_items:
+                    refs = [
+                        self.format_memory_ref(item.memory_ref) if item.memory_ref is not None else item.id
+                        for item in speaker_items
+                    ]
+                    conflicts.append(f"Speaker memories: {', '.join(refs)}")
+                references = store.triple_repo.list_entity_references(entity_id, scope, session)
+                if references:
+                    conflicts.append(f"Graph references: {len(references)}")
+                if conflicts:
+                    raise EntityActionConflictError(conflicts)
+                store.entity_repo.delete(entity_id, where=scope, session=session)
+                session.commit()
 
     @staticmethod
     def _entity_merge_state(canonical: Any, duplicate: Any, entities: list[Any]) -> dict[str, Any]:
@@ -549,7 +628,7 @@ class GraphMixin:
         *,
         where: Mapping[str, Any],
     ) -> dict[str, Any]:
-        scope = self._entity_merge_scope(where)
+        scope = self._entity_scope(where)
         canonical, duplicate, entities = self._load_entity_merge(canonical_id, duplicate_id, scope)
         state = self._entity_merge_state(canonical, duplicate, entities)
         store = self._get_database()
@@ -593,7 +672,7 @@ class GraphMixin:
         *,
         where: Mapping[str, Any],
     ) -> dict[str, Any]:
-        scope = self._entity_merge_scope(where)
+        scope = self._entity_scope(where)
         store = self._get_database()
         with store._sessions.session() as session:
             session.execute(text("BEGIN IMMEDIATE"))
@@ -638,31 +717,36 @@ class GraphMixin:
     ) -> dict[str, Any] | None:
         store = self._get_database()
         with store._sessions.session() as session:
-            if memory_id not in store.memory_item_repo.list_items_by_ids({memory_id}, where, session=session):
-                return None
-            if not store.entity_repo.list_by_ids({entity_id}, where, session=session):
-                raise KeyError(f"entity not found in scope: {entity_id}")
-            if attached:
-                store.triple_repo.add(
-                    Triple(
-                        subject_id=memory_id,
-                        subject_kind="memory",
-                        predicate="mentions",
-                        object_id=entity_id,
-                        object_kind="entity",
-                    ),
-                    user_data=where,
-                    session=session,
-                )
-            else:
-                store.triple_repo.invalidate(
-                    memory_id,
-                    "mentions",
-                    entity_id,
-                    where,
-                    session=session,
-                )
-            session.commit()
+            session.execute(text("BEGIN IMMEDIATE"))
+            with store.entity_repo.write_lock():
+                if memory_id not in store.memory_item_repo.list_items_by_ids({memory_id}, where, session=session):
+                    return None
+                entities = store.entity_repo.list_by_ids({entity_id}, where, session=session)
+                if not entities:
+                    raise KeyError(f"entity not found in scope: {entity_id}")
+                if attached and entity_is_ignored(entities[0]):
+                    raise EntityActionConflictError(["Entity is ignored"])
+                if attached:
+                    store.triple_repo.add(
+                        Triple(
+                            subject_id=memory_id,
+                            subject_kind="memory",
+                            predicate="mentions",
+                            object_id=entity_id,
+                            object_kind="entity",
+                        ),
+                        user_data=where,
+                        session=session,
+                    )
+                else:
+                    store.triple_repo.invalidate(
+                        memory_id,
+                        "mentions",
+                        entity_id,
+                        where,
+                        session=session,
+                    )
+                session.commit()
         return self.graph_memory(f"memory:{memory_id}", where=where)
 
     def graph_attach_entity(
@@ -1339,7 +1423,11 @@ class GraphMixin:
                 "weight": 0.45,
             }
 
-        entities = {entity.id: entity for entity in store.entity_repo.list_all(scope)}
+        entities = {
+            entity.id: entity
+            for entity in store.entity_repo.list_all(scope)
+            if not entity_is_ignored(entity)
+        }
         entity_ids: set[str] = set()
         for memory_id in list(selected_ids):
             for triple in store.triple_repo.get_edges_from(memory_id, predicate="mentions", where=scope):
@@ -1407,6 +1495,7 @@ class GraphMixin:
                 {triple.object_id for rows in mention_triples.values() for triple in rows},
                 where,
             )
+            if not entity_is_ignored(entity)
         }
         return {
             memory_id: sorted(

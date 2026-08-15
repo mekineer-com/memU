@@ -9,8 +9,8 @@ import numpy as np
 import pytest
 from pydantic import BaseModel
 
-from memu.app import category_summary_journal
-from memu.app.graph import EntityMergeConflictError, GraphMixin
+from memu.app import category_summary_journal, memorize_persistence
+from memu.app.graph import EntityActionConflictError, EntityMergeConflictError, GraphMixin
 from memu.app.service import MemoryService
 from memu.database.models import Triple
 
@@ -442,6 +442,8 @@ def test_entity_create_update_and_mentions_are_uuid_scoped(monkeypatch: pytest.M
     first = store.entity_repo.create("Same Name", "person", scope)
     second = store.entity_repo.create("Same Name", "person", scope)
     assert first.id != second.id
+    same_name_place = store.entity_repo.get_or_create("Same Name", "place", scope)
+    assert same_name_place.id not in {first.id, second.id}
 
     supplied_aliases = ["Short Name"]
     renamed = store.entity_repo.update(
@@ -478,6 +480,135 @@ def test_entity_create_update_and_mentions_are_uuid_scoped(monkeypatch: pytest.M
     with pytest.raises(RuntimeError, match="forced rollback"):
         service.graph_attach_entity(memory.id, second.id, where=scope)
     assert store.triple_repo.get_edges_from(memory.id, "mentions", where=scope) == []
+
+
+def test_ignored_entity_is_preserved_but_suppressed_until_restore():
+    service = MemoryService(
+        database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
+        user_config={"model": GraphScope},
+    )
+    store = service._get_database()
+    scope = {"user_id": "ignore_user", "soul_id": "s"}
+    entity = store.entity_repo.create("Noisy Topic", "topic", scope)
+    linked = store.memory_item_repo.create_item(
+        memory_type="knowledge", summary="Existing link", embedding=[0.1], user_data=scope
+    )
+    fresh = store.memory_item_repo.create_item(
+        memory_type="knowledge", summary="Fresh link", embedding=[0.1], user_data=scope
+    )
+    service.graph_attach_entity(linked.id, entity.id, where=scope)
+
+    ignored = service.graph_set_entity_ignored(entity.id, ignored=True, where=scope)
+
+    assert ignored["ignored"] is True
+    assert store.entity_repo.get_or_create("Noisy Topic", "topic", scope).id == entity.id
+    with pytest.raises(EntityActionConflictError, match="ignored"):
+        service.graph_attach_entity(fresh.id, entity.id, where=scope)
+    assert service.graph_memory(f"memory:{linked.id}", where=scope)["entity_ids"] == []
+    assert service._find_entity_matches("Noisy Topic", store, scope) == []
+    assert all(node["id"] != f"entity:{entity.id}" for node in service.graph_recent(where=scope)["nodes"])
+
+    restored = service.graph_set_entity_ignored(entity.id, ignored=False, where=scope)
+    assert restored["ignored"] is False
+    service.graph_attach_entity(fresh.id, entity.id, where=scope)
+    assert service.graph_memory(f"memory:{fresh.id}", where=scope)["entity_ids"] == [f"entity:{entity.id}"]
+
+
+def test_memorize_does_not_add_mentions_to_ignored_entity():
+    service = MemoryService(
+        database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
+        user_config={"model": GraphScope},
+    )
+    store = service._get_database()
+    scope = {"user_id": "ignore_persist", "soul_id": "s"}
+    entity = store.entity_repo.create("Recurring Noise", "topic", scope, properties={"ignored": True})
+    entry = SimpleNamespace(
+        content="A memory that mentions recurring noise",
+        confidence=0.8,
+        categories=[],
+        memory_type="knowledge",
+        source_role=None,
+        speaker_id=None,
+        speaker_label=None,
+        source_message_ids=[0],
+        memory_date=None,
+        reflection_salience=None,
+        emotional_intensity=None,
+        entities=[{"name": "Recurring Noise", "type": "topic"}],
+    )
+
+    class _Embed:
+        async def embed(self, texts):
+            return [[0.1] for _text in texts]
+
+    async def no_supersede(**_kwargs):
+        return {}
+
+    items, _ = asyncio.run(memorize_persistence._persist_memory_items(
+        resource_id="segment-1",
+        structured_entries=[entry],
+        store=store,
+        embed_client=_Embed(),
+        user=scope,
+        conversation_id=None,
+        segment_id="segment-1",
+        extract_model=None,
+        source_day_happened_at=None,
+        session=None,
+        enable_confidence_normalization=False,
+        normalize_confidence=lambda entries: entries,
+        find_supersede_targets=no_supersede,
+        hedge_summary_for_confidence=lambda summary, _confidence: summary,
+    ))
+
+    assert len(items) == 1
+    assert store.entity_repo.get_or_create("Recurring Noise", "topic", scope).id == entity.id
+    assert store.triple_repo.get_edges_from(items[0].id, "mentions", where=scope) == []
+
+
+def test_entity_delete_accepts_only_completely_unreferenced_extracted_rows():
+    service = MemoryService(
+        database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
+        user_config={"model": GraphScope},
+    )
+    store = service._get_database()
+    scope = {"user_id": "delete_user", "soul_id": "s"}
+    orphan = store.entity_repo.create("Unused", "topic", scope)
+    source = store.entity_repo.create("Source-bound", "person", scope, properties={"source_refs": ["source:1"]})
+    relationship = store.entity_repo.create(
+        "Declared", "person", scope, properties={"origin": "user_declared", "active": True}
+    )
+    mentioned = store.entity_repo.create("Mentioned", "place", scope)
+    speaker = store.entity_repo.create("Speaker", "person", scope)
+    dossier = store.entity_repo.create("Dossier", "topic", scope)
+    item = store.memory_item_repo.create_item(
+        memory_type="knowledge", summary="A memory", embedding=[0.1], user_data=scope
+    )
+    store.triple_repo.add(
+        Triple(subject_id=item.id, subject_kind="memory", predicate="mentions", object_id=mentioned.id, object_kind="entity"),
+        user_data=scope,
+    )
+    store.memory_item_repo.create_item(
+        memory_type="social",
+        summary="Attributed",
+        embedding=[0.1],
+        user_data=scope,
+        speaker_id=f"entity:{speaker.id}",
+    )
+    store.memory_category_repo.get_or_create_category(
+        name="Anchored", description="", embedding=[0.1], user_data=scope, entity_id=dossier.id
+    )
+
+    for blocked in (source, relationship, mentioned, speaker, dossier):
+        with pytest.raises(EntityActionConflictError):
+            service.graph_delete_entity(blocked.id, where=scope)
+    assert {entity.id for entity in store.entity_repo.list_all(scope)}.issuperset(
+        {source.id, relationship.id, mentioned.id, speaker.id, dossier.id}
+    )
+
+    service.graph_delete_entity(orphan.id, where=scope)
+    assert store.entity_repo.list_by_ids({orphan.id}, scope) == []
+    assert item.id in store.memory_item_repo.list_items(scope, include_embeddings=False)
 
 
 def test_graph_atomic_canvas_source_includes_embeddings_and_category_tags():

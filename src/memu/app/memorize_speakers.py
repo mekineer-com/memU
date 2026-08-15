@@ -5,7 +5,7 @@ from collections.abc import Callable, Mapping, Sequence
 from typing import Any, Protocol, TypeVar
 
 from memu.app import memorize_parsing as parsing
-from memu.database.models import normalize_entity_name
+from memu.database.models import entity_is_ignored, normalize_entity_name
 
 TEntry = TypeVar("TEntry", bound="SpeakerLike")
 
@@ -71,6 +71,8 @@ def _has_ambiguous_speaker_role(roster: Sequence[SpeakerLike]) -> bool:
 
 
 def _is_user_declared_relationship_entity(entity: Any) -> bool:
+    if entity_is_ignored(entity):
+        return False
     props = getattr(entity, "properties", None)
     if not isinstance(props, Mapping):
         return False
@@ -105,6 +107,8 @@ def _list_declared_relationship_roster(
 def _build_entity_speaker_ids(entities: Sequence[Any]) -> dict[str, str]:
     matches: dict[str, set[str]] = {}
     for entity in entities:
+        if entity_is_ignored(entity):
+            continue
         entity_id = str(getattr(entity, "id", "") or "").strip()
         if not entity_id:
             continue
@@ -135,6 +139,8 @@ def _entity_source_refs(entity: Any) -> list[str]:
 def _build_entity_source_speaker_ids(entities: Sequence[Any]) -> dict[str, str]:
     source_ids: dict[str, str] = {}
     for entity in entities:
+        if entity_is_ignored(entity):
+            continue
         properties = getattr(entity, "properties", None)
         if isinstance(properties, Mapping) and properties.get("active") is False:
             continue
@@ -154,9 +160,17 @@ def _propose_entity_source_ref_bindings(
     messages: Sequence[Mapping[str, Any]],
     entities: Sequence[Any],
 ) -> dict[str, str]:
-    owned = _build_entity_source_speaker_ids(entities)
+    owned = set(_build_entity_source_speaker_ids(entities))
+    owned.update(
+        source_ref
+        for entity in entities
+        if entity_is_ignored(entity)
+        for source_ref in _entity_source_refs(entity)
+    )
     person_matches: dict[str, set[str]] = {}
     for entity in entities:
+        if entity_is_ignored(entity):
+            continue
         properties = getattr(entity, "properties", None)
         if str(getattr(entity, "entity_type", "") or "").casefold() != "person":
             continue

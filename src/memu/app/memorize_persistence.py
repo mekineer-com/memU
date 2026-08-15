@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
 
-from memu.database.models import Triple
+from memu.database.models import Triple, entity_is_ignored
 
 
 
@@ -142,6 +142,8 @@ async def _persist_memory_items(
                     user_data=dict(user or {}),
                     session=session,
                 )
+                if entity_is_ignored(entity_record):
+                    continue
                 store.triple_repo.add(
                     Triple(
                         subject_id=item.id,

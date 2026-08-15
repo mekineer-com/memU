@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from pydantic import BaseModel
 
+from memu.database.models import entity_is_ignored
 from memu.database.vector import (
     autocut_first_cluster,
     cosine_topk,
@@ -398,7 +399,7 @@ class RetrieveMixin:
         if not all_entities:
             return []
         text_lower = text.lower()
-        return [e for e in all_entities if e.name.lower() in text_lower]
+        return [e for e in all_entities if not entity_is_ignored(e) and e.name.lower() in text_lower]
 
     def _find_superseded_at(
         self,

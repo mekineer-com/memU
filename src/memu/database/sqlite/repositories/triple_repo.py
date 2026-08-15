@@ -292,6 +292,26 @@ class SQLiteTripleRepo(SQLiteRepoBase, TripleRepo):
         session.flush()
         return len(rows)
 
+    def list_entity_references(
+        self,
+        entity_id: str,
+        where: Mapping[str, Any],
+        session: Any,
+    ) -> list[Triple]:
+        scope = self._require_scope(where)
+        rows = session.exec(
+            select(self._triple_model).where(
+                or_(
+                    (self._triple_model.subject_kind == "entity")
+                    & (self._triple_model.subject_id == entity_id),
+                    (self._triple_model.object_kind == "entity")
+                    & (self._triple_model.object_id == entity_id),
+                ),
+                *self._build_filters(self._triple_model, scope),
+            )
+        ).all()
+        return [self._row_to_triple(row) for row in rows]
+
     def get_connected_memory_edges(
         self,
         memory_ids: list[str],

@@ -257,3 +257,29 @@ def test_retrieve_materialized_item_includes_speaker_fields(service: MemoryServi
     assert len(rendered) == 1
     assert rendered[0]["speaker_id"] == "user:marcos"
     assert rendered[0]["speaker_label"] == "Marcos"
+
+
+def test_ignored_entity_is_absent_from_speaker_and_source_identity_maps() -> None:
+    ignored = SimpleNamespace(
+        id="ignored",
+        name="Ignored Person",
+        entity_type="person",
+        properties={"ignored": True, "source_refs": ["source:ignored"]},
+    )
+
+    assert speakers._build_entity_speaker_ids([ignored]) == {}
+    assert speakers._build_entity_source_speaker_ids([ignored]) == {}
+    assert speakers._list_declared_relationship_roster(
+        entities=[ignored],
+        roster_entry_factory=SpeakerRosterEntry,
+    ) == []
+    active_same_name = SimpleNamespace(
+        id="active",
+        name="Ignored Person",
+        entity_type="person",
+        properties={},
+    )
+    assert speakers._propose_entity_source_ref_bindings(
+        [{"source_ref": "source:ignored", "name": "Ignored Person"}],
+        [ignored, active_same_name],
+    ) == {}

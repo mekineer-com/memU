@@ -110,6 +110,13 @@ class MemoryItemRepo(Protocol):
         session: Any,
     ) -> int: ...
 
+    def list_by_speaker_id(
+        self,
+        speaker_id: str,
+        where: Mapping[str, Any],
+        session: Any,
+    ) -> list[MemoryItem]: ...
+
     def update_summary_with_history(
         self,
         *,

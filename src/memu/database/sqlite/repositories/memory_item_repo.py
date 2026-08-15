@@ -859,6 +859,21 @@ WHERE version = 1 AND model IN ({placeholders})
         session.flush()
         return len(rows)
 
+    def list_by_speaker_id(
+        self,
+        speaker_id: str,
+        where: Mapping[str, Any],
+        session: Any,
+    ) -> list[MemoryItem]:
+        scope = self._require_scope(where)
+        rows = session.exec(
+            select(self._memory_item_model).where(
+                self._memory_item_model.speaker_id == speaker_id,
+                *self._build_filters(self._memory_item_model, scope),
+            )
+        ).all()
+        return [self._to_memory_item(row, embedding=[]) for row in rows]
+
     def update_summary_with_history(
         self,
         *,

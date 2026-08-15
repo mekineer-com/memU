@@ -82,7 +82,10 @@ class SQLiteEntityRepo(SQLiteRepoBase, EntityRepo):
         create_scope: Mapping[str, Any],
         session: Any,
     ) -> Entity:
-        stmt = select(self._entity_model).where(self._entity_model.normalized == normalized)
+        stmt = select(self._entity_model).where(
+            self._entity_model.normalized == normalized,
+            self._entity_model.entity_type == entity_type,
+        )
         filters = self._build_filters(self._entity_model, where)
         if filters:
             stmt = stmt.where(*filters)

@@ -62,6 +62,13 @@ class TripleRepo(Protocol):
         session: Any,
     ) -> int: ...
 
+    def list_entity_references(
+        self,
+        entity_id: str,
+        where: Mapping[str, Any],
+        session: Any,
+    ) -> list[Triple]: ...
+
     def get_connected_memory_edges(
         self,
         memory_ids: list[str],

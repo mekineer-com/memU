@@ -33,6 +33,11 @@ class Entity(BaseRecord):
     properties: dict[str, Any] = {}
 
 
+def entity_is_ignored(entity: Entity) -> bool:
+    properties = getattr(entity, "properties", None)
+    return isinstance(properties, dict) and properties.get("ignored") is True
+
+
 class Triple(BaseRecord):
     """A directed edge between a memory and an entity, or two memories."""
     subject_id: str
