@@ -102,6 +102,14 @@ class MemoryItemRepo(Protocol):
         session: Any | None = None,
     ) -> MemoryItem: ...
 
+    def replace_speaker_id(
+        self,
+        old_speaker_id: str,
+        new_speaker_id: str,
+        where: Mapping[str, Any],
+        session: Any,
+    ) -> int: ...
+
     def update_summary_with_history(
         self,
         *,

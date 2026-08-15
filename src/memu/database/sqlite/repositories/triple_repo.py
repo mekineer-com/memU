@@ -234,6 +234,64 @@ class SQLiteTripleRepo(SQLiteRepoBase, TripleRepo):
             session.add(row)
         session.flush()
 
+    def replace_entity_id(
+        self,
+        discarded_id: str,
+        canonical_id: str,
+        where: Mapping[str, Any],
+        session: Any,
+    ) -> int:
+        scope = self._require_scope(where)
+        stmt = select(self._triple_model).where(
+            or_(
+                (self._triple_model.subject_kind == "entity")
+                & (self._triple_model.subject_id == discarded_id),
+                (self._triple_model.object_kind == "entity")
+                & (self._triple_model.object_id == discarded_id),
+            ),
+            *self._build_filters(self._triple_model, scope),
+        )
+        rows = list(session.exec(stmt).all())
+        now = self._now()
+        for row in rows:
+            subject_id = canonical_id if row.subject_kind == "entity" and row.subject_id == discarded_id else row.subject_id
+            object_id = canonical_id if row.object_kind == "entity" and row.object_id == discarded_id else row.object_id
+            row.subject_id, row.object_id = _canonical_endpoints(row.predicate, subject_id, object_id)
+            row.updated_at = now
+            session.add(row)
+
+        session.flush()
+        impacted_keys = {(row.subject_id, row.predicate, row.object_id) for row in rows}
+
+        current_stmt = select(self._triple_model).where(
+            self._triple_model.valid_to.is_(None),
+            *self._build_filters(self._triple_model, scope),
+        )
+        current_rows = list(session.exec(current_stmt).all())
+        groups: dict[tuple[str, str, str], list[Any]] = {}
+        for row in current_rows:
+            key = (row.subject_id, row.predicate, row.object_id)
+            if key in impacted_keys:
+                groups.setdefault(key, []).append(row)
+        for group in groups.values():
+            group.sort(key=lambda row: (str(row.valid_from or ""), str(row.created_at or ""), str(row.id)))
+            for row in group[1:]:
+                row.valid_to = now
+                row.updated_at = now
+                session.add(row)
+        for row in rows:
+            if (
+                row.valid_to is None
+                and row.subject_kind == "entity"
+                and row.object_kind == "entity"
+                and row.subject_id == row.object_id
+            ):
+                row.valid_to = now
+                row.updated_at = now
+                session.add(row)
+        session.flush()
+        return len(rows)
+
     def get_connected_memory_edges(
         self,
         memory_ids: list[str],

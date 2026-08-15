@@ -838,6 +838,27 @@ WHERE version = 1 AND model IN ({placeholders})
 
         return self._to_memory_item(row)
 
+    def replace_speaker_id(
+        self,
+        old_speaker_id: str,
+        new_speaker_id: str,
+        where: Mapping[str, Any],
+        session: Any,
+    ) -> int:
+        scope = self._require_scope(where)
+        stmt = select(self._memory_item_model).where(
+            self._memory_item_model.speaker_id == old_speaker_id,
+            *self._build_filters(self._memory_item_model, scope),
+        )
+        rows = list(session.exec(stmt).all())
+        now = self._now()
+        for row in rows:
+            row.speaker_id = new_speaker_id
+            row.updated_at = now
+            session.add(row)
+        session.flush()
+        return len(rows)
+
     def update_summary_with_history(
         self,
         *,

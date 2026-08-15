@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Mapping
+from contextlib import contextmanager
 from typing import Any
 
 from sqlmodel import select
@@ -47,7 +48,12 @@ class SQLiteEntityRepo(SQLiteRepoBase, EntityRepo):
             scope_fields=scope_fields,
         )
         self._entity_model = entity_model
-        self._entity_create_lock = threading.Lock()
+        self._entity_write_lock = threading.RLock()
+
+    @contextmanager
+    def write_lock(self):
+        with self._entity_write_lock:
+            yield
 
     def _row_to_entity(self, row: Any) -> Entity:
         return Entity(
@@ -78,6 +84,20 @@ class SQLiteEntityRepo(SQLiteRepoBase, EntityRepo):
         if row is not None:
             return self._row_to_entity(row)
 
+        # ponytail: aliases live in JSON, so rare name misses scan one soul's entities.
+        alias_matches = []
+        alias_stmt = select(self._entity_model)
+        if filters:
+            alias_stmt = alias_stmt.where(*filters)
+        for candidate in session.exec(alias_stmt).all():
+            aliases = (candidate.properties or {}).get("aliases", [])
+            if isinstance(aliases, list) and any(
+                normalize_entity_name(str(alias or "")) == normalized for alias in aliases
+            ):
+                alias_matches.append(candidate)
+        if len(alias_matches) == 1:
+            return self._row_to_entity(alias_matches[0])
+
         now = self._now()
         row = self._entity_model(
             name=name,
@@ -104,7 +124,7 @@ class SQLiteEntityRepo(SQLiteRepoBase, EntityRepo):
         where = dict(user_data or {})
         create_scope = {k: v for k, v in where.items() if k in self._scope_fields and v is not None}
         if session is None:
-            with self._entity_create_lock:
+            with self._entity_write_lock:
                 with self._sessions.session() as db_session:
                     entity = self._get_or_create_in_session(
                         name=name,
@@ -116,7 +136,7 @@ class SQLiteEntityRepo(SQLiteRepoBase, EntityRepo):
                     )
                     db_session.commit()
                     return entity
-        with self._entity_create_lock:
+        with self._entity_write_lock:
             return self._get_or_create_in_session(
                 name=name,
                 entity_type=entity_type,
@@ -154,7 +174,7 @@ class SQLiteEntityRepo(SQLiteRepoBase, EntityRepo):
             clean_properties["aliases"] = clean_aliases
         else:
             clean_properties.pop("aliases", None)
-        with self._entity_create_lock:
+        with self._entity_write_lock:
             row = self._entity_model(
                 name=name,
                 entity_type=entity_type,
@@ -196,7 +216,7 @@ class SQLiteEntityRepo(SQLiteRepoBase, EntityRepo):
                 )
                 db_session.commit()
                 return entity
-        with self._entity_create_lock:
+        with self._entity_write_lock:
             stmt = select(self._entity_model).where(self._entity_model.id == entity_id)
             filters = self._build_filters(self._entity_model, scope)
             if filters:
@@ -240,14 +260,44 @@ class SQLiteEntityRepo(SQLiteRepoBase, EntityRepo):
             session.refresh(row)
             return self._row_to_entity(row)
 
-    def list_all(self, where: Mapping[str, Any] | None = None) -> list[Entity]:
-        with self._sessions.session() as session:
-            stmt = select(self._entity_model)
-            filters = self._build_filters(self._entity_model, where)
+    def list_all(
+        self,
+        where: Mapping[str, Any] | None = None,
+        *,
+        session: Any | None = None,
+    ) -> list[Entity]:
+        stmt = select(self._entity_model)
+        filters = self._build_filters(self._entity_model, where)
+        if filters:
+            stmt = stmt.where(*filters)
+        if session is not None:
+            return [self._row_to_entity(row) for row in session.exec(stmt).all()]
+        with self._sessions.session() as db_session:
+            return [self._row_to_entity(row) for row in db_session.exec(stmt).all()]
+
+    def delete(
+        self,
+        entity_id: str,
+        *,
+        where: Mapping[str, Any],
+        session: Any | None = None,
+    ) -> None:
+        scope = self._require_scope(where)
+        if session is None:
+            with self._sessions.session() as db_session:
+                self.delete(entity_id, where=scope, session=db_session)
+                db_session.commit()
+                return
+        with self._entity_write_lock:
+            stmt = select(self._entity_model).where(self._entity_model.id == entity_id)
+            filters = self._build_filters(self._entity_model, scope)
             if filters:
                 stmt = stmt.where(*filters)
-            rows = session.exec(stmt).all()
-            return [self._row_to_entity(r) for r in rows]
+            row = session.exec(stmt).first()
+            if row is None:
+                raise KeyError(f"entity not found in scope: {entity_id}")
+            session.delete(row)
+            session.flush()
 
     def list_by_ids(
         self,
@@ -318,7 +368,7 @@ class SQLiteEntityRepo(SQLiteRepoBase, EntityRepo):
         where: Mapping[str, Any] | None = None,
         session: Any | None = None,
     ) -> list[Entity]:
-        with self._entity_create_lock:
+        with self._entity_write_lock:
             if session is not None:
                 return self._bind_source_refs_in_session(bindings, dict(where or {}), session)
             with self._sessions.session() as db_session:

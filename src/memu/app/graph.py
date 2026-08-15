@@ -8,16 +8,41 @@ from time import perf_counter
 from typing import Any
 
 import numpy as np
+from sqlalchemy import text
 
 from memu.app.category_summary_journal import append_category_summary_journal
-from memu.database.models import Triple
+from memu.database.models import Triple, normalize_entity_name
 from memu.database.vector import cosine_similarity, cosine_topk
 from memu.utils.taxonomy import DOSSIER_KINDS
 
 SEMANTIC_PREDICATES = ["caused_by", "evokes", "conflicts_with", "parallels", "shaped_by"]
-ENTITY_PROPERTY_KEYS = {"origin", "active", "relationship", "aliases", "source_refs", "ignored"}
+ENTITY_PROPERTY_KEYS = {"origin", "active", "relationship", "aliases", "source_refs", "ignored", "deleted_at"}
 ENTITY_TYPES = {"person", "topic", "place", "project"}
 logger = logging.getLogger(__name__)
+
+
+class EntityMergeConflictError(ValueError):
+    def __init__(self, canonical: dict[str, Any], duplicate: dict[str, Any], conflicts: list[str]) -> None:
+        super().__init__("; ".join(conflicts))
+        self.canonical = canonical
+        self.duplicate = duplicate
+        self.conflicts = conflicts
+
+
+def _stable_entity_values(values: Iterable[Any], *, exclude: str = "") -> list[str]:
+    seen = {normalize_entity_name(exclude)} if exclude else set()
+    result: list[str] = []
+    for value in values:
+        clean = str(value or "").strip()
+        normalized = normalize_entity_name(clean)
+        if clean and normalized not in seen:
+            seen.add(normalized)
+            result.append(clean)
+    return result
+
+
+def _stable_text_values(values: Iterable[Any]) -> list[str]:
+    return list(dict.fromkeys(str(value or "").strip() for value in values if str(value or "").strip()))
 
 
 def _iso(value: Any) -> str | None:
@@ -432,6 +457,167 @@ class GraphMixin:
         except KeyError:
             return None
         return self.graph_atomic_entity(entity.id, where=where)
+
+    @staticmethod
+    def _entity_merge_scope(where: Mapping[str, Any]) -> dict[str, Any]:
+        scope = {key: str(where.get(key) or "").strip() for key in ("user_id", "soul_id")}
+        if not all(scope.values()):
+            raise ValueError("entity merge requires user_id and soul_id")
+        return scope
+
+    @staticmethod
+    def _entity_merge_state(canonical: Any, duplicate: Any, entities: list[Any]) -> dict[str, Any]:
+        canonical_props = dict(canonical.properties or {})
+        duplicate_props = dict(duplicate.properties or {})
+        canonical_rel = canonical_props.get("origin") == "user_declared"
+        duplicate_rel = duplicate_props.get("origin") == "user_declared"
+        conflicts: list[str] = []
+        warnings: list[str] = []
+
+        if (canonical_rel and canonical_props.get("active") is False) or (
+            duplicate_rel and duplicate_props.get("active") is False
+        ):
+            conflicts.append("Restore the inactive Relationship before merging")
+        if canonical_rel and duplicate_rel:
+            if normalize_entity_name(canonical.name) != normalize_entity_name(duplicate.name):
+                conflicts.append("Relationship names differ")
+            if canonical_props.get("relationship") != duplicate_props.get("relationship"):
+                conflicts.append("Relationship descriptions differ")
+            if canonical_props.get("active") != duplicate_props.get("active"):
+                conflicts.append("Relationship states differ")
+        if canonical_props.get("ignored") != duplicate_props.get("ignored"):
+            conflicts.append("Ignore states differ")
+
+        known = ENTITY_PROPERTY_KEYS
+        for key in (set(canonical_props) | set(duplicate_props)) - known:
+            if key in duplicate_props and (
+                key not in canonical_props or canonical_props[key] != duplicate_props[key]
+            ):
+                conflicts.append(f"Unknown property differs: {key}")
+
+        aliases = _stable_entity_values(
+            [*(canonical_props.get("aliases") or []), duplicate.name, *(duplicate_props.get("aliases") or [])],
+            exclude=canonical.name,
+        )
+        source_refs = _stable_text_values(
+            [*(canonical_props.get("source_refs") or []), *(duplicate_props.get("source_refs") or [])]
+        )
+        absorbed_names = {normalize_entity_name(value) for value in [duplicate.name, *aliases] if value}
+        for entity in entities:
+            if entity.id in {canonical.id, duplicate.id}:
+                continue
+            other_names = [entity.name, *((entity.properties or {}).get("aliases") or [])]
+            if absorbed_names & {normalize_entity_name(str(value or "")) for value in other_names}:
+                warnings.append(f"Name or alias also belongs to {entity.name}")
+            other_refs = set((entity.properties or {}).get("source_refs") or [])
+            overlap = other_refs & set(source_refs)
+            if overlap:
+                conflicts.append(f"Source reference belongs to another entity: {sorted(overlap)[0]}")
+
+        updates: dict[str, Any] = {"source_refs": source_refs}
+        relationship = canonical if canonical_rel else duplicate if duplicate_rel else None
+        if relationship is not None:
+            updates["origin"] = "user_declared"
+            if (relationship.properties or {}).get("relationship") is not None:
+                updates["relationship"] = relationship.properties["relationship"]
+        return {"aliases": aliases, "property_updates": updates, "conflicts": conflicts, "warnings": warnings}
+
+    def _load_entity_merge(self, canonical_id: str, duplicate_id: str, scope: dict[str, Any], *, session: Any = None):
+        if canonical_id == duplicate_id:
+            raise ValueError("canonical and duplicate entities must differ")
+        entities = self._get_database().entity_repo.list_all(scope, session=session)
+        by_id = {entity.id: entity for entity in entities}
+        if canonical_id not in by_id:
+            raise KeyError(f"entity not found in scope: {canonical_id}")
+        if duplicate_id not in by_id:
+            raise KeyError(f"entity not found in scope: {duplicate_id}")
+        return by_id[canonical_id], by_id[duplicate_id], entities
+
+    def graph_preview_entity_merge(
+        self,
+        canonical_id: str,
+        duplicate_id: str,
+        *,
+        where: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        scope = self._entity_merge_scope(where)
+        canonical, duplicate, entities = self._load_entity_merge(canonical_id, duplicate_id, scope)
+        state = self._entity_merge_state(canonical, duplicate, entities)
+        store = self._get_database()
+        categories = store.memory_category_repo.list_categories(scope)
+        items = store.memory_item_repo.list_items(
+            scope, include_superseded=True, include_merged=True, include_embeddings=False
+        )
+        triples = {
+            edge.id: edge
+            for edge in [
+                *store.triple_repo.get_edges_from(duplicate_id, current_only=False, where=scope),
+                *store.triple_repo.get_edges_to(duplicate_id, current_only=False, where=scope),
+            ]
+        }
+        duplicate_detail = self.graph_atomic_entity(duplicate_id, where=scope) or {}
+        return {
+            "canonical": self.graph_atomic_entity(canonical_id, where=scope),
+            "duplicate": duplicate_detail,
+            "impact": {
+                "memory_count": len(duplicate_detail.get("memories", [])),
+                "category_titles": sorted(
+                    category.name for category in categories.values() if category.entity_id == duplicate_id
+                ),
+                "current_triple_count": sum(edge.valid_to is None for edge in triples.values()),
+                "historical_triple_count": sum(edge.valid_to is not None for edge in triples.values()),
+                "speaker_memory_count": sum(
+                    item.speaker_id == f"entity:{duplicate_id}" for item in items.values()
+                ),
+                "aliases": state["aliases"],
+                "source_refs": state["property_updates"]["source_refs"],
+            },
+            "conflicts": state["conflicts"],
+            "warnings": state["warnings"],
+            "can_merge": not state["conflicts"],
+        }
+
+    def graph_merge_entities(
+        self,
+        canonical_id: str,
+        duplicate_id: str,
+        *,
+        where: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        scope = self._entity_merge_scope(where)
+        store = self._get_database()
+        with store._sessions.session() as session:
+            session.execute(text("BEGIN IMMEDIATE"))
+            with store.entity_repo.write_lock():
+                canonical, duplicate, entities = self._load_entity_merge(
+                    canonical_id, duplicate_id, scope, session=session
+                )
+                state = self._entity_merge_state(canonical, duplicate, entities)
+                if state["conflicts"]:
+                    raise EntityMergeConflictError(
+                        self.graph_atomic_entity(canonical_id, where=scope) or {},
+                        self.graph_atomic_entity(duplicate_id, where=scope) or {},
+                        state["conflicts"],
+                    )
+                store.entity_repo.update(
+                    canonical_id,
+                    where=scope,
+                    aliases=state["aliases"],
+                    property_updates=state["property_updates"],
+                    session=session,
+                )
+                store.triple_repo.replace_entity_id(duplicate_id, canonical_id, scope, session)
+                for category in store.memory_category_repo.list_categories(scope, session=session).values():
+                    if category.entity_id == duplicate_id:
+                        store.memory_category_repo.update_category(
+                            category_id=category.id, entity_id=canonical_id, where=scope, session=session
+                        )
+                store.memory_item_repo.replace_speaker_id(
+                    f"entity:{duplicate_id}", f"entity:{canonical_id}", scope, session
+                )
+                store.entity_repo.delete(duplicate_id, where=scope, session=session)
+                session.commit()
+        return self.graph_atomic_entity(canonical_id, where=scope) or {}
 
     def _graph_set_entity_mention(
         self,

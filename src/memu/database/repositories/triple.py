@@ -54,6 +54,14 @@ class TripleRepo(Protocol):
         session: Any | None = None,
     ) -> None: ...
 
+    def replace_entity_id(
+        self,
+        discarded_id: str,
+        canonical_id: str,
+        where: Mapping[str, Any],
+        session: Any,
+    ) -> int: ...
+
     def get_connected_memory_edges(
         self,
         memory_ids: list[str],

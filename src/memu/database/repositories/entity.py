@@ -41,7 +41,22 @@ class EntityRepo(Protocol):
         session: Any | None = None,
     ) -> Entity: ...
 
-    def list_all(self, where: Mapping[str, Any] | None = None) -> list[Entity]: ...
+    def list_all(
+        self,
+        where: Mapping[str, Any] | None = None,
+        *,
+        session: Any | None = None,
+    ) -> list[Entity]: ...
+
+    def delete(
+        self,
+        entity_id: str,
+        *,
+        where: Mapping[str, Any],
+        session: Any | None = None,
+    ) -> None: ...
+
+    def write_lock(self) -> Any: ...
 
     def list_by_ids(
         self,

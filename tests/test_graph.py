@@ -10,7 +10,7 @@ import pytest
 from pydantic import BaseModel
 
 from memu.app import category_summary_journal
-from memu.app.graph import GraphMixin
+from memu.app.graph import EntityMergeConflictError, GraphMixin
 from memu.app.service import MemoryService
 from memu.database.models import Triple
 
@@ -304,6 +304,127 @@ def test_graph_atomic_entities_returns_scoped_counts_and_chronological_detail():
     assert [memory["summary"] for memory in detail["memories"]] == ["An earlier memory", "A later memory"]
     assert all(memory["memory_ref"].startswith("[M") for memory in detail["memories"])
     assert service.graph_atomic_entity("missing", where=scope) is None
+
+
+def test_graph_merge_entities_moves_references_and_preserves_alias_identity():
+    service = MemoryService(
+        database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
+        user_config={"model": GraphScope},
+    )
+    store = service._get_database()
+    scope = {"user_id": "merge_user", "soul_id": "s"}
+    canonical = store.entity_repo.create(
+        "Annie Glisson", "person", scope, properties={"aliases": ["Annie G"], "source_refs": ["phone:1"]}
+    )
+    duplicate = store.entity_repo.create(
+        "Annie",
+        "person",
+        scope,
+        properties={"origin": "user_declared", "active": True, "relationship": "friend", "source_refs": ["lid:1"]},
+    )
+    item = store.memory_item_repo.create_item(
+        memory_type="knowledge",
+        summary="Annie brought tea.",
+        embedding=[0.1],
+        user_data=scope,
+        speaker_id=f"entity:{duplicate.id}",
+        speaker_label="Annie",
+    )
+    for entity_id in (canonical.id, duplicate.id):
+        store.triple_repo.add(
+            Triple(
+                subject_id=item.id,
+                subject_kind="memory",
+                predicate="mentions",
+                object_id=entity_id,
+                object_kind="entity",
+                source_memory_id=item.id,
+            ),
+            user_data=scope,
+        )
+    category = store.memory_category_repo.get_or_create_category(
+        name="Annie", description="", embedding=[0.1], user_data=scope, entity_id=duplicate.id
+    )
+
+    preview = service.graph_preview_entity_merge(canonical.id, duplicate.id, where=scope)
+    merged = service.graph_merge_entities(canonical.id, duplicate.id, where=scope)
+
+    assert preview["can_merge"] is True
+    assert merged["id"] == canonical.id
+    assert merged["properties"]["origin"] == "user_declared"
+    assert merged["properties"]["source_refs"] == ["phone:1", "lid:1"]
+    assert store.entity_repo.list_by_ids({duplicate.id}, scope) == []
+    assert store.entity_repo.get_or_create("Annie", "person", scope).id == canonical.id
+    assert store.memory_category_repo.list_categories(scope)[category.id].entity_id == canonical.id
+    saved_item = store.memory_item_repo.list_items(
+        scope, include_superseded=True, include_merged=True, include_embeddings=False
+    )[item.id]
+    assert saved_item.speaker_id == f"entity:{canonical.id}"
+    all_mentions = store.triple_repo.get_edges_from(item.id, "mentions", current_only=False, where=scope)
+    assert sum(edge.valid_to is None for edge in all_mentions) == 1
+    assert {edge.object_id for edge in all_mentions} == {canonical.id}
+    assert all(edge.source_memory_id == item.id for edge in all_mentions)
+
+
+def test_graph_merge_entities_blocks_inactive_relationship_without_writes():
+    service = MemoryService(
+        database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
+        user_config={"model": GraphScope},
+    )
+    store = service._get_database()
+    scope = {"user_id": "merge_inactive", "soul_id": "s"}
+    canonical = store.entity_repo.create("Alice", "person", scope)
+    duplicate = store.entity_repo.create(
+        "Alice old", "person", scope, properties={"origin": "user_declared", "active": False}
+    )
+
+    with pytest.raises(EntityMergeConflictError):
+        service.graph_merge_entities(canonical.id, duplicate.id, where=scope)
+
+    assert {entity.id for entity in store.entity_repo.list_all(scope)} == {canonical.id, duplicate.id}
+
+
+def test_graph_merge_entities_rolls_back_all_rewrites(monkeypatch: pytest.MonkeyPatch):
+    service = MemoryService(
+        database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
+        user_config={"model": GraphScope},
+    )
+    store = service._get_database()
+    scope = {"user_id": "merge_rollback", "soul_id": "s"}
+    canonical = store.entity_repo.create("Alice", "person", scope)
+    duplicate = store.entity_repo.create("Alice old", "person", scope)
+    item = store.memory_item_repo.create_item(
+        memory_type="knowledge",
+        summary="Alice spoke.",
+        embedding=[0.1],
+        user_data=scope,
+        speaker_id=f"entity:{duplicate.id}",
+    )
+    store.triple_repo.add(
+        Triple(
+            subject_id=item.id,
+            subject_kind="memory",
+            predicate="mentions",
+            object_id=duplicate.id,
+            object_kind="entity",
+        ),
+        user_data=scope,
+    )
+    category = store.memory_category_repo.get_or_create_category(
+        name="Alice", description="", embedding=[0.1], user_data=scope, entity_id=duplicate.id
+    )
+    def fail_delete(*_args, **_kwargs):
+        raise RuntimeError("stop")
+
+    monkeypatch.setattr(store.entity_repo, "delete", fail_delete)
+
+    with pytest.raises(RuntimeError, match="stop"):
+        service.graph_merge_entities(canonical.id, duplicate.id, where=scope)
+
+    assert {entity.id for entity in store.entity_repo.list_all(scope)} == {canonical.id, duplicate.id}
+    assert store.memory_category_repo.list_categories(scope)[category.id].entity_id == duplicate.id
+    assert store.memory_item_repo.list_items(scope, include_embeddings=False)[item.id].speaker_id == f"entity:{duplicate.id}"
+    assert store.triple_repo.get_edges_from(item.id, "mentions", where=scope)[0].object_id == duplicate.id
 
 
 def test_entity_create_update_and_mentions_are_uuid_scoped(monkeypatch: pytest.MonkeyPatch):
