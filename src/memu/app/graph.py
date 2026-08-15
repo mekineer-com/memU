@@ -14,6 +14,7 @@ from memu.database.vector import cosine_similarity, cosine_topk
 from memu.utils.taxonomy import DOSSIER_KINDS
 
 SEMANTIC_PREDICATES = ["caused_by", "evokes", "conflicts_with", "parallels", "shaped_by"]
+ENTITY_PROPERTY_KEYS = {"origin", "active", "relationship", "aliases", "source_refs", "ignored"}
 logger = logging.getLogger(__name__)
 
 
@@ -293,6 +294,87 @@ class GraphMixin:
             for category in sorted(categories.values(), key=lambda category: category.name.lower())
             if counts[category.id] >= min_count
         ]
+
+    def _atomic_entity_rows(
+        self,
+        where: Mapping[str, Any] | None,
+    ) -> tuple[list[dict[str, Any]], dict[str, list[Any]]]:
+        store = self._get_database()
+        entities = store.entity_repo.list_all(where)
+        items = store.memory_item_repo.list_items(where, include_embeddings=False)
+        links: dict[str, list[Any]] = {entity.id: [] for entity in entities}
+        for edge in store.triple_repo.list_edges_for_memories(
+            items,
+            {"mentions"},
+            where,
+        ):
+            if edge.subject_kind == "memory" and edge.object_kind == "entity" and edge.subject_id in items:
+                if edge.object_id in links:
+                    links[edge.object_id].append(items[edge.subject_id])
+
+        rows = []
+        for entity in entities:
+            linked = links[entity.id]
+            last_mentioned = max(
+                (_utc(item.happened_at or item.created_at) for item in linked),
+                default=None,
+            )
+            properties = entity.properties if isinstance(entity.properties, dict) else {}
+            rows.append({
+                "id": entity.id,
+                "atom_id": f"entity:{entity.id}",
+                "name": entity.name,
+                "normalized": entity.normalized,
+                "entity_type": entity.entity_type,
+                "properties": {key: properties[key] for key in ENTITY_PROPERTY_KEYS if key in properties},
+                "is_relationship": properties.get("origin") == "user_declared",
+                "ignored": properties.get("ignored") is True,
+                "linked_memory_count": len(linked),
+                "orphan": not linked,
+                "last_mentioned_at": _iso(last_mentioned),
+                "created_at": _iso(entity.created_at),
+                "updated_at": _iso(entity.updated_at),
+            })
+        rows.sort(key=lambda row: (row["name"].casefold(), row["id"]))
+        return rows, links
+
+    def graph_atomic_entities(self, *, where: Mapping[str, Any] | None = None) -> dict[str, Any]:
+        rows, _links = self._atomic_entity_rows(where)
+        return {"entities": rows, "total_count": len(rows)}
+
+    def graph_atomic_entity(
+        self,
+        entity_id: str,
+        *,
+        where: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+        rows, links = self._atomic_entity_rows(where)
+        entity = next((row for row in rows if row["id"] == entity_id), None)
+        if entity is None:
+            return None
+        memories = sorted(
+            links[entity_id],
+            key=lambda item: (
+                _utc(item.happened_at or item.created_at) or datetime.min.replace(tzinfo=UTC),
+                item.memory_ref if item.memory_ref is not None else float("inf"),
+                item.id,
+            ),
+        )
+        return {
+            **entity,
+            "memories": [
+                {
+                    "id": f"memory:{item.id}",
+                    "memory_id": item.id,
+                    "memory_ref": self.format_memory_ref(item.memory_ref) if item.memory_ref is not None else None,
+                    "memory_type": item.memory_type,
+                    "summary": item.summary,
+                    "happened_at": _iso(item.happened_at),
+                    "created_at": _iso(item.created_at),
+                }
+                for item in memories
+            ],
+        }
 
     def graph_atomic_canvas_source(
         self,

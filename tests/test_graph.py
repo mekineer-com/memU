@@ -239,6 +239,56 @@ def test_graph_atomic_atoms_pages_with_cursor():
     assert page2["next_cursor"] is None
 
 
+def test_graph_atomic_entities_returns_scoped_counts_and_chronological_detail():
+    service = MemoryService(
+        database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
+        user_config={"model": GraphScope},
+    )
+    store = service._get_database()
+    scope = {"user_id": "entity_reader", "soul_id": "s"}
+    linked_entity = store.entity_repo.get_or_create("Annie Gottlieb", "person", scope)
+    orphan = store.entity_repo.get_or_create("Chiclayo", "place", scope)
+    store.entity_repo.get_or_create("Other soul", "person", {"user_id": "other", "soul_id": "s"})
+    later = store.memory_item_repo.create_item(
+        memory_type="social",
+        summary="A later memory",
+        embedding=[0.2],
+        happened_at=datetime(2026, 7, 2, tzinfo=UTC),
+        user_data=scope,
+    )
+    earlier = store.memory_item_repo.create_item(
+        memory_type="social",
+        summary="An earlier memory",
+        embedding=[0.1],
+        happened_at=datetime(2026, 7, 1, tzinfo=UTC),
+        user_data=scope,
+    )
+    for item in (later, earlier):
+        store.triple_repo.add(
+            Triple(
+                subject_id=item.id,
+                subject_kind="memory",
+                predicate="mentions",
+                object_id=linked_entity.id,
+                object_kind="entity",
+            ),
+            user_data=scope,
+        )
+
+    listing = service.graph_atomic_entities(where=scope)
+    detail = service.graph_atomic_entity(linked_entity.id, where=scope)
+
+    assert listing["total_count"] == 2
+    by_id = {entity["id"]: entity for entity in listing["entities"]}
+    assert by_id[linked_entity.id]["linked_memory_count"] == 2
+    assert by_id[linked_entity.id]["last_mentioned_at"].startswith("2026-07-02")
+    assert by_id[orphan.id]["orphan"] is True
+    assert detail is not None
+    assert [memory["summary"] for memory in detail["memories"]] == ["An earlier memory", "A later memory"]
+    assert all(memory["memory_ref"].startswith("[M") for memory in detail["memories"])
+    assert service.graph_atomic_entity("missing", where=scope) is None
+
+
 def test_graph_atomic_canvas_source_includes_embeddings_and_category_tags():
     now = datetime(2026, 7, 1, tzinfo=UTC)
     db = SimpleNamespace(
