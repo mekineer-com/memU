@@ -387,6 +387,27 @@ def test_graph_merge_entities_blocks_inactive_relationship_without_writes():
     assert {entity.id for entity in store.entity_repo.list_all(scope)} == {canonical.id, duplicate.id}
 
 
+def test_graph_merge_entities_requires_matching_ignore_state():
+    service = MemoryService(
+        database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
+        user_config={"model": GraphScope},
+    )
+    store = service._get_database()
+    scope = {"user_id": "merge_ignored", "soul_id": "s"}
+    canonical = store.entity_repo.create("First name", "person", scope, properties={"ignored": True})
+    duplicate = store.entity_repo.create("Second name", "person", scope)
+
+    with pytest.raises(EntityMergeConflictError, match="Ignore states differ"):
+        service.graph_merge_entities(canonical.id, duplicate.id, where=scope)
+    assert {entity.id for entity in store.entity_repo.list_all(scope)} == {canonical.id, duplicate.id}
+
+    store.entity_repo.update(duplicate.id, where=scope, property_updates={"ignored": True})
+    merged = service.graph_merge_entities(canonical.id, duplicate.id, where=scope)
+
+    assert merged["ignored"] is True
+    assert {entity.id for entity in store.entity_repo.list_all(scope)} == {canonical.id}
+
+
 def test_graph_merge_entities_rolls_back_all_rewrites(monkeypatch: pytest.MonkeyPatch):
     service = MemoryService(
         database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
