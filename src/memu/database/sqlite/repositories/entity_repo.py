@@ -2,24 +2,18 @@
 
 from __future__ import annotations
 
-import re
 import threading
 from collections.abc import Mapping
 from typing import Any
 
 from sqlmodel import select
 
-from memu.database.models import Entity
+from memu.database.models import Entity, normalize_entity_name
 from memu.database.repositories.entity import EntityRepo
 from memu.database.sqlite.repositories.base import SQLiteRepoBase
 from memu.database.sqlite.schema import SQLiteSQLAModels
 from memu.database.sqlite.session import SQLiteSessionManager
 from memu.database.state import DatabaseState
-
-
-def _normalize_name(name: str) -> str:
-    """Lowercase, strip, collapse whitespace to underscores."""
-    return re.sub(r"\s+", "_", name.strip().lower())
 
 
 class SQLiteEntityRepo(SQLiteRepoBase, EntityRepo):
@@ -94,7 +88,7 @@ class SQLiteEntityRepo(SQLiteRepoBase, EntityRepo):
         user_data: Mapping[str, Any] | None = None,
         session: Any | None = None,
     ) -> Entity:
-        normalized = _normalize_name(name)
+        normalized = normalize_entity_name(name)
         where = dict(user_data or {})
         create_scope = {k: v for k, v in where.items() if k in self._scope_fields and v is not None}
         if session is None:

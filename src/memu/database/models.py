@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import secrets
 from datetime import datetime
 from typing import Any, Literal
@@ -9,6 +10,12 @@ from pydantic import BaseModel, Field
 
 MemoryType = Literal["profile", "knowledge", "behavior", "social", "episode", "skill", "tool", "narrative_self", "subconscious", "reflection"]
 DossierKind = Literal["lore", "topic", "goal"]
+
+
+def normalize_entity_name(name: str) -> str:
+    """Lowercase, strip, and collapse whitespace to underscores."""
+    return re.sub(r"\s+", "_", name.strip().lower())
+
 
 class BaseRecord(BaseModel):
     """Backend-agnostic record interface."""

@@ -5,6 +5,7 @@ from collections.abc import Callable, Mapping, Sequence
 from typing import Any, Protocol, TypeVar
 
 from memu.app import memorize_parsing as parsing
+from memu.database.models import normalize_entity_name
 
 TEntry = TypeVar("TEntry", bound="SpeakerLike")
 
@@ -81,27 +82,44 @@ def _is_user_declared_relationship_entity(entity: Any) -> bool:
 
 def _list_declared_relationship_roster(
     *,
-    store: Any,
-    user: Mapping[str, Any] | None,
+    entities: Sequence[Any],
     roster_entry_factory: Callable[[str, str, str], TEntry],
 ) -> list[TEntry]:
-    where = dict(user or {}) if isinstance(user, Mapping) else {}
-    entities = store.entity_repo.list_all(where=where)
     roster: list[TEntry] = []
     seen_ids: set[str] = set()
     for entity in entities:
         if not _is_user_declared_relationship_entity(entity):
             continue
-        normalized = str(getattr(entity, "normalized", "") or "").strip().lower()
-        if not normalized:
+        entity_id = str(getattr(entity, "id", "") or "").strip()
+        if not entity_id:
             continue
-        speaker_id = f"entity:{normalized}"
+        speaker_id = f"entity:{entity_id}"
         if speaker_id in seen_ids:
             continue
         seen_ids.add(speaker_id)
-        label = str(getattr(entity, "name", "") or "").strip() or normalized
+        label = str(getattr(entity, "name", "") or "").strip() or entity_id
         roster.append(roster_entry_factory(speaker_id, label, "entity"))
     return roster
+
+
+def _build_entity_speaker_ids(entities: Sequence[Any]) -> dict[str, str]:
+    matches: dict[str, set[str]] = {}
+    for entity in entities:
+        entity_id = str(getattr(entity, "id", "") or "").strip()
+        if not entity_id:
+            continue
+        properties = getattr(entity, "properties", None)
+        aliases = properties.get("aliases", []) if isinstance(properties, Mapping) else []
+        names = [getattr(entity, "name", ""), *(aliases if isinstance(aliases, list) else [])]
+        for name in names:
+            normalized = normalize_entity_name(str(name or ""))
+            if normalized:
+                matches.setdefault(normalized, set()).add(entity_id)
+    return {
+        name: f"entity:{next(iter(entity_ids))}"
+        for name, entity_ids in matches.items()
+        if len(entity_ids) == 1
+    }
 
 
 def _episode_mentions_roster_entry(episode_text: Any, entry: SpeakerLike) -> bool:
@@ -109,13 +127,7 @@ def _episode_mentions_roster_entry(episode_text: Any, entry: SpeakerLike) -> boo
     if not text:
         return False
     label = str(entry.speaker_label or "").strip().lower()
-    if label and label in text:
-        return True
-    speaker_tail = entry.speaker_id.split(":", 1)[1] if ":" in entry.speaker_id else entry.speaker_id
-    speaker_tail = speaker_tail.replace("_", " ").strip().lower()
-    if speaker_tail and speaker_tail in text:
-        return True
-    return False
+    return bool(label and label in text)
 
 
 def _build_speaker_roster_for_segment(
@@ -187,6 +199,7 @@ def _parse_speaker_ref(
 def _build_speaker_map(
     episode_messages: Sequence[Mapping[str, Any]],
     scope: Mapping[str, Any] | None,
+    entity_speaker_ids: Mapping[str, str] | None = None,
 ) -> dict[int, tuple[str, str]]:
     user_scope = dict(scope or {}) if isinstance(scope, Mapping) else {}
     user_name = str(user_scope.get("user_id") or "").strip()
@@ -219,7 +232,9 @@ def _build_speaker_map(
             speaker_id = user_id_default
         elif normalized_name:
             speaker_label = normalized_name
-            speaker_id = _normalize_speaker_slug("entity", normalized_name)
+            speaker_id = (entity_speaker_ids or {}).get(normalize_entity_name(normalized_name), "")
+            if not speaker_id:
+                continue
         else:
             speaker_label = role or "environment"
             speaker_id = _normalize_speaker_slug("environment", speaker_label)

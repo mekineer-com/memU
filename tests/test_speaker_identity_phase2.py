@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from types import SimpleNamespace
 
 import pytest
 from pydantic import BaseModel
 
-from memu.app.memorize import StructuredMemoryEntry
+from memu.app.memorize import SpeakerRosterEntry, StructuredMemoryEntry
+from memu.app import memorize_speakers as speakers
 from memu.app.service import MemoryService
 from memu.database.models import MemoryItem
 
@@ -69,14 +71,39 @@ def test_build_speaker_map_resolves_user_soul_entity_and_environment(service: Me
         {"_message_index": 4, "role": "system"},
         {"_message_index": 5, "name": "Group Member"},
     ]
-    speaker_map = service._build_speaker_map(episode_messages, {"user_id": "Marcos", "soul_id": "Siri"})
+    speaker_map = service._build_speaker_map(
+        episode_messages,
+        {"user_id": "Marcos", "soul_id": "Siri"},
+        {"brother": "entity:a1b2c3d4"},
+    )
 
     assert speaker_map[0] == ("user:marcos", "Marcos")
     assert speaker_map[1] == ("soul:siri", "Siri")
     assert speaker_map[2] == ("user:marcos", "MarcosDisplay")
-    assert speaker_map[3] == ("entity:brother", "Brother")
+    assert speaker_map[3] == ("entity:a1b2c3d4", "Brother")
     assert speaker_map[4] == ("environment:system", "system")
-    assert speaker_map[5] == ("entity:group_member", "Group Member")
+    assert 5 not in speaker_map
+
+
+def test_entity_speaker_lookup_uses_aliases_and_drops_ambiguous_names() -> None:
+    entities = [
+        SimpleNamespace(
+            id="a1b2c3d4",
+            name="Rowan",
+            properties={"aliases": ["Ro"], "origin": "user_declared", "active": True},
+        ),
+        SimpleNamespace(id="b2c3d4e5", name="Taylor", properties={}),
+        SimpleNamespace(id="c3d4e5f6", name="Taylor", properties={}),
+    ]
+    lookup = speakers._build_entity_speaker_ids(entities)
+    roster = speakers._list_declared_relationship_roster(
+        entities=entities,
+        roster_entry_factory=SpeakerRosterEntry,
+    )
+
+    assert lookup["ro"] == "entity:a1b2c3d4"
+    assert "taylor" not in lookup
+    assert roster == [SpeakerRosterEntry("entity:a1b2c3d4", "Rowan", "entity")]
 
 
 def test_attribute_memory_fills_when_unambiguous(service: MemoryService) -> None:
