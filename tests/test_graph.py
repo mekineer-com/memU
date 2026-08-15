@@ -365,6 +365,9 @@ def test_graph_merge_entities_moves_references_and_preserves_alias_identity():
     assert {edge.object_id for edge in all_mentions} == {canonical.id}
     assert all(edge.source_memory_id == item.id for edge in all_mentions)
 
+    same_name_place = store.entity_repo.get_or_create("Annie", "place", scope)
+    assert same_name_place.id != canonical.id
+
 
 def test_graph_merge_entities_blocks_inactive_relationship_without_writes():
     service = MemoryService(
@@ -421,7 +424,9 @@ def test_graph_merge_entities_rolls_back_all_rewrites(monkeypatch: pytest.Monkey
     with pytest.raises(RuntimeError, match="stop"):
         service.graph_merge_entities(canonical.id, duplicate.id, where=scope)
 
-    assert {entity.id for entity in store.entity_repo.list_all(scope)} == {canonical.id, duplicate.id}
+    saved_entities = {entity.id: entity for entity in store.entity_repo.list_all(scope)}
+    assert set(saved_entities) == {canonical.id, duplicate.id}
+    assert saved_entities[canonical.id].properties == canonical.properties
     assert store.memory_category_repo.list_categories(scope)[category.id].entity_id == duplicate.id
     assert store.memory_item_repo.list_items(scope, include_embeddings=False)[item.id].speaker_id == f"entity:{duplicate.id}"
     assert store.triple_repo.get_edges_from(item.id, "mentions", where=scope)[0].object_id == duplicate.id

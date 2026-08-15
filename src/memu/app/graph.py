@@ -45,6 +45,15 @@ def _stable_text_values(values: Iterable[Any]) -> list[str]:
     return list(dict.fromkeys(str(value or "").strip() for value in values if str(value or "").strip()))
 
 
+def _entity_conflict_payload(entity: Any) -> dict[str, Any]:
+    return {
+        "id": entity.id,
+        "name": entity.name,
+        "entity_type": entity.entity_type,
+        "properties": dict(entity.properties or {}),
+    }
+
+
 def _iso(value: Any) -> str | None:
     return value.isoformat() if isinstance(value, datetime) else None
 
@@ -595,8 +604,8 @@ class GraphMixin:
                 state = self._entity_merge_state(canonical, duplicate, entities)
                 if state["conflicts"]:
                     raise EntityMergeConflictError(
-                        self.graph_atomic_entity(canonical_id, where=scope) or {},
-                        self.graph_atomic_entity(duplicate_id, where=scope) or {},
+                        _entity_conflict_payload(canonical),
+                        _entity_conflict_payload(duplicate),
                         state["conflicts"],
                     )
                 store.entity_repo.update(

@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from contextlib import contextmanager
 from typing import Any
 
+from sqlalchemy import text
 from sqlmodel import select
 
 from memu.database.models import Entity, normalize_entity_name
@@ -55,6 +56,11 @@ class SQLiteEntityRepo(SQLiteRepoBase, EntityRepo):
         with self._entity_write_lock:
             yield
 
+    @staticmethod
+    def _begin_write(session: Any) -> None:
+        if not session.in_transaction():
+            session.execute(text("BEGIN IMMEDIATE"))
+
     def _row_to_entity(self, row: Any) -> Entity:
         return Entity(
             id=row.id,
@@ -90,6 +96,8 @@ class SQLiteEntityRepo(SQLiteRepoBase, EntityRepo):
         if filters:
             alias_stmt = alias_stmt.where(*filters)
         for candidate in session.exec(alias_stmt).all():
+            if candidate.entity_type != entity_type:
+                continue
             aliases = (candidate.properties or {}).get("aliases", [])
             if isinstance(aliases, list) and any(
                 normalize_entity_name(str(alias or "")) == normalized for alias in aliases
@@ -124,18 +132,11 @@ class SQLiteEntityRepo(SQLiteRepoBase, EntityRepo):
         where = dict(user_data or {})
         create_scope = {k: v for k, v in where.items() if k in self._scope_fields and v is not None}
         if session is None:
-            with self._entity_write_lock:
-                with self._sessions.session() as db_session:
-                    entity = self._get_or_create_in_session(
-                        name=name,
-                        entity_type=entity_type,
-                        normalized=normalized,
-                        where=where,
-                        create_scope=create_scope,
-                        session=db_session,
-                    )
-                    db_session.commit()
-                    return entity
+            with self._sessions.session() as db_session:
+                entity = self.get_or_create(name, entity_type, where, session=db_session)
+                db_session.commit()
+                return entity
+        self._begin_write(session)
         with self._entity_write_lock:
             return self._get_or_create_in_session(
                 name=name,
@@ -167,6 +168,7 @@ class SQLiteEntityRepo(SQLiteRepoBase, EntityRepo):
                 )
                 db_session.commit()
                 return entity
+        self._begin_write(session)
         now = self._now()
         clean_properties = dict(properties or {})
         clean_aliases = _clean_aliases(list(clean_properties.get("aliases") or []), name)
@@ -216,6 +218,7 @@ class SQLiteEntityRepo(SQLiteRepoBase, EntityRepo):
                 )
                 db_session.commit()
                 return entity
+        self._begin_write(session)
         with self._entity_write_lock:
             stmt = select(self._entity_model).where(self._entity_model.id == entity_id)
             filters = self._build_filters(self._entity_model, scope)
@@ -288,6 +291,7 @@ class SQLiteEntityRepo(SQLiteRepoBase, EntityRepo):
                 self.delete(entity_id, where=scope, session=db_session)
                 db_session.commit()
                 return
+        self._begin_write(session)
         with self._entity_write_lock:
             stmt = select(self._entity_model).where(self._entity_model.id == entity_id)
             filters = self._build_filters(self._entity_model, scope)
@@ -368,13 +372,14 @@ class SQLiteEntityRepo(SQLiteRepoBase, EntityRepo):
         where: Mapping[str, Any] | None = None,
         session: Any | None = None,
     ) -> list[Entity]:
-        with self._entity_write_lock:
-            if session is not None:
-                return self._bind_source_refs_in_session(bindings, dict(where or {}), session)
+        if session is None:
             with self._sessions.session() as db_session:
-                entities = self._bind_source_refs_in_session(bindings, dict(where or {}), db_session)
+                entities = self.bind_source_refs(bindings, where, session=db_session)
                 db_session.commit()
                 return entities
+        self._begin_write(session)
+        with self._entity_write_lock:
+            return self._bind_source_refs_in_session(bindings, dict(where or {}), session)
 
 
 __all__ = ["SQLiteEntityRepo"]
