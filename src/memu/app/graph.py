@@ -299,6 +299,7 @@ class GraphMixin:
         self,
         where: Mapping[str, Any] | None,
     ) -> tuple[list[dict[str, Any]], dict[str, list[Any]]]:
+        # ponytail: loads all items + edges to avoid N+1; use one bounded aggregate query if this becomes slow
         store = self._get_database()
         entities = store.entity_repo.list_all(where)
         items = store.memory_item_repo.list_items(where, include_embeddings=False)
@@ -348,6 +349,7 @@ class GraphMixin:
         *,
         where: Mapping[str, Any] | None = None,
     ) -> dict[str, Any] | None:
+        # ponytail: rebuilds full aggregate for one entity; dedicated query if detail latency matters
         rows, links = self._atomic_entity_rows(where)
         entity = next((row for row in rows if row["id"] == entity_id), None)
         if entity is None:
