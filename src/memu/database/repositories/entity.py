@@ -21,3 +21,10 @@ class EntityRepo(Protocol):
     def list_all(self, where: Mapping[str, Any] | None = None) -> list[Entity]: ...
 
     def list_by_ids(self, entity_ids: set[str], where: Mapping[str, Any] | None = None) -> list[Entity]: ...
+
+    def bind_source_refs(
+        self,
+        bindings: Mapping[str, str],
+        where: Mapping[str, Any] | None = None,
+        session: Any | None = None,
+    ) -> list[Entity]: ...

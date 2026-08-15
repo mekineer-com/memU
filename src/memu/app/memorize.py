@@ -312,9 +312,18 @@ class MemorizeMixin:
         )
         extract_model = str(getattr(extract_client, "chat_model", "") or "").strip() or None
         memory_types = self._resolve_memory_types()
+        source_messages = [
+            message
+            for segment_job in segments
+            for _, message in self._extract_conversation_messages(segment_job.get("raw_text"))
+        ]
         speaker_entities = store.entity_repo.list_all(where=user_scope or {})
+        bindings = speakers._propose_entity_source_ref_bindings(source_messages, speaker_entities)
+        if bindings:
+            speaker_entities = store.entity_repo.bind_source_refs(bindings, where=user_scope or {})
         declared_entity_roster = self._list_declared_relationship_roster(entities=speaker_entities)
         entity_speaker_ids = speakers._build_entity_speaker_ids(speaker_entities)
+        entity_source_speaker_ids = speakers._build_entity_source_speaker_ids(speaker_entities)
 
         prepared: list[dict[str, Any]] = []
         for segment_number, segment_job in enumerate(segments, start=1):
@@ -455,6 +464,7 @@ class MemorizeMixin:
                 primary_messages or segment_messages_all,
                 speaker_scope,
                 entity_speaker_ids,
+                entity_source_speaker_ids,
             )
             dossier_context = None
             if not context_only:
@@ -747,8 +757,16 @@ class MemorizeMixin:
         conversation_messages = self._extract_conversation_messages(state.get("raw_text"))
         messages_by_index = {idx: msg for idx, msg in conversation_messages}
         speaker_entities = state["store"].entity_repo.list_all(where=state.get("user") or {})
+        bindings = speakers._propose_entity_source_ref_bindings(
+            [message for _, message in conversation_messages], speaker_entities
+        )
+        if bindings:
+            speaker_entities = state["store"].entity_repo.bind_source_refs(
+                bindings, where=state.get("user") or {}
+            )
         declared_entity_roster = self._list_declared_relationship_roster(entities=speaker_entities)
         entity_speaker_ids = speakers._build_entity_speaker_ids(speaker_entities)
+        entity_source_speaker_ids = speakers._build_entity_source_speaker_ids(speaker_entities)
         if not episodes:
             state["segment_plans"] = []
             return state
@@ -793,6 +811,7 @@ class MemorizeMixin:
             segment_messages,
             state.get("user"),
             entity_speaker_ids,
+            entity_source_speaker_ids,
         )
         speaker_roster = self._build_speaker_roster_for_segment(
             speaker_map=speaker_map,
@@ -2012,8 +2031,11 @@ class MemorizeMixin:
         segment_messages: Sequence[Mapping[str, Any]],
         scope: Mapping[str, Any] | None,
         entity_speaker_ids: Mapping[str, str] | None = None,
+        entity_source_speaker_ids: Mapping[str, str] | None = None,
     ) -> dict[int, tuple[str, str]]:
-        return speakers._build_speaker_map(segment_messages, scope, entity_speaker_ids)
+        return speakers._build_speaker_map(
+            segment_messages, scope, entity_speaker_ids, entity_source_speaker_ids
+        )
 
     def _attribute_memory(
         self,

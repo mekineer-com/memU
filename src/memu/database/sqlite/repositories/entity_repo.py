@@ -134,5 +134,64 @@ class SQLiteEntityRepo(SQLiteRepoBase, EntityRepo):
             rows = session.exec(stmt).all()
             return [self._row_to_entity(r) for r in rows]
 
+    def _bind_source_refs_in_session(
+        self,
+        bindings: Mapping[str, str],
+        where: Mapping[str, Any],
+        session: Any,
+    ) -> list[Entity]:
+        stmt = select(self._entity_model)
+        filters = self._build_filters(self._entity_model, where)
+        if filters:
+            stmt = stmt.where(*filters)
+        rows = session.exec(stmt).all()
+        rows_by_id = {str(row.id): row for row in rows}
+        owners: dict[str, str] = {}
+        for row in rows:
+            refs = (row.properties or {}).get("source_refs", [])
+            if not isinstance(refs, list):
+                raise ValueError(f"entity {row.id} source_refs must be a list")
+            for ref in refs:
+                normalized = str(ref or "").strip()
+                owner = owners.get(normalized)
+                if normalized and owner and owner != str(row.id):
+                    raise ValueError(f"source reference {normalized!r} belongs to multiple entities")
+                if normalized:
+                    owners[normalized] = str(row.id)
+
+        for source_ref, entity_id in bindings.items():
+            owner = owners.get(source_ref)
+            if owner and owner != entity_id:
+                raise ValueError(f"source reference {source_ref!r} already belongs to entity {owner}")
+            if entity_id not in rows_by_id:
+                raise ValueError(f"source reference target entity not found in scope: {entity_id}")
+
+        now = self._now()
+        for source_ref, entity_id in bindings.items():
+            row = rows_by_id[entity_id]
+            properties = dict(row.properties or {})
+            refs = list(properties.get("source_refs") or [])
+            if source_ref not in refs:
+                properties["source_refs"] = [*refs, source_ref]
+                row.properties = properties
+                row.updated_at = now
+                session.add(row)
+        session.flush()
+        return [self._row_to_entity(row) for row in rows]
+
+    def bind_source_refs(
+        self,
+        bindings: Mapping[str, str],
+        where: Mapping[str, Any] | None = None,
+        session: Any | None = None,
+    ) -> list[Entity]:
+        with self._entity_create_lock:
+            if session is not None:
+                return self._bind_source_refs_in_session(bindings, dict(where or {}), session)
+            with self._sessions.session() as db_session:
+                entities = self._bind_source_refs_in_session(bindings, dict(where or {}), db_session)
+                db_session.commit()
+                return entities
+
 
 __all__ = ["SQLiteEntityRepo"]

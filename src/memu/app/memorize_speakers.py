@@ -124,6 +124,67 @@ def _build_entity_speaker_ids(entities: Sequence[Any]) -> dict[str, str]:
     }
 
 
+def _entity_source_refs(entity: Any) -> list[str]:
+    properties = getattr(entity, "properties", None)
+    refs = properties.get("source_refs", []) if isinstance(properties, Mapping) else []
+    if not isinstance(refs, list):
+        raise ValueError(f"entity {getattr(entity, 'id', '')} source_refs must be a list")
+    return [str(ref).strip() for ref in refs if str(ref).strip()]
+
+
+def _build_entity_source_speaker_ids(entities: Sequence[Any]) -> dict[str, str]:
+    source_ids: dict[str, str] = {}
+    for entity in entities:
+        properties = getattr(entity, "properties", None)
+        if isinstance(properties, Mapping) and properties.get("active") is False:
+            continue
+        entity_id = str(getattr(entity, "id", "") or "").strip()
+        if not entity_id:
+            continue
+        for source_ref in _entity_source_refs(entity):
+            speaker_id = f"entity:{entity_id}"
+            owner = source_ids.get(source_ref)
+            if owner and owner != speaker_id:
+                raise ValueError(f"source reference {source_ref!r} belongs to multiple entities")
+            source_ids[source_ref] = speaker_id
+    return source_ids
+
+
+def _propose_entity_source_ref_bindings(
+    messages: Sequence[Mapping[str, Any]],
+    entities: Sequence[Any],
+) -> dict[str, str]:
+    owned = _build_entity_source_speaker_ids(entities)
+    person_matches: dict[str, set[str]] = {}
+    for entity in entities:
+        properties = getattr(entity, "properties", None)
+        if str(getattr(entity, "entity_type", "") or "").casefold() != "person":
+            continue
+        if isinstance(properties, Mapping) and properties.get("active") is False:
+            continue
+        aliases = properties.get("aliases", []) if isinstance(properties, Mapping) else []
+        for value in [getattr(entity, "name", ""), *(aliases if isinstance(aliases, list) else [])]:
+            normalized = normalize_entity_name(str(value or ""))
+            if normalized:
+                person_matches.setdefault(normalized, set()).add(str(entity.id))
+
+    proposals: dict[str, str] = {}
+    for message in messages:
+        source_ref = str(message.get("source_ref") or "").strip()
+        if not source_ref or source_ref in owned:
+            continue
+        label = str(message.get("name") or message.get("speaker") or "").strip()
+        matches = person_matches.get(normalize_entity_name(label), set())
+        if len(matches) != 1:
+            continue
+        entity_id = next(iter(matches))
+        previous = proposals.get(source_ref)
+        if previous and previous != entity_id:
+            raise ValueError(f"source reference {source_ref!r} matched multiple entities")
+        proposals[source_ref] = entity_id
+    return proposals
+
+
 def _episode_mentions_roster_entry(episode_text: Any, entry: SpeakerLike) -> bool:
     text = str(episode_text or "").strip().lower()
     if not text:
@@ -202,6 +263,7 @@ def _build_speaker_map(
     episode_messages: Sequence[Mapping[str, Any]],
     scope: Mapping[str, Any] | None,
     entity_speaker_ids: Mapping[str, str] | None = None,
+    entity_source_speaker_ids: Mapping[str, str] | None = None,
 ) -> dict[int, tuple[str, str]]:
     user_scope = dict(scope or {}) if isinstance(scope, Mapping) else {}
     user_name = str(user_scope.get("user_id") or "").strip()
@@ -221,7 +283,7 @@ def _build_speaker_map(
             continue
 
         role = str(message.get("role") or "").strip().lower()
-        name = str(message.get("name") or "").strip()
+        name = str(message.get("name") or message.get("speaker") or "").strip()
         normalized_name = name or None
 
         speaker_id: str
@@ -234,7 +296,11 @@ def _build_speaker_map(
             speaker_id = user_id_default
         elif normalized_name:
             speaker_label = normalized_name
-            speaker_id = (entity_speaker_ids or {}).get(normalize_entity_name(normalized_name), "")
+            source_ref = str(message.get("source_ref") or "").strip()
+            if source_ref:
+                speaker_id = (entity_source_speaker_ids or {}).get(source_ref, "")
+            else:
+                speaker_id = (entity_speaker_ids or {}).get(normalize_entity_name(normalized_name), "")
             if not speaker_id:
                 continue
         else:

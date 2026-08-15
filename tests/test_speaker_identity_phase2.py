@@ -108,6 +108,69 @@ def test_entity_speaker_lookup_uses_aliases_and_drops_ambiguous_names() -> None:
     assert roster == [SpeakerRosterEntry("entity:a1b2c3d4", "Rowan", "entity")]
 
 
+def test_source_ref_binding_is_atomic_and_survives_display_name_change(service: MemoryService) -> None:
+    scope = {"user_id": "source-ref-user", "soul_id": "source-ref-soul"}
+    repo = service._get_database().entity_repo
+    first = repo.get_or_create("Person One", "person", scope)
+    second = repo.get_or_create("Person Two", "person", scope)
+    source_ref = "whatsapp:111111111111111@lid"
+
+    entities = repo.list_all(where=scope)
+    bindings = speakers._propose_entity_source_ref_bindings(
+        [{"speaker": "Person One", "source_ref": source_ref}], entities
+    )
+    entities = repo.bind_source_refs(bindings, where=scope)
+    source_ids = speakers._build_entity_source_speaker_ids(entities)
+
+    assert bindings == {source_ref: first.id}
+    assert speakers._build_speaker_map(
+        [{"_message_index": 0, "speaker": "Renamed Later", "source_ref": source_ref}],
+        scope,
+        speakers._build_entity_speaker_ids(entities),
+        source_ids,
+    )[0] == (f"entity:{first.id}", "Renamed Later")
+    assert speakers._build_speaker_map(
+        [{"_message_index": 0, "speaker": "Person One", "source_ref": "whatsapp:unowned@lid"}],
+        scope,
+        speakers._build_entity_speaker_ids(entities),
+        source_ids,
+    ) == {}
+
+    with pytest.raises(ValueError, match="already belongs"):
+        repo.bind_source_refs(
+            {"whatsapp:222222222222222@lid": second.id, source_ref: second.id},
+            where=scope,
+        )
+    refreshed = {entity.id: entity for entity in repo.list_all(where=scope)}
+    assert refreshed[second.id].properties.get("source_refs") is None
+
+    same_label_entities = [
+        SimpleNamespace(
+            id="entity-one",
+            name="Same Label",
+            properties={"source_refs": ["whatsapp:first@lid"]},
+        ),
+        SimpleNamespace(
+            id="entity-two",
+            name="Same Label",
+            properties={"source_refs": ["whatsapp:second@lid"]},
+        ),
+    ]
+    source_ids = speakers._build_entity_source_speaker_ids(same_label_entities)
+    assert speakers._build_speaker_map(
+        [
+            {"_message_index": 0, "speaker": "Same Label", "source_ref": "whatsapp:first@lid"},
+            {"_message_index": 1, "speaker": "Same Label", "source_ref": "whatsapp:second@lid"},
+        ],
+        scope,
+        {},
+        source_ids,
+    ) == {
+        0: ("entity:entity-one", "Same Label"),
+        1: ("entity:entity-two", "Same Label"),
+    }
+
+
 def test_attribute_memory_fills_when_unambiguous(service: MemoryService) -> None:
     speaker_map = {7: ("user:marcos", "Marcos")}
     attributed = service._attribute_memory(_entry(source_role="user", source_message_ids=[7]), speaker_map)
