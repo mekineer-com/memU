@@ -65,7 +65,7 @@ class _Repo:
         self.list_all_calls += 1
         return self.value
 
-    def list_by_ids(self, entity_ids, where=None):
+    def list_by_ids(self, entity_ids, where=None, *, session=None):
         self.list_by_ids_calls += 1
         if isinstance(self.value, dict):
             return [self.value[entity_id] for entity_id in entity_ids if entity_id in self.value]
@@ -300,9 +300,16 @@ def test_entity_create_update_and_mentions_are_uuid_scoped(monkeypatch: pytest.M
     second = store.entity_repo.create("Same Name", "person", scope)
     assert first.id != second.id
 
-    renamed = store.entity_repo.update(first.id, where=scope, name="New Name")
+    supplied_aliases = ["Short Name"]
+    renamed = store.entity_repo.update(
+        first.id,
+        where=scope,
+        name="New Name",
+        aliases=supplied_aliases,
+    )
     assert renamed.normalized == "new_name"
-    assert renamed.properties["aliases"] == ["Same Name"]
+    assert renamed.properties["aliases"] == ["Short Name", "Same Name"]
+    assert supplied_aliases == ["Short Name"]
 
     memory = store.memory_item_repo.create_item(
         memory_type="social",

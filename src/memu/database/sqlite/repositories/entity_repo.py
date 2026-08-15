@@ -210,7 +210,7 @@ class SQLiteEntityRepo(SQLiteRepoBase, EntityRepo):
             if not next_name:
                 raise ValueError("entity name is required")
             next_normalized = normalize_entity_name(next_name)
-            next_aliases = list(properties.get("aliases") or []) if aliases is None else aliases
+            next_aliases = list(properties.get("aliases") or []) if aliases is None else list(aliases)
             if next_normalized != row.normalized:
                 next_aliases.append(str(row.name))
             clean_aliases = _clean_aliases(next_aliases, next_name)
