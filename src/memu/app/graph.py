@@ -10,11 +10,13 @@ from typing import Any
 import numpy as np
 
 from memu.app.category_summary_journal import append_category_summary_journal
+from memu.database.models import Triple
 from memu.database.vector import cosine_similarity, cosine_topk
 from memu.utils.taxonomy import DOSSIER_KINDS
 
 SEMANTIC_PREDICATES = ["caused_by", "evokes", "conflicts_with", "parallels", "shaped_by"]
 ENTITY_PROPERTY_KEYS = {"origin", "active", "relationship", "aliases", "source_refs", "ignored"}
+ENTITY_TYPES = {"person", "topic", "place", "project"}
 logger = logging.getLogger(__name__)
 
 
@@ -377,6 +379,108 @@ class GraphMixin:
                 for item in memories
             ],
         }
+
+    def graph_create_entity(
+        self,
+        name: str,
+        entity_type: str,
+        *,
+        aliases: list[str] | None = None,
+        where: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        clean_name = str(name or "").strip()
+        clean_type = str(entity_type or "").strip().lower()
+        if not clean_name:
+            raise ValueError("entity name is required")
+        if clean_type not in ENTITY_TYPES:
+            raise ValueError("entity_type must be person/topic/place/project")
+        properties = {"aliases": aliases} if aliases else None
+        entity = self._get_database().entity_repo.create(
+            clean_name,
+            clean_type,
+            where,
+            properties=properties,
+        )
+        return self.graph_atomic_entity(entity.id, where=where) or {}
+
+    def graph_update_entity(
+        self,
+        entity_id: str,
+        *,
+        name: str | None = None,
+        entity_type: str | None = None,
+        aliases: list[str] | None = None,
+        where: Mapping[str, Any],
+    ) -> dict[str, Any] | None:
+        clean_type = str(entity_type or "").strip().lower() if entity_type is not None else None
+        if clean_type is not None and clean_type not in ENTITY_TYPES:
+            raise ValueError("entity_type must be person/topic/place/project")
+        try:
+            entity = self._get_database().entity_repo.update(
+                entity_id,
+                where=where,
+                name=name,
+                entity_type=clean_type,
+                aliases=aliases,
+            )
+        except KeyError:
+            return None
+        return self.graph_atomic_entity(entity.id, where=where)
+
+    def _graph_set_entity_mention(
+        self,
+        memory_id: str,
+        entity_id: str,
+        *,
+        attached: bool,
+        where: Mapping[str, Any],
+    ) -> dict[str, Any] | None:
+        store = self._get_database()
+        with store._sessions.session() as session:
+            if memory_id not in store.memory_item_repo.list_items_by_ids({memory_id}, where, session=session):
+                return None
+            if not store.entity_repo.list_by_ids({entity_id}, where, session=session):
+                raise KeyError(f"entity not found in scope: {entity_id}")
+            if attached:
+                store.triple_repo.add(
+                    Triple(
+                        subject_id=memory_id,
+                        subject_kind="memory",
+                        predicate="mentions",
+                        object_id=entity_id,
+                        object_kind="entity",
+                    ),
+                    user_data=where,
+                    session=session,
+                )
+            else:
+                store.triple_repo.invalidate(
+                    memory_id,
+                    "mentions",
+                    entity_id,
+                    where,
+                    session=session,
+                )
+            session.commit()
+        return self.graph_memory(f"memory:{memory_id}", where=where)
+
+    def graph_attach_entity(
+        self,
+        memory_id: str,
+        entity_id: str,
+        *,
+        where: Mapping[str, Any],
+    ) -> dict[str, Any] | None:
+        return self._graph_set_entity_mention(memory_id, entity_id, attached=True, where=where)
+
+    def graph_detach_entity(
+        self,
+        memory_id: str,
+        entity_id: str,
+        *,
+        where: Mapping[str, Any],
+    ) -> dict[str, Any] | None:
+        return self._graph_set_entity_mention(memory_id, entity_id, attached=False, where=where)
 
     def graph_atomic_canvas_source(
         self,

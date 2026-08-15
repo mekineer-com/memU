@@ -18,7 +18,7 @@
 | `app/memorize_dedupe.py` | Dedupe/supersession seam: semantic dedupe, similarity scoring, re-embed fallback, `replaces_previous_fact` supersede resolution |
 | `app/memorize_categories.py` | Dossier filing seam: category proposals, reviewed candidate clustering, and dynamic dossier prepare-render-generate-apply operations. |
 | `app/category_summary_journal.py` | Append-only category-summary journal under `memu/journal/`; writes journal then updates `MemoryCategory.summary` + `previous_summary` |
-| `app/graph.py` | `GraphMixin` — graph reads, canonical dossier metadata/citation projection for Atomic, scoped entity list/detail aggregates with linked memories, memory/category edits, approval review, hard-delete. Edge predicates: `caused_by`, `evokes`, `conflicts_with`, `parallels`, `shaped_by`. |
+| `app/graph.py` | `GraphMixin` — graph reads, canonical dossier metadata/citation projection for Atomic, scoped entity list/detail/create/update and transactional memory-entity assignment, memory/category edits, approval review, hard-delete. Edge predicates: `caused_by`, `evokes`, `conflicts_with`, `parallels`, `shaped_by`. |
 | `app/memorize_persistence.py` | Persistence seam: resource creation, item/triple writes, and happened-at resolution |
 | `app/memorize_segments.py` | Segment/preprocess seam: modality dispatch, segment text prep, background-tail summarization, rolling-summary merge, `on_extraction_progress` callback |
 | `app/retrieve.py` | Retrieve workflow: derive `active_query` plus optional temporal bounds → dossier sufficiency (optional exact `[M#]` follow-up) → hybrid/graph recall. Temporal matches are softly promoted; exact requested memories supplement item `top_k`; entity-linked graph additions must clear the configured query-similarity floor. `force_retrieve` skips the retrieve/no-retrieve gate. |
@@ -37,7 +37,7 @@
 | `database/sqlite/repositories/memory_category_repo.py` | Category/dossier persistence, anchor reads, and deterministic activity ordering |
 | `database/sqlite/repositories/category_item_repo.py` | Category–item link persistence |
 | `database/sqlite/repositories/resource_repo.py` | Resource (segment file) persistence |
-| `database/sqlite/repositories/entity_repo.py` | Entity persistence and lookup |
+| `database/sqlite/repositories/entity_repo.py` | Scoped entity persistence, stable-ID edits, aliases, and source-reference lookup |
 | `database/sqlite/repositories/triple_repo.py` | Triple (graph edge) persistence and temporal queries |
 | `database/sqlite/repositories/dossier_candidate_repo.py` | Durable unresolved category proposals with idempotent create, review-consideration state, and atomic resolution |
 | `scripts/migrate-embeddings-to-blob.py` | Offline dry-run/backup/migration tool for converting one explicitly named stopped soul DB from legacy JSON TEXT embeddings to canonical float32 BLOBs |

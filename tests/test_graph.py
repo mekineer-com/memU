@@ -289,6 +289,47 @@ def test_graph_atomic_entities_returns_scoped_counts_and_chronological_detail():
     assert service.graph_atomic_entity("missing", where=scope) is None
 
 
+def test_entity_create_update_and_mentions_are_uuid_scoped(monkeypatch: pytest.MonkeyPatch):
+    service = MemoryService(
+        database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
+        user_config={"model": GraphScope},
+    )
+    store = service._get_database()
+    scope = {"user_id": "entity_editor", "soul_id": "s"}
+    first = store.entity_repo.create("Same Name", "person", scope)
+    second = store.entity_repo.create("Same Name", "person", scope)
+    assert first.id != second.id
+
+    renamed = store.entity_repo.update(first.id, where=scope, name="New Name")
+    assert renamed.normalized == "new_name"
+    assert renamed.properties["aliases"] == ["Same Name"]
+
+    memory = store.memory_item_repo.create_item(
+        memory_type="social",
+        summary="A linked memory",
+        embedding=[0.1],
+        user_data=scope,
+    )
+    service.graph_attach_entity(memory.id, first.id, where=scope)
+    assert [
+        edge.object_id
+        for edge in store.triple_repo.get_edges_from(memory.id, "mentions", where=scope)
+    ] == [first.id]
+    service.graph_detach_entity(memory.id, first.id, where=scope)
+    assert store.triple_repo.get_edges_from(memory.id, "mentions", where=scope) == []
+
+    original_add = store.triple_repo.add
+
+    def fail_after_add(*args, **kwargs):
+        original_add(*args, **kwargs)
+        raise RuntimeError("forced rollback")
+
+    monkeypatch.setattr(store.triple_repo, "add", fail_after_add)
+    with pytest.raises(RuntimeError, match="forced rollback"):
+        service.graph_attach_entity(memory.id, second.id, where=scope)
+    assert store.triple_repo.get_edges_from(memory.id, "mentions", where=scope) == []
+
+
 def test_graph_atomic_canvas_source_includes_embeddings_and_category_tags():
     now = datetime(2026, 7, 1, tzinfo=UTC)
     db = SimpleNamespace(

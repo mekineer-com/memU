@@ -16,6 +16,18 @@ from memu.database.sqlite.session import SQLiteSessionManager
 from memu.database.state import DatabaseState
 
 
+def _clean_aliases(values: list[str], primary_name: str) -> list[str]:
+    seen = {normalize_entity_name(primary_name)}
+    aliases: list[str] = []
+    for value in values:
+        alias = str(value or "").strip()
+        normalized = normalize_entity_name(alias)
+        if alias and normalized not in seen:
+            seen.add(normalized)
+            aliases.append(alias)
+    return aliases
+
+
 class SQLiteEntityRepo(SQLiteRepoBase, EntityRepo):
     """SQLite implementation of entity repository."""
 
@@ -114,6 +126,120 @@ class SQLiteEntityRepo(SQLiteRepoBase, EntityRepo):
                 session=session,
             )
 
+    def create(
+        self,
+        name: str,
+        entity_type: str,
+        user_data: Mapping[str, Any],
+        *,
+        properties: Mapping[str, Any] | None = None,
+        session: Any | None = None,
+    ) -> Entity:
+        scope = self._require_scope(user_data)
+        if session is None:
+            with self._sessions.session() as db_session:
+                entity = self.create(
+                    name,
+                    entity_type,
+                    scope,
+                    properties=properties,
+                    session=db_session,
+                )
+                db_session.commit()
+                return entity
+        now = self._now()
+        clean_properties = dict(properties or {})
+        clean_aliases = _clean_aliases(list(clean_properties.get("aliases") or []), name)
+        if clean_aliases:
+            clean_properties["aliases"] = clean_aliases
+        else:
+            clean_properties.pop("aliases", None)
+        with self._entity_create_lock:
+            row = self._entity_model(
+                name=name,
+                entity_type=entity_type,
+                normalized=normalize_entity_name(name),
+                properties=clean_properties,
+                created_at=now,
+                updated_at=now,
+                **scope,
+            )
+            session.add(row)
+            session.flush()
+            session.refresh(row)
+            return self._row_to_entity(row)
+
+    def update(
+        self,
+        entity_id: str,
+        *,
+        where: Mapping[str, Any],
+        name: str | None = None,
+        entity_type: str | None = None,
+        aliases: list[str] | None = None,
+        property_updates: Mapping[str, Any] | None = None,
+        property_removals: set[str] | None = None,
+        session: Any | None = None,
+    ) -> Entity:
+        scope = self._require_scope(where)
+        if session is None:
+            with self._sessions.session() as db_session:
+                entity = self.update(
+                    entity_id,
+                    where=scope,
+                    name=name,
+                    entity_type=entity_type,
+                    aliases=aliases,
+                    property_updates=property_updates,
+                    property_removals=property_removals,
+                    session=db_session,
+                )
+                db_session.commit()
+                return entity
+        with self._entity_create_lock:
+            stmt = select(self._entity_model).where(self._entity_model.id == entity_id)
+            filters = self._build_filters(self._entity_model, scope)
+            if filters:
+                stmt = stmt.where(*filters)
+            row = session.exec(stmt).first()
+            if row is None:
+                raise KeyError(f"entity not found in scope: {entity_id}")
+
+            properties = dict(row.properties or {})
+            next_name = name.strip() if name is not None else str(row.name)
+            if not next_name:
+                raise ValueError("entity name is required")
+            next_normalized = normalize_entity_name(next_name)
+            next_aliases = list(properties.get("aliases") or []) if aliases is None else aliases
+            if next_normalized != row.normalized:
+                next_aliases.append(str(row.name))
+            clean_aliases = _clean_aliases(next_aliases, next_name)
+            if clean_aliases:
+                properties["aliases"] = clean_aliases
+            else:
+                properties.pop("aliases", None)
+            properties.update(property_updates or {})
+            for key in property_removals or set():
+                properties.pop(key, None)
+
+            next_type = entity_type if entity_type is not None else row.entity_type
+            if (
+                next_name == row.name
+                and next_normalized == row.normalized
+                and next_type == row.entity_type
+                and properties == (row.properties or {})
+            ):
+                return self._row_to_entity(row)
+            row.name = next_name
+            row.normalized = next_normalized
+            row.entity_type = next_type
+            row.properties = properties
+            row.updated_at = self._now()
+            session.add(row)
+            session.flush()
+            session.refresh(row)
+            return self._row_to_entity(row)
+
     def list_all(self, where: Mapping[str, Any] | None = None) -> list[Entity]:
         with self._sessions.session() as session:
             stmt = select(self._entity_model)
@@ -123,16 +249,23 @@ class SQLiteEntityRepo(SQLiteRepoBase, EntityRepo):
             rows = session.exec(stmt).all()
             return [self._row_to_entity(r) for r in rows]
 
-    def list_by_ids(self, entity_ids: set[str], where: Mapping[str, Any] | None = None) -> list[Entity]:
+    def list_by_ids(
+        self,
+        entity_ids: set[str],
+        where: Mapping[str, Any] | None = None,
+        *,
+        session: Any | None = None,
+    ) -> list[Entity]:
         if not entity_ids:
             return []
-        with self._sessions.session() as session:
-            stmt = select(self._entity_model).where(self._entity_model.id.in_(entity_ids))
-            filters = self._build_filters(self._entity_model, where)
-            if filters:
-                stmt = stmt.where(*filters)
-            rows = session.exec(stmt).all()
-            return [self._row_to_entity(r) for r in rows]
+        stmt = select(self._entity_model).where(self._entity_model.id.in_(entity_ids))
+        filters = self._build_filters(self._entity_model, where)
+        if filters:
+            stmt = stmt.where(*filters)
+        if session is not None:
+            return [self._row_to_entity(row) for row in session.exec(stmt).all()]
+        with self._sessions.session() as db_session:
+            return [self._row_to_entity(row) for row in db_session.exec(stmt).all()]
 
     def _bind_source_refs_in_session(
         self,

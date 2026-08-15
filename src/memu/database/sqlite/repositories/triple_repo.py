@@ -210,25 +210,29 @@ class SQLiteTripleRepo(SQLiteRepoBase, TripleRepo):
         predicate: str,
         object_id: str,
         scope: Mapping[str, Any] | None = None,
+        session: Any | None = None,
     ) -> None:
         now = self._now()
         subject_id, object_id = _canonical_endpoints(predicate, subject_id, object_id)
-        with self._sessions.session() as session:
-            stmt = select(self._triple_model).where(
-                self._triple_model.subject_id == subject_id,
-                self._triple_model.predicate == predicate,
-                self._triple_model.object_id == object_id,
-                self._triple_model.valid_to.is_(None),
-            )
-            scope_filters = self._build_filters(self._triple_model, scope)
-            if scope_filters:
-                stmt = stmt.where(*scope_filters)
-            rows = session.exec(stmt).all()
-            for row in rows:
-                row.valid_to = now
-                row.updated_at = now
-                session.add(row)
-            session.commit()
+        if session is None:
+            with self._sessions.session() as db_session:
+                self.invalidate(subject_id, predicate, object_id, scope, session=db_session)
+                db_session.commit()
+            return
+        stmt = select(self._triple_model).where(
+            self._triple_model.subject_id == subject_id,
+            self._triple_model.predicate == predicate,
+            self._triple_model.object_id == object_id,
+            self._triple_model.valid_to.is_(None),
+        )
+        scope_filters = self._build_filters(self._triple_model, scope)
+        if scope_filters:
+            stmt = stmt.where(*scope_filters)
+        for row in session.exec(stmt).all():
+            row.valid_to = now
+            row.updated_at = now
+            session.add(row)
+        session.flush()
 
     def get_connected_memory_edges(
         self,

@@ -51,6 +51,7 @@ class TripleRepo(Protocol):
         predicate: str,
         object_id: str,
         scope: Mapping[str, Any] | None = None,
+        session: Any | None = None,
     ) -> None: ...
 
     def get_connected_memory_edges(
