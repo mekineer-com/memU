@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Migrate legacy entity speaker slugs to stable entity IDs in a stopped memU DB."""
+"""Migrate legacy entity speaker slugs to stable entity IDs in a stopped memU DB.
+
+If post-commit verification fails, restore the printed backup before restarting services.
+"""
 
 from __future__ import annotations
 

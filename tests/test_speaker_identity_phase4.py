@@ -50,8 +50,8 @@ def test_unambiguous_episode_skips_roster(service: MemoryService) -> None:
 
 def test_ambiguous_segment_attaches_roster_and_accepts_valid_speaker_ref(service: MemoryService) -> None:
     speaker_map = {
-        10: ("entity:alice", "Alice"),
-        11: ("entity:bob", "Bob"),
+        10: ("entity:a1b2c3d4", "Alice"),
+        11: ("entity:b2c3d4e5", "Bob"),
         12: ("soul:siri", "Siri"),
     }
     roster = _make_roster(service, speaker_map)
@@ -68,14 +68,14 @@ def test_ambiguous_segment_attaches_roster_and_accepts_valid_speaker_ref(service
     assert "Speaker Roster (ambiguous episode fallback)" in prompt
     assert "Allowed source_role schema for this episode: <source_role>user|soul|peer|entity|environment</source_role>." in prompt
     assert "Only emit <speaker_ref> if the speaker is in this roster. Never invent a slug." in prompt
-    assert "- entity:alice | label=Alice | role=entity" in prompt
-    assert "- entity:bob | label=Bob | role=entity" in prompt
+    assert "- entity:a1b2c3d4 | label=Alice | role=entity" in prompt
+    assert "- entity:b2c3d4e5 | label=Bob | role=entity" in prompt
 
     response = """
 <item>
     <memory>
         <source_role>entity</source_role>
-        <speaker_ref>entity:alice</speaker_ref>
+        <speaker_ref>entity:a1b2c3d4</speaker_ref>
         <content>Alice asked to review this tomorrow</content>
         <categories>
             <category>Relationships</category>
@@ -90,18 +90,18 @@ def test_ambiguous_segment_attaches_roster_and_accepts_valid_speaker_ref(service
         speaker_roster=roster,
     )
     assert len(entries) == 1
-    assert entries[0].speaker_id == "entity:alice"
+    assert entries[0].speaker_id == "entity:a1b2c3d4"
     assert entries[0].speaker_label == "Alice"
 
     attributed = service._attribute_memory(entries[0], speaker_map)
-    assert attributed.speaker_id == "entity:alice"
+    assert attributed.speaker_id == "entity:a1b2c3d4"
     assert attributed.speaker_label == "Alice"
 
 
 def test_parser_rejects_hallucinated_speaker_ref_and_leaves_speaker_null(service: MemoryService) -> None:
     speaker_map = {
-        20: ("entity:alice", "Alice"),
-        21: ("entity:bob", "Bob"),
+        20: ("entity:a1b2c3d4", "Alice"),
+        21: ("entity:b2c3d4e5", "Bob"),
     }
     roster = _make_roster(service, speaker_map)
     assert roster is not None
@@ -110,7 +110,7 @@ def test_parser_rejects_hallucinated_speaker_ref_and_leaves_speaker_null(service
 <item>
     <memory>
         <source_role>entity</source_role>
-        <speaker_ref>entity:ghost</speaker_ref>
+        <speaker_ref>entity:ffffffff</speaker_ref>
         <content>The speaker made a request about tomorrow</content>
         <categories>
             <category>Relationships</category>
@@ -140,12 +140,12 @@ def test_declared_entity_mention_triggers_segment_roster_without_role_ambiguity(
     }
     roster = service._build_speaker_roster_for_segment(
         speaker_map=speaker_map,
-        declared_entities=[SpeakerRosterEntry("entity:brother", "Brother", "entity")],
+        declared_entities=[SpeakerRosterEntry("entity:c3d4e5f6", "Brother", "entity")],
         segment_text="[30] [Marcos] My brother said he'll call tomorrow.",
     )
     assert roster is not None
     ids = {entry.speaker_id for entry in roster}
-    assert "entity:brother" in ids
+    assert "entity:c3d4e5f6" in ids
     assert "user:marcos" in ids
 
 
@@ -158,7 +158,7 @@ def test_attribute_memory_keeps_valid_parsed_speaker_ref_even_with_single_messag
 <item>
   <memory>
     <source_role>entity</source_role>
-    <speaker_ref>entity:brother</speaker_ref>
+    <speaker_ref>entity:c3d4e5f6</speaker_ref>
     <content>Brother said he will call tomorrow</content>
     <categories><category>Relationships</category></categories>
   </memory>
@@ -166,9 +166,9 @@ def test_attribute_memory_keeps_valid_parsed_speaker_ref_even_with_single_messag
 """.strip()
         ],
         default_source_message_ids=[40],
-        speaker_roster=[SpeakerRosterEntry("entity:brother", "Brother", "entity")],
+        speaker_roster=[SpeakerRosterEntry("entity:c3d4e5f6", "Brother", "entity")],
     )[0]
 
     attributed = service._attribute_memory(entry, speaker_map)
-    assert attributed.speaker_id == "entity:brother"
+    assert attributed.speaker_id == "entity:c3d4e5f6"
     assert attributed.speaker_label == "Brother"

@@ -683,7 +683,7 @@ async def test_memorize_segments_batch_passes_segment_speaker_rosters_without_se
         }
         return state
 
-    declared_roster = [SpeakerRosterEntry("entity:nicholas", "Nicholas", "entity")]
+    declared_roster = [SpeakerRosterEntry("entity:d4e5f6a7", "Nicholas", "entity")]
     captured: list[dict[str, object]] = []
 
     async def _capture_generate_entries_from_text(**kwargs):
@@ -763,8 +763,8 @@ async def test_memorize_segments_batch_passes_segment_speaker_rosters_without_se
     assert second_roster is not None
     first_speaker_ids = {entry.speaker_id for entry in first_roster}
     second_speaker_ids = {entry.speaker_id for entry in second_roster}
-    assert {"entity:a1b2c3d4", "entity:nicholas", "user:marcos"} <= first_speaker_ids
-    assert {"entity:b2c3d4e5", "entity:nicholas", "soul:echo"} <= second_speaker_ids
+    assert {"entity:a1b2c3d4", "entity:d4e5f6a7", "user:marcos"} <= first_speaker_ids
+    assert {"entity:b2c3d4e5", "entity:d4e5f6a7", "soul:echo"} <= second_speaker_ids
     for call in captured:
         resource_text = str(call.get("resource_text") or "")
         assert "Segment 1" not in resource_text

@@ -94,6 +94,7 @@ def test_entity_speaker_lookup_uses_aliases_and_drops_ambiguous_names() -> None:
         ),
         SimpleNamespace(id="b2c3d4e5", name="Taylor", properties={}),
         SimpleNamespace(id="c3d4e5f6", name="Taylor", properties={}),
+        SimpleNamespace(id="d4e5f6a7", name="Morgan", properties={"active": False}),
     ]
     lookup = speakers._build_entity_speaker_ids(entities)
     roster = speakers._list_declared_relationship_roster(
@@ -103,6 +104,7 @@ def test_entity_speaker_lookup_uses_aliases_and_drops_ambiguous_names() -> None:
 
     assert lookup["ro"] == "entity:a1b2c3d4"
     assert "taylor" not in lookup
+    assert "morgan" not in lookup
     assert roster == [SpeakerRosterEntry("entity:a1b2c3d4", "Rowan", "entity")]
 
 

@@ -109,6 +109,8 @@ def _build_entity_speaker_ids(entities: Sequence[Any]) -> dict[str, str]:
         if not entity_id:
             continue
         properties = getattr(entity, "properties", None)
+        if isinstance(properties, Mapping) and properties.get("active") is False:
+            continue
         aliases = properties.get("aliases", []) if isinstance(properties, Mapping) else []
         names = [getattr(entity, "name", ""), *(aliases if isinstance(aliases, list) else [])]
         for name in names:
