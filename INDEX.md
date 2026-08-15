@@ -62,7 +62,7 @@ Marcos-reviewed dossier prompts.
 
 | Directory | Files | Purpose |
 |-----------|-------|---------|
-| `memory_type/` | `profile.py`, `behavior.py`, `knowledge.py`, `social.py` | Per-type extraction prompts (PROMPT + CUSTOM_PROMPT). Each generalized item chooses a source-valid day; whole-segment provenance remains code-owned. These four are active (DEFAULT_MEMORY_TYPES). `event.py` removed — archived to `_archive/event-memory-type/`. |
+| `memory_type/` | `profile.py`, `behavior.py`, `knowledge.py`, `social.py` | Per-type extraction prompts (PROMPT + CUSTOM_PROMPT). Each generalized item chooses a source-valid day; whole-segment provenance remains code-owned. These four are active (DEFAULT_MEMORY_TYPES). |
 | `memory_type/__init__.py` | — | PROMPTS dict, DEFAULT_MEMORY_TYPES list |
 | `preprocess/` | `document.py`, `image.py`, `audio.py`, `video.py` | Input normalization for non-chat modalities |
 | `router/router.py` | — | Route input into the configured maximum number of titled episodes, with separate full summaries, compact items, category proposals, and a source-valid day |
