@@ -177,6 +177,23 @@ def test_graph_recent_returns_bounded_memory_graph():
     assert "mentions:m1:e1" in edge_ids
 
 
+def test_graph_memory_includes_current_entity_mentions():
+    now = datetime(2026, 7, 1, tzinfo=UTC)
+    db = SimpleNamespace(
+        memory_item_repo=_Repo({"m1": _item("m1", "First memory", now)}),
+        memory_category_repo=_Repo({}),
+        category_item_repo=_Repo([]),
+        entity_repo=_Repo([SimpleNamespace(id="e1", name="Annie")]),
+        triple_repo=_Triples(),
+    )
+
+    memory = _Service(db).graph_memory("memory:m1", where={"user_id": "u", "soul_id": "s"})
+
+    assert memory is not None
+    assert memory["entity_ids"] == ["entity:e1"]
+    assert memory["entity_names"] == ["Annie"]
+
+
 def test_graph_recent_uses_real_bounded_sqlite_reads():
     service = MemoryService(
         database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},

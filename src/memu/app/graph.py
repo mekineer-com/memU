@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import base64
 import logging
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from datetime import UTC, datetime, timedelta
 from time import perf_counter
 from typing import Any
@@ -216,7 +216,13 @@ class GraphMixin:
             for rel in relations
             if rel.item_id == item.id and rel.category_id in categories
         ]
-        return self._memory_node(item, category_names=category_names, category_ids=category_ids)
+        entity_pairs = self._entity_pairs_by_memory([item.id], where or {}).get(item.id, [])
+        return self._memory_node(
+            item,
+            category_names=category_names,
+            category_ids=category_ids,
+            entity_pairs=entity_pairs,
+        )
 
     def graph_atomic_atoms(
         self,
@@ -568,26 +574,7 @@ class GraphMixin:
             ["mentions", *SEMANTIC_PREDICATES],
             where=where,
         )
-        mention_triples_by_memory: dict[str, list[Any]] = {}
-        for triple in canvas_triples:
-            if triple.predicate == "mentions" and triple.subject_id in memory_ids:
-                mention_triples_by_memory.setdefault(triple.subject_id, []).append(triple)
-        entity_ids = {
-            triple.object_id
-            for triples in mention_triples_by_memory.values()
-            for triple in triples
-            if triple.object_kind == "entity"
-        }
-        entities = {entity.id: entity for entity in store.entity_repo.list_by_ids(entity_ids, where)}
-        entities_by_memory: dict[str, list[tuple[str, str]]] = {}
-        for memory_id, triples in mention_triples_by_memory.items():
-            pairs = []
-            for triple in triples:
-                if triple.object_id not in entities:
-                    continue
-                entity = entities[triple.object_id]
-                pairs.append((f"entity:{entity.id}", entity.name))
-            entities_by_memory[memory_id] = sorted(set(pairs), key=lambda pair: pair[1].lower())
+        entities_by_memory = self._entity_pairs_by_memory(memory_ids, where, triples=canvas_triples)
         for atom in page:
             memory_id = str(atom["id"]).removeprefix("memory:")
             pairs = entities_by_memory.get(memory_id, [])
@@ -1201,14 +1188,53 @@ class GraphMixin:
         nodes.sort(key=lambda node: (node["kind"], node.get("happened_at") or "", node["id"]))
         return {"nodes": nodes, "edges": list(edges.values()), "limit": limit, "count": len(nodes)}
 
+    def _entity_pairs_by_memory(
+        self,
+        memory_ids: Iterable[str],
+        where: Mapping[str, Any] | None,
+        *,
+        triples: Iterable[Any] | None = None,
+    ) -> dict[str, list[tuple[str, str]]]:
+        store = self._get_database()
+        ids = set(memory_ids)
+        mention_triples: dict[str, list[Any]] = {}
+        source = (
+            triples
+            if triples is not None
+            else store.triple_repo.list_edges_for_memories(ids, ["mentions"], where=where)
+        )
+        for triple in source:
+            if triple.predicate == "mentions" and triple.subject_id in ids and triple.object_kind == "entity":
+                mention_triples.setdefault(triple.subject_id, []).append(triple)
+        entities = {
+            entity.id: entity
+            for entity in store.entity_repo.list_by_ids(
+                {triple.object_id for rows in mention_triples.values() for triple in rows},
+                where,
+            )
+        }
+        return {
+            memory_id: sorted(
+                {(f"entity:{entities[row.object_id].id}", entities[row.object_id].name) for row in rows if row.object_id in entities},
+                key=lambda pair: pair[1].lower(),
+            )
+            for memory_id, rows in mention_triples.items()
+        }
+
     @staticmethod
-    def _memory_node(item: Any, *, category_names: list[str], category_ids: list[str] | None = None) -> dict[str, Any]:
+    def _memory_node(
+        item: Any,
+        *,
+        category_names: list[str],
+        category_ids: list[str] | None = None,
+        entity_pairs: list[tuple[str, str]] | None = None,
+    ) -> dict[str, Any]:
         salience = max(
             [v for v in (item.reflection_salience, item.emotional_intensity) if isinstance(v, int | float)],
             default=None,
         )
         category_pairs = sorted(set(zip(category_ids or [], category_names, strict=False)), key=lambda pair: pair[1].lower())
-        return {
+        node = {
             "id": f"memory:{item.id}",
             "kind": "memory",
             "memory_id": item.id,
@@ -1223,6 +1249,10 @@ class GraphMixin:
             "category_ids": [pair[0] for pair in category_pairs],
             "category_names": [pair[1] for pair in category_pairs],
         }
+        if entity_pairs is not None:
+            node["entity_ids"] = [pair[0] for pair in entity_pairs]
+            node["entity_names"] = [pair[1] for pair in entity_pairs]
+        return node
 
     @staticmethod
     def _category_node(
