@@ -36,7 +36,7 @@ When an assertion was wrong, use `<replaces_previous_fact>` to flag the old one.
 PROMPT_BLOCK_CATEGORY = """
 ## Memory Categories:
 {categories_str}
-If a memory item clearly doesn't belong in any category above, you may propose a new one: write its name in the `<category>` field. Name it as a broad life domain, not a narrow topic.
+If a memory item clearly doesn't belong in any category above, you may propose a new one: write its name in the `<category>` field. Can be a life domain or small throughline.
 
 ## Entities:
 Common nameable things, not abstract qualities or themes or schemas.
