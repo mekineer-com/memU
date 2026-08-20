@@ -2,6 +2,7 @@ import asyncio
 import base64
 import json
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
@@ -10,7 +11,13 @@ import pytest
 from pydantic import BaseModel
 
 from memu.app import category_summary_journal, memorize_persistence
-from memu.app.graph import EntityActionConflictError, EntityMergeConflictError, GraphMixin
+from memu.app.dossier import DossierRevisionStaleError
+from memu.app.graph import (
+    DossierMembershipConflictError,
+    EntityActionConflictError,
+    EntityMergeConflictError,
+    GraphMixin,
+)
 from memu.app.service import MemoryService
 from memu.database.models import Triple
 
@@ -1647,6 +1654,17 @@ def test_category_graph_projection_exposes_canonical_dossier_state():
         "memory_id": item.id,
         "summary": item.summary,
     }]
+    assert active_node["members"] == [{
+        "id": f"memory:{item.id}",
+        "memory_id": item.id,
+        "memory_ref": service.format_memory_ref(item),
+        "summary": item.summary,
+        "memory_type": "knowledge",
+        "happened_at": None,
+        "created_at": item.created_at.isoformat(),
+        "status": "Active",
+        "cited": True,
+    }]
     assert inactive_node is not None and inactive_node["active"] is False
     assert anchor_node is not None
     assert anchor_node["category_kind"] == "lore"
@@ -1660,9 +1678,210 @@ def test_category_graph_projection_exposes_canonical_dossier_state():
     atoms = {atom["id"]: atom for atom in service.graph_atomic_atoms(where=scope, limit=20)["atoms"]}
     assert atoms[f"category:{active.id}"]["citations"] == active_node["citations"]
     assert atoms[f"category:{active.id}"]["active"] is True
+    assert "members" not in atoms[f"category:{active.id}"]
 
     pending = {category["id"]: category for category in service.graph_list_pending(where=scope)["categories"]}
     assert pending[f"category:{active.id}"]["category_kind"] == "topic"
+
+
+def test_graph_category_membership_is_atomic_idempotent_and_citation_guarded():
+    service = MemoryService(
+        database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
+        user_config={"model": GraphScope},
+    )
+    store = service._get_database()
+    scope = {"user_id": "dossier_membership", "soul_id": "companion"}
+    cited = store.memory_item_repo.create_item(
+        memory_type="knowledge",
+        summary="Cited memory",
+        embedding=[0.1],
+        happened_at=datetime(2026, 1, 1, tzinfo=UTC),
+        user_data=scope,
+    )
+    target = store.memory_item_repo.create_item(
+        memory_type="social",
+        summary="Newer uncited memory",
+        embedding=[0.2],
+        happened_at=datetime(2026, 2, 1, tzinfo=UTC),
+        user_data=scope,
+    )
+    inactive = store.memory_item_repo.create_item(
+        memory_type="knowledge",
+        summary="Inactive memory",
+        embedding=[0.3],
+        user_data=scope,
+    )
+    successor = store.memory_item_repo.create_item(
+        memory_type="knowledge",
+        summary="Successor memory",
+        embedding=[0.4],
+        user_data=scope,
+    )
+    store.triple_repo.add(
+        Triple(
+            subject_id=inactive.id,
+            subject_kind="memory",
+            predicate="evolved_into",
+            object_id=successor.id,
+            object_kind="memory",
+        ),
+        user_data=scope,
+    )
+    category = store.memory_category_repo.get_or_create_category(
+        name="People",
+        description="People in my life.",
+        embedding=[0.5],
+        user_data=scope,
+        kind="lore",
+        last_revised_at=datetime(2025, 1, 1, tzinfo=UTC),
+    )
+    summary = f"Someone mattered {service.format_memory_ref(cited)}."
+    store.memory_category_repo.update_category(category_id=category.id, summary=summary, where=scope)
+    store.category_item_repo.link_item_category(cited.id, category.id, scope)
+    store.category_item_repo.link_item_category(inactive.id, category.id, scope)
+    service._graph_active_category_ids = lambda _where: {category.id}  # type: ignore[method-assign]
+
+    detail = service.graph_memory(f"category:{category.id}", where=scope)
+    assert detail is not None
+    assert [(member["memory_id"], member["status"], member["cited"]) for member in detail["members"]] == [
+        (cited.id, "Active", True),
+        (inactive.id, "Inactive", False),
+    ]
+
+    attached = service.graph_set_category_membership(
+        category.id,
+        target.id,
+        attached=True,
+        expected_displayed_summary=summary,
+        where=scope,
+    )
+    relation = next(member for member in attached["members"] if member["memory_id"] == target.id)
+    assert relation["status"] == "Active"
+    saved = store.memory_category_repo.list_categories(scope)[category.id]
+    assert saved.last_evidence_at == target.happened_at
+    assert saved.last_revised_at == category.last_revised_at
+    updated_at = saved.updated_at
+
+    service.graph_set_category_membership(
+        category.id,
+        target.id,
+        attached=True,
+        expected_displayed_summary=summary,
+        where=scope,
+    )
+    assert store.memory_category_repo.list_categories(scope)[category.id].updated_at == updated_at
+
+    detached = service.graph_set_category_membership(
+        category.id,
+        target.id,
+        attached=False,
+        expected_displayed_summary=summary,
+        where=scope,
+    )
+    assert target.id not in {member["memory_id"] for member in detached["members"]}
+    with pytest.raises(DossierMembershipConflictError, match="remove .* from dossier text"):
+        service.graph_set_category_membership(
+            category.id,
+            cited.id,
+            attached=False,
+            expected_displayed_summary=summary,
+            where=scope,
+        )
+    with pytest.raises(DossierRevisionStaleError):
+        service.graph_set_category_membership(
+            category.id,
+            target.id,
+            attached=True,
+            expected_displayed_summary="stale",
+            where=scope,
+        )
+    with pytest.raises(ValueError, match="only active"):
+        service.graph_set_category_membership(
+            category.id,
+            inactive.id,
+            attached=True,
+            expected_displayed_summary=summary,
+            where=scope,
+        )
+    anchor = store.memory_category_repo.get_or_create_category(
+        name="companion",
+        description="The companion anchor.",
+        embedding=[0.6],
+        user_data=scope,
+        kind="lore",
+        anchor_role="soul",
+    )
+    with pytest.raises(DossierMembershipConflictError, match="consolidation-owned"):
+        service.graph_set_category_membership(
+            anchor.id,
+            target.id,
+            attached=True,
+            expected_displayed_summary=anchor.description,
+            where=scope,
+        )
+
+
+def test_graph_category_membership_rolls_back_and_serializes_concurrent_writers(tmp_path, monkeypatch):
+    db_path = tmp_path / "membership.db"
+    service = MemoryService(
+        database_config={"metadata_store": {"provider": "sqlite", "dsn": f"sqlite:///{db_path}"}},
+        user_config={"model": GraphScope},
+    )
+    store = service._get_database()
+    scope = {"user_id": "concurrent_membership", "soul_id": "companion"}
+    category = store.memory_category_repo.get_or_create_category(
+        name="Projects",
+        description="Current projects.",
+        embedding=[0.1],
+        user_data=scope,
+        kind="topic",
+    )
+    first = store.memory_item_repo.create_item(
+        memory_type="knowledge", summary="First", embedding=[0.2], user_data=scope
+    )
+    second = store.memory_item_repo.create_item(
+        memory_type="knowledge", summary="Second", embedding=[0.3], user_data=scope
+    )
+    service._graph_active_category_ids = lambda _where: {category.id}  # type: ignore[method-assign]
+
+    original_update = store.memory_category_repo.update_category
+
+    def fail_update(**_kwargs):
+        raise RuntimeError("injected")
+
+    monkeypatch.setattr(store.memory_category_repo, "update_category", fail_update)
+    with pytest.raises(RuntimeError, match="injected"):
+        service.graph_set_category_membership(
+            category.id,
+            first.id,
+            attached=True,
+            expected_displayed_summary=category.description,
+            where=scope,
+        )
+    assert not any(
+        relation.category_id == category.id and relation.item_id == first.id
+        for relation in store.category_item_repo.list_relations(scope)
+    )
+    monkeypatch.setattr(store.memory_category_repo, "update_category", original_update)
+
+    def attach(memory_id: str) -> None:
+        service.graph_set_category_membership(
+            category.id,
+            memory_id,
+            attached=True,
+            expected_displayed_summary=category.description,
+            where=scope,
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        list(executor.map(attach, (first.id, second.id)))
+
+    linked_ids = {
+        relation.item_id
+        for relation in store.category_item_repo.list_relations(scope)
+        if relation.category_id == category.id
+    }
+    assert linked_ids == {first.id, second.id}
 
 
 def test_graph_pending_excludes_superseded_memories():

@@ -12,6 +12,7 @@ import numpy as np
 from sqlalchemy import text
 
 from memu.app.category_summary_journal import append_category_summary_journal
+from memu.app.dossier import DossierRevisionStaleError
 from memu.database.models import Triple, entity_is_ignored, normalize_entity_name
 from memu.database.vector import cosine_similarity, cosine_topk
 from memu.utils.taxonomy import DOSSIER_KINDS
@@ -42,6 +43,10 @@ class EntityActionConflictError(ValueError):
     def __init__(self, conflicts: list[str]) -> None:
         super().__init__("; ".join(conflicts))
         self.conflicts = conflicts
+
+
+class DossierMembershipConflictError(ValueError):
+    pass
 
 
 def _stable_entity_values(values: Iterable[Any], *, exclude: str = "") -> list[str]:
@@ -209,10 +214,11 @@ class GraphMixin:
         *,
         where: Mapping[str, Any] | None,
         active_category_ids: set[str],
+        memory_refs: list[int] | None = None,
     ) -> dict[str, Any]:
         citations = []
         # ponytail: N+1 citation lookups; batch WHERE IN if scale matters.
-        for memory_ref in self.extract_memory_refs(category.summary or ""):
+        for memory_ref in memory_refs if memory_refs is not None else self.extract_memory_refs(category.summary or ""):
             try:
                 item = self.resolve_memory_ref(memory_ref, where or {})
             except KeyError:
@@ -228,6 +234,54 @@ class GraphMixin:
             citations=citations,
         )
 
+    def _category_detail_node(
+        self,
+        category: Any,
+        *,
+        where: Mapping[str, Any] | None,
+        active_category_ids: set[str],
+    ) -> dict[str, Any]:
+        store = self._get_database()
+        memory_refs = self.extract_memory_refs(category.summary or "")
+        node = self._scoped_category_node(
+            category,
+            where=where,
+            active_category_ids=active_category_ids,
+            memory_refs=memory_refs,
+        )
+        relations = [
+            relation
+            for relation in store.category_item_repo.list_relations(where)
+            if relation.category_id == category.id
+        ]
+        member_ids = {relation.item_id for relation in relations}
+        members = store.memory_item_repo.list_items_by_ids(
+            member_ids,
+            where,
+            include_superseded=True,
+            include_merged=True,
+        )
+        active_ids = set(store.memory_item_repo.list_items_by_ids(member_ids, where))
+        cited_refs = set(memory_refs)
+        node["members"] = [
+            {
+                "id": f"memory:{item.id}",
+                "memory_id": item.id,
+                "memory_ref": self.format_memory_ref(item.memory_ref) if item.memory_ref is not None else None,
+                "summary": item.summary,
+                "memory_type": item.memory_type,
+                "happened_at": _iso(item.happened_at),
+                "created_at": _iso(item.created_at),
+                "status": "Active" if item.id in active_ids else "Inactive",
+                "cited": item.memory_ref in cited_refs,
+            }
+            for item in sorted(
+                members.values(),
+                key=lambda item: (item.memory_ref is None, item.memory_ref or 0, item.id),
+            )
+        ]
+        return node
+
     def graph_memory(self, item_id: str, *, where: Mapping[str, Any] | None = None) -> dict[str, Any] | None:
         store = self._get_database()
         item_id = str(item_id or "")
@@ -238,7 +292,7 @@ class GraphMixin:
             category = store.memory_category_repo.list_categories(where).get(raw_id)
             if category is None:
                 return None
-            return self._scoped_category_node(
+            return self._category_detail_node(
                 category,
                 where=where,
                 active_category_ids=self._graph_active_category_ids(where),
@@ -790,6 +844,95 @@ class GraphMixin:
         where: Mapping[str, Any],
     ) -> dict[str, Any] | None:
         return self._graph_set_entity_mention(memory_id, entity_id, attached=False, where=where)
+
+    def graph_set_category_membership(
+        self,
+        category_id: str,
+        memory_id: str,
+        *,
+        attached: bool,
+        expected_displayed_summary: str,
+        where: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        scope = {key: str(where.get(key) or "").strip() for key in ("user_id", "soul_id")}
+        if not all(scope.values()):
+            raise ValueError("category membership requires user_id and soul_id")
+        store = self._get_database()
+        with store._sessions.session() as session:
+            session.execute(text("BEGIN IMMEDIATE"))
+            category = store.memory_category_repo.list_categories(scope, session=session).get(category_id)
+            if category is None:
+                raise KeyError(f"category not found in scope: {category_id}")
+            if category.kind not in DOSSIER_KINDS:
+                raise ValueError("category is not a current dossier")
+            if category.anchor_role is not None:
+                raise DossierMembershipConflictError("anchor dossier membership is consolidation-owned")
+            if str(category.summary or category.description or "") != expected_displayed_summary:
+                raise DossierRevisionStaleError("summary_snapshot_stale")
+
+            all_items = store.memory_item_repo.list_items_by_ids(
+                {memory_id},
+                scope,
+                include_superseded=True,
+                include_merged=True,
+                session=session,
+            )
+            item = all_items.get(memory_id)
+            if item is None:
+                raise KeyError(f"memory not found in scope: {memory_id}")
+            if attached and memory_id not in store.memory_item_repo.list_items_by_ids(
+                {memory_id}, scope, session=session
+            ):
+                raise ValueError("only active memories may be attached")
+
+            relations = store.category_item_repo.list_relations(scope, session=session)
+            linked = any(
+                relation.category_id == category_id and relation.item_id == memory_id
+                for relation in relations
+            )
+            if attached == linked:
+                session.commit()
+            else:
+                if not attached and item.memory_ref in self.extract_memory_refs(category.summary or ""):
+                    raise DossierMembershipConflictError(
+                        f"remove {self.format_memory_ref(item.memory_ref)} from dossier text first"
+                    )
+                if attached:
+                    store.category_item_repo.link_item_category(memory_id, category_id, scope, session=session)
+                else:
+                    store.category_item_repo.unlink_item_category(
+                        memory_id, category_id, scope, session=session
+                    )
+                remaining_ids = {
+                    relation.item_id
+                    for relation in store.category_item_repo.list_relations(scope, session=session)
+                    if relation.category_id == category_id
+                }
+                active_items = store.memory_item_repo.list_items_by_ids(
+                    remaining_ids, scope, session=session
+                )
+                last_evidence_at = max(
+                    (
+                        when
+                        for item in active_items.values()
+                        if (when := _utc(item.happened_at or item.created_at)) is not None
+                    ),
+                    default=None,
+                )
+                store.memory_category_repo.update_category(
+                    category_id=category_id,
+                    last_evidence_at=last_evidence_at,
+                    where=scope,
+                    session=session,
+                )
+                session.commit()
+
+        store.memory_category_repo.list_categories(scope)
+        store.category_item_repo.refresh_category_relations(category_id, scope)
+        detail = self.graph_memory(f"category:{category_id}", where=scope)
+        if detail is None:
+            raise KeyError(f"category not found in scope: {category_id}")
+        return detail
 
     def graph_atomic_canvas_source(
         self,
