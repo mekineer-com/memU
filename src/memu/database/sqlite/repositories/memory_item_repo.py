@@ -975,23 +975,25 @@ VALUES (?, ?, ?, ?, ?, ?, ?)
         if not safe_query:
             return []
 
+        if pool_ids is not None and not pool_ids:
+            return []
+        params: tuple[Any, ...] = (safe_query, top_k)
+        pool_clause = ""
+        if pool_ids is not None:
+            ordered_ids = sorted(pool_ids)
+            pool_clause = f"AND item_id IN ({','.join('?' for _ in ordered_ids)}) "
+            params = (safe_query, *ordered_ids, top_k)
+
         with self._sessions.session() as session:
             conn = session.connection()
             rows = conn.exec_driver_sql(
                 "SELECT item_id, rank FROM memory_items_fts "
                 "WHERE memory_items_fts MATCH ? "
-                "ORDER BY rank LIMIT ?",
-                (safe_query, top_k * 3 if pool_ids else top_k),
+                f"{pool_clause}ORDER BY rank LIMIT ?",
+                params,
             ).fetchall()
 
-        results: list[tuple[str, float]] = []
-        for item_id, rank in rows:
-            if pool_ids is not None and item_id not in pool_ids:
-                continue
-            results.append((item_id, -rank))  # negate: higher = better
-            if len(results) >= top_k:
-                break
-        return results
+        return [(item_id, -rank) for item_id, rank in rows]  # negate: higher = better
 
     # ── Vector + hybrid search ─────────────────────────────────────
 

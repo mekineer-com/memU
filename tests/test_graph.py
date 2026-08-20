@@ -313,7 +313,7 @@ def test_graph_atomic_entities_returns_scoped_counts_and_chronological_detail():
     assert service.graph_atomic_entity("missing", where=scope) is None
 
 
-def test_graph_update_entity_sets_and_clears_description_without_promotion():
+def test_graph_update_entity_sets_and_clears_description_without_promotion(monkeypatch):
     service = MemoryService(
         database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
         user_config={"model": GraphScope},
@@ -334,6 +334,21 @@ def test_graph_update_entity_sets_and_clears_description_without_promotion():
     )
     service.graph_attach_entity(memory.id, entity.id, where=scope)
 
+    sessions = []
+    original_list_by_ids = store.entity_repo.list_by_ids
+    original_update = store.entity_repo.update
+
+    def record_list_by_ids(*args, session=None, **kwargs):
+        sessions.append(session)
+        return original_list_by_ids(*args, session=session, **kwargs)
+
+    def record_update(*args, session=None, **kwargs):
+        sessions.append(session)
+        return original_update(*args, session=session, **kwargs)
+
+    monkeypatch.setattr(store.entity_repo, "list_by_ids", record_list_by_ids)
+    monkeypatch.setattr(store.entity_repo, "update", record_update)
+
     updated = service.graph_update_entity(entity.id, description="  WhatsApp integration library  ", where=scope)
     assert updated is not None
     assert updated["properties"] == {
@@ -345,6 +360,7 @@ def test_graph_update_entity_sets_and_clears_description_without_promotion():
     assert updated["name"] == "Baileys"
     assert updated["entity_type"] == "project"
     assert updated["linked_memory_count"] == 1
+    assert sessions[0] is not None and sessions[0] is sessions[1]
 
     cleared = service.graph_update_entity(entity.id, description=" ", where=scope)
     assert cleared is not None
@@ -1238,7 +1254,8 @@ def test_graph_search_memory_only_excludes_linked_items_before_limit():
         user_data=scope,
     )
     linked = []
-    for index in range(10):
+    # More excluded matches than the old fixed 3x FTS over-fetch window.
+    for index in range(40):
         item = store.memory_item_repo.create_item(
             memory_type="knowledge",
             summary=f"Needle linked memory {index}",

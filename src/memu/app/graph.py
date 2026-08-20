@@ -24,11 +24,11 @@ logger = logging.getLogger(__name__)
 _DESCRIPTION_UNSET = object()
 
 
-def _normalize_search_memory_ref(value: str) -> str | None:
+def _normalize_search_memory_ref(value: str) -> int | None:
     match = re.fullmatch(r"(?:[Mm]([1-9]\d*)|\[[Mm]([1-9]\d*)\])", value)
     if match is None:
         return None
-    return f"[M{match.group(1) or match.group(2)}]"
+    return int(match.group(1) or match.group(2))
 
 
 class EntityMergeConflictError(ValueError):
@@ -526,29 +526,37 @@ class GraphMixin:
         if clean_type is not None and clean_type not in ENTITY_TYPES:
             raise ValueError("entity_type must be person/topic/place/project")
         store = self._get_database()
-        property_updates = None
-        property_removals = None
-        if description is not _DESCRIPTION_UNSET:
-            matches = store.entity_repo.list_by_ids({entity_id}, where)
-            if not matches:
-                return None
-            if (matches[0].properties or {}).get("origin") == "user_declared":
-                raise ValueError("Relationship prose must be edited through the Relationship route")
-            clean_description = str(description or "").strip()
-            property_updates = {"relationship": clean_description} if clean_description else None
-            property_removals = None if clean_description else {"relationship"}
-        try:
-            entity = store.entity_repo.update(
-                entity_id,
-                where=where,
-                name=name,
-                entity_type=clean_type,
-                aliases=aliases,
-                property_updates=property_updates,
-                property_removals=property_removals,
-            )
-        except KeyError:
-            return None
+        clean_description = (
+            str(description or "").strip() if description is not _DESCRIPTION_UNSET else None
+        )
+        property_updates = {"relationship": clean_description} if clean_description else None
+        property_removals = (
+            {"relationship"}
+            if description is not _DESCRIPTION_UNSET and not clean_description
+            else None
+        )
+        with store._sessions.session() as session:
+            session.execute(text("BEGIN IMMEDIATE"))
+            with store.entity_repo.write_lock():
+                matches = store.entity_repo.list_by_ids({entity_id}, where, session=session)
+                if not matches:
+                    return None
+                if (
+                    description is not _DESCRIPTION_UNSET
+                    and (matches[0].properties or {}).get("origin") == "user_declared"
+                ):
+                    raise ValueError("Relationship prose must be edited through the Relationship route")
+                entity = store.entity_repo.update(
+                    entity_id,
+                    where=where,
+                    name=name,
+                    entity_type=clean_type,
+                    aliases=aliases,
+                    property_updates=property_updates,
+                    property_removals=property_removals,
+                    session=session,
+                )
+                session.commit()
         return self.graph_atomic_entity(entity.id, where=where)
 
     @staticmethod
@@ -1450,16 +1458,6 @@ class GraphMixin:
         limit = max(1, min(int(limit or 5), 20))
         scope = dict(where or {})
 
-        exact_item = None
-        if memory_ref := _normalize_search_memory_ref(query):
-            try:
-                resolved = self.resolve_memory_ref(memory_ref, scope)
-            except KeyError:
-                return {"nodes": [], "limit": limit, "count": 0}
-            exact_item = store.memory_item_repo.list_items_by_ids({resolved.id}, scope).get(resolved.id)
-            if exact_item is None:
-                return {"nodes": [], "limit": limit, "count": 0}
-
         pool = store.memory_item_repo.list_items(scope)
         categories = store.memory_category_repo.list_categories(scope)
         relations = store.category_item_repo.list_relations(scope)
@@ -1480,6 +1478,16 @@ class GraphMixin:
             excluded_ids.update(rel.item_id for rel in relations if rel.category_id == exclude_category_id)
         if excluded_ids:
             pool = {item_id: item for item_id, item in pool.items() if item_id not in excluded_ids}
+
+        exact_item = None
+        if memory_ref := _normalize_search_memory_ref(query):
+            try:
+                resolved = self.resolve_memory_ref(memory_ref, scope)
+            except KeyError:
+                return {"nodes": [], "limit": limit, "count": 0}
+            exact_item = store.memory_item_repo.list_items_by_ids({resolved.id}, scope).get(resolved.id)
+            if exact_item is None:
+                return {"nodes": [], "limit": limit, "count": 0}
 
         if since_days is not None:
             cutoff = datetime.now(UTC) - timedelta(days=max(1, int(since_days)))
@@ -1557,7 +1565,7 @@ class GraphMixin:
             if category_id in categories:
                 node = self._scoped_category_node(
                     categories[category_id],
-                    where=where,
+                    where=scope,
                     active_category_ids=active_category_ids,
                 )
                 node["score"] = score
