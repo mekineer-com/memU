@@ -249,11 +249,9 @@ class GraphMixin:
             active_category_ids=active_category_ids,
             memory_refs=memory_refs,
         )
-        relations = [
-            relation
-            for relation in store.category_item_repo.list_relations(where)
-            if relation.category_id == category.id
-        ]
+        relations = store.category_item_repo.list_relations(
+            {**dict(where or {}), "category_id": category.id}
+        )
         member_ids = {relation.item_id for relation in relations}
         members = store.memory_item_repo.list_items_by_ids(
             member_ids,
@@ -893,7 +891,8 @@ class GraphMixin:
             ):
                 raise ValueError("only active memories may be attached")
 
-            relations = store.category_item_repo.list_relations(scope, session=session)
+            relation_scope = {**scope, "category_id": category_id}
+            relations = store.category_item_repo.list_relations(relation_scope, session=session)
             linked = any(
                 relation.category_id == category_id and relation.item_id == memory_id
                 for relation in relations
@@ -913,8 +912,9 @@ class GraphMixin:
                     )
                 remaining_ids = {
                     relation.item_id
-                    for relation in store.category_item_repo.list_relations(scope, session=session)
-                    if relation.category_id == category_id
+                    for relation in store.category_item_repo.list_relations(
+                        relation_scope, session=session
+                    )
                 }
                 active_items = store.memory_item_repo.list_items_by_ids(
                     remaining_ids, scope, session=session
@@ -1478,7 +1478,12 @@ class GraphMixin:
                 when = _utc(resolved.happened_at or resolved.created_at)
                 if when is None or when < cutoff:
                     return {"nodes": [], "limit": limit, "count": 0}
-            if exclude_entity_id and f"entity:{exclude_entity_id}" in node.get("entity_ids", []):
+            if exclude_entity_id and any(
+                edge.object_kind == "entity" and edge.object_id == exclude_entity_id
+                for edge in store.triple_repo.get_edges_from(
+                    resolved.id, predicate="mentions", where=scope
+                )
+            ):
                 return {"nodes": [], "limit": limit, "count": 0}
             if exclude_category_id and exclude_category_id in node.get("category_ids", []):
                 return {"nodes": [], "limit": limit, "count": 0}

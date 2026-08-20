@@ -4,6 +4,7 @@ import json
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
+from threading import Event, Lock
 from types import SimpleNamespace
 
 import numpy as np
@@ -1247,6 +1248,10 @@ def test_graph_search_exact_memory_reference_is_scoped_active_and_skips_embeddin
     entity_excluded_out = asyncio.run(
         service.graph_search(f"M{active.memory_ref}", where=scope, exclude_entity_id=entity.id)
     )
+    store.entity_repo.update(entity.id, where=scope, property_updates={"ignored": True})
+    ignored_entity_excluded_out = asyncio.run(
+        service.graph_search(f"M{active.memory_ref}", where=scope, exclude_entity_id=entity.id)
+    )
     category_excluded_out = asyncio.run(
         service.graph_search(f"M{active.memory_ref}", where=scope, exclude_category_id=category.id)
     )
@@ -1255,6 +1260,7 @@ def test_graph_search_exact_memory_reference_is_scoped_active_and_skips_embeddin
     )
     assert inactive_out["nodes"] == []
     assert entity_excluded_out["nodes"] == []
+    assert ignored_entity_excluded_out["nodes"] == []
     assert category_excluded_out["nodes"] == []
     assert other_scope_out["nodes"] == []
 
@@ -1882,8 +1888,10 @@ def test_graph_category_membership_rolls_back_and_serializes_concurrent_writers(
     service._graph_active_category_ids = lambda _where: {category.id}  # type: ignore[method-assign]
 
     original_update = store.memory_category_repo.update_category
+    before_failure = store.memory_category_repo.list_categories(scope)[category.id]
 
-    def fail_update(**_kwargs):
+    def fail_update(**kwargs):
+        original_update(**kwargs)
         raise RuntimeError("injected")
 
     monkeypatch.setattr(store.memory_category_repo, "update_category", fail_update)
@@ -1899,7 +1907,40 @@ def test_graph_category_membership_rolls_back_and_serializes_concurrent_writers(
         relation.category_id == category.id and relation.item_id == first.id
         for relation in store.category_item_repo.list_relations(scope)
     )
+    after_failure = store.memory_category_repo.list_categories(scope)[category.id]
+    assert after_failure.updated_at == before_failure.updated_at
+    assert after_failure.last_evidence_at == before_failure.last_evidence_at
     monkeypatch.setattr(store.memory_category_repo, "update_category", original_update)
+
+    original_list_categories = store.memory_category_repo.list_categories
+    first_inside = Event()
+    second_started = Event()
+    release_first = Event()
+    overlap = Event()
+    gate_lock = Lock()
+    first_claimed = False
+    inside = 0
+
+    def gated_list_categories(where=None, *, session=None):
+        nonlocal first_claimed, inside
+        if session is None:
+            return original_list_categories(where, session=session)
+        with gate_lock:
+            is_first = not first_claimed
+            first_claimed = True
+            inside += 1
+            if inside > 1:
+                overlap.set()
+        try:
+            if is_first:
+                first_inside.set()
+                assert release_first.wait(5), "timed out releasing first membership writer"
+            return original_list_categories(where, session=session)
+        finally:
+            with gate_lock:
+                inside -= 1
+
+    monkeypatch.setattr(store.memory_category_repo, "list_categories", gated_list_categories)
 
     def attach(memory_id: str) -> None:
         service.graph_set_category_membership(
@@ -1910,8 +1951,20 @@ def test_graph_category_membership_rolls_back_and_serializes_concurrent_writers(
             where=scope,
         )
 
+    def attach_second() -> None:
+        second_started.set()
+        attach(second.id)
+
     with ThreadPoolExecutor(max_workers=2) as executor:
-        list(executor.map(attach, (first.id, second.id)))
+        first_future = executor.submit(attach, first.id)
+        assert first_inside.wait(2), "first membership writer did not enter"
+        second_future = executor.submit(attach_second)
+        assert second_started.wait(2), "second membership writer did not start"
+        entered_concurrently = overlap.wait(0.2)
+        release_first.set()
+        first_future.result()
+        second_future.result()
+    assert not entered_concurrently
 
     linked_ids = {
         relation.item_id

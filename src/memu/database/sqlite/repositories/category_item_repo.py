@@ -209,11 +209,7 @@ class SQLiteCategoryItemRepo(SQLiteRepoBase, CategoryItemRepo):
         category_id: str,
         where: Mapping[str, Any],
     ) -> list[CategoryItem]:
-        relations = [
-            relation
-            for relation in self.list_relations(where)
-            if relation.category_id == category_id
-        ]
+        relations = self.list_relations({**where, "category_id": category_id})
         self.relations[:] = [
             relation for relation in self.relations if relation.category_id != category_id
         ]
