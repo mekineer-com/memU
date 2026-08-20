@@ -1273,7 +1273,7 @@ def test_graph_search_memory_only_excludes_linked_items_before_limit():
     store.category_item_repo.link_item_category(dossier_member.id, category.id, scope)
     visible = store.memory_item_repo.create_item(
         memory_type="knowledge",
-        summary="Needle visible literal",
+        summary="Needle visible literal with enough extra words to rank below concise linked matches",
         embedding=[1.0],
         user_data=scope,
     )
