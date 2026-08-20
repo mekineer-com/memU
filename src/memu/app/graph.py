@@ -1458,6 +1458,33 @@ class GraphMixin:
         limit = max(1, min(int(limit or 5), 20))
         scope = dict(where or {})
 
+        if memory_ref := _normalize_search_memory_ref(query):
+            if exclude_entity_id and not store.entity_repo.list_by_ids({exclude_entity_id}, scope):
+                raise ValueError("excluded entity not found in scope")
+            if (
+                exclude_category_id
+                and exclude_category_id not in store.memory_category_repo.list_categories(scope)
+            ):
+                raise ValueError("excluded category not found in scope")
+            try:
+                resolved = self.resolve_memory_ref(memory_ref, scope)
+            except KeyError:
+                return {"nodes": [], "limit": limit, "count": 0}
+            node = self.graph_memory(f"memory:{resolved.id}", where=scope)
+            if node is None:
+                return {"nodes": [], "limit": limit, "count": 0}
+            if since_days is not None:
+                cutoff = datetime.now(UTC) - timedelta(days=max(1, int(since_days)))
+                when = _utc(resolved.happened_at or resolved.created_at)
+                if when is None or when < cutoff:
+                    return {"nodes": [], "limit": limit, "count": 0}
+            if exclude_entity_id and f"entity:{exclude_entity_id}" in node.get("entity_ids", []):
+                return {"nodes": [], "limit": limit, "count": 0}
+            if exclude_category_id and exclude_category_id in node.get("category_ids", []):
+                return {"nodes": [], "limit": limit, "count": 0}
+            node["score"] = 1.0
+            return {"nodes": [node], "limit": limit, "count": 1}
+
         pool = store.memory_item_repo.list_items(scope)
         categories = store.memory_category_repo.list_categories(scope)
         relations = store.category_item_repo.list_relations(scope)
@@ -1479,16 +1506,6 @@ class GraphMixin:
         if excluded_ids:
             pool = {item_id: item for item_id, item in pool.items() if item_id not in excluded_ids}
 
-        exact_item = None
-        if memory_ref := _normalize_search_memory_ref(query):
-            try:
-                resolved = self.resolve_memory_ref(memory_ref, scope)
-            except KeyError:
-                return {"nodes": [], "limit": limit, "count": 0}
-            exact_item = store.memory_item_repo.list_items_by_ids({resolved.id}, scope).get(resolved.id)
-            if exact_item is None:
-                return {"nodes": [], "limit": limit, "count": 0}
-
         if since_days is not None:
             cutoff = datetime.now(UTC) - timedelta(days=max(1, int(since_days)))
             pool = {
@@ -1496,23 +1513,6 @@ class GraphMixin:
                 for item_id, item in pool.items()
                 if (when := _utc(item.happened_at or item.created_at)) is not None and when >= cutoff
             }
-        if exact_item is not None:
-            if exact_item.id not in pool:
-                return {"nodes": [], "limit": limit, "count": 0}
-            category_names = [
-                categories[rel.category_id].name
-                for rel in relations
-                if rel.item_id == exact_item.id and rel.category_id in categories
-            ]
-            category_ids = [
-                rel.category_id
-                for rel in relations
-                if rel.item_id == exact_item.id and rel.category_id in categories
-            ]
-            node = self._memory_node(exact_item, category_names=category_names, category_ids=category_ids)
-            node["score"] = 1.0
-            return {"nodes": [node], "limit": limit, "count": 1}
-
         search_categories = {} if memory_only else categories
         active_category_ids = self._graph_active_category_ids(scope) if search_categories else set()
         scores: dict[str, float] = {}

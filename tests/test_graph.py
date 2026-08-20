@@ -1207,6 +1207,15 @@ def test_graph_search_exact_memory_reference_is_scoped_active_and_skips_embeddin
         embedding=[1.0],
         user_data=scope,
     )
+    entity = store.entity_repo.create("Linked person", "person", scope)
+    category = store.memory_category_repo.get_or_create_category(
+        name="Linked dossier",
+        description="Linked dossier",
+        embedding=[1.0],
+        user_data=scope,
+    )
+    service.graph_attach_entity(active.id, entity.id, where=scope)
+    store.category_item_repo.link_item_category(active.id, category.id, scope)
     store.triple_repo.add(
         Triple(
             subject_id=inactive.id,
@@ -1222,6 +1231,9 @@ def test_graph_search_exact_memory_reference_is_scoped_active_and_skips_embeddin
         raise AssertionError("exact memory-reference search must not embed")
 
     service._select_embedding_client = _embedding_must_not_run  # type: ignore[method-assign]
+    service._get_database().memory_item_repo.list_items = lambda *_a, **_k: (_ for _ in ()).throw(
+        AssertionError("exact memory-reference search must not scan the memory pool")
+    )
     for query in (
         f"M{active.memory_ref}",
         f"m{active.memory_ref}",
@@ -1232,10 +1244,18 @@ def test_graph_search_exact_memory_reference_is_scoped_active_and_skips_embeddin
         assert [node["memory_id"] for node in out["nodes"]] == [active.id]
 
     inactive_out = asyncio.run(service.graph_search(f"M{inactive.memory_ref}", where=scope))
+    entity_excluded_out = asyncio.run(
+        service.graph_search(f"M{active.memory_ref}", where=scope, exclude_entity_id=entity.id)
+    )
+    category_excluded_out = asyncio.run(
+        service.graph_search(f"M{active.memory_ref}", where=scope, exclude_category_id=category.id)
+    )
     other_scope_out = asyncio.run(
         service.graph_search(f"M{active.memory_ref}", where={"user_id": "empty_scope", "soul_id": "s"})
     )
     assert inactive_out["nodes"] == []
+    assert entity_excluded_out["nodes"] == []
+    assert category_excluded_out["nodes"] == []
     assert other_scope_out["nodes"] == []
 
 
@@ -1254,7 +1274,7 @@ def test_graph_search_memory_only_excludes_linked_items_before_limit():
         user_data=scope,
     )
     linked = []
-    # More excluded matches than the old fixed 3x FTS over-fetch window.
+    # At limit=8, 40 concise exclusions fill the old 3x window; the longer visible row ranks last.
     for index in range(40):
         item = store.memory_item_repo.create_item(
             memory_type="knowledge",
