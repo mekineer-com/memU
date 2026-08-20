@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import logging
+import re
 from collections.abc import Iterable, Mapping
 from datetime import UTC, datetime, timedelta
 from time import perf_counter
@@ -19,6 +20,14 @@ SEMANTIC_PREDICATES = ["caused_by", "evokes", "conflicts_with", "parallels", "sh
 ENTITY_PROPERTY_KEYS = {"origin", "active", "relationship", "aliases", "source_refs", "ignored", "deleted_at"}
 ENTITY_TYPES = {"person", "topic", "place", "project"}
 logger = logging.getLogger(__name__)
+_DESCRIPTION_UNSET = object()
+
+
+def _normalize_search_memory_ref(value: str) -> str | None:
+    match = re.fullmatch(r"(?:[Mm]([1-9]\d*)|\[[Mm]([1-9]\d*)\])", value)
+    if match is None:
+        return None
+    return f"[M{match.group(1) or match.group(2)}]"
 
 
 class EntityMergeConflictError(ValueError):
@@ -456,18 +465,33 @@ class GraphMixin:
         name: str | None = None,
         entity_type: str | None = None,
         aliases: list[str] | None = None,
+        description: Any = _DESCRIPTION_UNSET,
         where: Mapping[str, Any],
     ) -> dict[str, Any] | None:
         clean_type = str(entity_type or "").strip().lower() if entity_type is not None else None
         if clean_type is not None and clean_type not in ENTITY_TYPES:
             raise ValueError("entity_type must be person/topic/place/project")
+        store = self._get_database()
+        property_updates = None
+        property_removals = None
+        if description is not _DESCRIPTION_UNSET:
+            matches = store.entity_repo.list_by_ids({entity_id}, where)
+            if not matches:
+                return None
+            if (matches[0].properties or {}).get("origin") == "user_declared":
+                raise ValueError("Relationship prose must be edited through the Relationship route")
+            clean_description = str(description or "").strip()
+            property_updates = {"relationship": clean_description} if clean_description else None
+            property_removals = None if clean_description else {"relationship"}
         try:
-            entity = self._get_database().entity_repo.update(
+            entity = store.entity_repo.update(
                 entity_id,
                 where=where,
                 name=name,
                 entity_type=clean_type,
                 aliases=aliases,
+                property_updates=property_updates,
+                property_removals=property_removals,
             )
         except KeyError:
             return None
@@ -1269,6 +1293,9 @@ class GraphMixin:
         limit: int = 5,
         mode: str = "hybrid",
         since_days: int | None = None,
+        memory_only: bool = False,
+        exclude_entity_id: str | None = None,
+        exclude_category_id: str | None = None,
     ) -> dict[str, Any]:
         query = str(query or "").strip()
         if not query:
@@ -1278,10 +1305,39 @@ class GraphMixin:
             raise ValueError("mode must be keyword, semantic, or hybrid")
         store = self._get_database()
         limit = max(1, min(int(limit or 5), 20))
+        scope = dict(where or {})
 
-        pool = store.memory_item_repo.list_items(where)
-        categories = store.memory_category_repo.list_categories(where)
-        active_category_ids = self._graph_active_category_ids(where) if categories else set()
+        exact_item = None
+        if memory_ref := _normalize_search_memory_ref(query):
+            try:
+                resolved = self.resolve_memory_ref(memory_ref, scope)
+            except KeyError:
+                return {"nodes": [], "limit": limit, "count": 0}
+            exact_item = store.memory_item_repo.list_items_by_ids({resolved.id}, scope).get(resolved.id)
+            if exact_item is None:
+                return {"nodes": [], "limit": limit, "count": 0}
+
+        pool = store.memory_item_repo.list_items(scope)
+        categories = store.memory_category_repo.list_categories(scope)
+        relations = store.category_item_repo.list_relations(scope)
+        excluded_ids: set[str] = set()
+        if exclude_entity_id:
+            if not store.entity_repo.list_by_ids({exclude_entity_id}, scope):
+                raise ValueError("excluded entity not found in scope")
+            excluded_ids.update(
+                edge.subject_id
+                for edge in store.triple_repo.list_edges_for_memories(pool, {"mentions"}, scope)
+                if edge.subject_kind == "memory"
+                and edge.object_kind == "entity"
+                and edge.object_id == exclude_entity_id
+            )
+        if exclude_category_id:
+            if exclude_category_id not in categories:
+                raise ValueError("excluded category not found in scope")
+            excluded_ids.update(rel.item_id for rel in relations if rel.category_id == exclude_category_id)
+        if excluded_ids:
+            pool = {item_id: item for item_id, item in pool.items() if item_id not in excluded_ids}
+
         if since_days is not None:
             cutoff = datetime.now(UTC) - timedelta(days=max(1, int(since_days)))
             pool = {
@@ -1289,6 +1345,25 @@ class GraphMixin:
                 for item_id, item in pool.items()
                 if (when := _utc(item.happened_at or item.created_at)) is not None and when >= cutoff
             }
+        if exact_item is not None:
+            if exact_item.id not in pool:
+                return {"nodes": [], "limit": limit, "count": 0}
+            category_names = [
+                categories[rel.category_id].name
+                for rel in relations
+                if rel.item_id == exact_item.id and rel.category_id in categories
+            ]
+            category_ids = [
+                rel.category_id
+                for rel in relations
+                if rel.item_id == exact_item.id and rel.category_id in categories
+            ]
+            node = self._memory_node(exact_item, category_names=category_names, category_ids=category_ids)
+            node["score"] = 1.0
+            return {"nodes": [node], "limit": limit, "count": 1}
+
+        search_categories = {} if memory_only else categories
+        active_category_ids = self._graph_active_category_ids(scope) if search_categories else set()
         scores: dict[str, float] = {}
         category_scores: dict[str, float] = {}
         if mode in {"keyword", "hybrid"}:
@@ -1306,14 +1381,13 @@ class GraphMixin:
                 scores[item_id] = max(scores.get(item_id, 0.0), float(score))
             for category_id, score in cosine_topk(
                 query_vec,
-                ((category.id, category.embedding) for category in categories.values()),
+                ((category.id, category.embedding) for category in search_categories.values()),
                 k=limit,
             ):
                 if score <= 0:
                     continue
                 category_scores[category_id] = max(category_scores.get(category_id, 0.0), float(score))
 
-        relations = store.category_item_repo.list_relations(where)
         category_names_by_item: dict[str, list[str]] = {item_id: [] for item_id in scores}
         category_ids_by_item: dict[str, list[str]] = {item_id: [] for item_id in scores}
         for rel in relations:
@@ -1332,7 +1406,7 @@ class GraphMixin:
             nodes.append(node)
         if mode in {"keyword", "hybrid"}:
             query_lower = query.lower()
-            for category in categories.values():
+            for category in search_categories.values():
                 text = " ".join([category.name or "", category.summary or "", category.description or ""]).lower()
                 if query_lower in text:
                     category_scores[category.id] = max(category_scores.get(category.id, 0.0), 1.0)

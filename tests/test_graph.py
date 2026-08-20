@@ -306,6 +306,55 @@ def test_graph_atomic_entities_returns_scoped_counts_and_chronological_detail():
     assert service.graph_atomic_entity("missing", where=scope) is None
 
 
+def test_graph_update_entity_sets_and_clears_description_without_promotion():
+    service = MemoryService(
+        database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
+        user_config={"model": GraphScope},
+    )
+    store = service._get_database()
+    scope = {"user_id": "entity_description", "soul_id": "s"}
+    entity = store.entity_repo.create(
+        "Baileys",
+        "project",
+        scope,
+        properties={"origin": "extracted", "active": True, "aliases": ["Baileys library"]},
+    )
+    memory = store.memory_item_repo.create_item(
+        memory_type="knowledge",
+        summary="Baileys connects to WhatsApp.",
+        embedding=[0.1],
+        user_data=scope,
+    )
+    service.graph_attach_entity(memory.id, entity.id, where=scope)
+
+    updated = service.graph_update_entity(entity.id, description="  WhatsApp integration library  ", where=scope)
+    assert updated is not None
+    assert updated["properties"] == {
+        "origin": "extracted",
+        "active": True,
+        "aliases": ["Baileys library"],
+        "relationship": "WhatsApp integration library",
+    }
+    assert updated["name"] == "Baileys"
+    assert updated["entity_type"] == "project"
+    assert updated["linked_memory_count"] == 1
+
+    cleared = service.graph_update_entity(entity.id, description=" ", where=scope)
+    assert cleared is not None
+    assert "relationship" not in cleared["properties"]
+    assert cleared["properties"]["origin"] == "extracted"
+    assert cleared["properties"]["active"] is True
+
+    relationship = store.entity_repo.create(
+        "Friend",
+        "person",
+        scope,
+        properties={"origin": "user_declared", "active": True, "relationship": "friend"},
+    )
+    with pytest.raises(ValueError, match="Relationship route"):
+        service.graph_update_entity(relationship.id, description="changed", where=scope)
+
+
 def test_graph_merge_entities_moves_references_and_preserves_alias_identity():
     service = MemoryService(
         database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
@@ -1108,6 +1157,121 @@ def test_graph_search_requires_query():
 
     with pytest.raises(ValueError, match="query is required"):
         asyncio.run(service.graph_search(" ", where={"user_id": "u", "soul_id": "s"}))
+
+
+def test_graph_search_exact_memory_reference_is_scoped_active_and_skips_embedding():
+    service = MemoryService(
+        database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
+        user_config={"model": GraphScope},
+    )
+    store = service._get_database()
+    scope = {"user_id": "exact_ref", "soul_id": "s"}
+    active = store.memory_item_repo.create_item(
+        memory_type="knowledge",
+        summary="Exact active memory",
+        embedding=[1.0],
+        user_data=scope,
+    )
+    inactive = store.memory_item_repo.create_item(
+        memory_type="knowledge",
+        summary="Old memory",
+        embedding=[1.0],
+        user_data=scope,
+    )
+    successor = store.memory_item_repo.create_item(
+        memory_type="knowledge",
+        summary="New memory",
+        embedding=[1.0],
+        user_data=scope,
+    )
+    store.triple_repo.add(
+        Triple(
+            subject_id=inactive.id,
+            subject_kind="memory",
+            predicate="evolved_into",
+            object_id=successor.id,
+            object_kind="memory",
+        ),
+        user_data=scope,
+    )
+
+    def _embedding_must_not_run(_ctx):
+        raise AssertionError("exact memory-reference search must not embed")
+
+    service._select_embedding_client = _embedding_must_not_run  # type: ignore[method-assign]
+    for query in (
+        f"M{active.memory_ref}",
+        f"m{active.memory_ref}",
+        f"[M{active.memory_ref}]",
+        f"[m{active.memory_ref}]",
+    ):
+        out = asyncio.run(service.graph_search(query, where=scope))
+        assert [node["memory_id"] for node in out["nodes"]] == [active.id]
+
+    inactive_out = asyncio.run(service.graph_search(f"M{inactive.memory_ref}", where=scope))
+    other_scope_out = asyncio.run(
+        service.graph_search(f"M{active.memory_ref}", where={"user_id": "empty_scope", "soul_id": "s"})
+    )
+    assert inactive_out["nodes"] == []
+    assert other_scope_out["nodes"] == []
+
+
+def test_graph_search_memory_only_excludes_linked_items_before_limit():
+    service = MemoryService(
+        database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
+        user_config={"model": GraphScope},
+    )
+    store = service._get_database()
+    scope = {"user_id": "curation_search", "soul_id": "s"}
+    entity = store.entity_repo.create("Person", "person", scope)
+    category = store.memory_category_repo.get_or_create_category(
+        name="Needle dossier",
+        description="Needle category",
+        embedding=[1.0],
+        user_data=scope,
+    )
+    linked = []
+    for index in range(10):
+        item = store.memory_item_repo.create_item(
+            memory_type="knowledge",
+            summary=f"Needle linked memory {index}",
+            embedding=[1.0],
+            user_data=scope,
+        )
+        service.graph_attach_entity(item.id, entity.id, where=scope)
+        linked.append(item)
+    dossier_member = store.memory_item_repo.create_item(
+        memory_type="knowledge",
+        summary="Needle dossier member",
+        embedding=[1.0],
+        user_data=scope,
+    )
+    store.category_item_repo.link_item_category(dossier_member.id, category.id, scope)
+    visible = store.memory_item_repo.create_item(
+        memory_type="knowledge",
+        summary="Needle visible literal",
+        embedding=[1.0],
+        user_data=scope,
+    )
+
+    out = asyncio.run(
+        service.graph_search(
+            "needle",
+            where=scope,
+            mode="keyword",
+            limit=8,
+            memory_only=True,
+            exclude_entity_id=entity.id,
+            exclude_category_id=category.id,
+        )
+    )
+
+    assert [node["memory_id"] for node in out["nodes"]] == [visible.id]
+    assert all(node["kind"] == "memory" for node in out["nodes"])
+    with pytest.raises(ValueError, match="excluded entity"):
+        asyncio.run(service.graph_search("needle", where=scope, exclude_entity_id="missing"))
+    with pytest.raises(ValueError, match="excluded category"):
+        asyncio.run(service.graph_search("needle", where=scope, exclude_category_id="missing"))
 
 
 def test_graph_search_drops_unrelated_vector_only_hits():
