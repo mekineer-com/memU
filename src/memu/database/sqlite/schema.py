@@ -89,6 +89,9 @@ def get_sqlite_sqlalchemy_models(*, scope_model: type[BaseModel] | None = None) 
         SQLiteCategoryItemModel,
         tablename="category_items",
         metadata=metadata_obj,
+        extra_table_args=(
+            Index("ix_category_items__category_scoped", *scope_fields, "category_id"),
+        ),
     )
     dossier_candidate_model = build_sqlite_table_model(
         scope,

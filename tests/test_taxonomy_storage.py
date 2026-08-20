@@ -90,6 +90,7 @@ def test_legacy_reopen_adds_schema_without_assigning_taxonomy(tmp_path) -> None:
             "ix_categories__activity_scoped",
             "ix_categories__anchor_scoped",
             "ix_categories__entity_scoped",
+            "ix_category_items__category_scoped",
             "ix_memory_items__ref_scoped",
         ):
             conn.execute(f"DROP INDEX {name}")
@@ -105,6 +106,15 @@ def test_legacy_reopen_adds_schema_without_assigning_taxonomy(tmp_path) -> None:
     assert restored_item is not None and restored_item.summary == "unchanged" and restored_item.memory_ref is None
     assert restored_category.name == "legacy" and restored_category.kind is None
     assert reopened.dossier_candidate_repo.list_candidates(SCOPE) == []
+    with reopened._sessions.engine.connect() as conn:
+        index_names = {row[1] for row in conn.exec_driver_sql("PRAGMA index_list(category_items)")}
+        query_plan = conn.exec_driver_sql(
+            "EXPLAIN QUERY PLAN SELECT * FROM category_items "
+            "WHERE user_id = ? AND soul_id = ? AND category_id = ?",
+            (SCOPE["user_id"], SCOPE["soul_id"], category.id),
+        ).fetchall()
+    assert "ix_category_items__category_scoped" in index_names
+    assert "ix_category_items__category_scoped" in str(query_plan)
     reopened.close()
 
     reopened_again = _store(tmp_path, path.name)

@@ -1312,7 +1312,7 @@ def test_graph_search_memory_only_excludes_linked_items_before_limit():
             limit=8,
             memory_only=True,
             exclude_entity_id=entity.id,
-            exclude_category_id=category.id,
+            exclude_category_id=f"category:{category.id}",
         )
     )
 

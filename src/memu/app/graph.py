@@ -1457,6 +1457,10 @@ class GraphMixin:
         store = self._get_database()
         limit = max(1, min(int(limit or 5), 20))
         scope = dict(where or {})
+        exclude_entity_id = exclude_entity_id.removeprefix("entity:") if exclude_entity_id else None
+        exclude_category_id = (
+            exclude_category_id.removeprefix("category:") if exclude_category_id else None
+        )
 
         if memory_ref := _normalize_search_memory_ref(query):
             if exclude_entity_id and not store.entity_repo.list_by_ids({exclude_entity_id}, scope):

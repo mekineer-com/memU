@@ -306,6 +306,7 @@ ON memory_item_edit_history(memory_item_id, edited_at)
             "ix_categories__activity_scoped",
             "ix_categories__anchor_scoped",
             "ix_categories__entity_scoped",
+            "ix_category_items__category_scoped",
             "ix_dossier_candidates__unique_scoped",
             "ix_memory_items__ref_scoped",
             "ix_memory_ref_counters__unique_scoped",
@@ -313,6 +314,7 @@ ON memory_item_edit_history(memory_item_id, edited_at)
         with self._sessions.engine.begin() as conn:
             for table in (
                 self._sqla_models.MemoryCategory.__table__,
+                self._sqla_models.CategoryItem.__table__,
                 self._sqla_models.MemoryItem.__table__,
                 self._sqla_models.DossierCandidate.__table__,
                 self._sqla_models.MemoryRefCounter.__table__,
