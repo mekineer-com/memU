@@ -314,7 +314,7 @@ def test_graph_atomic_entities_returns_scoped_counts_and_chronological_detail():
     assert service.graph_atomic_entity("missing", where=scope) is None
 
 
-def test_graph_update_entity_sets_and_clears_description_without_promotion(monkeypatch):
+def test_graph_entity_free_type_and_ordinary_save_clears_legacy_description(monkeypatch):
     service = MemoryService(
         database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
         user_config={"model": GraphScope},
@@ -325,7 +325,12 @@ def test_graph_update_entity_sets_and_clears_description_without_promotion(monke
         "Baileys",
         "project",
         scope,
-        properties={"origin": "extracted", "active": True, "aliases": ["Baileys library"]},
+        properties={
+            "origin": "extracted",
+            "active": True,
+            "aliases": ["Baileys library"],
+            "relationship": "Deprecated WhatsApp integration library",
+        },
     )
     memory = store.memory_item_repo.create_item(
         memory_type="knowledge",
@@ -350,24 +355,27 @@ def test_graph_update_entity_sets_and_clears_description_without_promotion(monke
     monkeypatch.setattr(store.entity_repo, "list_by_ids", record_list_by_ids)
     monkeypatch.setattr(store.entity_repo, "update", record_update)
 
-    updated = service.graph_update_entity(entity.id, description="  WhatsApp integration library  ", where=scope)
+    updated = service.graph_update_entity(
+        entity.id,
+        entity_type="  WhatsApp integration library  ",
+        where=scope,
+    )
     assert updated is not None
     assert updated["properties"] == {
         "origin": "extracted",
         "active": True,
         "aliases": ["Baileys library"],
-        "relationship": "WhatsApp integration library",
     }
     assert updated["name"] == "Baileys"
-    assert updated["entity_type"] == "project"
+    assert updated["entity_type"] == "WhatsApp integration library"
     assert updated["linked_memory_count"] == 1
     assert sessions[0] is not None and sessions[0] is sessions[1]
 
-    cleared = service.graph_update_entity(entity.id, description=" ", where=scope)
-    assert cleared is not None
-    assert "relationship" not in cleared["properties"]
-    assert cleared["properties"]["origin"] == "extracted"
-    assert cleared["properties"]["active"] is True
+    created = service.graph_create_entity("Baileys successor", "  Custom Library  ", where=scope)
+    assert created["entity_type"] == "Custom Library"
+
+    with pytest.raises(ValueError, match="entity_type is required"):
+        service.graph_update_entity(entity.id, entity_type=" ", where=scope)
 
     relationship = store.entity_repo.create(
         "Friend",
@@ -376,7 +384,7 @@ def test_graph_update_entity_sets_and_clears_description_without_promotion(monke
         properties={"origin": "user_declared", "active": True, "relationship": "friend"},
     )
     with pytest.raises(ValueError, match="Relationship route"):
-        service.graph_update_entity(relationship.id, description="changed", where=scope)
+        service.graph_update_entity(relationship.id, name="Changed", where=scope)
 
 
 def test_graph_merge_entities_moves_references_and_preserves_alias_identity():

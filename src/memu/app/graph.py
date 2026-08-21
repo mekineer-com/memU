@@ -19,9 +19,7 @@ from memu.utils.taxonomy import DOSSIER_KINDS
 
 SEMANTIC_PREDICATES = ["caused_by", "evokes", "conflicts_with", "parallels", "shaped_by"]
 ENTITY_PROPERTY_KEYS = {"origin", "active", "relationship", "aliases", "source_refs", "ignored", "deleted_at"}
-ENTITY_TYPES = {"person", "topic", "place", "project"}
 logger = logging.getLogger(__name__)
-_DESCRIPTION_UNSET = object()
 
 
 def _normalize_search_memory_ref(value: str) -> int | None:
@@ -496,11 +494,11 @@ class GraphMixin:
         where: Mapping[str, Any],
     ) -> dict[str, Any]:
         clean_name = str(name or "").strip()
-        clean_type = str(entity_type or "").strip().lower()
+        clean_type = str(entity_type or "").strip()
         if not clean_name:
             raise ValueError("entity name is required")
-        if clean_type not in ENTITY_TYPES:
-            raise ValueError("entity_type must be person/topic/place/project")
+        if not clean_type:
+            raise ValueError("entity_type is required")
         properties = {"aliases": aliases} if aliases else None
         entity = self._get_database().entity_repo.create(
             clean_name,
@@ -517,41 +515,27 @@ class GraphMixin:
         name: str | None = None,
         entity_type: str | None = None,
         aliases: list[str] | None = None,
-        description: Any = _DESCRIPTION_UNSET,
         where: Mapping[str, Any],
     ) -> dict[str, Any] | None:
-        clean_type = str(entity_type or "").strip().lower() if entity_type is not None else None
-        if clean_type is not None and clean_type not in ENTITY_TYPES:
-            raise ValueError("entity_type must be person/topic/place/project")
+        clean_type = str(entity_type or "").strip() if entity_type is not None else None
+        if clean_type is not None and not clean_type:
+            raise ValueError("entity_type is required")
         store = self._get_database()
-        clean_description = (
-            str(description or "").strip() if description is not _DESCRIPTION_UNSET else None
-        )
-        property_updates = {"relationship": clean_description} if clean_description else None
-        property_removals = (
-            {"relationship"}
-            if description is not _DESCRIPTION_UNSET and not clean_description
-            else None
-        )
         with store._sessions.session() as session:
             session.execute(text("BEGIN IMMEDIATE"))
             with store.entity_repo.write_lock():
                 matches = store.entity_repo.list_by_ids({entity_id}, where, session=session)
                 if not matches:
                     return None
-                if (
-                    description is not _DESCRIPTION_UNSET
-                    and (matches[0].properties or {}).get("origin") == "user_declared"
-                ):
-                    raise ValueError("Relationship prose must be edited through the Relationship route")
+                if (matches[0].properties or {}).get("origin") == "user_declared":
+                    raise ValueError("Relationships must be edited through the Relationship route")
                 entity = store.entity_repo.update(
                     entity_id,
                     where=where,
                     name=name,
                     entity_type=clean_type,
                     aliases=aliases,
-                    property_updates=property_updates,
-                    property_removals=property_removals,
+                    property_removals={"relationship"},
                     session=session,
                 )
                 session.commit()
