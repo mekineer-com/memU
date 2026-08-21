@@ -314,7 +314,7 @@ def test_graph_atomic_entities_returns_scoped_counts_and_chronological_detail():
     assert service.graph_atomic_entity("missing", where=scope) is None
 
 
-def test_graph_entity_free_type_and_ordinary_save_clears_legacy_description(monkeypatch):
+def test_graph_entity_free_type_and_relationship_route_guard(monkeypatch):
     service = MemoryService(
         database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
         user_config={"model": GraphScope},
@@ -325,12 +325,7 @@ def test_graph_entity_free_type_and_ordinary_save_clears_legacy_description(monk
         "Baileys",
         "project",
         scope,
-        properties={
-            "origin": "extracted",
-            "active": True,
-            "aliases": ["Baileys library"],
-            "relationship": "Deprecated WhatsApp integration library",
-        },
+        properties={"origin": "extracted", "active": True, "aliases": ["Baileys library"]},
     )
     memory = store.memory_item_repo.create_item(
         memory_type="knowledge",

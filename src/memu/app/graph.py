@@ -535,7 +535,6 @@ class GraphMixin:
                     name=name,
                     entity_type=clean_type,
                     aliases=aliases,
-                    property_removals={"relationship"},
                     session=session,
                 )
                 session.commit()
