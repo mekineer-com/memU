@@ -179,11 +179,14 @@ def test_entity_type_casing_does_not_duplicate_or_break_speaker_binding(service:
     second = repo.get_or_create("Case Person", "Person", scope)
     repo.update(first.id, where=scope, aliases=["Case Alias"])
     alias_match = repo.get_or_create("Case Alias", "PERSON", scope)
+    unicode_first = repo.get_or_create("Unicode Type", "Ação", scope)
+    unicode_match = repo.get_or_create("Unicode Type", "AÇÃO", scope)
     entities = repo.list_all(scope)
 
     assert second.id == first.id
     assert alias_match.id == first.id
-    assert len(entities) == 1
+    assert unicode_match.id == unicode_first.id
+    assert len(entities) == 2
     assert speakers._build_entity_speaker_ids(entities)["case_person"] == f"entity:{first.id}"
 
 

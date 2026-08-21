@@ -82,16 +82,13 @@ class SQLiteEntityRepo(SQLiteRepoBase, EntityRepo):
         create_scope: Mapping[str, Any],
         session: Any,
     ) -> Entity:
-        stmt = select(self._entity_model).where(
-            self._entity_model.normalized == normalized,
-            self._entity_model.entity_type.collate("NOCASE") == entity_type,
-        )
+        stmt = select(self._entity_model).where(self._entity_model.normalized == normalized)
         filters = self._build_filters(self._entity_model, where)
         if filters:
             stmt = stmt.where(*filters)
-        row = session.exec(stmt).first()
-        if row is not None:
-            return self._row_to_entity(row)
+        for row in session.exec(stmt).all():
+            if row.entity_type.casefold() == entity_type.casefold():
+                return self._row_to_entity(row)
 
         # ponytail: aliases live in JSON, so rare name misses scan one soul's entities.
         alias_matches = []
