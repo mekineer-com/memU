@@ -171,6 +171,22 @@ def test_source_ref_binding_is_atomic_and_survives_display_name_change(service: 
     }
 
 
+def test_entity_type_casing_does_not_duplicate_or_break_speaker_binding(service: MemoryService) -> None:
+    scope = {"user_id": "type-case-user", "soul_id": "type-case-soul"}
+    repo = service._get_database().entity_repo
+
+    first = repo.get_or_create("Case Person", "person", scope)
+    second = repo.get_or_create("Case Person", "Person", scope)
+    repo.update(first.id, where=scope, aliases=["Case Alias"])
+    alias_match = repo.get_or_create("Case Alias", "PERSON", scope)
+    entities = repo.list_all(scope)
+
+    assert second.id == first.id
+    assert alias_match.id == first.id
+    assert len(entities) == 1
+    assert speakers._build_entity_speaker_ids(entities)["case_person"] == f"entity:{first.id}"
+
+
 def test_attribute_memory_fills_when_unambiguous(service: MemoryService) -> None:
     speaker_map = {7: ("user:marcos", "Marcos")}
     attributed = service._attribute_memory(_entry(source_role="user", source_message_ids=[7]), speaker_map)

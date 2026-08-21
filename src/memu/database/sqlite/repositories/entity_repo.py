@@ -84,7 +84,7 @@ class SQLiteEntityRepo(SQLiteRepoBase, EntityRepo):
     ) -> Entity:
         stmt = select(self._entity_model).where(
             self._entity_model.normalized == normalized,
-            self._entity_model.entity_type == entity_type,
+            self._entity_model.entity_type.collate("NOCASE") == entity_type,
         )
         filters = self._build_filters(self._entity_model, where)
         if filters:
@@ -99,7 +99,7 @@ class SQLiteEntityRepo(SQLiteRepoBase, EntityRepo):
         if filters:
             alias_stmt = alias_stmt.where(*filters)
         for candidate in session.exec(alias_stmt).all():
-            if candidate.entity_type != entity_type:
+            if candidate.entity_type.casefold() != entity_type.casefold():
                 continue
             aliases = (candidate.properties or {}).get("aliases", [])
             if isinstance(aliases, list) and any(

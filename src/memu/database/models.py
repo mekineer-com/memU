@@ -26,7 +26,7 @@ class BaseRecord(BaseModel):
 
 
 class Entity(BaseRecord):
-    """A named entity: person, topic, place, project."""
+    """A named entity with a free-text type."""
     name: str
     entity_type: str
     normalized: str  # lowercase, underscores -- for fast lookup

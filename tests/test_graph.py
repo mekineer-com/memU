@@ -273,6 +273,18 @@ def test_graph_atomic_entities_returns_scoped_counts_and_chronological_detail():
     scope = {"user_id": "entity_reader", "soul_id": "s"}
     linked_entity = store.entity_repo.get_or_create("Annie Gottlieb", "person", scope)
     orphan = store.entity_repo.get_or_create("Chiclayo", "place", scope)
+    stale = store.entity_repo.create(
+        "Legacy ordinary",
+        "topic",
+        scope,
+        properties={"origin": "extracted", "relationship": "stale Slice-A text"},
+    )
+    inactive_relationship = store.entity_repo.create(
+        "Legacy relationship",
+        "person",
+        scope,
+        properties={"origin": "user_declared", "active": False, "relationship": "friend"},
+    )
     store.entity_repo.get_or_create("Other soul", "person", {"user_id": "other", "soul_id": "s"})
     later = store.memory_item_repo.create_item(
         memory_type="social",
@@ -303,11 +315,14 @@ def test_graph_atomic_entities_returns_scoped_counts_and_chronological_detail():
     listing = service.graph_atomic_entities(where=scope)
     detail = service.graph_atomic_entity(linked_entity.id, where=scope)
 
-    assert listing["total_count"] == 2
+    assert listing["total_count"] == 4
     by_id = {entity["id"]: entity for entity in listing["entities"]}
     assert by_id[linked_entity.id]["linked_memory_count"] == 2
     assert by_id[linked_entity.id]["last_mentioned_at"].startswith("2026-07-02")
     assert by_id[orphan.id]["orphan"] is True
+    assert "relationship" not in by_id[stale.id]["properties"]
+    assert by_id[inactive_relationship.id]["is_relationship"] is True
+    assert by_id[inactive_relationship.id]["properties"]["active"] is False
     assert detail is not None
     assert [memory["summary"] for memory in detail["memories"]] == ["An earlier memory", "A later memory"]
     assert all(memory["memory_ref"].startswith("[M") for memory in detail["memories"])
@@ -358,7 +373,6 @@ def test_graph_entity_free_type_and_relationship_route_guard(monkeypatch):
     assert updated is not None
     assert updated["properties"] == {
         "origin": "extracted",
-        "active": True,
         "aliases": ["Baileys library"],
     }
     assert updated["name"] == "Baileys"
@@ -378,8 +392,16 @@ def test_graph_entity_free_type_and_relationship_route_guard(monkeypatch):
         scope,
         properties={"origin": "user_declared", "active": True, "relationship": "friend"},
     )
-    with pytest.raises(ValueError, match="Relationship route"):
-        service.graph_update_entity(relationship.id, name="Changed", where=scope)
+    changed = service.graph_update_entity(
+        relationship.id,
+        name="Changed",
+        entity_type="Close friend",
+        where=scope,
+    )
+    assert changed is not None
+    assert changed["name"] == "Changed"
+    assert changed["entity_type"] == "Close friend"
+    assert changed["properties"]["relationship"] == "friend"
 
 
 def test_graph_merge_entities_moves_references_and_preserves_alias_identity():

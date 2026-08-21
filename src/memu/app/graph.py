@@ -18,7 +18,7 @@ from memu.database.vector import cosine_similarity, cosine_topk
 from memu.utils.taxonomy import DOSSIER_KINDS
 
 SEMANTIC_PREDICATES = ["caused_by", "evokes", "conflicts_with", "parallels", "shaped_by"]
-ENTITY_PROPERTY_KEYS = {"origin", "active", "relationship", "aliases", "source_refs", "ignored", "deleted_at"}
+ENTITY_PROPERTY_KEYS = {"origin", "active", "relationship", "aliases", "source_refs", "ignored"}
 logger = logging.getLogger(__name__)
 
 
@@ -428,14 +428,19 @@ class GraphMixin:
                 default=None,
             )
             properties = entity.properties if isinstance(entity.properties, dict) else {}
+            is_relationship = properties.get("origin") == "user_declared"
+            visible_property_keys = ENTITY_PROPERTY_KEYS.copy()
+            if not is_relationship:
+                visible_property_keys -= {"active", "relationship"}
             rows.append({
                 "id": entity.id,
                 "atom_id": f"entity:{entity.id}",
                 "name": entity.name,
                 "normalized": entity.normalized,
                 "entity_type": entity.entity_type,
-                "properties": {key: properties[key] for key in ENTITY_PROPERTY_KEYS if key in properties},
-                "is_relationship": properties.get("origin") == "user_declared",
+                "properties": {key: properties[key] for key in visible_property_keys if key in properties},
+                # Legacy inactive rows stay visible here so the Entity Manager can remove them.
+                "is_relationship": is_relationship,
                 "ignored": properties.get("ignored") is True,
                 "linked_memory_count": len(linked),
                 "orphan": not linked,
@@ -527,8 +532,6 @@ class GraphMixin:
                 matches = store.entity_repo.list_by_ids({entity_id}, where, session=session)
                 if not matches:
                     return None
-                if (matches[0].properties or {}).get("origin") == "user_declared":
-                    raise ValueError("Relationships must be edited through the Relationship route")
                 entity = store.entity_repo.update(
                     entity_id,
                     where=where,
@@ -564,7 +567,7 @@ class GraphMixin:
                     raise KeyError(f"entity not found in scope: {entity_id}")
                 entity = matches[0]
                 if (entity.properties or {}).get("origin") == "user_declared":
-                    raise EntityActionConflictError(["Relationships use Deactivate and Restore"])
+                    raise EntityActionConflictError(["Remove the Relationship before ignoring this entity"])
                 store.entity_repo.update(
                     entity_id,
                     where=scope,
@@ -632,18 +635,16 @@ class GraphMixin:
         if (canonical_rel and canonical_props.get("active") is False) or (
             duplicate_rel and duplicate_props.get("active") is False
         ):
-            conflicts.append("Restore the inactive Relationship before merging")
+            conflicts.append("Remove the inactive Relationship before merging")
         if canonical_rel and duplicate_rel:
             if normalize_entity_name(canonical.name) != normalize_entity_name(duplicate.name):
                 conflicts.append("Relationship names differ")
             if canonical_props.get("relationship") != duplicate_props.get("relationship"):
                 conflicts.append("Relationship descriptions differ")
-            if canonical_props.get("active") != duplicate_props.get("active"):
-                conflicts.append("Relationship states differ")
         if canonical_props.get("ignored") != duplicate_props.get("ignored"):
             conflicts.append("Ignore states differ")
 
-        known = ENTITY_PROPERTY_KEYS
+        known = ENTITY_PROPERTY_KEYS | {"deleted_at"}
         for key in (set(canonical_props) | set(duplicate_props)) - known:
             if key in duplicate_props and (
                 key not in canonical_props or canonical_props[key] != duplicate_props[key]

@@ -93,7 +93,7 @@ Marcos-reviewed dossier prompts.
 | `memory_ref_counters` | scoped next `[M#]` value; owned by `memory_item_repo` |
 | `CategoryItem` | id, item_id, category_id |
 | `Resource` | id, url, modality, local_path, caption, embedding |
-| `Entity` | id, name, entity_type (person/topic/place/project), normalized, properties (JSON) |
+| `Entity` | id, name, free-text entity_type, normalized, properties (JSON) |
 | `Triple` | id, subject_id, subject_kind, predicate, object_id, object_kind, valid_from, valid_to (NULL=current), confidence, source_memory_id, properties (JSON) |
 | `memory_item_edit_history` | item_id, old_summary, new_summary, edited_at — append-only audit log |
 | `MemoryCategory.previous_summary` | stores summary before each overwrite |
