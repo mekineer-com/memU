@@ -40,10 +40,11 @@
 | `database/sqlite/repositories/entity_repo.py` | Scoped entity persistence, stable-ID edits, aliases, and source-reference lookup |
 | `database/sqlite/repositories/triple_repo.py` | Triple (graph edge) persistence and temporal queries |
 | `database/sqlite/repositories/dossier_candidate_repo.py` | Durable unresolved category proposals with idempotent create, review-consideration state, and atomic resolution |
+| `scripts/build-sqlite-vec.sh` | Builds the package-local `vec0.so` sqlite-vec extension |
 | `scripts/migrate-embeddings-to-blob.py` | Offline dry-run/backup/migration tool for converting one explicitly named stopped soul DB from legacy JSON TEXT embeddings to canonical float32 BLOBs |
 | `scripts/migrate-entity-speaker-ids.py` | One-time dry-run/backup migration from legacy name-derived entity speaker refs to stable entity IDs; archive after the release cutover |
 | `database/postgres/` | Removed |
-| `database/repositories/` | Backend-agnostic Protocol contracts: memory_item, memory_category, resource, entity, triple, category_item |
+| `database/repositories/` | Backend-agnostic Protocol contracts: memory_item, memory_category, resource, entity, triple, category_item, dossier_candidate |
 | `llm/wrapper.py` | LLM client factory — dispatches to backends |
 | `llm/http_client.py` | LLM HTTP client |
 | `llm/backends/` | Provider impls: `openai.py` (httpx-based, covers OpenAI-compatible APIs) |
