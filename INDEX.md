@@ -52,7 +52,7 @@
 | `embedding/` | Embedding client factory + backends (same pattern as llm/): `openai.py`, `doubao.py` |
 | `workflow/` | DAG runner: `step.py` (unit), `pipeline.py` (graph), `runner.py` (executor), `interceptor.py` (hook mechanism) |
 | `blob/local_fs.py` | Local filesystem media storage |
-| `utils/conversation.py` | Canonical source for all AI-facing chat display: `format_grouped_chat_history()`, platform/chat headings, date dividers, `My Activities:` always first. Used by turn_contract, consolidation, and memorize rendering. |
+| `utils/conversation.py` | Canonical source for all AI-facing chat display: `format_grouped_chat_history()`, ST/Atomic/WhatsApp/Smartglasses headings, date dividers, `My Activities:` always first. Used by turn_contract, consolidation, and memorize rendering. |
 | `utils/taxonomy.py` | Shared dossier kinds, scope/embedding validation, category-name normalization, and title/description identity text |
 | `utils/video.py` | Video processing utilities for frame extraction |
 

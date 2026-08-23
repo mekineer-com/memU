@@ -146,6 +146,8 @@ def _conversation_kind_and_key(conversation_id: str) -> tuple[str, str]:
         return ("whatsapp_dm", cid[len("whatsapp:dm:"):].strip())
     if cid.startswith("chat:atomic-"):
         return ("atomic_dm", cid[len("chat:atomic-"):].strip() or "atomic")
+    if cid.startswith("mentra:"):
+        return ("mentra_dm", cid[len("mentra:"):].strip() or "Smartglasses")
     if cid.startswith("sillytavern:"):
         return ("sillytavern_dm", cid[len("sillytavern:"):].strip() or "sillytavern")
     if cid.startswith("integrity:"):
@@ -206,6 +208,8 @@ def _conversation_heading(
     if kind == "atomic_dm":
         pretty = (chat_name or "").strip() or key or "Atomic"
         return f"[dm][{pretty}]"
+    if kind == "mentra_dm":
+        return f"[dm][{(chat_name or '').strip() or 'Smartglasses'}]"
     return f"[dm][{key or 'sillytavern'}]"
 
 
@@ -216,6 +220,8 @@ def _conversation_section_title(kind: str) -> str:
         return "My SillyTavern Conversations:"
     if kind.startswith("atomic_"):
         return "My Atomic Conversations:"
+    if kind.startswith("mentra_"):
+        return "My Smartglasses Conversations:"
     if kind.startswith("whatsapp_"):
         return "My WhatsApp Conversations:"
     return "My SillyTavern Conversations:"

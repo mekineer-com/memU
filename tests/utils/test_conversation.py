@@ -112,6 +112,21 @@ def test_atomic_chat_history_has_atomic_section() -> None:
     assert "My SillyTavern Conversations:" not in rendered
 
 
+def test_mentra_chat_history_has_smartglasses_section() -> None:
+    rendered = format_grouped_chat_history([
+        {
+            "conversation_id": "mentra:test-device",
+            "role": "assistant",
+            "speaker": "Codexia",
+            "content": "A fictional response.",
+            "chat_name": "Smartglasses",
+        },
+    ])
+    assert "My Smartglasses Conversations:" in rendered
+    assert "[dm][Smartglasses]" in rendered
+    assert "My SillyTavern Conversations:" not in rendered
+
+
 def test_dated_relative_time_label_includes_local_day() -> None:
     assert format_dated_relative_time_label(
         "2026-06-06T12:00:00+00:00",
