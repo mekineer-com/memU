@@ -593,7 +593,8 @@ class RetrieveMixin:
         captions = [
             (resource_id, str(resource.caption or "").strip())
             for resource_id, resource in resource_pool.items()
-            if str(resource.caption or "").strip()
+            if resource.modality in {"image", "audio", "video"}
+            and str(resource.caption or "").strip()
         ]
         if not visual_corpus and not captions:
             state["resource_hits"] = []

@@ -8,9 +8,9 @@ from memu.app.retrieve import RetrieveMixin
 @pytest.mark.asyncio
 async def test_resource_retrieval_fuses_visual_and_cached_caption_views() -> None:
     resources = {
-        "visual": SimpleNamespace(embedding=[1.0, 0.0], caption="other"),
-        "caption": SimpleNamespace(embedding=[0.0, 1.0], caption="target"),
-        "both": SimpleNamespace(embedding=[0.8, 0.2], caption="related"),
+        "visual": SimpleNamespace(modality="image", embedding=[1.0, 0.0], caption="other"),
+        "caption": SimpleNamespace(modality="image", embedding=[0.0, 1.0], caption="target"),
+        "both": SimpleNamespace(modality="image", embedding=[0.8, 0.2], caption="related"),
     }
     embedded: list[list[str]] = []
 
