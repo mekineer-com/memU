@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import os
 from collections.abc import Callable
 
@@ -73,7 +74,12 @@ class HTTPEmbeddingClient:
             resp.raise_for_status()
             data = resp.json()
         logger.debug("HTTP embedding response: %s", data)
-        return self.backend.parse_embedding_response(data)
+        vectors = self.backend.parse_embedding_response(data)
+        if len(vectors) != len(inputs):
+            raise ValueError("Embedding response count does not match input")
+        if any(not vector or not all(math.isfinite(value) for value in vector) for vector in vectors):
+            raise ValueError("Embedding response contains an invalid vector")
+        return vectors
 
     async def embed_media(self, data: bytes, mime_type: str) -> list[float]:
         build = getattr(self.backend, "build_media_embedding_payload", None)
@@ -90,7 +96,10 @@ class HTTPEmbeddingClient:
             )
             resp.raise_for_status()
             response = resp.json()
-        return parse(response)
+        vector = parse(response)
+        if not vector or not all(math.isfinite(value) for value in vector):
+            raise ValueError("Media embedding response contains an invalid vector")
+        return vector
 
     def _headers(self) -> dict[str, str]:
         if self.provider == "gemini":

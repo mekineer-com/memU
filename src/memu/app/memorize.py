@@ -137,6 +137,18 @@ class MemorizeMixin:
         supplied_caption = (caption or "").strip() or None
         if modality == "image" and supplied_caption is None:
             raise ValueError("image memorize requires a supplied caption")
+        if modality == "image":
+            existing, linked = self._image_retry_state(
+                store, user_scope or {}, resource_url, supplied_caption
+            )
+            if existing is not None and linked:
+                return {
+                    "resource": self._model_dump_without_embeddings(existing),
+                    "items": [self._model_dump_without_embeddings(item) for item in linked.values()],
+                    "categories": [],
+                    "relations": [],
+                    "pending_segment_ids": [],
+                }
 
         if modality == "conversation":
             segment_local_path = local_path or resource_url
@@ -366,12 +378,14 @@ class MemorizeMixin:
             primary_messages = [
                 msg
                 for msg in segment_messages_all
-                if self._message_is_primary_for_memorize(msg)
+                if msg.get("event_kind") != "image"
+                and self._message_is_primary_for_memorize(msg)
             ]
             background_messages = [
                 msg
                 for msg in segment_messages_all
-                if not self._message_is_primary_for_memorize(msg)
+                if msg.get("event_kind") != "image"
+                and not self._message_is_primary_for_memorize(msg)
             ]
             context_only = segment_payload.get("context_only") is True
             primary_indices = [
@@ -923,6 +937,31 @@ class MemorizeMixin:
         )
 
 
+    @staticmethod
+    def _image_retry_state(
+        store: Any,
+        user_scope: dict[str, Any],
+        resource_url: str,
+        caption: str | None,
+    ) -> tuple[Resource | None, dict[str, MemoryItem]]:
+        existing = next(
+            (
+                resource
+                for resource in store.resource_repo.list_resources(user_scope).values()
+                if resource.url == resource_url and resource.modality == "image"
+            ),
+            None,
+        )
+        if existing is None:
+            return None, {}
+        if str(existing.caption or "").strip() != str(caption or "").strip():
+            raise ValueError("Completed Resource caption conflicts with retry")
+        linked = store.memory_item_repo.list_items(
+            {**user_scope, "resource_id": existing.id},
+            include_embeddings=False,
+        )
+        return existing, linked
+
     async def _process_plan(
         self,
         plan: dict[str, Any],
@@ -971,33 +1010,18 @@ class MemorizeMixin:
                 if source_day_happened_at.get(str(row["day"])) is None:
                     raise ValueError(f"episode day {row['day']!r} is absent from source day map")
 
-        existing_resource = None
+        existing_resource: Resource | None = None
+        linked: dict[str, MemoryItem] = {}
         if modality == "image":
-            existing_resource = next(
-                (
-                    resource
-                    for resource in store.resource_repo.list_resources(user_scope).values()
-                    if resource.url == plan["resource_url"] and resource.modality == modality
-                ),
-                None,
+            existing_resource, linked = self._image_retry_state(
+                store,
+                user_scope,
+                str(plan["resource_url"]),
+                plan.get("caption"),
             )
-        if existing_resource is not None:
-            if str(existing_resource.caption or "").strip() != str(plan.get("caption") or "").strip():
-                raise ValueError("Completed Resource caption conflicts with retry")
-            linked = store.memory_item_repo.list_items(
-                {**user_scope, "resource_id": existing_resource.id},
-                include_superseded=True,
-                include_merged=True,
-                include_embeddings=False,
-            )
-            if linked:
-                items.extend(
-                    store.memory_item_repo.list_items(
-                        {**user_scope, "resource_id": existing_resource.id},
-                        include_embeddings=False,
-                    ).values()
-                )
-                return [existing_resource], 0
+        if existing_resource is not None and linked:
+            items.extend(linked.values())
+            return [existing_resource], 0
 
         res = existing_resource
         if res is None:

@@ -99,6 +99,18 @@ async def test_completed_image_resource_retry_creates_no_second_item(tmp_path: P
         async def embed(self, _texts):
             raise AssertionError("retry must not embed or extract")
 
+    async def fail_workflow(*_args, **_kwargs):
+        raise AssertionError("completed retry must stop before the workflow")
+
+    service._run_workflow = fail_workflow
+    public = await service.memorize(
+        resource_url=resource.url,
+        modality="image",
+        user=scope,
+        caption="A caption.",
+    )
+    assert [row["id"] for row in public["items"]] == [item.id]
+
     items = []
     resources, homeless = await service._process_plan(
         {"resource_url": resource.url, "text": "A caption.", "caption": "A caption.", "entries": []},

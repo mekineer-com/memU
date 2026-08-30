@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import logging
-
 import pytest
 from pydantic import BaseModel
 from sqlalchemy import event
@@ -37,7 +35,7 @@ def store() -> SQLiteStore:
     value.close()
 
 
-def test_sql_vector_search_matches_numpy_and_scope(store: SQLiteStore, caplog: pytest.LogCaptureFixture) -> None:
+def test_sql_vector_search_matches_numpy_and_scope(store: SQLiteStore) -> None:
     scope = {"user_id": "u", "soul_id": "s"}
     rows = [
         ("a", [1.0, 0.0]),
@@ -56,17 +54,17 @@ def test_sql_vector_search_matches_numpy_and_scope(store: SQLiteStore, caplog: p
         embedding=[1.0, 0.0],
         user_data={"user_id": "other", "soul_id": "s"},
     )
-    store.memory_item_repo.create_item(
-        memory_type="knowledge", summary="wrong dimension", embedding=[1.0, 0.0, 0.0], user_data=scope
-    )
-
-    with caplog.at_level(logging.ERROR):
-        actual = store.memory_item_repo.vector_search_items([1.0, 0.0], 3, scope)
+    actual = store.memory_item_repo.vector_search_items([1.0, 0.0], 3, scope)
     expected = cosine_topk([1.0, 0.0], [(item.id, vector) for item, (_, vector) in zip(created, rows, strict=True)], 3)
 
     assert [item_id for item_id, _ in actual] == [item_id for item_id, _ in expected]
     assert [score for _, score in actual] == pytest.approx([score for _, score in expected], abs=1e-6)
-    assert "found dims: [3]" in caplog.text
+
+    store.memory_item_repo.create_item(
+        memory_type="knowledge", summary="wrong dimension", embedding=[1.0, 0.0, 0.0], user_data=scope
+    )
+    with pytest.raises(ValueError, match="dimension mismatch"):
+        store.memory_item_repo.vector_search_items([1.0, 0.0], 3, scope)
 
 
 def test_hybrid_search_and_embedding_free_materialization(store: SQLiteStore, monkeypatch) -> None:

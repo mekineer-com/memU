@@ -1038,12 +1038,9 @@ VALUES (?, ?, ?, ?, ?, ?, ?)
             )
             mismatched = sorted(dim for dim in dimensions if dim != query_dimension)
             if mismatched:
-                logger.error(
-                    "cosine_topk: skipped %d vector(s) with mismatched dimension "
-                    "(expected %d, found dims: %s)",
-                    sum(dimensions[dim] for dim in mismatched),
-                    query_dimension,
-                    mismatched,
+                raise ValueError(
+                    "memory item embedding dimension mismatch: "
+                    f"expected {query_dimension}, found {mismatched}"
                 )
 
             distance = case(

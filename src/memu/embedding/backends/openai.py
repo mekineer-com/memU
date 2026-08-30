@@ -15,4 +15,8 @@ class OpenAIEmbeddingBackend(EmbeddingBackend):
         return {"model": embed_model, "input": inputs}
 
     def parse_embedding_response(self, data: dict[str, Any]) -> list[list[float]]:
-        return [cast(list[float], d["embedding"]) for d in data["data"]]
+        rows = data["data"]
+        indices = [row["index"] for row in rows]
+        if sorted(indices) != list(range(len(rows))) or len(set(indices)) != len(rows):
+            raise ValueError("OpenAI embedding response indices are invalid")
+        return [cast(list[float], row["embedding"]) for row in sorted(rows, key=lambda row: row["index"])]
