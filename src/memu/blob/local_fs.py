@@ -56,12 +56,21 @@ class LocalFS:
         scheme = urlparse(url).scheme.lower()
         if scheme not in ("http", "https"):
             p = pathlib.Path(url)
-            if p.exists():
+            if p.is_absolute():
                 dst = p.resolve()
-                text = None
-                if modality in ("conversation", "text", "document"):
-                    text = dst.read_text(encoding="utf-8")
-                return str(dst), text
+            else:
+                base = self.base.resolve()
+                dst = (base / p).resolve()
+                try:
+                    dst.relative_to(base)
+                except ValueError as exc:
+                    raise ValueError("Resource path escapes LocalFS base") from exc
+            if not dst.is_file():
+                raise FileNotFoundError(dst)
+            text = None
+            if modality in ("conversation", "text", "document"):
+                text = dst.read_text(encoding="utf-8")
+            return str(dst), text
 
         # HTTP - get clean filename
         filename = self._get_filename_from_url(url, modality)

@@ -19,6 +19,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+import pytest
 from pydantic import BaseModel
 
 from memu.app.service import MemoryService
@@ -49,3 +50,21 @@ def test_memory_service_without_blob_config_leaves_no_data_resources(
         "MemoryService construction created a CWD-relative data/resources directory"
     )
     assert os.listdir(tmp_path) == [], f"unexpected filesystem churn: {os.listdir(tmp_path)}"
+
+
+@pytest.mark.asyncio
+async def test_relative_resource_is_jailed_but_absolute_source_still_works(tmp_path: Path) -> None:
+    base = tmp_path / "resources"
+    relative = base / "mentra_media" / "image.txt"
+    relative.parent.mkdir(parents=True)
+    relative.write_text("inside", encoding="utf-8")
+    outside = tmp_path / "outside.txt"
+    outside.write_text("outside", encoding="utf-8")
+    fs = LocalFS(str(base))
+
+    path, text = await fs.fetch("mentra_media/image.txt", "text")
+    assert (path, text) == (str(relative.resolve()), "inside")
+    absolute_path, absolute_text = await fs.fetch(str(outside), "text")
+    assert (absolute_path, absolute_text) == (str(outside.resolve()), "outside")
+    with pytest.raises(ValueError, match="escapes LocalFS base"):
+        await fs.fetch("../outside.txt", "text")
