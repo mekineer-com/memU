@@ -131,3 +131,37 @@ async def test_completed_image_resource_retry_creates_no_second_item(tmp_path: P
             relations=[],
             pending_segment_ids=[],
         )
+
+
+@pytest.mark.asyncio
+async def test_unlinked_image_resource_retry_reuses_resource(tmp_path: Path) -> None:
+    service = _service(tmp_path)
+    scope = {"user_id": "u", "soul_id": "s"}
+    store = service.database
+    resource = store.resource_repo.create_resource(
+        url="mentra_media/test/image.png",
+        modality="image",
+        local_path=str(tmp_path / "image.png"),
+        caption="A caption.",
+        embedding=[1.0, 0.0],
+        user_data=scope,
+    )
+
+    async def fail_create(**_kwargs):
+        raise AssertionError("retry must reuse the unlinked Resource")
+
+    service._create_resource_with_caption = fail_create
+    resources, _ = await service._process_plan(
+        {"resource_url": resource.url, "text": "A caption.", "caption": "A caption.", "entries": []},
+        modality="image",
+        local_path=resource.local_path,
+        ctx=None,
+        store=store,
+        embed_client=object(),
+        user_scope=scope,
+        conversation_id="mentra:phone",
+        items=[],
+        relations=[],
+        pending_segment_ids=[],
+    )
+    assert [row.id for row in resources] == [resource.id]

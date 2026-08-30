@@ -982,6 +982,8 @@ class MemorizeMixin:
                 None,
             )
         if existing_resource is not None:
+            if str(existing_resource.caption or "").strip() != str(plan.get("caption") or "").strip():
+                raise ValueError("Completed Resource caption conflicts with retry")
             linked = store.memory_item_repo.list_items(
                 {**user_scope, "resource_id": existing_resource.id},
                 include_superseded=True,
@@ -989,8 +991,6 @@ class MemorizeMixin:
                 include_embeddings=False,
             )
             if linked:
-                if str(existing_resource.caption or "").strip() != str(plan.get("caption") or "").strip():
-                    raise ValueError("Completed Resource caption conflicts with retry")
                 items.extend(
                     store.memory_item_repo.list_items(
                         {**user_scope, "resource_id": existing_resource.id},
@@ -999,20 +999,22 @@ class MemorizeMixin:
                 )
                 return [existing_resource], 0
 
-        res = await self._create_resource_with_caption(
-            resource_url=plan["resource_url"],
-            modality=modality,
-            local_path=episode_local_path,
-            caption=plan.get("caption"),
-            store=store,
-            embed_client=embed_client,
-            user=user_scope,
-            segment_id=segment_id,
-            conversation_id=conversation_id,
-            memory_retrieve_history=plan.get("memory_retrieve_history"),
-            memory_prior_context=plan.get("memory_prior_context"),
-            **kwargs,
-        )
+        res = existing_resource
+        if res is None:
+            res = await self._create_resource_with_caption(
+                resource_url=plan["resource_url"],
+                modality=modality,
+                local_path=episode_local_path,
+                caption=plan.get("caption"),
+                store=store,
+                embed_client=embed_client,
+                user=user_scope,
+                segment_id=segment_id,
+                conversation_id=conversation_id,
+                memory_retrieve_history=plan.get("memory_retrieve_history"),
+                memory_prior_context=plan.get("memory_prior_context"),
+                **kwargs,
+            )
 
         if raw_episodes:
             episode_texts = [f"{str(row['title']).strip()}: {str(row['item']).strip()}" for row in raw_episodes]
