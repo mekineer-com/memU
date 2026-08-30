@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import mimetypes
+from pathlib import Path
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
 
@@ -33,7 +35,15 @@ async def _create_resource_with_caption(
     session: Any | None,
 ) -> Any:
     caption_text = caption.strip() if caption else None
-    if caption_text:
+    if modality in {"image", "audio", "video"}:
+        mime_type = mimetypes.guess_type(local_path)[0]
+        if not mime_type:
+            raise ValueError(f"Cannot infer media type for {local_path}")
+        client = embed_client or select_embedding_client(
+            {"operation": "memorize", "step_id": "resource_media_embedding"}
+        )
+        caption_embedding = await client.embed_media(Path(local_path).read_bytes(), mime_type)
+    elif caption_text:
         client = embed_client or select_embedding_client(
             {"operation": "memorize", "step_id": "resource_caption_embedding"}
         )

@@ -116,6 +116,7 @@ class MemorizeMixin:
         user: dict[str, Any] | None = None,
         raw_text: str | None = None,
         local_path: str | None = None,
+        caption: str | None = None,
         soul_card: str | None = None,
         memory_retrieve_history: list[str] | None = None,
         memory_prior_context: list[str] | None = None,
@@ -133,6 +134,9 @@ class MemorizeMixin:
 
         conversation_id = self._resolve_conversation_id(user)
         normalized_soul_card = (soul_card or "").strip() or None
+        supplied_caption = (caption or "").strip() or None
+        if modality == "image" and supplied_caption is None:
+            raise ValueError("image memorize requires a supplied caption")
 
         if modality == "conversation":
             segment_local_path = local_path or resource_url
@@ -165,6 +169,7 @@ class MemorizeMixin:
             "memory_retrieve_history": memory_retrieve_history,
             "memory_prior_context": memory_prior_context,
             "soul_card": normalized_soul_card,
+            "supplied_caption": supplied_caption,
         }
         if raw_text is not None:
             state["raw_text"] = raw_text
@@ -736,6 +741,10 @@ class MemorizeMixin:
         return state
 
     async def _memorize_split_episodes(self, state: WorkflowState, step_context: Any) -> WorkflowState:
+        supplied_caption = state.get("supplied_caption")
+        if supplied_caption:
+            state["episodes"] = [{"text": supplied_caption, "caption": supplied_caption}]
+            return state
         llm_client = self._select_chat_client(step_context)
         preprocessed = await self._split_into_episodes(
             local_path=state["local_path"],
@@ -940,7 +949,12 @@ class MemorizeMixin:
 
         episode_local_path = local_path or str(plan["resource_url"])
         segment_messages = plan.get("segment_messages") or []
-        if not segment_messages and isinstance(plan.get("text"), str) and plan["text"].strip():
+        if (
+            modality in {"conversation", "text", "document"}
+            and not segment_messages
+            and isinstance(plan.get("text"), str)
+            and plan["text"].strip()
+        ):
             episode_file = pathlib.Path(self.fs.base) / f"{pathlib.Path(plan['resource_url']).stem}.txt"
             episode_file.parent.mkdir(parents=True, exist_ok=True)
             episode_file.write_text(plan["text"], encoding="utf-8")
@@ -956,6 +970,34 @@ class MemorizeMixin:
             for row in raw_episodes:
                 if source_day_happened_at.get(str(row["day"])) is None:
                     raise ValueError(f"episode day {row['day']!r} is absent from source day map")
+
+        existing_resource = None
+        if modality == "image":
+            existing_resource = next(
+                (
+                    resource
+                    for resource in store.resource_repo.list_resources(user_scope).values()
+                    if resource.url == plan["resource_url"] and resource.modality == modality
+                ),
+                None,
+            )
+        if existing_resource is not None:
+            linked = store.memory_item_repo.list_items(
+                {**user_scope, "resource_id": existing_resource.id},
+                include_superseded=True,
+                include_merged=True,
+                include_embeddings=False,
+            )
+            if linked:
+                if str(existing_resource.caption or "").strip() != str(plan.get("caption") or "").strip():
+                    raise ValueError("Completed Resource caption conflicts with retry")
+                items.extend(
+                    store.memory_item_repo.list_items(
+                        {**user_scope, "resource_id": existing_resource.id},
+                        include_embeddings=False,
+                    ).values()
+                )
+                return [existing_resource], 0
 
         res = await self._create_resource_with_caption(
             resource_url=plan["resource_url"],
