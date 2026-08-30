@@ -682,7 +682,7 @@ WHERE version = 1 AND model IN ({placeholders})
             updated_at=now,
             **create_user_data,
         )
-        self._set_row_embedding(row, embedding)
+        self._set_row_embedding(row, embedding, session=session)
         session.add(row)
         session.flush()
         session.refresh(row)
@@ -744,7 +744,7 @@ WHERE version = 1 AND model IN ({placeholders})
         if summary is not None:
             row.summary = summary
         if embedding is not None:
-            self._set_row_embedding(row, embedding)
+            self._set_row_embedding(row, embedding, session=session)
         if merged_into is not None:
             if merged_into == item_id:
                 raise ValueError("A memory cannot merge into itself")
@@ -913,7 +913,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?)
                 ),
             )
             row.summary = summary
-            self._set_row_embedding(row, embedding)
+            self._set_row_embedding(row, embedding, session=session)
             # Human edit (approved=True): "Save + approve" stamps a pending item once;
             # an already-approved item just saves. Soul edits require re-approval.
             if approved:

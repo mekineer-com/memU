@@ -57,9 +57,11 @@ class SQLiteRepoBase:
         """Read embedding from the canonical embedding column."""
         return getattr(row, "embedding", None)
 
-    def _set_row_embedding(self, row: Any, embedding: list[float] | None) -> None:
+    def _set_row_embedding(self, row: Any, embedding: list[float] | None, *, session: Any) -> None:
         """Write embedding to the canonical embedding column."""
         prepared = self._prepare_embedding(embedding)
+        if prepared is not None:
+            self._sessions.guard_embedding_write(session, len(prepared) // 4)
         row.embedding = prepared
 
     def _prepare_embedding(self, embedding: list[float] | None) -> bytes | None:

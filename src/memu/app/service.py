@@ -23,6 +23,7 @@ from memu.app.settings import (
 from memu.blob.local_fs import LocalFS
 from memu.database.factory import build_database
 from memu.database.interfaces import Database
+from memu.embedding import HTTPEmbeddingClient
 from memu.llm.claude_cli import ClaudeCLIClient
 from memu.llm.http_client import HTTPLLMClient
 from memu.llm.wrapper import (
@@ -82,6 +83,7 @@ class MemoryService(DossierMixin, GraphMixin, MemorizeMixin, RetrieveMixin):
         self.fs = LocalFS(self.blob_config.resources_dir)
         self._context = Context()
         self._dossier_content_embedding_cache: dict[str, tuple[str, list[float]]] = {}
+        self._resource_caption_embedding_cache: dict[str, tuple[str, list[float]]] = {}
 
         self.database: Database = build_database(
             config=self.database_config,
@@ -104,6 +106,14 @@ class MemoryService(DossierMixin, GraphMixin, MemorizeMixin, RetrieveMixin):
 
     def _init_llm_client(self, config: LLMConfig | None = None) -> Any:
         cfg = config or self.llm_config
+        if cfg.provider == "gemini":
+            return HTTPEmbeddingClient(
+                base_url=cfg.base_url,
+                api_key=cfg.api_key,
+                embed_model=cfg.embed_model,
+                provider=cfg.provider,
+                endpoint_overrides=cfg.endpoint_overrides,
+            )
         return HTTPLLMClient(
             base_url=cfg.base_url,
             api_key=cfg.api_key,
@@ -224,6 +234,11 @@ class MemoryService(DossierMixin, GraphMixin, MemorizeMixin, RetrieveMixin):
 
     async def embed(self, texts: list[str], *, profile: str | None = None) -> Any:
         return await self._get_llm_client(profile).embed(texts)
+
+    async def embed_media(
+        self, data: bytes, mime_type: str, *, profile: str = "embedding"
+    ) -> list[float]:
+        return await self._get_llm_client(profile).embed_media(data, mime_type)
 
     @staticmethod
     def _llm_profile_from_context(

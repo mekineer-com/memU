@@ -274,6 +274,9 @@ class MetadataStoreConfig(BaseModel):
     provider: Annotated[Literal["sqlite"], Normalize] = "sqlite"
     ddl_mode: Annotated[Literal["create", "validate"], Normalize] = "create"
     dsn: str | None = Field(default=None, description="Database connection string for sqlite.")
+    embedding_profile: Literal[
+        "text-embedding-3-large:3072", "gemini-embedding-2:3072"
+    ] | None = None
 
 
 class VectorIndexConfig(BaseModel):

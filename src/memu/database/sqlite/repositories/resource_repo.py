@@ -201,7 +201,7 @@ class SQLiteResourceRepo(SQLiteRepoBase, ResourceRepo):
             if memory_prior_context is not None:
                 existing.memory_prior_context = memory_prior_context
             if embedding is not None:
-                self._set_row_embedding(existing, embedding)
+                self._set_row_embedding(existing, embedding, session=session)
             existing.updated_at = now
             session.add(existing)
             session.flush()
@@ -222,7 +222,7 @@ class SQLiteResourceRepo(SQLiteRepoBase, ResourceRepo):
                 updated_at=now,
                 **user_data,
             )
-            self._set_row_embedding(row, embedding)
+            self._set_row_embedding(row, embedding, session=session)
             session.add(row)
             session.flush()
             session.refresh(row)

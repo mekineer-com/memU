@@ -8,6 +8,7 @@ import httpx
 
 from memu.embedding.backends.base import EmbeddingBackend
 from memu.embedding.backends.doubao import DoubaoEmbeddingBackend
+from memu.embedding.backends.gemini import GeminiEmbeddingBackend
 from memu.embedding.backends.openai import OpenAIEmbeddingBackend
 
 
@@ -20,6 +21,7 @@ logger = logging.getLogger(__name__)
 EMBEDDING_BACKENDS: dict[str, Callable[[], EmbeddingBackend]] = {
     OpenAIEmbeddingBackend.name: OpenAIEmbeddingBackend,
     DoubaoEmbeddingBackend.name: DoubaoEmbeddingBackend,
+    GeminiEmbeddingBackend.name: GeminiEmbeddingBackend,
 }
 
 
@@ -51,7 +53,7 @@ class HTTPEmbeddingClient:
             or self.backend.embedding_endpoint
         )
         # Strip leading "/" so httpx resolves relative to base_url
-        self.embedding_endpoint = raw_embedding_ep.lstrip("/")
+        self.embedding_endpoint = raw_embedding_ep.format(embed_model=self.embed_model).lstrip("/")
         self.timeout = timeout
         self.proxy = _load_proxy()
 
@@ -73,7 +75,26 @@ class HTTPEmbeddingClient:
         logger.debug("HTTP embedding response: %s", data)
         return self.backend.parse_embedding_response(data)
 
+    async def embed_media(self, data: bytes, mime_type: str) -> list[float]:
+        build = getattr(self.backend, "build_media_embedding_payload", None)
+        parse = getattr(self.backend, "parse_media_embedding_response", None)
+        endpoint = getattr(self.backend, "media_embedding_endpoint", None)
+        if not callable(build) or not callable(parse) or not isinstance(endpoint, str):
+            raise ValueError(f"Embedding provider '{self.provider}' does not support raw media")
+        payload = build(data=data, mime_type=mime_type, embed_model=self.embed_model)
+        async with httpx.AsyncClient(base_url=self.base_url, timeout=self.timeout, proxy=self.proxy) as client:
+            resp = await client.post(
+                endpoint.format(embed_model=self.embed_model).lstrip("/"),
+                json=payload,
+                headers=self._headers(),
+            )
+            resp.raise_for_status()
+            response = resp.json()
+        return parse(response)
+
     def _headers(self) -> dict[str, str]:
+        if self.provider == "gemini":
+            return {"x-goog-api-key": self.api_key}
         return {"Authorization": f"Bearer {self.api_key}"}
 
     def _load_backend(self, provider: str) -> EmbeddingBackend:

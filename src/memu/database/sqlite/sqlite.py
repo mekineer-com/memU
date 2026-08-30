@@ -68,6 +68,7 @@ class SQLiteStore(Database):
         memory_item_model: type[Any] | None = None,
         category_item_model: type[Any] | None = None,
         sqla_models: SQLiteSQLAModels | None = None,
+        embedding_profile: str | None = None,
     ) -> None:
         """Initialize SQLite database store.
 
@@ -85,12 +86,14 @@ class SQLiteStore(Database):
         self._scope_fields = list(getattr(self._scope_model, "model_fields", {}).keys())
         self._state = DatabaseState()
         self._sessions = SQLiteSessionManager(dsn=self.dsn)
+        self._sessions.embedding_profile = embedding_profile
         self._sqla_models: SQLiteSQLAModels = sqla_models or get_sqlite_sqlalchemy_models(scope_model=self._scope_model)
 
         # Create tables
         self._create_tables()
 
         self._assert_canonical_embeddings()
+        self._assert_embedding_profile()
 
         # Use provided models or defaults from sqla_models
         resource_model = resource_model or self._sqla_models.Resource
@@ -180,6 +183,41 @@ class SQLiteStore(Database):
                 f"scripts/migrate-embeddings-to-blob.py {database} --apply"
             )
             raise RuntimeError(msg)
+
+    def _assert_embedding_profile(self) -> None:
+        profile = self._sessions.embedding_profile
+        if profile is None:
+            return
+        expected_bytes = int(profile.rsplit(":", 1)[1]) * 4
+        with self._sessions.engine.connect() as conn:
+            stored = conn.exec_driver_sql(
+                "SELECT profile FROM embedding_profile WHERE id = 1"
+            ).scalar()
+            counts = {
+                table: conn.exec_driver_sql(
+                    f"SELECT COUNT(*) FROM {table} WHERE embedding IS NOT NULL"
+                ).scalar_one()
+                for table in ("resources", "memory_items", "categories")
+            }
+            wrong_dimensions = {
+                table: conn.exec_driver_sql(
+                    f"SELECT COUNT(*) FROM {table} "
+                    "WHERE embedding IS NOT NULL AND length(embedding) != ?",
+                    (expected_bytes,),
+                ).scalar_one()
+                for table in counts
+            }
+        if stored is None and any(counts.values()):
+            raise RuntimeError(
+                f"populated database is missing embedding profile; expected {profile}"
+            )
+        if stored is not None and stored != profile:
+            raise RuntimeError(
+                f"embedding profile mismatch: database={stored} configured={profile}"
+            )
+        invalid = {table: count for table, count in wrong_dimensions.items() if count}
+        if invalid:
+            raise RuntimeError(f"embedding dimension mismatch for {profile}: {invalid}")
 
     def _ensure_fts_table(self) -> None:
         """Create FTS5 virtual table for BM25 keyword search on memory items."""
@@ -334,6 +372,11 @@ ON memory_item_edit_history(memory_item_id, edited_at)
         self._ensure_fts_table()
         self._ensure_model_score_calibration_table()
         self._ensure_memory_item_edit_history_table()
+        with self._sessions.engine.begin() as conn:
+            conn.exec_driver_sql(
+                "CREATE TABLE IF NOT EXISTS embedding_profile ("
+                "id INTEGER PRIMARY KEY CHECK (id = 1), profile TEXT NOT NULL)"
+            )
         logger.debug("SQLite tables created/verified")
 
     def close(self) -> None:

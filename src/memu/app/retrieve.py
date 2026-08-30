@@ -41,6 +41,7 @@ class RetrieveMixin:
         _get_database: Callable[[], Database]
         _select_chat_client: Callable[..., Any]
         _select_embedding_client: Callable[[Mapping[str, Any] | None], Any]
+        _resource_caption_embedding_cache: dict[str, tuple[str, list[float]]]
         _model_dump_without_embeddings: Callable[[BaseModel], dict[str, Any]]
         _extract_json_blob: Callable[[str], str]
         _escape_prompt_value: Callable[[str], str]
@@ -588,17 +589,41 @@ class RetrieveMixin:
         where_filters = state["where"]
         resource_pool = store.resource_repo.list_resources(where_filters)
         state["resource_pool"] = resource_pool
-        corpus = self._resource_caption_corpus(store, resources=resource_pool)
-        if not corpus:
+        visual_corpus = self._resource_visual_corpus(store, resources=resource_pool)
+        captions = [
+            (resource_id, str(resource.caption or "").strip())
+            for resource_id, resource in resource_pool.items()
+            if str(resource.caption or "").strip()
+        ]
+        if not visual_corpus and not captions:
             state["resource_hits"] = []
             return state
 
         qvec = state.get("query_vector")
+        embed_client = self._select_embedding_client(step_context)
         if qvec is None:
-            embed_client = self._select_embedding_client(step_context)
             qvec = (await embed_client.embed([state["active_query"]]))[0]
             state["query_vector"] = qvec
-        state["resource_hits"] = cosine_topk(qvec, corpus, k=self.retrieve_config.resource.top_k)
+        missing = [
+            (resource_id, caption)
+            for resource_id, caption in captions
+            if self._resource_caption_embedding_cache.get(resource_id, (None,))[0] != caption
+        ]
+        if missing:
+            embeddings = await embed_client.embed([caption for _, caption in missing])
+            if len(embeddings) != len(missing):
+                raise ValueError("Resource caption embedding response count does not match input")
+            for (resource_id, caption), embedding in zip(missing, embeddings, strict=True):
+                self._resource_caption_embedding_cache[resource_id] = (caption, embedding)
+        caption_corpus = [
+            (resource_id, self._resource_caption_embedding_cache[resource_id][1])
+            for resource_id, _caption in captions
+        ]
+        top_k = self.retrieve_config.resource.top_k
+        state["resource_hits"] = relative_score_fusion(
+            cosine_topk(qvec, visual_corpus, k=top_k),
+            cosine_topk(qvec, caption_corpus, k=top_k),
+        )[:top_k]
         return state
 
     def _rag_build_context(self, state: WorkflowState, _: Any) -> WorkflowState:
@@ -874,7 +899,7 @@ class RetrieveMixin:
             lines.append(text)
         return "\n\n".join(lines).strip()
 
-    def _resource_caption_corpus(
+    def _resource_visual_corpus(
         self, store: Database, resources: Mapping[str, Any] | None = None
     ) -> list[tuple[str, list[float]]]:
         resource_pool = resources if resources is not None else store.resource_repo.resources

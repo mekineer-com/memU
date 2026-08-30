@@ -133,7 +133,7 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
             updated_at=now,
             **scope,
         )
-        self._set_row_embedding(row, embedding)
+        self._set_row_embedding(row, embedding, session=session)
         session.add(row)
         session.flush()
         session.refresh(row)
@@ -287,7 +287,7 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
                 updated_at=now,
                 **user_data,
             )
-            self._set_row_embedding(row, embedding)
+            self._set_row_embedding(row, embedding, session=session)
             try:
                 with session.begin_nested():
                     session.add(row)
@@ -397,7 +397,7 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
         if description is not None:
             row.description = description
         if embedding is not None:
-            self._set_row_embedding(row, embedding)
+            self._set_row_embedding(row, embedding, session=session)
         if summary is not None:
             row.summary = summary
         if previous_description is not None:

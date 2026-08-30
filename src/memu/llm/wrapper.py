@@ -362,6 +362,24 @@ class LLMClientWrapper:
             response_builder=_build_embedding_response_view,
         )
 
+    async def embed_media(self, data: bytes, mime_type: str) -> list[float]:
+        request_view = LLMRequestView(
+            kind="embed",
+            input_items=1,
+            metadata={"mime_type": mime_type, "media_bytes": len(data)},
+        )
+
+        async def _call() -> list[list[float]]:
+            return [await self._client.embed_media(data, mime_type)]
+
+        return (await self._invoke(
+            kind="embed",
+            call_fn=_call,
+            request_view=request_view,
+            model=self._embed_model,
+            response_builder=_build_embedding_response_view,
+        ))[0]
+
     async def transcribe(
         self,
         audio_path: str,

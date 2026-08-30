@@ -53,6 +53,28 @@ class SQLiteSessionManager:
 
         self._engine = create_engine(dsn, **kw)
         self._apply_pragmas()
+        self.embedding_profile: str | None = None
+
+    def guard_embedding_write(self, session: Session, dimensions: int) -> None:
+        profile = self.embedding_profile
+        if profile is None:
+            return
+        expected_dimensions = int(profile.rsplit(":", 1)[1])
+        if dimensions != expected_dimensions:
+            raise ValueError(
+                f"embedding dimension mismatch for {profile}: expected {expected_dimensions}, got {dimensions}"
+            )
+        row = session.connection().exec_driver_sql(
+            "SELECT profile FROM embedding_profile WHERE id = 1"
+        ).first()
+        if row is None:
+            session.connection().exec_driver_sql(
+                "INSERT INTO embedding_profile (id, profile) VALUES (1, ?)", (profile,)
+            )
+        elif row[0] != profile:
+            raise RuntimeError(
+                f"embedding profile mismatch: database={row[0]} configured={profile}"
+            )
 
     @staticmethod
     def _sqlite_file_from_dsn(dsn: str) -> Path | None:

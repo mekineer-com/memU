@@ -191,3 +191,66 @@ def test_non_finite_float32_embedding_write_fails_loudly(embedding) -> None:
             embedding=embedding,
             user_data={"user_id": "blob"},
         )
+
+
+def test_embedding_profile_stamps_first_write_and_rejects_wrong_database(tmp_path) -> None:
+    dsn = f"sqlite:///{tmp_path / 'profile.db'}"
+    profile = "text-embedding-3-large:3072"
+    store = SQLiteStore(
+        dsn=dsn,
+        scope_model=EmbeddingBlobScope,
+        embedding_profile=profile,
+    )
+    with store._sessions.engine.connect() as conn:
+        assert conn.exec_driver_sql("SELECT profile FROM embedding_profile").first() is None
+    with pytest.raises(ValueError, match="expected 3072, got 2"):
+        store.resource_repo.create_resource(
+            url="wrong-dimension",
+            modality="image",
+            local_path="wrong-dimension",
+            caption=None,
+            embedding=[1.0, 0.0],
+            user_data={"user_id": "blob"},
+        )
+    store.resource_repo.create_resource(
+        url="image",
+        modality="image",
+        local_path="image",
+        caption="caption",
+        embedding=[0.0] * 3072,
+        user_data={"user_id": "blob"},
+    )
+    store.close()
+
+    matching = SQLiteStore(
+        dsn=dsn,
+        scope_model=EmbeddingBlobScope,
+        embedding_profile=profile,
+    )
+    matching.close()
+    with pytest.raises(RuntimeError, match="database=text-embedding-3-large:3072 configured=gemini"):
+        SQLiteStore(
+            dsn=dsn,
+            scope_model=EmbeddingBlobScope,
+            embedding_profile="gemini-embedding-2:3072",
+        )
+
+
+def test_populated_unstamped_database_refuses_profiled_open(tmp_path) -> None:
+    dsn = f"sqlite:///{tmp_path / 'unstamped.db'}"
+    store = SQLiteStore(dsn=dsn, scope_model=EmbeddingBlobScope)
+    store.resource_repo.create_resource(
+        url="legacy",
+        modality="image",
+        local_path="legacy",
+        caption=None,
+        embedding=[0.0] * 3072,
+        user_data={"user_id": "blob"},
+    )
+    store.close()
+    with pytest.raises(RuntimeError, match="populated database is missing embedding profile"):
+        SQLiteStore(
+            dsn=dsn,
+            scope_model=EmbeddingBlobScope,
+            embedding_profile="text-embedding-3-large:3072",
+        )

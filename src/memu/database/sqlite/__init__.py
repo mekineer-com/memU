@@ -30,6 +30,7 @@ def build_sqlite_database(
     return SQLiteStore(
         dsn=dsn,
         scope_model=user_model,
+        embedding_profile=config.metadata_store.embedding_profile,
     )
 
 
