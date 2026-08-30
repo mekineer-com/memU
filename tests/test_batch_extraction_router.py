@@ -545,6 +545,34 @@ async def test_batch_excludes_image_marker_from_episode_text(monkeypatch: pytest
 
 
 @pytest.mark.asyncio
+async def test_image_only_batch_stops_before_routing(monkeypatch: pytest.MonkeyPatch) -> None:
+    service = _service()
+
+    async def _unexpected(*_args, **_kwargs):
+        raise AssertionError("image marker must not reach extraction")
+
+    monkeypatch.setattr(service, "_route_segment", _unexpected)
+    monkeypatch.setattr(service, "_list_declared_relationship_roster", lambda **_kwargs: [])
+
+    with pytest.raises(ValueError, match="has no source date"):
+        await service.memorize_segments_batch(
+            modality="conversation",
+            segments=[{
+                "resource_url": "memory://image-only",
+                "raw_text": json.dumps([{
+                    "role": "user",
+                    "content": "Shared a photo.",
+                    "event_kind": "image",
+                    "media_ref": "mentra_media/fictional/image.png",
+                    "received_at": "2026-01-02T10:00:00-05:00",
+                }]),
+                "segment": {"message_indices": [0], "context_only": False},
+            }],
+            user={"user_id": "test-user", "soul_id": "TestSoul"},
+        )
+
+
+@pytest.mark.asyncio
 async def test_context_only_batch_skips_llm_and_returns_plural_empty_shape(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

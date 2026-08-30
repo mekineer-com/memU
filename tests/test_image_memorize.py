@@ -177,3 +177,37 @@ async def test_unlinked_image_resource_retry_reuses_resource(tmp_path: Path) -> 
         pending_segment_ids=[],
     )
     assert [row.id for row in resources] == [resource.id]
+
+
+def test_merged_only_image_lineage_is_not_complete(tmp_path: Path) -> None:
+    service = _service(tmp_path)
+    scope = {"user_id": "u", "soul_id": "s"}
+    store = service.database
+    resource = store.resource_repo.create_resource(
+        url="mentra_media/test/image.png",
+        modality="image",
+        local_path=str(tmp_path / "image.png"),
+        caption="A caption.",
+        embedding=[1.0, 0.0],
+        user_data=scope,
+    )
+    old = store.memory_item_repo.create_item(
+        resource_id=resource.id,
+        memory_type="episode",
+        summary="Old image memory.",
+        embedding=[1.0, 0.0],
+        user_data=scope,
+    )
+    survivor = store.memory_item_repo.create_item(
+        memory_type="episode",
+        summary="Surviving memory.",
+        embedding=[1.0, 0.0],
+        user_data=scope,
+    )
+    store.memory_item_repo.update_item(item_id=old.id, merged_into=survivor.id)
+
+    existing, linked = service._image_retry_state(
+        store, scope, resource.url, "A caption."
+    )
+    assert existing is not None and existing.id == resource.id
+    assert linked == {}
