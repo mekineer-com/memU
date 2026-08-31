@@ -10,8 +10,6 @@ For other situations RETRIEVE!!! It's normal to have your brain connected to you
 
 _FORCED_QUERY_HEAD = """
 This turn is for you to give a search query that will retrieve your relevant memories. You can then respond in the next turn (not this turn), once you have full context for the response.
-
-Retrieval is already required for this background memory search. Do not decide whether to retrieve. Always write an active_query.
 """
 
 
@@ -32,7 +30,9 @@ _MEMORY_REF_OUTPUT = """
 """
 
 _VISUAL_OUTPUT = """
-<visual_memory_query></visual_memory_query>
+<visual_memory_query>
+A concise visual-memory search phrase when a prior image could materially help; empty otherwise.
+</visual_memory_query>
 """
 
 

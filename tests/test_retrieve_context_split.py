@@ -83,7 +83,7 @@ def test_system_prompt_forbids_answering_user_in_route_step():
     assert "respond in the next turn (not this turn)" in prompt
     assert "Do not add any prose, dialogue, markdown, or extra sections" in prompt
     assert "<active_query>" in prompt
-    assert "<visual_memory_query></visual_memory_query>" in prompt
+    assert "A concise visual-memory search phrase" in prompt
     assert "<rewritten_query>" not in prompt
 
 
@@ -572,7 +572,7 @@ async def test_force_retrieve_uses_sufficiency_ai_query_for_items():
 
     assert captured["require_decision"] is False
     assert "<decision>" not in str(captured["system_prompt"])
-    assert "Always write an active_query" in str(captured["system_prompt"])
+    assert "Retrieval is already required" not in str(captured["system_prompt"])
     assert out["active_query"] == "ai-written item query"
     assert out["mental_health_query"] == "sleep boundaries"
     assert out["proceed_to_items"] is True
