@@ -28,10 +28,16 @@ async def test_resource_retrieval_keeps_sensory_candidate_lanes_separate() -> No
     state = {
         "needs_retrieval": True,
         "proceed_to_resources": True,
-        "active_query": "target",
+        "active_query": "ordinary text query",
+        "visual_memory_query": "target",
+        "new_message": "show me that picture",
+        "temporal_start": None,
+        "temporal_end": None,
         "query_vector": [1.0, 0.0],
         "store": SimpleNamespace(
-            resource_repo=SimpleNamespace(list_resources=lambda _where: resources)
+            resource_repo=SimpleNamespace(list_resources=lambda _where: resources),
+            memory_category_repo=SimpleNamespace(list_categories=lambda _where: {}),
+            memory_item_repo=SimpleNamespace(list_items=lambda *_args, **_kwargs: {}),
         ),
         "where": {},
     }
@@ -51,4 +57,25 @@ async def test_resource_retrieval_keeps_sensory_candidate_lanes_separate() -> No
         "visual",
     ]
     assert second["resource_candidate_lanes"] == first["resource_candidate_lanes"]
-    assert embedded == [["other", "target", "related"]]
+    assert embedded == [["target"], ["other", "target", "related"], ["target"]]
+
+    response = mixin._rag_build_context(first, None)["response"]
+    assert response["visual_memory_query"] == "target"
+    assert response["resource_candidates"]["media"][0] == {
+        "id": "visual",
+        "modality": "image",
+        "caption": "other",
+        "evidence": "media",
+    }
+    assert "local_path" not in response["resource_candidates"]["media"][0]
+    assert "score" not in response["resource_candidates"]["media"][0]
+
+
+@pytest.mark.asyncio
+async def test_visual_query_alone_enables_resource_recall() -> None:
+    mixin = RetrieveMixin()
+    state = {"needs_retrieval": True, "visual_memory_query": "red doorway"}
+
+    result = await mixin._rag_item_sufficiency(state, None)
+
+    assert result["proceed_to_resources"] is True

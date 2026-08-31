@@ -74,6 +74,7 @@ def test_system_prompt_excludes_mental_health_block_when_disabled():
     prompt = system_prompt_for_angle(0, include_mental_health_query=False)
     assert "<mental_health_query>" not in prompt
     assert "also write a mental_health_query" not in prompt
+    assert "<visual_memory_query>" in prompt
 
 
 def test_system_prompt_forbids_answering_user_in_route_step():
@@ -223,6 +224,7 @@ async def test_route_intention_force_retrieve_skips_first_llm_without_mental_hea
     assert out["needs_retrieval"] is True
     assert out["active_query"] == ""
     assert out["mental_health_query"] is None
+    assert out["visual_memory_query"] is None
 
 
 @pytest.mark.asyncio

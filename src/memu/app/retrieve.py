@@ -116,7 +116,7 @@ class RetrieveMixin:
                 role="route_intention",
                 handler=self._rag_route_intention,
                 requires={"new_message", "context_queries"},
-                produces={"needs_retrieval", "active_query", "temporal_start", "temporal_end"},
+                produces={"needs_retrieval", "active_query", "visual_memory_query", "temporal_start", "temporal_end"},
                 capabilities={"llm"},
                 config={"chat_llm_profile": self.retrieve_config.sufficiency_check_llm_profile},
             ),
@@ -147,6 +147,7 @@ class RetrieveMixin:
                     "proceed_to_items",
                     "query_vector",
                     "requested_memory_refs",
+                    "visual_memory_query",
                     "temporal_start",
                     "temporal_end",
                 },
@@ -181,6 +182,7 @@ class RetrieveMixin:
                 requires={
                     "needs_retrieval",
                     "active_query",
+                    "visual_memory_query",
                     "context_queries",
                     "item_hits",
                     "ctx",
@@ -205,6 +207,7 @@ class RetrieveMixin:
                     "store",
                     "where",
                     "active_query",
+                    "visual_memory_query",
                     "query_vector",
                 },
                 produces={"resource_hits", "resource_candidate_lanes", "query_vector"},
@@ -240,6 +243,7 @@ class RetrieveMixin:
                 "needs_retrieval": True,
                 "active_query": "",
                 "mental_health_query": None,
+                "visual_memory_query": None,
                 "temporal_start": None,
                 "temporal_end": None,
                 "proceed_to_items": False,
@@ -262,12 +266,14 @@ class RetrieveMixin:
             llm_client=llm_client,
         )
         mental_health_query = self._extract_mental_health_query(raw_response) if mental_health_enabled else None
+        visual_memory_query = self._extract_visual_memory_query(raw_response)
         temporal_start, temporal_end = self._extract_temporal_range(raw_response)
 
         state.update({
             "needs_retrieval": needs_retrieval,
             "active_query": active_query,
             "mental_health_query": mental_health_query,
+            "visual_memory_query": visual_memory_query,
             "temporal_start": temporal_start,
             "temporal_end": temporal_end,
             "proceed_to_items": False,
@@ -387,6 +393,9 @@ class RetrieveMixin:
             mental_health_query = self._extract_mental_health_query(raw_response)
             if mental_health_query:
                 state["mental_health_query"] = mental_health_query
+        visual_memory_query = self._extract_visual_memory_query(raw_response)
+        if visual_memory_query:
+            state["visual_memory_query"] = visual_memory_query
         state["active_query"] = active_query
         proceed_to_items = True if force_retrieve else needs_more
         state["proceed_to_items"] = proceed_to_items
@@ -577,7 +586,9 @@ class RetrieveMixin:
         return state
 
     async def _rag_item_sufficiency(self, state: WorkflowState, step_context: Any) -> WorkflowState:
-        state["proceed_to_resources"] = False
+        state["proceed_to_resources"] = bool(
+            state.get("needs_retrieval") and state.get("visual_memory_query")
+        )
         return state
 
     async def _rag_recall_resources(self, state: WorkflowState, step_context: Any) -> WorkflowState:
@@ -602,11 +613,8 @@ class RetrieveMixin:
             state["resource_candidate_lanes"] = {}
             return state
 
-        qvec = state.get("query_vector")
         embed_client = self._select_embedding_client(step_context)
-        if qvec is None:
-            qvec = (await embed_client.embed([state["active_query"]]))[0]
-            state["query_vector"] = qvec
+        qvec = (await embed_client.embed([state["visual_memory_query"]]))[0]
         missing = [
             (resource_id, caption)
             for resource_id, caption in captions
@@ -638,9 +646,11 @@ class RetrieveMixin:
             "temporal_start": state["temporal_start"].isoformat() if state.get("temporal_start") else None,
             "temporal_end": state["temporal_end"].isoformat() if state.get("temporal_end") else None,
             "mental_health_query": state.get("mental_health_query"),
+            "visual_memory_query": state.get("visual_memory_query"),
             "categories": [],
             "items": [],
             "resources": [],
+            "resource_candidates": {},
         }
         if state.get("needs_retrieval"):
             store = state["store"]
@@ -694,6 +704,19 @@ class RetrieveMixin:
                 state.get("resource_hits", []),
                 resources_pool,
             )
+            response["resource_candidates"] = {
+                lane: [
+                    {
+                        "id": resource_id,
+                        "modality": resources_pool[resource_id].modality,
+                        "caption": str(resources_pool[resource_id].caption or "").strip(),
+                        "evidence": lane,
+                    }
+                    for resource_id, _score in hits
+                    if resource_id in resources_pool
+                ]
+                for lane, hits in (state.get("resource_candidate_lanes") or {}).items()
+            }
         state["response"] = response
         return state
 
@@ -736,7 +759,7 @@ class RetrieveMixin:
         if decision == "RETRIEVE" and not active_query:
             raise ValueError("retrieval decision missing active_query")
 
-        # Caller can pull <mental_health_query> out of `response` if it cares.
+        # Caller can pull optional side queries out of `response` if it cares.
         return decision == "RETRIEVE", active_query or "", response
 
     def _format_query_context(self, queries: list[dict[str, Any]] | None) -> str:
@@ -834,7 +857,7 @@ class RetrieveMixin:
         if match:
             return match.group(1).strip()
         match = re.search(
-            r"<active_query>(.*?)(?:</[^>]*query>|<mental_health_query>|<temporal_start>|$)",
+            r"<active_query>(.*?)(?:</[^>]*query>|<mental_health_query>|<visual_memory_query>|<temporal_start>|$)",
             raw,
             re.IGNORECASE | re.DOTALL,
         )
@@ -847,6 +870,12 @@ class RetrieveMixin:
         if match:
             text = match.group(1).strip()
             return text or None
+        return None
+
+    def _extract_visual_memory_query(self, raw: str) -> str | None:
+        match = re.search(r"<visual_memory_query>(.*?)</visual_memory_query>", raw, re.IGNORECASE | re.DOTALL)
+        if match:
+            return match.group(1).strip() or None
         return None
 
     @staticmethod

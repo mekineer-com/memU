@@ -19,12 +19,22 @@ _MH_REWRITE_GUIDANCE = """
 If this turn touches a mental-health theme — anxious rumination, grief, panic, self-criticism, avoidance, boundaries, loneliness, identity transitions, sleep trouble, relational conflict, or similar — also write a mental_health_query. Same 3-to-10-word noun-phrase, anchored on the mental-health concept (not the person). This query goes to a separate curated procedural-memory store, so aim it at a principle or skill rather than an event.
 """
 
+_VISUAL_REWRITE_GUIDANCE = """
+If recalling a previously seen image could materially help answer this turn, also write a visual_memory_query. Use a concise 3-to-10-word noun phrase describing the remembered scene, object, or person. Leave it empty for text-only memory, generic visual language, the current image, or when no prior image is being sought.
+"""
+
 _MEMORY_REF_GUIDANCE = """
 The retrieved dossiers may cite full memories as [M#]. If reading a cited full memory would help you respond, copy its exact citation into memory_refs. Request only citations shown in the dossiers. Leave the block empty when the dossier prose is enough.
 """
 
 _MEMORY_REF_OUTPUT = """
 <memory_refs></memory_refs>
+"""
+
+_VISUAL_OUTPUT = """
+<visual_memory_query>
+A concise description of a previously seen image to recall; empty otherwise.
+</visual_memory_query>
 """
 
 
@@ -141,12 +151,13 @@ def system_prompt_for_angle(
     include_memory_refs: bool = False,
 ) -> str:
     rewrite = _REWRITE_ANGLES.get(int(angle or 0) % len(_REWRITE_ANGLES), _ANGLE_0_REWRITE)
-    prompt = _COMMON_HEAD + rewrite + _TEMPORAL_GUIDANCE
+    prompt = _COMMON_HEAD + rewrite + _TEMPORAL_GUIDANCE + _VISUAL_REWRITE_GUIDANCE
     if include_mental_health_query:
         prompt += _MH_REWRITE_GUIDANCE
     if include_memory_refs:
         prompt += _MEMORY_REF_GUIDANCE
     prompt += _OUTPUT_SHAPE_WITH_MH if include_mental_health_query else _OUTPUT_SHAPE_NO_MH
+    prompt += _VISUAL_OUTPUT
     prompt += _TEMPORAL_OUTPUT
     if include_memory_refs:
         prompt += _MEMORY_REF_OUTPUT
@@ -159,15 +170,19 @@ def forced_query_system_prompt(*, include_mental_health_query: bool = True) -> s
             _FORCED_QUERY_HEAD
             + _ANGLE_0_REWRITE
             + _TEMPORAL_GUIDANCE
+            + _VISUAL_REWRITE_GUIDANCE
             + _MH_REWRITE_GUIDANCE
             + _QUERY_ONLY_OUTPUT_SHAPE_WITH_MH
+            + _VISUAL_OUTPUT
             + _TEMPORAL_OUTPUT
         )
     return (
         _FORCED_QUERY_HEAD
         + _ANGLE_0_REWRITE
         + _TEMPORAL_GUIDANCE
+        + _VISUAL_REWRITE_GUIDANCE
         + _QUERY_ONLY_OUTPUT_SHAPE_NO_MH
+        + _VISUAL_OUTPUT
         + _TEMPORAL_OUTPUT
     )
 
