@@ -79,3 +79,36 @@ async def test_visual_query_alone_enables_resource_recall() -> None:
     result = await mixin._rag_item_sufficiency(state, None)
 
     assert result["proceed_to_resources"] is True
+
+
+@pytest.mark.asyncio
+async def test_sensory_search_reuses_safe_resource_recall() -> None:
+    mixin = RetrieveMixin()
+    resource = SimpleNamespace(modality="image", embedding=[1.0], caption="red doorway")
+    mixin._get_database = lambda: SimpleNamespace(
+        resource_repo=SimpleNamespace(list_resources=lambda _where: {"photo": resource})
+    )
+    mixin._normalize_where = lambda where: dict(where or {})
+
+    async def _recall(state, _context):  # type: ignore[no-untyped-def]
+        state["resource_pool"] = {"photo": resource}
+        state["resource_candidate_lanes"] = {"media": [("photo", 0.8)]}
+        return state
+
+    mixin._rag_recall_resources = _recall  # type: ignore[method-assign]
+
+    result = await mixin.sensory_search(" red doorway ", {"user_id": "u", "soul_id": "s"})
+
+    assert result == {
+        "visual_memory_query": "red doorway",
+        "resource_candidates": {
+            "media": [
+                {
+                    "id": "photo",
+                    "modality": "image",
+                    "caption": "red doorway",
+                    "evidence": "media",
+                }
+            ]
+        },
+    }

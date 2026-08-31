@@ -91,6 +91,31 @@ class RetrieveMixin:
             raise RuntimeError(msg)
         return response
 
+    async def sensory_search(
+        self,
+        query: str,
+        where: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        visual_query = str(query or "").strip()
+        if not visual_query:
+            raise ValueError("empty_visual_query")
+        store = self._get_database()
+        state: WorkflowState = {
+            "needs_retrieval": True,
+            "proceed_to_resources": True,
+            "visual_memory_query": visual_query,
+            "store": store,
+            "where": self._normalize_where(where),
+        }
+        await self._rag_recall_resources(state, None)
+        return {
+            "visual_memory_query": visual_query,
+            "resource_candidates": self._materialize_resource_candidates(
+                state.get("resource_candidate_lanes"),
+                state.get("resource_pool") or {},
+            ),
+        }
+
     def _normalize_where(self, where: Mapping[str, Any] | None) -> dict[str, Any]:
         if not where:
             return {}
@@ -704,21 +729,31 @@ class RetrieveMixin:
                 state.get("resource_hits", []),
                 resources_pool,
             )
-            response["resource_candidates"] = {
-                lane: [
-                    {
-                        "id": resource_id,
-                        "modality": resources_pool[resource_id].modality,
-                        "caption": str(resources_pool[resource_id].caption or "").strip(),
-                        "evidence": lane,
-                    }
-                    for resource_id, _score in hits
-                    if resource_id in resources_pool
-                ]
-                for lane, hits in (state.get("resource_candidate_lanes") or {}).items()
-            }
+            response["resource_candidates"] = self._materialize_resource_candidates(
+                state.get("resource_candidate_lanes"),
+                resources_pool,
+            )
         state["response"] = response
         return state
+
+    @staticmethod
+    def _materialize_resource_candidates(
+        lanes: Any,
+        resources_pool: Mapping[str, Any],
+    ) -> dict[str, list[dict[str, str]]]:
+        return {
+            lane: [
+                {
+                    "id": resource_id,
+                    "modality": resources_pool[resource_id].modality,
+                    "caption": str(resources_pool[resource_id].caption or "").strip(),
+                    "evidence": lane,
+                }
+                for resource_id, _score in hits
+                if resource_id in resources_pool
+            ]
+            for lane, hits in (lanes or {}).items()
+        }
 
 
     async def _decide_if_retrieval_needed(
