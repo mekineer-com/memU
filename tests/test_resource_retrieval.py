@@ -45,7 +45,6 @@ async def test_resource_retrieval_keeps_sensory_candidate_lanes_separate() -> No
     first = await mixin._rag_recall_resources(state, None)
     second = await mixin._rag_recall_resources(state, None)
 
-    assert first["resource_hits"] == []
     assert [resource_id for resource_id, _score in first["resource_candidate_lanes"]["media"]] == [
         "visual",
         "both",

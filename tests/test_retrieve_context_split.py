@@ -715,7 +715,6 @@ def test_retrieve_context_excludes_message_to_self_audit_memories():
         },
         "category_hits": [],
         "category_pool": {"unused": object()},
-        "resource_hits": [],
         "resource_pool": {},
         "store": store,
         "where": {},

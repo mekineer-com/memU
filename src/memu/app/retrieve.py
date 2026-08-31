@@ -232,7 +232,7 @@ class RetrieveMixin:
                     "where",
                     "visual_memory_query",
                 },
-                produces={"resource_hits", "resource_candidate_lanes"},
+                produces={"resource_candidate_lanes"},
                 capabilities={"vector"},
                 config={"embed_llm_profile": "embedding"},
             ),
@@ -615,7 +615,6 @@ class RetrieveMixin:
 
     async def _rag_recall_resources(self, state: WorkflowState, step_context: Any) -> WorkflowState:
         if not state.get("needs_retrieval") or not state.get("proceed_to_resources"):
-            state["resource_hits"] = []
             state["resource_candidate_lanes"] = {}
             return state
 
@@ -631,7 +630,6 @@ class RetrieveMixin:
             and str(resource.caption or "").strip()
         ]
         if not visual_corpus and not captions:
-            state["resource_hits"] = []
             state["resource_candidate_lanes"] = {}
             return state
 
@@ -653,7 +651,6 @@ class RetrieveMixin:
             for resource_id, _caption in captions
         ]
         top_k = self.retrieve_config.resource.top_k
-        state["resource_hits"] = []
         state["resource_candidate_lanes"] = {
             "media": cosine_topk(qvec, visual_corpus, k=top_k),
             "caption": cosine_topk(qvec, caption_corpus, k=top_k),
@@ -722,10 +719,6 @@ class RetrieveMixin:
                 evolved_at = self._find_superseded_at(store, item_id, where_filters)
                 if evolved_at is not None:
                     item_data["superseded_at"] = evolved_at
-            response["resources"] = self._materialize_hits(
-                state.get("resource_hits", []),
-                resources_pool,
-            )
             response["resource_candidates"] = self._materialize_resource_candidates(
                 state.get("resource_candidate_lanes"),
                 resources_pool,
