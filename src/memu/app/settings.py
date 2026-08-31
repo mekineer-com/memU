@@ -129,7 +129,6 @@ class RetrieveItemConfig(BaseModel):
 
 
 class RetrieveResourceConfig(BaseModel):
-    enabled: bool = Field(default=True, description="Whether to enable resource retrieval.")
     top_k: int = Field(default=5, description="Total number of resources to retrieve.")
 
 

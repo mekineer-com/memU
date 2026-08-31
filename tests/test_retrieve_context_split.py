@@ -83,6 +83,7 @@ def test_system_prompt_forbids_answering_user_in_route_step():
     assert "respond in the next turn (not this turn)" in prompt
     assert "Do not add any prose, dialogue, markdown, or extra sections" in prompt
     assert "<active_query>" in prompt
+    assert "<visual_memory_query></visual_memory_query>" in prompt
     assert "<rewritten_query>" not in prompt
 
 

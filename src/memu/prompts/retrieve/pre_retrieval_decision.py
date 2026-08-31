@@ -32,9 +32,7 @@ _MEMORY_REF_OUTPUT = """
 """
 
 _VISUAL_OUTPUT = """
-<visual_memory_query>
-A concise description of a previously seen image to recall; empty otherwise.
-</visual_memory_query>
+<visual_memory_query></visual_memory_query>
 """
 
 
