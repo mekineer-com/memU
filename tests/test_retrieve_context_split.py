@@ -86,6 +86,17 @@ def test_system_prompt_forbids_answering_user_in_route_step():
     assert "<rewritten_query>" not in prompt
 
 
+def test_visual_memory_query_parser_rejects_malformed_block():
+    mixin = RetrieveMixin()
+
+    assert (
+        mixin._extract_visual_memory_query("<visual_memory_query>red doorway</visual_memory_query>")
+        == "red doorway"
+    )
+    assert mixin._extract_visual_memory_query("<visual_memory_query>red doorway") is None
+    assert mixin._extract_visual_memory_query("<active_query>doorway</active_query>") is None
+
+
 def test_memory_ref_output_is_opt_in_for_category_sufficiency():
     assert "<memory_refs>" not in system_prompt_for_angle(0)
     assert "<memory_refs>" in system_prompt_for_angle(0, include_memory_refs=True)
@@ -582,6 +593,7 @@ async def test_category_sufficiency_preserves_mental_health_when_second_step_omi
         "where": {},
         "mental_health_enabled": True,
         "mental_health_query": "first-step-query",
+        "visual_memory_query": "red doorway",
     }
 
     async def _fake_decide(*_args, **_kwargs):  # type: ignore[no-untyped-def]
@@ -592,6 +604,7 @@ async def test_category_sufficiency_preserves_mental_health_when_second_step_omi
     out = await mixin._rag_category_sufficiency(state, step_context=None)
 
     assert out["mental_health_query"] == "first-step-query"
+    assert out["visual_memory_query"] == "red doorway"
 
 
 @pytest.mark.asyncio
