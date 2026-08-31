@@ -6,11 +6,12 @@ from memu.app.retrieve import RetrieveMixin
 
 
 @pytest.mark.asyncio
-async def test_resource_retrieval_fuses_visual_and_cached_caption_views() -> None:
+async def test_resource_retrieval_keeps_sensory_candidate_lanes_separate() -> None:
     resources = {
         "visual": SimpleNamespace(modality="image", embedding=[1.0, 0.0], caption="other"),
         "caption": SimpleNamespace(modality="image", embedding=[0.0, 1.0], caption="target"),
         "both": SimpleNamespace(modality="image", embedding=[0.8, 0.2], caption="related"),
+        "conversation": SimpleNamespace(modality="conversation", embedding=[1.0, 0.0], caption="target"),
     }
     embedded: list[list[str]] = []
 
@@ -38,7 +39,16 @@ async def test_resource_retrieval_fuses_visual_and_cached_caption_views() -> Non
     first = await mixin._rag_recall_resources(state, None)
     second = await mixin._rag_recall_resources(state, None)
 
-    assert first["resource_hits"][0][0] == "both"
-    assert {resource_id for resource_id, _score in first["resource_hits"]} == set(resources)
-    assert second["resource_hits"] == first["resource_hits"]
+    assert first["resource_hits"] == []
+    assert [resource_id for resource_id, _score in first["resource_candidate_lanes"]["media"]] == [
+        "visual",
+        "both",
+        "caption",
+    ]
+    assert [resource_id for resource_id, _score in first["resource_candidate_lanes"]["caption"]] == [
+        "caption",
+        "both",
+        "visual",
+    ]
+    assert second["resource_candidate_lanes"] == first["resource_candidate_lanes"]
     assert embedded == [["other", "target", "related"]]

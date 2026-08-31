@@ -207,7 +207,7 @@ class RetrieveMixin:
                     "active_query",
                     "query_vector",
                 },
-                produces={"resource_hits", "query_vector"},
+                produces={"resource_hits", "resource_candidate_lanes", "query_vector"},
                 capabilities={"vector"},
                 config={"embed_llm_profile": "embedding"},
             ),
@@ -583,6 +583,7 @@ class RetrieveMixin:
     async def _rag_recall_resources(self, state: WorkflowState, step_context: Any) -> WorkflowState:
         if not state.get("needs_retrieval") or not state.get("proceed_to_resources"):
             state["resource_hits"] = []
+            state["resource_candidate_lanes"] = {}
             return state
 
         store = state["store"]
@@ -598,6 +599,7 @@ class RetrieveMixin:
         ]
         if not visual_corpus and not captions:
             state["resource_hits"] = []
+            state["resource_candidate_lanes"] = {}
             return state
 
         qvec = state.get("query_vector")
@@ -621,10 +623,11 @@ class RetrieveMixin:
             for resource_id, _caption in captions
         ]
         top_k = self.retrieve_config.resource.top_k
-        state["resource_hits"] = relative_score_fusion(
-            cosine_topk(qvec, visual_corpus, k=top_k),
-            cosine_topk(qvec, caption_corpus, k=top_k),
-        )[:top_k]
+        state["resource_hits"] = []
+        state["resource_candidate_lanes"] = {
+            "media": cosine_topk(qvec, visual_corpus, k=top_k),
+            "caption": cosine_topk(qvec, caption_corpus, k=top_k),
+        }
         return state
 
     def _rag_build_context(self, state: WorkflowState, _: Any) -> WorkflowState:
@@ -906,6 +909,6 @@ class RetrieveMixin:
         resource_pool = resources if resources is not None else store.resource_repo.resources
         corpus: list[tuple[str, list[float]]] = []
         for rid, res in resource_pool.items():
-            if res.embedding:
+            if res.modality in {"image", "audio", "video"} and res.embedding:
                 corpus.append((rid, res.embedding))
         return corpus
