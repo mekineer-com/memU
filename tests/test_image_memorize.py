@@ -75,6 +75,37 @@ async def test_image_resource_uses_raw_bytes_and_preserves_path(tmp_path: Path) 
 
 
 @pytest.mark.asyncio
+async def test_image_resource_commits_before_extraction(tmp_path: Path) -> None:
+    service = _service(tmp_path)
+    image = tmp_path / "image.png"
+    image.write_bytes(b"pixels")
+
+    class Client:
+        async def embed_media(self, _data: bytes, _mime_type: str) -> list[float]:
+            return [1.0, 0.0]
+
+    async def fail_workflow(*_args, **_kwargs):
+        raise RuntimeError("fictional extraction failure")
+
+    service._select_embedding_client = lambda _context: Client()
+    service._run_workflow = fail_workflow
+    scope = {"user_id": "u", "soul_id": "s"}
+
+    with pytest.raises(RuntimeError, match="fictional extraction failure"):
+        await service.memorize(
+            resource_url="image.png",
+            modality="image",
+            user=scope,
+            caption="A caption.",
+        )
+
+    resources = service.database.resource_repo.list_resources(scope)
+    assert [(row.url, row.caption) for row in resources.values()] == [
+        ("image.png", "A caption.")
+    ]
+
+
+@pytest.mark.asyncio
 async def test_completed_image_resource_retry_creates_no_second_item(tmp_path: Path) -> None:
     service = _service(tmp_path)
     scope = {"user_id": "u", "soul_id": "s"}

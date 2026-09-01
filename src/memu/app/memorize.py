@@ -149,6 +149,19 @@ class MemorizeMixin:
                     "relations": [],
                     "pending_segment_ids": [],
                 }
+            if existing is None:
+                image_local_path = local_path
+                if image_local_path is None:
+                    image_local_path, _ = await self.fs.fetch(resource_url, modality)
+                await self._create_resource_with_caption(
+                    resource_url=resource_url,
+                    modality=modality,
+                    local_path=image_local_path,
+                    caption=supplied_caption,
+                    store=store,
+                    user=user_scope,
+                    conversation_id=conversation_id,
+                )
 
         if modality == "conversation":
             segment_local_path = local_path or resource_url
