@@ -26,22 +26,16 @@ dependencies = [
     #    "pydantic>=2.12.4",
     "pydantic>=2.12.3",
     "sqlmodel>=0.0.27",
-    #    "alembic>=1.14.0",
-    "alembic>=1.13.1",
     #    "pendulum>=3.1.0",
     "pendulum>=2.1.2",
-    "langchain-core>=1.2.7",
-    "lazyllm>=0.7.3",
 ]
 
 [build-system]
-requires = ["maturin>=1.0,<2.0"]
-build-backend = "maturin"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
-[tool.maturin]
-module-name = "memu._core"
-python-packages = ["memu"]
-python-source = "src"
+[tool.hatch.build.targets.wheel]
+packages = ["src/memu"]
 
 [dependency-groups]
 dev = [
@@ -102,10 +96,6 @@ disallow_untyped_defs = false
 disallow_incomplete_defs = false
 warn_unused_ignores = false
 disable_error_code = ["attr-defined", "call-arg"]
-
-[[tool.mypy.overrides]]
-module = ["lazyllm.*"]
-ignore_missing_imports = true
 
 [tool.coverage.report]
 skip_empty = true
