@@ -12,7 +12,7 @@
 | `app/service.py` | `MemoryService` — top-level facade, only public API |
 | `app/dossier.py` | Dossier core policy: soul/user anchors, active/inactive sets, sparse memorize context, deterministic compact index, identity/content search views, strict `[M#]` handles, revision preparation/generation, reusable prompt rendering, and atomic revision apply |
 | `app/dossier_revision.py` | Pure dossier-revision rendering, strict XML normalization, and deterministic section-patch assembly; one leading `##` section is structured prose |
-| `app/memorize.py` | Memorize workflow: preprocess → route → extract → store. Roster supports same-role ambiguity + relationship-entity triggers; dedupe keys by `(source_role, speaker_id, summary)`; parse failures retry once before propagating. |
+| `app/memorize.py` | Memorize workflow: preprocess → route → extract → store. Image resources memorize from a supplied caption and are persisted before extraction. Roster supports same-role ambiguity + relationship-entity triggers; dedupe keys by `(source_role, speaker_id, summary)`; parse failures retry once before propagating. |
 | `app/memorize_parsing.py` | Parsing/normalization seam: message-index extraction, source-message-id normalization, timestamp parsing, XML/JSON memory-type response parsing |
 | `app/memorize_speakers.py` | Speaker attribution seam: stable entity-ID resolution, roster construction/validation, prompt-label sanitization, speaker_ref resolution |
 | `app/memorize_dedupe.py` | Dedupe/supersession seam: semantic dedupe, similarity scoring, re-embed fallback, `replaces_previous_fact` supersede resolution |
@@ -21,7 +21,7 @@
 | `app/graph.py` | `GraphMixin` — graph reads, exact-`M#` and filtered Atomic curation search, detail-only dossier membership with transactional attach/detach, canonical dossier metadata/citation projection, scoped entity list/detail/create/update/merge/ignore/restore/safe-delete and transactional memory-entity assignment, memory/category edits, approval review, hard-delete. Edge predicates: `caused_by`, `evokes`, `conflicts_with`, `parallels`, `shaped_by`. |
 | `app/memorize_persistence.py` | Persistence seam: resource creation, item/triple writes, and happened-at resolution |
 | `app/memorize_segments.py` | Segment/preprocess seam: modality dispatch, segment text prep, background-tail summarization, rolling-summary merge, `on_extraction_progress` callback |
-| `app/retrieve.py` | Retrieve workflow: derive `active_query` plus optional temporal bounds → dossier sufficiency (optional exact `[M#]` follow-up) → hybrid/graph recall. Temporal matches are softly promoted; exact requested memories supplement item `top_k`; entity-linked graph additions must clear the configured query-similarity floor. `force_retrieve` skips the retrieve/no-retrieve gate. |
+| `app/retrieve.py` | Retrieve workflow: derive `active_query` plus optional temporal bounds and an optional `visual_memory_query` → dossier sufficiency (optional exact `[M#]` follow-up) → hybrid/graph recall, with sensory resource captions scored in their own lane and reachable directly through `sensory_search()`. Temporal matches are softly promoted; exact requested memories supplement item `top_k`; entity-linked graph additions must clear the configured query-similarity floor. `force_retrieve` skips the retrieve/no-retrieve gate. |
 | `app/settings.py` | Pydantic config models (MemorizeConfig, RetrieveConfig, LLMProfile, etc.) |
 | `database/models.py` | Backend-agnostic records, including dossier metadata, scoped `memory_ref`, and `DossierCandidate` |
 | `database/factory.py` | `build_database()` — sqlite backend selector (Postgres removed) |
@@ -49,7 +49,7 @@
 | `llm/http_client.py` | LLM HTTP client |
 | `llm/backends/` | Provider impls: `openai.py` (httpx-based, covers OpenAI-compatible APIs) |
 | `llm/claude_cli.py` | `ClaudeCLIClient` — Claude Code CLI adapter. Uses soul workspace for session/resume calls, neutral workspace for no-session calls (prevents persona bleed). |
-| `embedding/` | Embedding client factory + backends (same pattern as llm/): `openai.py`, `doubao.py` |
+| `embedding/` | Embedding client factory + backends (same pattern as llm/): `openai.py`, `doubao.py`, `gemini.py` (multimodal) |
 | `workflow/` | DAG runner: `step.py` (unit), `pipeline.py` (graph), `runner.py` (executor), `interceptor.py` (hook mechanism) |
 | `blob/local_fs.py` | Local filesystem media storage |
 | `utils/conversation.py` | Canonical source for all AI-facing chat display: `format_grouped_chat_history()`, ST/Atomic/WhatsApp/Smartglasses headings, date dividers, `My Activities:` always first. Used by turn_contract, consolidation, and memorize rendering. |
