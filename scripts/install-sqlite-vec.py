@@ -26,7 +26,13 @@ ASSETS = {
 
 def validate(path: Path) -> None:
     connection = sqlite3.connect(":memory:")
-    connection.enable_load_extension(True)
+    try:
+        connection.enable_load_extension(True)
+    except (AttributeError, sqlite3.OperationalError) as exc:
+        connection.close()
+        raise SystemExit(
+            "This Python build cannot load SQLite extensions; install Python 3.12 with SQLite loadable-extension support"
+        ) from exc
     try:
         connection.load_extension(str(path))
     finally:

@@ -65,6 +65,8 @@ pip install -e .
 python scripts/install-sqlite-vec.py
 ```
 
+The Python build must support SQLite loadable extensions. Some macOS Python builds disable them; if the installer reports this, use a Python 3.12 build with loadable-extension support.
+
 Or with the monorepo venv:
 ```bash
 cd memu
