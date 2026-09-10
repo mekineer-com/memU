@@ -22,11 +22,11 @@ def test_sqlite_vec_loaded_on_normal_connection() -> None:
 
 
 def test_missing_sqlite_vec_fails_loudly(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
-    missing = tmp_path / "missing-vec0.so"
+    missing = tmp_path / session_module.SQLITE_VEC_EXTENSION_PATH.name
     monkeypatch.setattr(session_module, "SQLITE_VEC_EXTENSION_PATH", missing)
     manager = SQLiteSessionManager(dsn="sqlite:///:memory:")
     try:
-        with pytest.raises(RuntimeError, match=r"scripts/build-sqlite-vec\.sh"):
+        with pytest.raises(RuntimeError, match=r"python scripts/install-sqlite-vec\.py"):
             manager.engine.connect()
     finally:
         manager.close()

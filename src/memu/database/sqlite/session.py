@@ -11,6 +11,7 @@ concurrently. SQLite can handle this, but defaults are easy to trip.
 from __future__ import annotations
 
 import logging
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -22,7 +23,9 @@ from sqlmodel import Session, create_engine
 logger = logging.getLogger(__name__)
 
 SQLITE_VEC_VERSION = "v0.1.9"
-SQLITE_VEC_EXTENSION_PATH = Path(__file__).with_name("vec0.so")
+SQLITE_VEC_EXTENSION_PATH = Path(__file__).with_name(
+    "vec0.dll" if sys.platform == "win32" else "vec0.dylib" if sys.platform == "darwin" else "vec0.so"
+)
 
 
 class SQLiteSessionManager:
@@ -129,7 +132,7 @@ class SQLiteSessionManager:
 
         @event.listens_for(self._engine, "connect")
         def _set_sqlite_pragmas(dbapi_conn: Any, _conn_record: Any) -> None:
-            build_command = "scripts/build-sqlite-vec.sh"
+            build_command = "python scripts/install-sqlite-vec.py"
             if not SQLITE_VEC_EXTENSION_PATH.is_file():
                 msg = f"sqlite-vec extension not found at {SQLITE_VEC_EXTENSION_PATH}; run {build_command}"
                 raise RuntimeError(msg)

@@ -31,7 +31,7 @@
 | `database/sqlite/sqlite.py` | `SQLiteStore` — concrete backend; idempotent `_ensure_*_columns` migration helpers |
 | `database/sqlite/schema.py` | Per-scope SQLAlchemy model factory (`get_sqlite_sqlalchemy_models`) |
 | `database/sqlite/models.py` | Per-table model classes + `build_sqlite_table_model` |
-| `database/sqlite/session.py` | Session factory; loads the required package-local `vec0.so` built by `scripts/build-sqlite-vec.sh` on every connection |
+| `database/sqlite/session.py` | Session factory; loads the required platform-specific package-local sqlite-vec extension on every connection |
 | `database/sqlite/repositories/base.py` | Base repository class for SQLite backend |
 | `database/sqlite/repositories/memory_item_repo.py` | Scoped memory-item search plus atomic `[M#]` allocation and explicit migration-only ref backfill |
 | `database/sqlite/repositories/memory_category_repo.py` | Category/dossier persistence, anchor reads, and deterministic activity ordering |
@@ -40,7 +40,7 @@
 | `database/sqlite/repositories/entity_repo.py` | Scoped entity persistence, stable-ID edits, aliases, and source-reference lookup |
 | `database/sqlite/repositories/triple_repo.py` | Triple (graph edge) persistence and temporal queries |
 | `database/sqlite/repositories/dossier_candidate_repo.py` | Durable unresolved category proposals with idempotent create, review-consideration state, and atomic resolution |
-| `scripts/build-sqlite-vec.sh` | Builds the package-local `vec0.so` sqlite-vec extension |
+| `scripts/install-sqlite-vec.py` | Verifies and installs the pinned official sqlite-vec artifact for Linux, macOS, or Windows |
 | `scripts/migrate-embeddings-to-blob.py` | Offline dry-run/backup/migration tool for converting one explicitly named stopped soul DB from legacy JSON TEXT embeddings to canonical float32 BLOBs |
 | `scripts/migrate-entity-speaker-ids.py` | One-time dry-run/backup migration from legacy name-derived entity speaker refs to stable entity IDs; archive after the release cutover |
 | `database/postgres/` | Removed |

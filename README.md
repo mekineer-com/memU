@@ -52,9 +52,8 @@ Each entry reads as internalized professional knowledge — no framework names o
 
 ## Requirements
 
-- Python 3.12+
+- Python 3.12
 - SQLite
-- `cc`, `curl`, `tar`, and `sha256sum` to build the pinned sqlite-vec extension
 - An LLM provider API key (OpenAI-compatible)
 
 ---
@@ -63,7 +62,7 @@ Each entry reads as internalized professional knowledge — no framework names o
 
 ```bash
 pip install -e .
-scripts/build-sqlite-vec.sh
+python scripts/install-sqlite-vec.py
 ```
 
 Or with the monorepo venv:
@@ -71,10 +70,10 @@ Or with the monorepo venv:
 cd memu
 python3 -m venv --system-site-packages .venv
 .venv/bin/pip install -e .
-scripts/build-sqlite-vec.sh
+.venv/bin/python scripts/install-sqlite-vec.py
 ```
 
-SQLite storage requires the pinned `sqlite-vec` extension built by that script. The generated package-local `vec0.so` is ignored by Git and loaded automatically by memU.
+SQLite storage requires the pinned `sqlite-vec` extension installed by that script. It verifies and installs the official loadable artifact for glibc Linux x86-64/ARM64, macOS Intel/Apple Silicon, or Windows x86-64. Because sqlite-vec's Linux artifact requires glibc, Alpine uses the retained source-build fallback. The generated package-local extension is ignored by Git and loaded automatically by memU.
 
 Before the sqlite-vec storage cutover, inspect and migrate each stopped soul database explicitly:
 

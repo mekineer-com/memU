@@ -19,7 +19,9 @@ from typing import Any
 
 TABLES = ("resources", "memory_items", "categories")
 SQLITE_VEC_VERSION = "v0.1.9"
-SQLITE_VEC_PATH = Path(__file__).resolve().parents[1] / "src/memu/database/sqlite/vec0.so"
+SQLITE_VEC_PATH = Path(__file__).resolve().parents[1] / "src/memu/database/sqlite" / (
+    "vec0.dll" if sys.platform == "win32" else "vec0.dylib" if sys.platform == "darwin" else "vec0.so"
+)
 
 
 class MigrationError(RuntimeError):
