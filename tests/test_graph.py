@@ -1487,10 +1487,12 @@ def test_graph_create_manual_memory_preserves_and_approves_exact_text():
     scope = {"user_id": "manual_user", "soul_id": "Manual Soul"}
     exact_text = "  The user wrote this memory exactly.\n"
 
+    calls = []
+
     class _Embedder:
         async def embed(self, texts):
-            assert texts == [exact_text]
-            return [[0.4, 0.6]]
+            calls.append(texts)
+            return [[0.4, 0.6] for _ in texts]
 
     service._select_embedding_client = lambda _ctx: _Embedder()  # type: ignore[method-assign]
 
@@ -1502,7 +1504,39 @@ def test_graph_create_manual_memory_preserves_and_approves_exact_text():
     assert item.source_role == "user"
     assert item.embedding == pytest.approx([0.4, 0.6])
     assert item.approved_at is not None
+    assert calls[-1] == [exact_text]
+    service.require_dossier_cutover_ready(scope)
     assert store.memory_item_repo.list_items({"user_id": "someone_else", "soul_id": "Manual Soul"}) == {}
+
+
+def test_graph_create_manual_memory_rolls_back_failed_approval_and_retries(monkeypatch):
+    service = MemoryService(
+        database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
+        user_config={"model": GraphScope},
+    )
+    store = service._get_database()
+    scope = {"user_id": "Fictional User", "soul_id": "Fictional Soul"}
+
+    class _Embedder:
+        async def embed(self, texts):
+            return [[0.2, 0.8] for _ in texts]
+
+    service._select_embedding_client = lambda _ctx: _Embedder()  # type: ignore[method-assign]
+    approve = store.memory_item_repo.approve_item
+    monkeypatch.setattr(
+        store.memory_item_repo,
+        "approve_item",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("approval failed")),
+    )
+
+    with pytest.raises(RuntimeError, match="approval failed"):
+        asyncio.run(service.graph_create_manual_memory("Exact memory", where=scope))
+
+    assert store.memory_item_repo.list_items(scope) == {}
+    service.require_dossier_cutover_ready(scope)
+    monkeypatch.setattr(store.memory_item_repo, "approve_item", approve)
+    node = asyncio.run(service.graph_create_manual_memory("Exact memory", where=scope))
+    assert list(store.memory_item_repo.list_items(scope)) == [node["memory_id"]]
 
 
 def test_graph_create_manual_memory_rejects_empty_text_without_embedding():

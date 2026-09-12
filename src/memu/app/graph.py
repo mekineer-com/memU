@@ -1269,15 +1269,24 @@ class GraphMixin:
             raise ValueError("text is required")
 
         store = self._get_database()
-        embedding = (await self._select_embedding_client(None).embed([text]))[0]
-        item = store.memory_item_repo.create_item(
-            memory_type="knowledge",
-            summary=text,
-            embedding=embedding,
-            user_data=dict(where or {}),
-            source_role="user",
-        )
-        store.memory_item_repo.approve_item(item.id, where=where)
+        scope = dict(where or {})
+        embedding_client = self._select_embedding_client(None)
+        await self.ensure_dossier_anchors(scope, embedding_client=embedding_client)
+        embedding = (await embedding_client.embed([text]))[0]
+        session_cm = self._sqlite_write_session(store)
+        if session_cm is None:
+            raise RuntimeError("Manual memory creation requires SQLite")
+        with session_cm as session:
+            item = store.memory_item_repo.create_item(
+                memory_type="knowledge",
+                summary=text,
+                embedding=embedding,
+                user_data=scope,
+                source_role="user",
+                session=session,
+            )
+            store.memory_item_repo.approve_item(item.id, where=scope, session=session)
+            session.commit()
         node = self.graph_memory(f"memory:{item.id}", where=where)
         if node is None:
             raise RuntimeError("created memory is not visible in its scope")
