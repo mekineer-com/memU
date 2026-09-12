@@ -1478,6 +1478,44 @@ def test_graph_update_memory_summary_embeds_before_history_update(monkeypatch, t
     assert list(tmp_path.iterdir()) == []
 
 
+def test_graph_create_manual_memory_preserves_and_approves_exact_text():
+    service = MemoryService(
+        database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
+        user_config={"model": GraphScope},
+    )
+    store = service._get_database()
+    scope = {"user_id": "manual_user", "soul_id": "Manual Soul"}
+    exact_text = "  The user wrote this memory exactly.\n"
+
+    class _Embedder:
+        async def embed(self, texts):
+            assert texts == [exact_text]
+            return [[0.4, 0.6]]
+
+    service._select_embedding_client = lambda _ctx: _Embedder()  # type: ignore[method-assign]
+
+    node = asyncio.run(service.graph_create_manual_memory(exact_text, where=scope))
+    item = store.memory_item_repo.list_items(scope)[node["memory_id"]]
+
+    assert node["summary"] == exact_text
+    assert item.memory_type == "knowledge"
+    assert item.source_role == "user"
+    assert item.embedding == pytest.approx([0.4, 0.6])
+    assert item.approved_at is not None
+    assert store.memory_item_repo.list_items({"user_id": "someone_else", "soul_id": "Manual Soul"}) == {}
+
+
+def test_graph_create_manual_memory_rejects_empty_text_without_embedding():
+    service = MemoryService(
+        database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
+        user_config={"model": GraphScope},
+    )
+    service._select_embedding_client = lambda _ctx: pytest.fail("empty text must not embed")  # type: ignore[method-assign]
+
+    with pytest.raises(ValueError, match="text is required"):
+        asyncio.run(service.graph_create_manual_memory(" \n ", where={"user_id": "u", "soul_id": "s"}))
+
+
 def test_graph_update_memory_summary_embed_failure_leaves_memory_unchanged():
     service = MemoryService(
         database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},

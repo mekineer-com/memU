@@ -1259,6 +1259,30 @@ class GraphMixin:
         )
         return self.graph_memory(f"memory:{raw_id}", where=where)
 
+    async def graph_create_manual_memory(
+        self,
+        text: str,
+        *,
+        where: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        if not text.strip():
+            raise ValueError("text is required")
+
+        store = self._get_database()
+        embedding = (await self._select_embedding_client(None).embed([text]))[0]
+        item = store.memory_item_repo.create_item(
+            memory_type="knowledge",
+            summary=text,
+            embedding=embedding,
+            user_data=dict(where or {}),
+            source_role="user",
+        )
+        store.memory_item_repo.approve_item(item.id, where=where)
+        node = self.graph_memory(f"memory:{item.id}", where=where)
+        if node is None:
+            raise RuntimeError("created memory is not visible in its scope")
+        return node
+
     async def graph_update_category_summary(
         self,
         item_id: str,
