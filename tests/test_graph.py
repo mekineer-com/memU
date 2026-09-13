@@ -1396,11 +1396,13 @@ def test_graph_search_mode_controls_keyword_vs_semantic():
 
     service._select_embedding_client = lambda _ctx: _Embedder()  # type: ignore[method-assign]
 
-    keyword = asyncio.run(service.graph_search("sushi", mode="keyword"))
-    semantic = asyncio.run(service.graph_search("sushi", mode="semantic"))
+    keyword = asyncio.run(service.graph_search("sushi", mode="keyword", limit=25))
+    semantic = asyncio.run(service.graph_search("sushi", mode="semantic", limit=25))
 
     assert [node["summary"] for node in keyword["nodes"]] == ["sushi keyword"]
+    assert keyword["limit"] == 25
     assert semantic["nodes"] == []
+    assert semantic["limit"] == 20
 
 
 def test_graph_search_semantic_includes_categories():

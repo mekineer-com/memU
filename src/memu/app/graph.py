@@ -1472,7 +1472,8 @@ class GraphMixin:
         if mode not in {"keyword", "semantic", "hybrid"}:
             raise ValueError("mode must be keyword, semantic, or hybrid")
         store = self._get_database()
-        limit = max(1, min(int(limit or 5), 20))
+        requested_limit = max(1, int(limit or 5))
+        limit = requested_limit if mode == "keyword" else min(requested_limit, 20)
         scope = dict(where or {})
         exclude_entity_id = exclude_entity_id.removeprefix("entity:") if exclude_entity_id else None
         exclude_category_id = (
