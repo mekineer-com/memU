@@ -809,16 +809,6 @@ class DossierMixin:
                     session=session,
                 )
 
-            reviewed_member_ids = (
-                {
-                    item.id
-                    for item in (*bundle["pending_items"], *bundle["cited_items"])
-                }
-                & resulting_members
-            ) | add_ids
-            for item_id in reviewed_member_ids:
-                store.memory_item_repo.approve_item(item_id, scope, session=session)
-
             final_items = store.memory_item_repo.list_items_by_ids(
                 resulting_members,
                 scope,

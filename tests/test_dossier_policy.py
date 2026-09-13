@@ -1413,10 +1413,10 @@ async def test_apply_dossier_revision_commits_one_reviewed_result(tmp_path, monk
         for relation in store.category_item_repo.relations
         if relation.category_id == category.id
     }
-    approved = store.memory_item_repo.list_items_by_ids({pending.id, candidate.id}, SCOPE)
+    members = store.memory_item_repo.list_items_by_ids({pending.id, candidate.id}, SCOPE)
     assert relation_ids == {pending.id, candidate.id}
     assert cached_relation_ids == relation_ids
-    assert all(item.approved_at is not None for item in approved.values())
+    assert all(item.approved_at is None for item in members.values())
     assert revised.description == decision["description"]
     assert revised.summary == prose
     assert revised.previous_description == "Health description"
