@@ -1582,7 +1582,7 @@ class GraphMixin:
             node["score"] = 1.0
             return {"nodes": [node], "limit": limit, "count": 1}
 
-        pool = store.memory_item_repo.list_items(scope)
+        pool = store.memory_item_repo.list_items(scope, include_embeddings=mode in {"semantic", "hybrid"})
         categories = store.memory_category_repo.list_categories(scope)
         relations = store.category_item_repo.list_relations(scope)
         excluded_ids: set[str] = set()
