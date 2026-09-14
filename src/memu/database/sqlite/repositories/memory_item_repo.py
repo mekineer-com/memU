@@ -572,39 +572,49 @@ WHERE version = 1 AND model IN ({placeholders})
             session.refresh(row)
         return self._to_memory_item(row)
 
-    def hard_delete_item(self, item_id: str, where: Mapping[str, Any] | None = None) -> MemoryItem:
+    def hard_delete_item(
+        self,
+        item_id: str,
+        where: Mapping[str, Any] | None = None,
+        *,
+        session: Any | None = None,
+    ) -> MemoryItem:
+        if session is None:
+            with self._sessions.session() as managed_session:
+                deleted = self.hard_delete_item(item_id, where, session=managed_session)
+                managed_session.commit()
+            self._state.relations[:] = [rel for rel in self._state.relations if rel.item_id != item_id]
+            return deleted
+
         category_item_model = self._sqla_models.CategoryItem
         triple_model = self._sqla_models.Triple
-        with self._sessions.session() as session:
-            filters = [self._memory_item_model.id == item_id, *self._build_filters(self._memory_item_model, where)]
-            active_filter = self._active_item_filter(self._memory_item_model, include_superseded=False)
-            if active_filter is not None:
-                filters.append(active_filter)
-            row = session.exec(select(self._memory_item_model).where(*filters)).first()
-            if row is None:
-                msg = f"Item with id {item_id} not found"
-                raise KeyError(msg)
-            deleted = self._to_memory_item(row)
-            scope_filters = self._build_filters(category_item_model, where)
-            session.exec(delete(category_item_model).where(category_item_model.item_id == item_id, *scope_filters))
-            triple_scope_filters = self._build_filters(triple_model, where)
-            session.exec(
-                delete(triple_model).where(
-                    or_(
-                        (triple_model.subject_kind == "memory") & (triple_model.subject_id == item_id),
-                        (triple_model.object_kind == "memory") & (triple_model.object_id == item_id),
-                        triple_model.source_memory_id == item_id,
-                    ),
-                    *triple_scope_filters,
-                )
+        filters = [self._memory_item_model.id == item_id, *self._build_filters(self._memory_item_model, where)]
+        active_filter = self._active_item_filter(self._memory_item_model, include_superseded=False)
+        if active_filter is not None:
+            filters.append(active_filter)
+        row = session.exec(select(self._memory_item_model).where(*filters)).first()
+        if row is None:
+            msg = f"Item with id {item_id} not found"
+            raise KeyError(msg)
+        deleted = self._to_memory_item(row)
+        scope_filters = self._build_filters(category_item_model, where)
+        session.exec(delete(category_item_model).where(category_item_model.item_id == item_id, *scope_filters))
+        triple_scope_filters = self._build_filters(triple_model, where)
+        session.exec(
+            delete(triple_model).where(
+                or_(
+                    (triple_model.subject_kind == "memory") & (triple_model.subject_id == item_id),
+                    (triple_model.object_kind == "memory") & (triple_model.object_id == item_id),
+                    triple_model.source_memory_id == item_id,
+                ),
+                *triple_scope_filters,
             )
-            conn = session.connection()
-            conn.exec_driver_sql("DELETE FROM memory_item_edit_history WHERE memory_item_id = ?", (item_id,))
-            self._fts_delete(session, item_id)
-            session.delete(row)
-            session.commit()
-
-        self._state.relations[:] = [rel for rel in self._state.relations if rel.item_id != item_id]
+        )
+        conn = session.connection()
+        conn.exec_driver_sql("DELETE FROM memory_item_edit_history WHERE memory_item_id = ?", (item_id,))
+        self._fts_delete(session, item_id)
+        session.delete(row)
+        session.flush()
         return deleted
 
     def create_item(

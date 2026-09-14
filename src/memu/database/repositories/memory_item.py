@@ -64,7 +64,13 @@ class MemoryItemRepo(Protocol):
         session: Any | None = None,
     ) -> MemoryItem: ...
 
-    def hard_delete_item(self, item_id: str, where: Mapping[str, Any] | None = None) -> MemoryItem: ...
+    def hard_delete_item(
+        self,
+        item_id: str,
+        where: Mapping[str, Any] | None = None,
+        *,
+        session: Any | None = None,
+    ) -> MemoryItem: ...
 
     def create_item(
         self,

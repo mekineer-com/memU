@@ -18,6 +18,7 @@ from memu.app.graph import (
     EntityActionConflictError,
     EntityMergeConflictError,
     GraphMixin,
+    MemoryCitationConflictError,
 )
 from memu.app.service import MemoryService
 from memu.database.models import Triple
@@ -2193,6 +2194,54 @@ def test_graph_delete_memory_removes_dependents():
             "SELECT COUNT(*) FROM triples WHERE subject_id = ? OR object_id = ? OR source_memory_id = ?",
             (item.id, item.id, item.id),
         ).scalar() == 0
+
+
+def test_graph_delete_memories_blocks_cited_group_atomically():
+    service = MemoryService(
+        database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
+        user_config={"model": GraphScope},
+    )
+    store = service._get_database()
+    scope = {"user_id": "Fictional User", "soul_id": "Fictional Soul"}
+    cited = store.memory_item_repo.create_item(
+        memory_type="episode", summary="Cited fact", embedding=[0.1], user_data=scope
+    )
+    uncited = store.memory_item_repo.create_item(
+        memory_type="episode", summary="Uncited fact", embedding=[0.2], user_data=scope
+    )
+    dossier = store.memory_category_repo.get_or_create_category(
+        name="Fictional dossier", description="", embedding=[0.1], user_data=scope, kind="topic"
+    )
+    store.memory_category_repo.update_category(
+        category_id=dossier.id,
+        summary=f"Current claim [M{cited.memory_ref}].",
+        where=scope,
+    )
+    store.category_item_repo.link_item_category(cited.id, dossier.id, scope)
+    store.category_item_repo.link_item_category(uncited.id, dossier.id, scope)
+
+    pending = {item["memory_id"]: item for item in service.graph_list_pending(where=scope)["items"]}
+    assert pending[cited.id]["dossier_usages"] == [{
+        "id": f"category:{dossier.id}", "name": "Fictional dossier", "cited": True,
+        "ref": f"[M{cited.memory_ref}]",
+    }]
+    assert pending[uncited.id]["dossier_usages"] == [{
+        "id": f"category:{dossier.id}", "name": "Fictional dossier", "cited": False,
+        "ref": f"[M{uncited.memory_ref}]",
+    }]
+
+    with pytest.raises(MemoryCitationConflictError) as exc_info:
+        service.graph_delete_memories([uncited.id, cited.id], where=scope)
+    assert exc_info.value.usages == [{
+        "id": f"category:{dossier.id}", "name": "Fictional dossier", "cited": True,
+        "ref": f"[M{cited.memory_ref}]",
+    }]
+    assert set(store.memory_item_repo.list_items(scope)) == {cited.id, uncited.id}
+
+    store.memory_category_repo.update_category(category_id=dossier.id, summary="Corrected claim.", where=scope)
+    deleted = service.graph_delete_memories([uncited.id, cited.id], where=scope)
+    assert {item["memory_id"] for item in deleted} == {cited.id, uncited.id}
+    assert store.memory_item_repo.list_items(scope) == {}
 
 
 def test_sqlite_approval_backfill_runs_only_when_column_is_added(tmp_path):

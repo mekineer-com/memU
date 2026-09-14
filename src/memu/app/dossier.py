@@ -1008,15 +1008,6 @@ class DossierMixin:
                 raise ValueError(f"Dossier cutover found dangling or cross-scope relation: {relation.id}")
             links_by_category.setdefault(relation.category_id, set()).add(relation.item_id)
 
-        by_ref = {cast(int, item.memory_ref): item.id for item in memories.values()}
-        for category in categories.values():
-            linked = links_by_category.get(category.id, set())
-            for memory_ref in self.extract_memory_refs(category.summary or ""):
-                if by_ref.get(memory_ref) not in linked:
-                    raise ValueError(
-                        f"Dossier {category.name} cites inactive or unlinked [M{memory_ref}]"
-                    )
-
     async def select_memorize_dossier_context(
         self,
         episodes: Sequence[Mapping[str, Any]],

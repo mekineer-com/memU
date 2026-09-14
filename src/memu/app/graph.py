@@ -47,6 +47,12 @@ class DossierMembershipConflictError(ValueError):
     pass
 
 
+class MemoryCitationConflictError(ValueError):
+    def __init__(self, usages: list[dict[str, Any]]) -> None:
+        super().__init__("Review current dossier citations before deleting this memory")
+        self.usages = usages
+
+
 def _stable_entity_values(values: Iterable[Any], *, exclude: str = "") -> list[str]:
     seen = {normalize_entity_name(exclude)} if exclude else set()
     result: list[str] = []
@@ -203,6 +209,41 @@ def _pack_embedding(values: list[float]) -> str:
 
 
 class GraphMixin:
+    def _dossier_usages_by_item(
+        self,
+        items: Iterable[Any],
+        categories: Mapping[str, Any],
+        relations: Iterable[Any],
+    ) -> dict[str, list[dict[str, Any]]]:
+        items = list(items)
+        item_by_ref = {item.memory_ref: item.id for item in items if item.memory_ref is not None}
+        ref_by_item = {item.id: item.memory_ref for item in items}
+        member_categories: dict[str, set[str]] = {}
+        for relation in relations:
+            if relation.category_id in categories:
+                member_categories.setdefault(relation.item_id, set()).add(relation.category_id)
+
+        cited_categories: dict[str, set[str]] = {}
+        for category in categories.values():
+            for memory_ref in self.extract_memory_refs(category.summary or ""):
+                item_id = item_by_ref.get(memory_ref)
+                if item_id is not None:
+                    cited_categories.setdefault(item_id, set()).add(category.id)
+
+        usages: dict[str, list[dict[str, Any]]] = {}
+        for item_id in member_categories.keys() | cited_categories.keys():
+            category_ids = member_categories.get(item_id, set()) | cited_categories.get(item_id, set())
+            usages[item_id] = [
+                {
+                    "id": f"category:{category_id}",
+                    "name": categories[category_id].name,
+                    "cited": category_id in cited_categories.get(item_id, set()),
+                    "ref": self.format_memory_ref(ref_by_item[item_id]) if ref_by_item.get(item_id) else None,
+                }
+                for category_id in sorted(category_ids, key=lambda value: categories[value].name.casefold())
+            ]
+        return usages
+
     def _graph_active_category_ids(self, where: Mapping[str, Any] | None) -> set[str]:
         return {category.id for category in self.list_active_dossiers(where or {})}
 
@@ -316,11 +357,13 @@ class GraphMixin:
             if rel.item_id == item.id and rel.category_id in categories
         ]
         entity_pairs = self._entity_pairs_by_memory([item.id], where or {}).get(item.id, [])
+        dossier_usages = self._dossier_usages_by_item([item], categories, relations).get(item.id, [])
         return self._memory_node(
             item,
             category_names=category_names,
             category_ids=category_ids,
             entity_pairs=entity_pairs,
+            dossier_usages=dossier_usages,
         )
 
     def graph_atomic_atoms(
@@ -1355,6 +1398,7 @@ class GraphMixin:
         categories = store.memory_category_repo.list_categories(where)
         active_category_ids = self._graph_active_category_ids(where) if categories else set()
         relations = store.category_item_repo.list_relations(where)
+        dossier_usages = self._dossier_usages_by_item(items.values(), categories, relations)
         category_names_by_item: dict[str, list[str]] = {}
         category_ids_by_item: dict[str, list[str]] = {}
         for rel in relations:
@@ -1380,6 +1424,7 @@ class GraphMixin:
                 item,
                 category_names=category_names_by_item.get(item.id, []),
                 category_ids=category_ids_by_item.get(item.id, []),
+                dossier_usages=dossier_usages.get(item.id, []),
             )
             cluster_info = clusters.get(item.id, {})
             if cluster_info:
@@ -1428,30 +1473,55 @@ class GraphMixin:
             return None
         return self.graph_memory(f"category:{raw_id}", where=where)
 
+    def graph_delete_memories(
+        self,
+        item_ids: Iterable[str],
+        *,
+        where: Mapping[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        raw_ids = list(dict.fromkeys(str(item_id or "").removeprefix("memory:") for item_id in item_ids))
+        raw_ids = [item_id for item_id in raw_ids if item_id]
+        if not raw_ids:
+            return []
+        store = self._get_database()
+        session_cm = self._sqlite_write_session(store)
+        if session_cm is None:
+            raise RuntimeError("Memory deletion requires SQLite")
+        with session_cm as session:
+            session.execute(text("BEGIN IMMEDIATE"))
+            items = store.memory_item_repo.list_items_by_ids(set(raw_ids), where, session=session)
+            categories = store.memory_category_repo.list_categories(where, session=session)
+            relations = store.category_item_repo.list_relations(where, session=session)
+            usages = self._dossier_usages_by_item(items.values(), categories, relations)
+            conflicts = [usage for item_id in raw_ids for usage in usages.get(item_id, []) if usage["cited"]]
+            if conflicts:
+                raise MemoryCitationConflictError(conflicts)
+
+            deleted = [
+                store.memory_item_repo.hard_delete_item(item_id, where=where, session=session)
+                for item_id in raw_ids
+                if item_id in items
+            ]
+            session.commit()
+        store._state.relations[:] = [rel for rel in store._state.relations if rel.item_id not in raw_ids]
+        return [
+            self._memory_node(
+                item,
+                category_names=[usage["name"] for usage in usages.get(item.id, [])],
+                category_ids=[usage["id"].removeprefix("category:") for usage in usages.get(item.id, [])],
+                dossier_usages=usages.get(item.id, []),
+            )
+            for item in deleted
+        ]
+
     def graph_delete_memory(self, item_id: str, *, where: Mapping[str, Any] | None = None) -> dict[str, Any] | None:
         kind, _, raw_id = str(item_id or "").partition(":")
         if not raw_id:
             kind, raw_id = "memory", kind
         if kind != "memory" or not raw_id:
             raise ValueError("only memory deletion is supported")
-        store = self._get_database()
-        categories = store.memory_category_repo.list_categories(where)
-        relations = store.category_item_repo.list_relations(where)
-        try:
-            deleted = store.memory_item_repo.hard_delete_item(raw_id, where=where)
-        except KeyError:
-            return None
-        category_names = [
-            categories[rel.category_id].name
-            for rel in relations
-            if rel.item_id == deleted.id and rel.category_id in categories
-        ]
-        category_ids = [
-            rel.category_id
-            for rel in relations
-            if rel.item_id == deleted.id and rel.category_id in categories
-        ]
-        return self._memory_node(deleted, category_names=category_names, category_ids=category_ids)
+        deleted = self.graph_delete_memories([raw_id], where=where)
+        return deleted[0] if deleted else None
 
     async def graph_search(
         self,
@@ -1764,6 +1834,7 @@ class GraphMixin:
         category_names: list[str],
         category_ids: list[str] | None = None,
         entity_pairs: list[tuple[str, str]] | None = None,
+        dossier_usages: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         salience = max(
             [v for v in (item.reflection_salience, item.emotional_intensity) if isinstance(v, int | float)],
@@ -1784,6 +1855,7 @@ class GraphMixin:
             "salience": salience,
             "category_ids": [pair[0] for pair in category_pairs],
             "category_names": [pair[1] for pair in category_pairs],
+            "dossier_usages": dossier_usages or [],
         }
         if entity_pairs is not None:
             node["entity_ids"] = [pair[0] for pair in entity_pairs]

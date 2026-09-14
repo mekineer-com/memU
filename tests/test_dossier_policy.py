@@ -148,7 +148,7 @@ def test_cutover_readiness_accepts_empty_and_valid_scopes(tmp_path) -> None:
     _service(tmp_path).require_dossier_cutover_ready(SCOPE)
 
 
-def test_cutover_readiness_rejects_unmigrated_and_unlinked_citations(tmp_path) -> None:
+def test_cutover_readiness_rejects_unmigrated_refs_but_not_stale_citations(tmp_path) -> None:
     service = _service(tmp_path)
     item = service.database.memory_item_repo.create_item(
         memory_type="episode",
@@ -165,8 +165,7 @@ def test_cutover_readiness_rejects_unmigrated_and_unlinked_citations(tmp_path) -
     _seed_anchors(service)
     category = _category(service, "Health", summary="## Health\nAn unlinked citation [M1].")
     service.database.memory_category_repo.approve_category_summary(category.id, SCOPE)
-    with pytest.raises(ValueError, match=r"unlinked \[M1\]"):
-        service.require_dossier_cutover_ready(SCOPE)
+    service.require_dossier_cutover_ready(SCOPE)
 
     service.database.category_item_repo.link_item_category(item.id, category.id, SCOPE)
     service.require_dossier_cutover_ready(SCOPE)
