@@ -225,7 +225,7 @@ class GraphMixin:
 
         cited_categories: dict[str, set[str]] = {}
         for category in categories.values():
-            for memory_ref in self.extract_memory_refs(category.summary or ""):
+            for memory_ref in self.extract_memory_refs(category.summary or "", strict=False):
                 item_id = item_by_ref.get(memory_ref)
                 if item_id is not None:
                     cited_categories.setdefault(item_id, set()).add(category.id)
@@ -257,7 +257,9 @@ class GraphMixin:
     ) -> dict[str, Any]:
         citations = []
         # ponytail: N+1 citation lookups; batch WHERE IN if scale matters.
-        for memory_ref in memory_refs if memory_refs is not None else self.extract_memory_refs(category.summary or ""):
+        for memory_ref in memory_refs if memory_refs is not None else self.extract_memory_refs(
+            category.summary or "", strict=False
+        ):
             try:
                 item = self.resolve_memory_ref(memory_ref, where or {})
             except KeyError:
@@ -281,7 +283,7 @@ class GraphMixin:
         active_category_ids: set[str],
     ) -> dict[str, Any]:
         store = self._get_database()
-        memory_refs = self.extract_memory_refs(category.summary or "")
+        memory_refs = self.extract_memory_refs(category.summary or "", strict=False)
         node = self._scoped_category_node(
             category,
             where=where,
@@ -927,7 +929,9 @@ class GraphMixin:
             if attached == linked:
                 session.commit()
             else:
-                if not attached and item.memory_ref in self.extract_memory_refs(category.summary or ""):
+                if not attached and item.memory_ref in self.extract_memory_refs(
+                    category.summary or "", strict=False
+                ):
                     raise DossierMembershipConflictError(
                         f"remove {self.format_memory_ref(item.memory_ref)} from dossier text first"
                     )
@@ -1478,6 +1482,7 @@ class GraphMixin:
         item_ids: Iterable[str],
         *,
         where: Mapping[str, Any] | None = None,
+        require_all: bool = False,
     ) -> list[dict[str, Any]]:
         raw_ids = list(dict.fromkeys(str(item_id or "").removeprefix("memory:") for item_id in item_ids))
         raw_ids = [item_id for item_id in raw_ids if item_id]
@@ -1490,6 +1495,9 @@ class GraphMixin:
         with session_cm as session:
             session.execute(text("BEGIN IMMEDIATE"))
             items = store.memory_item_repo.list_items_by_ids(set(raw_ids), where, session=session)
+            missing = set(raw_ids) - items.keys()
+            if require_all and missing:
+                raise KeyError(f"Memory items not found in scope: {sorted(missing)}")
             categories = store.memory_category_repo.list_categories(where, session=session)
             relations = store.category_item_repo.list_relations(where, session=session)
             usages = self._dossier_usages_by_item(items.values(), categories, relations)

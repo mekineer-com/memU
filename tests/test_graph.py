@@ -158,6 +158,7 @@ def _item(id, summary, when):
         happened_at=when,
         created_at=when,
         updated_at=when,
+        memory_ref=None,
         reflection_salience=None,
         emotional_intensity=None,
     )
@@ -1390,20 +1391,47 @@ def test_graph_search_mode_controls_keyword_vs_semantic():
         )
     )
 
+    embed_calls = []
+
     class _Embedder:
         async def embed(self, texts):
+            embed_calls.append(texts)
             assert texts == ["sushi"]
             return [[1.0, 0.0]]
 
     service._select_embedding_client = lambda _ctx: _Embedder()  # type: ignore[method-assign]
 
     keyword = asyncio.run(service.graph_search("sushi", mode="keyword", limit=25))
+    assert embed_calls == []
     semantic = asyncio.run(service.graph_search("sushi", mode="semantic", limit=25))
 
     assert [node["summary"] for node in keyword["nodes"]] == ["sushi keyword"]
     assert keyword["limit"] == 25
     assert semantic["nodes"] == []
     assert semantic["limit"] == 20
+    assert embed_calls == [["sushi"]]
+
+
+def test_fts_search_chunks_large_filtered_pool():
+    service = MemoryService(
+        database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
+        user_config={"model": GraphScope},
+    )
+    store = service._get_database()
+    rows = [(f"memory-{index}", "needle", "knowledge") for index in range(1100)]
+    with store._sessions.engine.begin() as conn:
+        conn.exec_driver_sql(
+            "INSERT INTO memory_items_fts(item_id, summary, memory_type) VALUES (?, ?, ?)",
+            rows,
+        )
+
+    hits = store.memory_item_repo.fts_search_items(
+        "needle",
+        1100,
+        pool_ids={row[0] for row in rows},
+    )
+
+    assert len(hits) == 1100
 
 
 def test_graph_search_semantic_includes_categories():
@@ -2163,6 +2191,11 @@ def test_graph_delete_memory_removes_dependents():
         user_data=scope,
     )
     store.category_item_repo.link_item_category(item.id, category.id, scope)
+    store.dossier_candidate_repo.add_candidate(
+        proposed_name="Possible dossier",
+        item_id=item.id,
+        where=scope,
+    )
     store.triple_repo.add(
         Triple(
             subject_id=item.id,
@@ -2190,6 +2223,7 @@ def test_graph_delete_memory_removes_dependents():
         assert conn.exec_driver_sql("SELECT COUNT(*) FROM memory_items_fts WHERE item_id = ?", (item.id,)).scalar() == 0
         assert conn.exec_driver_sql("SELECT COUNT(*) FROM memory_item_edit_history WHERE memory_item_id = ?", (item.id,)).scalar() == 0
         assert conn.exec_driver_sql("SELECT COUNT(*) FROM category_items WHERE item_id = ?", (item.id,)).scalar() == 0
+        assert conn.exec_driver_sql("SELECT COUNT(*) FROM dossier_candidates WHERE item_id = ?", (item.id,)).scalar() == 0
         assert conn.exec_driver_sql(
             "SELECT COUNT(*) FROM triples WHERE subject_id = ? OR object_id = ? OR source_memory_id = ?",
             (item.id, item.id, item.id),
@@ -2214,7 +2248,7 @@ def test_graph_delete_memories_blocks_cited_group_atomically():
     )
     store.memory_category_repo.update_category(
         category_id=dossier.id,
-        summary=f"Current claim [M{cited.memory_ref}].",
+        summary=f"Typo [M#], current claim [M{cited.memory_ref}].",
         where=scope,
     )
     store.category_item_repo.link_item_category(cited.id, dossier.id, scope)
@@ -2236,6 +2270,10 @@ def test_graph_delete_memories_blocks_cited_group_atomically():
         "id": f"category:{dossier.id}", "name": "Fictional dossier", "cited": True,
         "ref": f"[M{cited.memory_ref}]",
     }]
+    assert set(store.memory_item_repo.list_items(scope)) == {cited.id, uncited.id}
+
+    with pytest.raises(KeyError, match="missing-memory"):
+        service.graph_delete_memories([uncited.id, "missing-memory"], where=scope, require_all=True)
     assert set(store.memory_item_repo.list_items(scope)) == {cited.id, uncited.id}
 
     store.memory_category_repo.update_category(category_id=dossier.id, summary="Corrected claim.", where=scope)

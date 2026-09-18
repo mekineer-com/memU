@@ -587,6 +587,7 @@ WHERE version = 1 AND model IN ({placeholders})
             return deleted
 
         category_item_model = self._sqla_models.CategoryItem
+        dossier_candidate_model = self._sqla_models.DossierCandidate
         triple_model = self._sqla_models.Triple
         filters = [self._memory_item_model.id == item_id, *self._build_filters(self._memory_item_model, where)]
         active_filter = self._active_item_filter(self._memory_item_model, include_superseded=False)
@@ -599,6 +600,13 @@ WHERE version = 1 AND model IN ({placeholders})
         deleted = self._to_memory_item(row)
         scope_filters = self._build_filters(category_item_model, where)
         session.exec(delete(category_item_model).where(category_item_model.item_id == item_id, *scope_filters))
+        candidate_scope_filters = self._build_filters(dossier_candidate_model, where)
+        session.exec(
+            delete(dossier_candidate_model).where(
+                dossier_candidate_model.item_id == item_id,
+                *candidate_scope_filters,
+            )
+        )
         triple_scope_filters = self._build_filters(triple_model, where)
         session.exec(
             delete(triple_model).where(
@@ -987,21 +995,27 @@ VALUES (?, ?, ?, ?, ?, ?, ?)
 
         if pool_ids is not None and not pool_ids:
             return []
-        params: tuple[Any, ...] = (safe_query, top_k)
-        pool_clause = ""
-        if pool_ids is not None:
-            ordered_ids = sorted(pool_ids)
-            pool_clause = f"AND item_id IN ({','.join('?' for _ in ordered_ids)}) "
-            params = (safe_query, *ordered_ids, top_k)
-
         with self._sessions.session() as session:
             conn = session.connection()
-            rows = conn.exec_driver_sql(
-                "SELECT item_id, rank FROM memory_items_fts "
-                "WHERE memory_items_fts MATCH ? "
-                f"{pool_clause}ORDER BY rank LIMIT ?",
-                params,
-            ).fetchall()
+            if pool_ids is None:
+                rows = conn.exec_driver_sql(
+                    "SELECT item_id, rank FROM memory_items_fts "
+                    "WHERE memory_items_fts MATCH ? ORDER BY rank LIMIT ?",
+                    (safe_query, top_k),
+                ).fetchall()
+            else:
+                rows = []
+                ordered_ids = sorted(pool_ids)
+                for start in range(0, len(ordered_ids), 900):
+                    chunk = ordered_ids[start:start + 900]
+                    placeholders = ",".join("?" for _ in chunk)
+                    rows.extend(conn.exec_driver_sql(
+                        "SELECT item_id, rank FROM memory_items_fts "
+                        f"WHERE memory_items_fts MATCH ? AND item_id IN ({placeholders}) "
+                        "ORDER BY rank LIMIT ?",
+                        (safe_query, *chunk, top_k),
+                    ).fetchall())
+                rows = sorted(rows, key=lambda row: row[1])[:top_k]
 
         return [(item_id, -rank) for item_id, rank in rows]  # negate: higher = better
 
