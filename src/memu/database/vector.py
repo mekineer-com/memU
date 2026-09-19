@@ -8,8 +8,8 @@ from typing import cast
 import numpy as np
 
 W_SIMILARITY = 0.5
-W_RECENCY = 0.2
-W_IMPORTANCE = 0.3
+W_RECENCY = 0.3
+W_IMPORTANCE = 0.2
 
 
 def cosine_similarity(a: Sequence[float], b: Sequence[float]) -> float:
