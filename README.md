@@ -2,7 +2,9 @@
 
 Local-first memory engine for AI companions. Extracts, stores, and retrieves structured memories from conversation history.
 
-Based on [memU v1.4.0](https://github.com/NevaMind-AI/memU/blob/v1.4.0/README.md), significantly diverged. Private fork, not affiliated with NevaMind-AI. Does not connect to any cloud service.
+Part of [OpenAlma](https://github.com/mekineer-com/OpenAlma). For project-wide questions and ideas, use [OpenAlma Discussions](https://github.com/mekineer-com/OpenAlma/discussions).
+
+Based on [memU v1.4.0](https://github.com/NevaMind-AI/memU/blob/v1.4.0/README.md), significantly diverged. Unofficial fork, not affiliated with NevaMind-AI. Does not connect to any cloud service.
 
 ---
 
