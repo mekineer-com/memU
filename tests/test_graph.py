@@ -189,8 +189,10 @@ def test_graph_recent_returns_bounded_memory_graph():
 
 def test_graph_memory_includes_current_entity_mentions():
     now = datetime(2026, 7, 1, tzinfo=UTC)
+    item = _item("m1", "First memory", now)
+    item.memory_ref = 42
     db = SimpleNamespace(
-        memory_item_repo=_Repo({"m1": _item("m1", "First memory", now)}),
+        memory_item_repo=_Repo({"m1": item}),
         memory_category_repo=_Repo({}),
         category_item_repo=_Repo([]),
         entity_repo=_Repo([SimpleNamespace(id="e1", name="Annie")]),
@@ -200,6 +202,7 @@ def test_graph_memory_includes_current_entity_mentions():
     memory = _Service(db).graph_memory("memory:m1", where={"user_id": "u", "soul_id": "s"})
 
     assert memory is not None
+    assert memory["memory_ref"] == 42
     assert memory["entity_ids"] == ["entity:e1"]
     assert memory["entity_names"] == ["Annie"]
 

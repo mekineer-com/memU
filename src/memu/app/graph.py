@@ -1853,6 +1853,7 @@ class GraphMixin:
             "id": f"memory:{item.id}",
             "kind": "memory",
             "memory_id": item.id,
+            "memory_ref": item.memory_ref,
             "label": _label(item.summary),
             "summary": item.summary,
             "memory_type": item.memory_type,
