@@ -1,6 +1,17 @@
 from datetime import datetime, timezone, timedelta
 
-from memu.database.vector import normalize_score_with_percentiles, rerank_by_salience, salience_score
+from memu.database.vector import (
+    W_IMPORTANCE,
+    W_RECENCY,
+    W_SIMILARITY,
+    normalize_score_with_percentiles,
+    rerank_by_salience,
+    salience_score,
+)
+
+
+def test_retrieval_weights_match_product_defaults() -> None:
+    assert (W_SIMILARITY, W_RECENCY, W_IMPORTANCE) == (0.5, 0.3, 0.2)
 
 
 def test_salience_score_recency_decay():
