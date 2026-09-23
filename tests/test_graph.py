@@ -1643,6 +1643,82 @@ def test_graph_update_memory_summary_stripped_noop_skips_embed_and_history():
     assert count == 0
 
 
+def test_memory_mutations_reject_stale_summary_without_side_effects():
+    service = MemoryService(
+        database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
+        user_config={"model": GraphScope},
+    )
+    store = service._get_database()
+    scope = {"user_id": "stale_memory", "soul_id": "s"}
+    item = store.memory_item_repo.create_item(
+        memory_type="episode", summary="current", embedding=[0.1], user_data=scope
+    )
+    service._select_embedding_client = lambda _ctx: pytest.fail("stale edit must not embed")  # type: ignore[method-assign]
+
+    with pytest.raises(ValueError, match="summary_snapshot_stale"):
+        asyncio.run(
+            service.graph_update_memory_summary(
+                item.id,
+                summary="replacement",
+                where=scope,
+                approved=True,
+                expected_summary="old",
+            )
+        )
+    with pytest.raises(ValueError, match="summary_snapshot_stale"):
+        service.graph_approve_memory(item.id, where=scope, expected_summary="old")
+    with pytest.raises(ValueError, match="summary_snapshot_stale"):
+        service.graph_delete_memory(item.id, where=scope, expected_summary="old")
+
+    saved = store.memory_item_repo.list_items_by_ids({item.id}, scope, include_embeddings=True)[item.id]
+    assert saved.summary == "current"
+    assert saved.embedding == pytest.approx([0.1])
+    assert saved.approved_at is None
+    assert saved.updated_at == item.updated_at
+    with store._sessions.engine.connect() as conn:
+        assert conn.exec_driver_sql("SELECT COUNT(*) FROM memory_item_edit_history").scalar() == 0
+
+
+def test_graph_update_memory_summary_rechecks_baseline_after_embedding():
+    service = MemoryService(
+        database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
+        user_config={"model": GraphScope},
+    )
+    store = service._get_database()
+    scope = {"user_id": "racing_memory", "soul_id": "s"}
+    item = store.memory_item_repo.create_item(
+        memory_type="episode", summary="original", embedding=[0.1], user_data=scope
+    )
+
+    class _Embedder:
+        async def embed(self, _texts):
+            store.memory_item_repo.update_summary_with_history(
+                item_id=item.id,
+                summary="external edit",
+                embedding=[0.2],
+                where=scope,
+            )
+            return [[0.9]]
+
+    service._select_embedding_client = lambda _ctx: _Embedder()  # type: ignore[method-assign]
+
+    with pytest.raises(ValueError, match="summary_snapshot_stale"):
+        asyncio.run(
+            service.graph_update_memory_summary(
+                item.id,
+                summary="local edit",
+                where=scope,
+                expected_summary="original",
+            )
+        )
+
+    saved = store.memory_item_repo.list_items_by_ids({item.id}, scope, include_embeddings=True)[item.id]
+    assert saved.summary == "external edit"
+    assert saved.embedding == pytest.approx([0.2])
+    with store._sessions.engine.connect() as conn:
+        assert conn.exec_driver_sql("SELECT COUNT(*) FROM memory_item_edit_history").scalar() == 1
+
+
 def test_graph_pending_and_memory_approval_semantics():
     service = MemoryService(
         database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},

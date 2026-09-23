@@ -549,11 +549,19 @@ WHERE version = 1 AND model IN ({placeholders})
         item_id: str,
         where: Mapping[str, Any] | None = None,
         *,
+        expected_summary: str | None = None,
         session: Any | None = None,
     ) -> MemoryItem:
         if session is None:
             with self._sessions.session() as managed_session:
-                item = self.approve_item(item_id, where, session=managed_session)
+                if expected_summary is not None:
+                    managed_session.execute(text("BEGIN IMMEDIATE"))
+                item = self.approve_item(
+                    item_id,
+                    where,
+                    expected_summary=expected_summary,
+                    session=managed_session,
+                )
                 managed_session.commit()
                 return item
 
@@ -565,6 +573,8 @@ WHERE version = 1 AND model IN ({placeholders})
         if row is None:
             msg = f"Item with id {item_id} not found"
             raise KeyError(msg)
+        if expected_summary is not None and row.summary != expected_summary:
+            raise ValueError("summary_snapshot_stale")
         if row.approved_at is None:
             row.approved_at = self._now()
             session.add(row)
@@ -901,9 +911,11 @@ WHERE version = 1 AND model IN ({placeholders})
         where: Mapping[str, Any] | None = None,
         edited_by: str | None = None,
         approved: bool = False,
+        expected_summary: str | None = None,
     ) -> MemoryItem:
         """Insert edit history and update the item in one transaction."""
         with self._sessions.session() as session:
+            session.execute(text("BEGIN IMMEDIATE"))
             filters = [self._memory_item_model.id == item_id, *self._build_filters(self._memory_item_model, where)]
             active_filter = self._active_item_filter(self._memory_item_model, include_superseded=False)
             if active_filter is not None:
@@ -912,6 +924,8 @@ WHERE version = 1 AND model IN ({placeholders})
             if row is None:
                 msg = f"Item with id {item_id} not found"
                 raise KeyError(msg)
+            if expected_summary is not None and row.summary != expected_summary:
+                raise ValueError("summary_snapshot_stale")
 
             conn = session.connection()
             conn.exec_driver_sql(

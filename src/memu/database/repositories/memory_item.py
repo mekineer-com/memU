@@ -61,6 +61,7 @@ class MemoryItemRepo(Protocol):
         item_id: str,
         where: Mapping[str, Any] | None = None,
         *,
+        expected_summary: str | None = None,
         session: Any | None = None,
     ) -> MemoryItem: ...
 
@@ -132,6 +133,7 @@ class MemoryItemRepo(Protocol):
         where: Mapping[str, Any] | None = None,
         edited_by: str | None = None,
         approved: bool = False,
+        expected_summary: str | None = None,
     ) -> MemoryItem: ...
 
     def vector_search_items(

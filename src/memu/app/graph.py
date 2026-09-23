@@ -1275,6 +1275,7 @@ class GraphMixin:
         where: Mapping[str, Any] | None = None,
         edited_by: str | None = None,
         approved: bool = False,
+        expected_summary: str | None = None,
     ) -> dict[str, Any] | None:
         store = self._get_database()
         kind, _, raw_id = str(item_id or "").partition(":")
@@ -1290,9 +1291,11 @@ class GraphMixin:
         current = store.memory_item_repo.list_items_by_ids({raw_id}, where=where).get(raw_id)
         if current is None:
             return None
+        if expected_summary is not None and current.summary != expected_summary:
+            raise ValueError("summary_snapshot_stale")
         if current.summary.strip() == summary:
             if approved:
-                store.memory_item_repo.approve_item(raw_id, where=where)
+                store.memory_item_repo.approve_item(raw_id, where=where, expected_summary=expected_summary)
             return self.graph_memory(f"memory:{raw_id}", where=where)
 
         embedding = (await self._select_embedding_client(None).embed([summary]))[0]
@@ -1303,6 +1306,7 @@ class GraphMixin:
             where=where,
             edited_by=edited_by,
             approved=approved,
+            expected_summary=expected_summary,
         )
         return self.graph_memory(f"memory:{raw_id}", where=where)
 
@@ -1453,14 +1457,24 @@ class GraphMixin:
         ]
         return {"items": pending_items, "categories": pending_categories}
 
-    def graph_approve_memory(self, item_id: str, *, where: Mapping[str, Any] | None = None) -> dict[str, Any] | None:
+    def graph_approve_memory(
+        self,
+        item_id: str,
+        *,
+        where: Mapping[str, Any] | None = None,
+        expected_summary: str | None = None,
+    ) -> dict[str, Any] | None:
         kind, _, raw_id = str(item_id or "").partition(":")
         if not raw_id:
             kind, raw_id = "memory", kind
         if kind != "memory" or not raw_id:
             raise ValueError("only memory approvals are supported")
         try:
-            self._get_database().memory_item_repo.approve_item(raw_id, where=where)
+            self._get_database().memory_item_repo.approve_item(
+                raw_id,
+                where=where,
+                expected_summary=expected_summary,
+            )
         except KeyError:
             return None
         return self.graph_memory(f"memory:{raw_id}", where=where)
@@ -1483,6 +1497,7 @@ class GraphMixin:
         *,
         where: Mapping[str, Any] | None = None,
         require_all: bool = False,
+        expected_summaries: Mapping[str, str] | None = None,
     ) -> list[dict[str, Any]]:
         raw_ids = list(dict.fromkeys(str(item_id or "").removeprefix("memory:") for item_id in item_ids))
         raw_ids = [item_id for item_id in raw_ids if item_id]
@@ -1498,6 +1513,11 @@ class GraphMixin:
             missing = set(raw_ids) - items.keys()
             if require_all and missing:
                 raise KeyError(f"Memory items not found in scope: {sorted(missing)}")
+            if expected_summaries is not None and any(
+                item_id in items and items[item_id].summary != expected_summaries[item_id]
+                for item_id in expected_summaries
+            ):
+                raise ValueError("summary_snapshot_stale")
             categories = store.memory_category_repo.list_categories(where, session=session)
             relations = store.category_item_repo.list_relations(where, session=session)
             usages = self._dossier_usages_by_item(items.values(), categories, relations)
@@ -1522,13 +1542,20 @@ class GraphMixin:
             for item in deleted
         ]
 
-    def graph_delete_memory(self, item_id: str, *, where: Mapping[str, Any] | None = None) -> dict[str, Any] | None:
+    def graph_delete_memory(
+        self,
+        item_id: str,
+        *,
+        where: Mapping[str, Any] | None = None,
+        expected_summary: str | None = None,
+    ) -> dict[str, Any] | None:
         kind, _, raw_id = str(item_id or "").partition(":")
         if not raw_id:
             kind, raw_id = "memory", kind
         if kind != "memory" or not raw_id:
             raise ValueError("only memory deletion is supported")
-        deleted = self.graph_delete_memories([raw_id], where=where)
+        expected = {raw_id: expected_summary} if expected_summary is not None else None
+        deleted = self.graph_delete_memories([raw_id], where=where, expected_summaries=expected)
         return deleted[0] if deleted else None
 
     async def graph_search(
