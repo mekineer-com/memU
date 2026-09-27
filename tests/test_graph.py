@@ -2500,6 +2500,40 @@ def test_graph_update_category_summary_approved_noop_blesses_without_journal(mon
     assert list(tmp_path.iterdir()) == []
 
 
+def test_graph_update_category_kind_does_not_revise_or_journal(monkeypatch, tmp_path):
+    monkeypatch.setattr(category_summary_journal, "JOURNAL_DIR", tmp_path)
+    service = MemoryService(
+        database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
+        user_config={"model": GraphScope},
+    )
+    store = service._get_database()
+    scope = {"user_id": "graph_cat_kind", "soul_id": "s"}
+    revised_at = datetime(2026, 1, 1, tzinfo=UTC)
+    category = store.memory_category_repo.get_or_create_category(
+        name="Coffee",
+        description="A shared interest.",
+        embedding=[0.1],
+        user_data=scope,
+        kind="lore",
+        last_revised_at=revised_at,
+    )
+    revised_before = store.memory_category_repo.list_categories(scope)[category.id].last_revised_at
+
+    updated = asyncio.run(
+        service.graph_update_category_summary(
+            category.id,
+            category_kind="topic",
+            where=scope,
+        )
+    )
+
+    saved = store.memory_category_repo.list_categories(scope)[category.id]
+    assert updated["category_kind"] == "topic"
+    assert saved.kind == "topic"
+    assert saved.last_revised_at == revised_before
+    assert list(tmp_path.iterdir()) == []
+
+
 def test_graph_update_category_summary_out_of_scope_does_not_journal(monkeypatch, tmp_path):
     monkeypatch.setattr(category_summary_journal, "JOURNAL_DIR", tmp_path)
     service = MemoryService(

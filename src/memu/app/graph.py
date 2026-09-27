@@ -13,7 +13,7 @@ from sqlalchemy import text
 
 from memu.app.category_summary_journal import append_category_summary_journal
 from memu.app.dossier import DossierRevisionStaleError
-from memu.database.models import Triple, entity_is_ignored, normalize_entity_name
+from memu.database.models import DossierKind, Triple, entity_is_ignored, normalize_entity_name
 from memu.database.vector import cosine_similarity, cosine_topk
 from memu.utils.taxonomy import DOSSIER_KINDS
 
@@ -1350,15 +1350,16 @@ class GraphMixin:
         summary: str | None = None,
         title: str | None = None,
         description: str | None = None,
+        category_kind: DossierKind | None = None,
         where: Mapping[str, Any] | None = None,
         edited_by: str | None = None,
         approved: bool = False,
     ) -> dict[str, Any] | None:
         store = self._get_database()
-        kind, _, raw_id = str(item_id or "").partition(":")
+        item_kind, _, raw_id = str(item_id or "").partition(":")
         if not raw_id:
-            kind, raw_id = "category", kind
-        if kind != "category" or not raw_id:
+            item_kind, raw_id = "category", item_kind
+        if item_kind != "category" or not raw_id:
             raise ValueError("only category summaries are editable")
 
         clean = str(summary or "").strip() if summary is not None else None
@@ -1370,20 +1371,23 @@ class GraphMixin:
             raise ValueError("title is required")
         if description is not None and not clean_description:
             raise ValueError("description is required")
-        if clean is None and clean_title is None and clean_description is None:
-            raise ValueError("title, description, or summary is required")
+        if category_kind is not None and category_kind not in DOSSIER_KINDS:
+            raise ValueError(f"Invalid dossier kind: {category_kind}")
+        if clean is None and clean_title is None and clean_description is None and category_kind is None:
+            raise ValueError("title, description, summary, or kind is required")
         current = store.memory_category_repo.list_categories(where).get(raw_id)
         if current is None:
             msg = f"Category with id {raw_id} not found"
             raise KeyError(msg)
         summary_changed = clean is not None and str(current.summary or "").strip() != clean
-        if clean_title is not None or clean_description is not None or summary_changed:
+        if clean_title is not None or clean_description is not None or summary_changed or category_kind is not None:
             await self.update_dossier(
                 raw_id,
                 where or {},
                 name=clean_title,
                 description=clean_description,
                 summary=clean if summary_changed else None,
+                kind=category_kind if category_kind is not None else ...,
             )
         if summary_changed:
             try:
