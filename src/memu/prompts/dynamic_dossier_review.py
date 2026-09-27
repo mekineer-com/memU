@@ -55,12 +55,12 @@ analyst naming a folder.
 
 Choose one kind:
 
-- `lore`: lived identity, relationships, rituals, places, personal history, or
-  the texture of an ongoing life;
 - `topic`: an interest, subject, craft, body of knowledge, or recurring
   curiosity;
 - `goal`: an enduring hope, commitment, direction, or future being worked
-  toward.
+  toward;
+- `lore`: lived identity, relationships, rituals, places, history, or
+  the texture of an ongoing life.
 
 # Exact output
 
