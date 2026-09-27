@@ -11,7 +11,7 @@
 |---------|---------|
 | `app/service.py` | `MemoryService` — top-level facade, only public API |
 | `app/dossier.py` | Dossier core policy: soul/user anchors, active/inactive sets, sparse memorize context, deterministic compact index, identity/content search views, strict `[M#]` handles, revision preparation/generation, reusable prompt rendering, and atomic revision apply |
-| `app/dossier_revision.py` | Pure dossier-revision rendering, strict XML normalization, and deterministic section-patch assembly; one leading `##` section is structured prose |
+| `app/dossier_revision.py` | Pure dossier-revision rendering, strict XML normalization, and deterministic section-patch assembly; blank anchors reuse the full structured-replacement path once, then use section patches |
 | `app/memorize.py` | Memorize workflow: preprocess → route → extract → store. Image resources memorize from a supplied caption and are persisted before extraction. Roster supports same-role ambiguity + relationship-entity triggers; dedupe keys by `(source_role, speaker_id, summary)`; parse failures retry once before propagating. |
 | `app/memorize_parsing.py` | Parsing/normalization seam: message-index extraction, source-message-id normalization, timestamp parsing, XML/JSON memory-type response parsing |
 | `app/memorize_speakers.py` | Speaker attribution seam: stable entity-ID resolution, roster construction/validation, prompt-label sanitization, speaker_ref resolution |
