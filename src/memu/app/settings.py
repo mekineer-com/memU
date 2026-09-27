@@ -194,7 +194,7 @@ class MemorizeConfig(BaseModel):
     active_dossiers_per_kind: int = Field(
         default=30,
         ge=0,
-        description="Maximum active non-anchor dossiers retained per dossier kind.",
+        description="Reserved active non-anchor slots per dossier kind; unused slots spill across kinds.",
     )
     category_summary_target_words: int = Field(
         default=300,

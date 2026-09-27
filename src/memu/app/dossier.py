@@ -892,13 +892,23 @@ class DossierMixin:
         active = list(anchors.values())
 
         limit = max(0, int(self.memorize_config.active_dossiers_per_kind))
+        selected: list[MemoryCategory] = []
+        overflow: list[MemoryCategory] = []
         for kind in DOSSIER_KINDS:
-            evidenced = [
-                category
-                for category in store.memory_category_repo.list_categories_by_activity(scope, kind=kind)
-                if category.last_evidence_at is not None
-            ]
-            active.extend(evidenced[:limit])
+            evidenced = sorted(
+                (
+                    category
+                    for category in store.memory_category_repo.list_categories_by_activity(scope, kind=kind)
+                    if category.last_evidence_at is not None
+                ),
+                key=_activity_key,
+            )
+            selected.extend(evidenced[:limit])
+            overflow.extend(evidenced[limit:])
+        capacity = limit * len(DOSSIER_KINDS)
+        remaining = max(0, capacity - len(selected))
+        selected.extend(sorted(overflow, key=_activity_key)[:remaining])
+        active.extend(selected)
         return sorted(active, key=_activity_key)
 
     def list_inactive_dossiers(self, where: Mapping[str, Any]) -> list[MemoryCategory]:

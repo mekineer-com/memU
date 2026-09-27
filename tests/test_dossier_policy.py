@@ -264,13 +264,47 @@ async def test_activity_quota_and_compact_index_are_deterministic(tmp_path) -> N
 
 
 @pytest.mark.asyncio
+async def test_activity_quota_spills_unused_slots_by_deterministic_recency(tmp_path) -> None:
+    service = _service(tmp_path, active_dossiers_per_kind=2)
+    anchors = await service.ensure_dossier_anchors(SCOPE, embedding_client=FakeEmbedClient())
+    start = datetime(2026, 1, 1, tzinfo=UTC)
+    for name, kind, days in (
+        ("Lore newest", "lore", 5),
+        ("Lore second", "lore", 4),
+        ("alpha overflow", "lore", 3),
+        ("zeta overflow", "lore", 3),
+        ("Topic newest", "topic", 5),
+        ("Topic second", "topic", 4),
+        ("beta overflow", "topic", 3),
+    ):
+        _category(service, name, kind=kind, evidence=start + timedelta(days=days))
+    dormant = _category(service, "dormant", kind="goal")
+
+    active = service.list_active_dossiers(SCOPE)
+    active_names = {category.name for category in active if category.anchor_role is None}
+
+    assert len(active) == 8
+    assert {row.id for row in anchors.values()} <= {category.id for category in active}
+    assert active_names == {
+        "Lore newest",
+        "Lore second",
+        "Topic newest",
+        "Topic second",
+        "alpha overflow",
+        "beta overflow",
+    }
+    inactive_names = {category.name for category in service.list_inactive_dossiers(SCOPE)}
+    assert inactive_names == {"zeta overflow", "dormant"}
+
+
+@pytest.mark.asyncio
 async def test_update_dossier_refreshes_identity_and_derived_index(tmp_path) -> None:
     service = _service(tmp_path, active_dossiers_per_kind=1)
     client = FakeEmbedClient()
     start = datetime(2026, 1, 1, tzinfo=UTC)
     alpha = _category(service, "Alpha", kind="topic", evidence=start + timedelta(days=2))
     beta = _category(service, "Beta", kind="topic", evidence=start + timedelta(days=1))
-    assert "Beta" not in service.build_dossier_index(SCOPE)
+    assert "Beta" in service.build_dossier_index(SCOPE)
 
     updated = await service.update_dossier(
         alpha.id,
