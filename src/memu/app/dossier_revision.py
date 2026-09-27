@@ -277,14 +277,17 @@ def parse_anchor_revisions(
         children = _singletons(
             child,
             {"description", "prose_action", "prose_patches"},
+            optional={"prose"},
         )
+        children.setdefault("prose", Element("prose"))
         description = _parse_description(children["description"])
         action, resulting_prose = parse_section_revision(
             children,
             str(bundles[role]["dossier"].summary or ""),
-            require_patch=first_time,
             normalize_blank=True,
         )
+        if first_time and action == "keep":
+            raise ValueError("First reflection requires an anchor patch or replacement")
 
         bundle = bundles[role]
         evidence_items = {

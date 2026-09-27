@@ -30,8 +30,8 @@ OTHER_SCOPE = {"user_id": "other-user", "soul_id": "other-soul"}
 
 def test_anchor_prompt_ends_with_patch_schema_reminder() -> None:
     tail = anchors_prompt.USER_PROMPT.split("**schema reminder**", 1)[-1]
-    assert "Every `ref` must name an existing `S#`" in tail
-    assert "exactly one complete" in tail
+    assert "empty or `## unlabeled` anchor" in tail
+    assert "<prose_action>replace</prose_action>" in tail
     assert anchors_prompt.USER_PROMPT.rstrip().endswith("</reflection>")
 
 
@@ -1653,6 +1653,36 @@ def test_prepare_anchor_revision_omits_duplicate_presence_and_uses_500_words(tmp
     assert "# Your dossier" not in bundle["soul_presence"]
     assert "# Your human's dossier" in bundle["soul_presence"]
     assert bundle["target_words"] == 500
+
+
+def test_first_anchor_revision_reuses_full_replace_for_blank_anchors(tmp_path) -> None:
+    service = _service(tmp_path)
+    store = service.database
+    anchors = _seed_anchors(service)
+    item = store.memory_item_repo.create_item(
+        memory_type="knowledge",
+        summary="A shared beginning.",
+        embedding=[1.0, 0.0],
+        user_data=SCOPE,
+    )
+    refs = store.memory_item_repo.backfill_memory_refs(SCOPE)
+    bundles = {
+        role: service.prepare_anchor_revision(role, SCOPE, [item.id])
+        for role in ("soul", "user")
+    }
+    prose = f"## Origins\nA shared beginning [M{refs[item.id]}].\n\n## Timeline\n- The story began."
+    xml = f"""<anchor_revisions>
+  <anchor role="soul"><description>My beginning.</description><prose_action>replace</prose_action>
+    <prose>{prose}</prose><prose_patches></prose_patches></anchor>
+  <anchor role="user"><description>My human's beginning.</description><prose_action>replace</prose_action>
+    <prose>{prose}</prose><prose_patches></prose_patches></anchor>
+</anchor_revisions>"""
+
+    decisions = parse_anchor_revisions(ElementTree.fromstring(xml), bundles, first_time=True)
+
+    assert decisions["soul"]["prose_action"] == "replace"
+    assert decisions["soul"]["resulting_prose"] == prose
+    assert decisions["user"]["resulting_prose"] == prose
 
 
 @pytest.mark.asyncio
