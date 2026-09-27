@@ -254,16 +254,21 @@ class GraphMixin:
         where: Mapping[str, Any] | None,
         active_category_ids: set[str],
         memory_refs: list[int] | None = None,
+        memory_items_by_ref: Mapping[int, Any] | None = None,
     ) -> dict[str, Any]:
         citations = []
-        # ponytail: N+1 citation lookups; batch WHERE IN if scale matters.
         for memory_ref in memory_refs if memory_refs is not None else self.extract_memory_refs(
             category.summary or "", strict=False
         ):
-            try:
-                item = self.resolve_memory_ref(memory_ref, where or {})
-            except KeyError:
-                continue
+            if memory_items_by_ref is not None:
+                item = memory_items_by_ref.get(memory_ref)
+                if item is None:
+                    continue
+            else:
+                try:
+                    item = self.resolve_memory_ref(memory_ref, where or {})
+                except KeyError:
+                    continue
             citations.append({
                 "ref": self.format_memory_ref(memory_ref),
                 "memory_id": item.id,
@@ -390,7 +395,16 @@ class GraphMixin:
             if rel.category_id in categories:
                 item_category_ids.setdefault(rel.item_id, []).append(rel.category_id)
 
-        items = list(store.memory_item_repo.list_items(where).values())
+        items = list(store.memory_item_repo.list_items(where, include_embeddings=False).values())
+        citation_items = store.memory_item_repo.list_items(
+            where,
+            include_superseded=True,
+            include_merged=True,
+            include_embeddings=False,
+        )
+        items_by_ref = {
+            item.memory_ref: item for item in citation_items.values() if item.memory_ref is not None
+        }
         if raw_category_id:
             items = [item for item in items if raw_category_id in item_category_ids.get(item.id, [])]
         item_nodes = [
@@ -406,6 +420,7 @@ class GraphMixin:
                 category,
                 where=where,
                 active_category_ids=active_category_ids,
+                memory_items_by_ref=items_by_ref,
             )
             for category in categories.values()
             if not raw_category_id or category.id == raw_category_id
@@ -1406,7 +1421,7 @@ class GraphMixin:
 
     def graph_list_pending(self, *, where: Mapping[str, Any] | None = None) -> dict[str, Any]:
         store = self._get_database()
-        items = store.memory_item_repo.list_items(where)
+        items = store.memory_item_repo.list_items(where, include_embeddings=False)
         categories = store.memory_category_repo.list_categories(where)
         active_category_ids = self._graph_active_category_ids(where) if categories else set()
         relations = store.category_item_repo.list_relations(where)
@@ -1419,7 +1434,14 @@ class GraphMixin:
                 category_names_by_item.setdefault(rel.item_id, []).append(category.name)
                 category_ids_by_item.setdefault(rel.item_id, []).append(rel.category_id)
 
-        pending_source = [item for item in items.values() if getattr(item, "approved_at", None) is None]
+        pending_ids = {item.id for item in items.values() if getattr(item, "approved_at", None) is None}
+        pending_source = list(
+            store.memory_item_repo.list_items_by_ids(
+                pending_ids,
+                where,
+                include_embeddings=True,
+            ).values()
+        )
         clusters = _cluster_by_embedding(pending_source)
         # Reorder so cluster members are adjacent; non-clustered items keep their place after clusters.
         original_order = {item.id: idx for idx, item in enumerate(pending_source)}
@@ -1443,11 +1465,21 @@ class GraphMixin:
                 node["similar_to"] = cluster_info["similar_to"]
                 node["similarity"] = cluster_info["similarity"]
             pending_items.append(node)
+        citation_items = store.memory_item_repo.list_items(
+            where,
+            include_superseded=True,
+            include_merged=True,
+            include_embeddings=False,
+        )
+        items_by_ref = {
+            item.memory_ref: item for item in citation_items.values() if item.memory_ref is not None
+        }
         pending_categories = [
             self._scoped_category_node(
                 category,
                 where=where,
                 active_category_ids=active_category_ids,
+                memory_items_by_ref=items_by_ref,
             )
             for category in categories.values()
             if category.summary is not None

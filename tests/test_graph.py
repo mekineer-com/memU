@@ -33,13 +33,22 @@ class _Repo:
     def __init__(self, value):
         self.value = value
         self.list_items_calls = 0
+        self.list_items_embedding_args = []
         self.list_canvas_items_calls = 0
         self.list_items_by_ids_calls = 0
         self.list_all_calls = 0
         self.list_by_ids_calls = 0
 
-    def list_items(self, where=None, *, include_superseded=False, include_embeddings=True):
+    def list_items(
+        self,
+        where=None,
+        *,
+        include_superseded=False,
+        include_merged=False,
+        include_embeddings=True,
+    ):
         self.list_items_calls += 1
+        self.list_items_embedding_args.append(include_embeddings)
         return self.value
 
     def list_recent_items(self, where=None, *, limit, include_superseded=False):
@@ -267,6 +276,7 @@ def test_graph_atomic_atoms_pages_with_cursor():
     assert page1["next_cursor_id"] == "memory:m2"
     assert [atom["id"] for atom in page2["atoms"]] == ["memory:m3"]
     assert page2["next_cursor"] is None
+    assert db.memory_item_repo.list_items_embedding_args == [False, False, False, False]
 
 
 def test_graph_atomic_entities_returns_scoped_counts_and_chronological_detail():
@@ -2219,7 +2229,7 @@ def test_graph_pending_excludes_superseded_memories():
     assert store.triple_repo.get_edges_from(old.id, predicate="evolved_into", where=scope)
 
 
-def test_graph_pending_groups_near_duplicate_embeddings():
+def test_graph_pending_groups_near_duplicate_embeddings(monkeypatch):
     service = MemoryService(
         database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
         user_config={"model": GraphScope},
@@ -2236,6 +2246,21 @@ def test_graph_pending_groups_near_duplicate_embeddings():
         memory_type="episode", summary="lives in Lisbon", embedding=[0.0, 1.0], user_data=scope
     )
 
+    list_items = store.memory_item_repo.list_items
+    list_items_by_ids = store.memory_item_repo.list_items_by_ids
+    embedding_args = []
+
+    def tracked_list_items(*args, **kwargs):
+        embedding_args.append(("all", kwargs.get("include_embeddings", True)))
+        return list_items(*args, **kwargs)
+
+    def tracked_list_items_by_ids(*args, **kwargs):
+        embedding_args.append(("pending", kwargs.get("include_embeddings", False)))
+        return list_items_by_ids(*args, **kwargs)
+
+    monkeypatch.setattr(store.memory_item_repo, "list_items", tracked_list_items)
+    monkeypatch.setattr(store.memory_item_repo, "list_items_by_ids", tracked_list_items_by_ids)
+
     items = service.graph_list_pending(where=scope)["items"]
     by_id = {node["memory_id"]: node for node in items}
 
@@ -2248,6 +2273,8 @@ def test_graph_pending_groups_near_duplicate_embeddings():
 
     ids_in_order = [node["memory_id"] for node in items]
     assert abs(ids_in_order.index(dupe_a.id) - ids_in_order.index(dupe_b.id)) == 1
+    assert ("pending", True) in embedding_args
+    assert all(include is False for source, include in embedding_args if source == "all")
 
 
 def test_graph_delete_memory_removes_dependents():
