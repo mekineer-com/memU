@@ -16,6 +16,7 @@ from memu.app.dossier_revision import (
 )
 from memu.app.service import MemoryService
 from memu.database.models import DossierCandidate, MemoryCategory, MemoryItem, Triple
+from memu.prompts.consolidation import anchors as anchors_prompt
 
 
 class DossierScope(BaseModel):
@@ -25,6 +26,13 @@ class DossierScope(BaseModel):
 
 SCOPE = {"user_id": "test-user", "soul_id": "test-soul"}
 OTHER_SCOPE = {"user_id": "other-user", "soul_id": "other-soul"}
+
+
+def test_anchor_prompt_ends_with_patch_schema_reminder() -> None:
+    tail = anchors_prompt.USER_PROMPT.split("**schema reminder**", 1)[-1]
+    assert "Every `ref` must name an existing `S#`" in tail
+    assert "exactly one complete" in tail
+    assert anchors_prompt.USER_PROMPT.rstrip().endswith("</reflection>")
 
 
 class FakeEmbedClient:

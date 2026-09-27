@@ -97,7 +97,7 @@ If an existing edge no longer holds, you may retire it with `<invalidate>`.
       <description>one- or two-sentence brief of the resulting prose</description>
       <prose_action>keep|patch</prose_action>
       <prose_patches>
-        <section ref="S2" action="replace|add_after|remove">
+        <section ref="S1" action="replace|add_after|remove">
           <body>complete ## section for replace/add_after; empty for remove</body>
         </section>
       </prose_patches>
@@ -106,7 +106,7 @@ If an existing edge no longer holds, you may retire it with `<invalidate>`.
       <description>one- or two-sentence brief of the resulting prose</description>
       <prose_action>keep|patch</prose_action>
       <prose_patches>
-        <section ref="S2" action="replace|add_after|remove">
+        <section ref="S1" action="replace|add_after|remove">
           <body>complete ## section for replace/add_after; empty for remove</body>
         </section>
       </prose_patches>
@@ -329,4 +329,36 @@ USER_PROMPT = r"""
 {segment_memory_items}
 
 **remember stable narrative_self; no rewrite**
+
+**schema reminder**
+Every `ref` must name an existing `S#` shown in that same anchor. For
+`add_after`, name the existing section the new section follows; never invent a
+new `S#`. Every `replace` or `add_after` body must contain exactly one complete
+`##` section. `S1` below is an example existing reference.
+
+<reflection>
+  <narrative_self>...</narrative_self>
+  <anchor_revisions>
+    <anchor role="soul">
+      <description>...</description>
+      <prose_action>keep|patch</prose_action>
+      <prose_patches>
+        <section ref="S1" action="add_after"><body>## One new section
+...</body></section>
+      </prose_patches>
+    </anchor>
+    <anchor role="user">
+      <description>...</description>
+      <prose_action>keep|patch</prose_action>
+      <prose_patches>
+        <section ref="S1" action="add_after"><body>## One new section
+...</body></section>
+      </prose_patches>
+    </anchor>
+  </anchor_revisions>
+  <life_goals><add>...</add><remove>...</remove></life_goals>
+  <intentions>...</intentions>
+  <edges>...</edges>
+  <companion_memory>...</companion_memory>
+</reflection>
 """
