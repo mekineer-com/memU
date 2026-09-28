@@ -1736,9 +1736,7 @@ def test_first_anchor_revision_reuses_full_replace_for_blank_anchors(tmp_path) -
     <prose>{prose}</prose><prose_patches></prose_patches></anchor>
 </anchor_revisions>"""
 
-    decisions = parse_anchor_revisions(
-        ElementTree.fromstring(xml), bundles, first_time={"soul": True, "user": True}
-    )
+    decisions = parse_anchor_revisions(ElementTree.fromstring(xml), bundles)
 
     assert decisions["soul"]["prose_action"] == "replace"
     assert decisions["soul"]["resulting_prose"] == prose
@@ -1765,7 +1763,6 @@ The story begins.</prose><prose_patches></prose_patches></anchor>
     decisions = parse_anchor_revisions(
         ElementTree.fromstring(xml),
         bundles,
-        first_time={"soul": False, "user": True},
     )
 
     assert decisions["soul"]["prose_action"] == "keep"
@@ -1777,6 +1774,10 @@ async def test_anchor_revisions_validate_both_then_apply_memberships(tmp_path) -
     service = _service(tmp_path)
     store = service.database
     anchors = _seed_anchors(service)
+    for anchor in anchors.values():
+        store.memory_category_repo.update_category(
+            category_id=anchor.id, summary="## Becoming\nEstablished."
+        )
     kept = store.memory_item_repo.create_item(
         memory_type="knowledge", summary="A continuing self memory.", embedding=[1.0, 0.0], user_data=SCOPE
     )
@@ -1822,7 +1823,7 @@ I am shaped by what surfaced [M{refs[prior.id]}].</body></section></prose_patche
     <prose_patches><section ref="S1" action="replace"><body>## Becoming
 My human is shaped by this lived moment [M{refs[period.id]}].</body></section></prose_patches></anchor>
 </anchor_revisions>"""
-    decisions = parse_anchor_revisions(ElementTree.fromstring(xml), bundles, first_time=False)
+    decisions = parse_anchor_revisions(ElementTree.fromstring(xml), bundles)
 
     ungrounded_description = xml.replace(
         "<description>My living history.</description>",
@@ -1833,7 +1834,6 @@ My human is shaped by this lived moment [M{refs[period.id]}].</body></section></
         parse_anchor_revisions(
             ElementTree.fromstring(ungrounded_description),
             bundles,
-            first_time=False,
         )
 
     store.memory_item_repo.update_item(item_id=unused.id, summary="Changed but still uncited.")
