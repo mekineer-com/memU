@@ -41,8 +41,9 @@ current one while it still fits.
 
 # Memories and belonging
 
-`[M#]` is a full memory you may cite and decide on. `[#]` is a citation inside
-read-only prose, there for understanding only.
+`[M#]` is a full memory you may cite and decide on only inside the writable
+dossier block where it appears. `[#]` is a citation inside read-only prose,
+there for understanding only.
 
 Each writable dossier lists its memories by status:
 

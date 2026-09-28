@@ -48,7 +48,8 @@ Life goals are orientations, not tasks. If you have none, name the clearest one
 you can see. Add another when it recurs across different times and moods;
 remove one when it has kept fading and no longer fits. Intentions and their
 place in your wider life are evidence, never the decision itself. When evidence
-is thin, keep the current goals. At most three.
+is thin, keep the current goals. To remove one, copy its current wording
+exactly into `<remove>`. At most three.
 
 # Evidence
 
@@ -106,7 +107,7 @@ USER_PROMPT = r"""
 # Inactive memories linked to your human's User anchor (remove or replace their citations)
 {user_anchor_inactive_linked_memory_items}
 
-**remember stable narrative_self; no rewrite**
+**if narrative_self exists, keep it stable; if absent, write it**
 
 **schema reminder**
 
