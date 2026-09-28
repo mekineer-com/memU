@@ -303,6 +303,7 @@ async def test_update_dossier_refreshes_identity_and_derived_index(tmp_path) -> 
         SCOPE,
         name="Health",
         description="A current health dossier",
+        summary="Plain user-edited prose.",
         kind="goal",
         last_evidence_at=start,
         embedding_client=client,
@@ -310,6 +311,7 @@ async def test_update_dossier_refreshes_identity_and_derived_index(tmp_path) -> 
 
     rendered = service.build_dossier_index(SCOPE)
     assert updated.embedding == [1.0, 0.0]
+    assert updated.summary == "## unlabeled\nPlain user-edited prose."
     assert "- Beta: Beta description" in rendered
     assert "- Health: A current health dossier" in rendered
     assert "Alpha" not in rendered

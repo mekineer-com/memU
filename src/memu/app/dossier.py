@@ -310,6 +310,9 @@ class DossierMixin:
         if not final_name:
             raise ValueError("Dossier title is required")
         final_description = current.description if description is None else description.strip()
+        final_summary = summary.strip() if summary is not None else None
+        if final_summary and label_sections(final_summary) is None:
+            final_summary = f"## unlabeled\n{final_summary}"
         final_kind = current.kind if kind is ... else kind
         if final_kind is not None and final_kind not in DOSSIER_KINDS:
             raise ValueError(f"Invalid dossier kind: {final_kind}")
@@ -339,7 +342,7 @@ class DossierMixin:
                 if description is not None and final_description != current.description
                 else None
             ),
-            summary=summary.strip() if summary is not None else None,
+            summary=final_summary,
             previous_summary=current.summary if summary is not None and current.summary is not None else None,
             embedding=embedding,
             kind=kind,
