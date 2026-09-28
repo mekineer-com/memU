@@ -256,7 +256,7 @@ def parse_anchor_revisions(
     container: Element,
     bundles: Mapping[str, Mapping[str, Any]],
     *,
-    first_time: bool,
+    first_time: bool | Mapping[str, bool],
 ) -> dict[str, dict[str, Any]]:
     if container.tag != "anchor_revisions" or container.attrib or (container.text or "").strip():
         raise ValueError("Expected exact anchor_revisions element")
@@ -286,8 +286,13 @@ def parse_anchor_revisions(
             str(bundles[role]["dossier"].summary or ""),
             normalize_blank=True,
         )
-        if first_time and action == "keep":
-            raise ValueError("First reflection requires an anchor patch or replacement")
+        role_first_time = (
+            first_time
+            if isinstance(first_time, bool)
+            else bool(first_time.get(role))
+        )
+        if role_first_time and action != "replace":
+            raise ValueError("First reflection requires an anchor replacement")
 
         bundle = bundles[role]
         evidence_items = {

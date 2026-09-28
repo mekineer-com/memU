@@ -120,6 +120,15 @@ def _item_sort_key(item: MemoryItem) -> tuple[float, int, str]:
     return (_timestamp(_item_time(item)), int(item.memory_ref or 0), item.id)
 
 
+def _continuity_item_sort_key(item: MemoryItem) -> tuple[float, float, int, str]:
+    return (
+        _timestamp(_item_time(item)),
+        _timestamp(item.created_at),
+        int(item.memory_ref or 0),
+        item.id,
+    )
+
+
 def _load_linked_items(
     store: Database,
     relations: Sequence[CategoryItem],
@@ -630,7 +639,34 @@ class DossierMixin:
             ),
             "candidate_items": sorted(active_actionable.values(), key=_item_sort_key),
             "actionable_item_ids": sorted(actionable_ids),
+            "narrow_stale_validation": True,
         }
+
+    def prepare_anchor_continuity_context(
+        self,
+        where: Mapping[str, Any],
+    ) -> dict[str, list[Any]]:
+        scope = _scope(where)
+        dossiers = [
+            dossier
+            for dossier in self.list_active_dossiers(scope)
+            if dossier.anchor_role is None
+        ]
+        episodes = sorted(
+            (
+                item
+                for item in self._get_database().memory_item_repo.list_items(
+                    scope,
+                    include_embeddings=False,
+                ).values()
+                if item.memory_type == "episode"
+            ),
+            key=_continuity_item_sort_key,
+        )
+        missing_refs = [item.id for item in episodes if not item.memory_ref]
+        if missing_refs:
+            raise ValueError(f"Anchor continuity episodes lack stable references: {missing_refs}")
+        return {"dossiers": dossiers, "episodes": episodes}
 
     async def generate_dossier_revision(
         self,
@@ -727,6 +763,11 @@ class DossierMixin:
             )
 
             shown_tokens = list(bundle["shown_item_tokens"])
+            expected_inactive_ids = set(bundle["shown_inactive_item_ids"])
+            if bundle.get("narrow_stale_validation"):
+                validation_ids = add_ids | cited_ids | cleanup_ids
+                shown_tokens = [token for token in shown_tokens if token[0] in validation_ids]
+                expected_inactive_ids &= validation_ids
             shown_ids = {token[0] for token in shown_tokens}
             shown_items = store.memory_item_repo.list_items_by_ids(
                 shown_ids,
@@ -750,7 +791,7 @@ class DossierMixin:
                 or current_relation_tokens != list(bundle["relation_tokens"])
                 or linked_inactive_ids != set(bundle["linked_inactive_item_ids"])
                 or current_shown_tokens != shown_tokens
-                or shown_ids - active_shown_ids != set(bundle["shown_inactive_item_ids"])
+                or shown_ids - active_shown_ids != expected_inactive_ids
             )
             if stale:
                 raise DossierRevisionStaleError("Dossier revision snapshot changed")

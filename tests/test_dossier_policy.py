@@ -16,7 +16,6 @@ from memu.app.dossier_revision import (
 )
 from memu.app.service import MemoryService
 from memu.database.models import DossierCandidate, MemoryCategory, MemoryItem, Triple
-from memu.prompts.consolidation import anchors as anchors_prompt
 
 
 class DossierScope(BaseModel):
@@ -26,13 +25,6 @@ class DossierScope(BaseModel):
 
 SCOPE = {"user_id": "test-user", "soul_id": "test-soul"}
 OTHER_SCOPE = {"user_id": "other-user", "soul_id": "other-soul"}
-
-
-def test_anchor_prompt_ends_with_patch_schema_reminder() -> None:
-    tail = anchors_prompt.USER_PROMPT.split("**schema reminder**", 1)[-1]
-    assert "empty or `## unlabeled` anchor" in tail
-    assert "<prose_action>replace</prose_action>" in tail
-    assert anchors_prompt.USER_PROMPT.rstrip().endswith("</reflection>")
 
 
 class FakeEmbedClient:
@@ -1689,6 +1681,38 @@ def test_prepare_anchor_revision_omits_duplicate_presence_and_uses_500_words(tmp
     assert bundle["target_words"] == 500
 
 
+def test_anchor_continuity_context_uses_active_dossiers_and_chronological_episodes(tmp_path) -> None:
+    service = _service(tmp_path)
+    store = service.database
+    _seed_anchors(service)
+    dossier = _category(service, "Continuity")
+    later = store.memory_item_repo.create_item(
+        memory_type="episode", summary="Later", embedding=[1.0, 0.0], user_data=SCOPE,
+        happened_at=datetime(2026, 2, 1, tzinfo=UTC),
+    )
+    earlier = store.memory_item_repo.create_item(
+        memory_type="episode", summary="Earlier", embedding=[1.0, 0.0], user_data=SCOPE,
+        happened_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+    knowledge = store.memory_item_repo.create_item(
+        memory_type="knowledge", summary="Not an episode", embedding=[1.0, 0.0], user_data=SCOPE,
+    )
+    merged = store.memory_item_repo.create_item(
+        memory_type="episode", summary="Merged", embedding=[1.0, 0.0], user_data=SCOPE,
+    )
+    store.memory_item_repo.update_item(item_id=merged.id, merged_into=later.id)
+    store.memory_item_repo.backfill_memory_refs(SCOPE)
+    store.category_item_repo.link_item_category(knowledge.id, dossier.id, SCOPE)
+    store.memory_category_repo.update_category(
+        category_id=dossier.id, last_evidence_at=knowledge.created_at
+    )
+
+    context = service.prepare_anchor_continuity_context(SCOPE)
+
+    assert dossier.id in {row.id for row in context["dossiers"]}
+    assert [row.id for row in context["episodes"]] == [earlier.id, later.id]
+
+
 def test_first_anchor_revision_reuses_full_replace_for_blank_anchors(tmp_path) -> None:
     service = _service(tmp_path)
     store = service.database
@@ -1712,11 +1736,40 @@ def test_first_anchor_revision_reuses_full_replace_for_blank_anchors(tmp_path) -
     <prose>{prose}</prose><prose_patches></prose_patches></anchor>
 </anchor_revisions>"""
 
-    decisions = parse_anchor_revisions(ElementTree.fromstring(xml), bundles, first_time=True)
+    decisions = parse_anchor_revisions(
+        ElementTree.fromstring(xml), bundles, first_time={"soul": True, "user": True}
+    )
 
     assert decisions["soul"]["prose_action"] == "replace"
     assert decisions["soul"]["resulting_prose"] == prose
     assert decisions["user"]["resulting_prose"] == prose
+
+
+def test_anchor_first_run_is_decided_per_role(tmp_path) -> None:
+    service = _service(tmp_path)
+    store = service.database
+    anchors = _seed_anchors(service)
+    store.memory_category_repo.update_category(
+        category_id=anchors["soul"].id, summary="## Becoming\nAlready established."
+    )
+    bundles = {
+        role: service.prepare_anchor_revision(role, SCOPE, [])
+        for role in ("soul", "user")
+    }
+    xml = """<anchor_revisions>
+  <anchor role="soul"><description>Established.</description><prose_action>keep</prose_action><prose_patches></prose_patches></anchor>
+  <anchor role="user"><description>A beginning.</description><prose_action>replace</prose_action><prose>## Beginning
+The story begins.</prose><prose_patches></prose_patches></anchor>
+</anchor_revisions>"""
+
+    decisions = parse_anchor_revisions(
+        ElementTree.fromstring(xml),
+        bundles,
+        first_time={"soul": False, "user": True},
+    )
+
+    assert decisions["soul"]["prose_action"] == "keep"
+    assert decisions["user"]["prose_action"] == "replace"
 
 
 @pytest.mark.asyncio
@@ -1732,6 +1785,9 @@ async def test_anchor_revisions_validate_both_then_apply_memberships(tmp_path) -
     )
     period = store.memory_item_repo.create_item(
         memory_type="knowledge", summary="A new lived-period memory.", embedding=[1.0, 0.0], user_data=SCOPE
+    )
+    unused = store.memory_item_repo.create_item(
+        memory_type="knowledge", summary="Uncited continuity evidence.", embedding=[1.0, 0.0], user_data=SCOPE
     )
     purged = store.memory_item_repo.create_item(
         memory_type="knowledge", summary="An inactive membership.", embedding=[1.0, 0.0], user_data=SCOPE
@@ -1755,7 +1811,7 @@ async def test_anchor_revisions_validate_both_then_apply_memberships(tmp_path) -
     )
 
     bundles = {
-        role: service.prepare_anchor_revision(role, SCOPE, [prior.id, period.id])
+        role: service.prepare_anchor_revision(role, SCOPE, [prior.id, period.id, unused.id])
         for role in ("soul", "user")
     }
     xml = f"""<anchor_revisions>
@@ -1766,7 +1822,7 @@ I am shaped by what surfaced [M{refs[prior.id]}].</body></section></prose_patche
     <prose_patches><section ref="S1" action="replace"><body>## Becoming
 My human is shaped by this lived moment [M{refs[period.id]}].</body></section></prose_patches></anchor>
 </anchor_revisions>"""
-    decisions = parse_anchor_revisions(ElementTree.fromstring(xml), bundles, first_time=True)
+    decisions = parse_anchor_revisions(ElementTree.fromstring(xml), bundles, first_time=False)
 
     ungrounded_description = xml.replace(
         "<description>My living history.</description>",
@@ -1777,8 +1833,10 @@ My human is shaped by this lived moment [M{refs[period.id]}].</body></section></
         parse_anchor_revisions(
             ElementTree.fromstring(ungrounded_description),
             bundles,
-            first_time=True,
+            first_time=False,
         )
+
+    store.memory_item_repo.update_item(item_id=unused.id, summary="Changed but still uncited.")
 
     for role in ("soul", "user"):
         await service.apply_anchor_revision(

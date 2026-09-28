@@ -10,8 +10,8 @@
 | Package | Purpose |
 |---------|---------|
 | `app/service.py` | `MemoryService` — top-level facade, only public API |
-| `app/dossier.py` | Dossier core policy: soul/user anchors, deterministic active sets with per-kind reservations and shared overflow, sparse memorize context, compact index, identity/content search views, strict `[M#]` handles, revision preparation/generation, reusable prompt rendering, and atomic revision apply |
-| `app/dossier_revision.py` | Pure dossier-revision rendering, strict XML normalization, and deterministic section-patch assembly; blank anchors reuse the full structured-replacement path once, then use section patches |
+| `app/dossier.py` | Dossier core policy: anchors, deterministic active sets, whole-life continuity corpus, sparse memorize context, compact index, strict `[M#]` handles, revision preparation, and stale-safe apply |
+| `app/dossier_revision.py` | Pure dossier-revision parsing and deterministic section-patch assembly; first-run anchor rules are evaluated independently per role |
 | `app/memorize.py` | Memorize workflow: preprocess → route → extract → store. Image resources memorize from a supplied caption and are persisted before extraction. Roster supports same-role ambiguity + relationship-entity triggers; dedupe keys by `(source_role, speaker_id, summary)`; parse failures retry once before propagating. |
 | `app/memorize_parsing.py` | Parsing/normalization seam: message-index extraction, source-message-id normalization, timestamp parsing, XML/JSON memory-type response parsing |
 | `app/memorize_speakers.py` | Speaker attribution seam: stable entity-ID resolution, roster construction/validation, prompt-label sanitization, speaker_ref resolution |
@@ -68,7 +68,7 @@ Marcos-reviewed dossier prompts.
 | `preprocess/` | `document.py`, `image.py`, `audio.py`, `video.py` | Input normalization for non-chat modalities |
 | `router/router.py` | — | Route input into the configured maximum number of titled episodes, with separate full summaries, compact items, category proposals, and a source-valid day |
 | `retrieve/` | `pre_retrieval_decision.py` | Retrieve/no-retrieve, active-query, and optional temporal-bound prompt |
-| `consolidation/` | `dossiers.py`, `anchors.py` | Two-call reflection prompts: due life-domain dossiers, then narrative_self + soul/user anchors + goals + intentions + edges + companion memory |
+| `consolidation/` | `dossiers.py`, `anchors.py`, `weekly.py` | Three-stage prompts: ordinary dossiers, whole-life identity/anchors/goals, then intentions/edges/companion reflection |
 
 ## Task → Files
 
