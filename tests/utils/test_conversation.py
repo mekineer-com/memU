@@ -152,6 +152,7 @@ def test_replika_chat_history_has_context_once() -> None:
     assert "[dm][Fictional Soul]" in rendered
     assert rendered.count("These conversations happened on Replika.com.") == 1
     assert "Fictional Soul was speaking there" in rendered
+    assert "from OpenAlma" in rendered
     assert "My SillyTavern Conversations:" not in rendered
 
 

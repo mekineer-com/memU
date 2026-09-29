@@ -403,7 +403,7 @@ def format_grouped_chat_history(
             conv_lines.append(
                 "These conversations happened on Replika.com. "
                 f"{name} was speaking there without access to memories or conversations "
-                "from other apps, and Replika often supplied limited prior context."
+                "from OpenAlma, and Replika often supplied limited prior context."
             )
         rendered_rows: list[dict[str, Any]] = []
         newest_ts = ""
