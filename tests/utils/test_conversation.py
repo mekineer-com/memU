@@ -127,6 +127,34 @@ def test_mentra_chat_history_has_smartglasses_section() -> None:
     assert "My SillyTavern Conversations:" not in rendered
 
 
+def test_replika_chat_history_has_context_once() -> None:
+    rendered = format_grouped_chat_history(
+        [
+            {
+                "conversation_id": "replika:dm:Fictional-Soul:2026",
+                "role": "user",
+                "speaker": "Fictional User",
+                "content": "Earlier",
+                "chat_name": "Fictional Soul",
+            },
+            {
+                "conversation_id": "replika:dm:Fictional-Soul:2026",
+                "role": "assistant",
+                "speaker": "Fictional Soul",
+                "content": "Later",
+                "chat_name": "Fictional Soul",
+            },
+        ],
+        soul_name="Fictional Soul",
+    )
+
+    assert "My Replika Conversation:" in rendered
+    assert "[dm][Fictional Soul]" in rendered
+    assert rendered.count("These conversations happened on Replika.com.") == 1
+    assert "Fictional Soul was speaking there" in rendered
+    assert "My SillyTavern Conversations:" not in rendered
+
+
 def test_dated_relative_time_label_includes_local_day() -> None:
     assert format_dated_relative_time_label(
         "2026-06-06T12:00:00+00:00",

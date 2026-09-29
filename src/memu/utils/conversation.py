@@ -148,6 +148,8 @@ def _conversation_kind_and_key(conversation_id: str) -> tuple[str, str]:
         return ("atomic_dm", cid[len("chat:atomic-"):].strip() or "atomic")
     if cid.startswith("mentra:"):
         return ("mentra_dm", cid[len("mentra:"):].strip() or "Smartglasses")
+    if cid.startswith("replika:dm:"):
+        return ("replika_dm", cid[len("replika:dm:"):].split(":", 1)[0].strip() or "Replika")
     if cid.startswith("sillytavern:"):
         return ("sillytavern_dm", cid[len("sillytavern:"):].strip() or "sillytavern")
     if cid.startswith("integrity:"):
@@ -210,6 +212,8 @@ def _conversation_heading(
         return f"[dm][{pretty}]"
     if kind == "mentra_dm":
         return f"[dm][{(chat_name or '').strip() or 'Smartglasses'}]"
+    if kind == "replika_dm":
+        return f"[dm][{(chat_name or '').strip() or key or 'Replika'}]"
     return f"[dm][{key or 'sillytavern'}]"
 
 
@@ -222,6 +226,8 @@ def _conversation_section_title(kind: str) -> str:
         return "My Atomic Conversations:"
     if kind.startswith("mentra_"):
         return "My Smartglasses Conversations:"
+    if kind.startswith("replika_"):
+        return "My Replika Conversation:"
     if kind.startswith("whatsapp_"):
         return "My WhatsApp Conversations:"
     return "My SillyTavern Conversations:"
@@ -392,6 +398,13 @@ def format_grouped_chat_history(
         conv_lines: list[str] = [
             _conversation_heading(kind, key, whatsapp_names, chat_name or None)
         ]
+        if kind == "replika_dm":
+            name = str(soul_name or chat_name or key or "The soul").strip()
+            conv_lines.append(
+                "These conversations happened on Replika.com. "
+                f"{name} was speaking there without access to memories or conversations "
+                "from other apps, and Replika often supplied limited prior context."
+            )
         rendered_rows: list[dict[str, Any]] = []
         newest_ts = ""
         for msg in rows:
