@@ -4,6 +4,7 @@ import asyncio
 import base64
 import copy
 import contextvars
+import json
 import logging
 import os
 import time
@@ -111,6 +112,113 @@ class HTTPLLMClient:
                     await asyncio.sleep(wait)
         raise last_exc  # type: ignore[misc]
 
+    async def _stream_chat(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Stream one paid chat request without hidden retries."""
+        await self._throttle()
+        started = time.monotonic()
+        first_frame_at: float | None = None
+        frame_count = 0
+        byte_count = 0
+        content: list[str] = []
+        finish_reason: str | None = None
+        usage: dict[str, Any] | None = None
+        done = False
+        stream_payload = {
+            **payload,
+            "stream": True,
+            "stream_options": {"include_usage": True},
+        }
+        self._last_payload_var.set(copy.deepcopy(stream_payload))
+
+        try:
+            async with httpx.AsyncClient(
+                base_url=self.base_url,
+                timeout=self.timeout,
+                proxy=self.proxy,
+            ) as client:
+                async with client.stream(
+                    "POST",
+                    self.summary_endpoint,
+                    json=stream_payload,
+                    headers=self._headers(),
+                ) as response:
+                    if response.is_error:
+                        await response.aread()
+                        response.raise_for_status()
+                    async for line in response.aiter_lines():
+                        byte_count += len(line.encode("utf-8"))
+                        if not line or line.startswith(":"):
+                            continue
+                        if not line.startswith("data:"):
+                            raise RuntimeError("LLM stream returned a non-data SSE frame")
+                        raw = line[5:].strip()
+                        if raw == "[DONE]":
+                            done = True
+                            break
+                        try:
+                            event = json.loads(raw)
+                        except json.JSONDecodeError as exc:
+                            raise RuntimeError("LLM stream returned malformed JSON") from exc
+                        if not isinstance(event, dict):
+                            raise RuntimeError("LLM stream returned a non-object event")
+                        if event.get("error") is not None:
+                            raise RuntimeError(f"LLM stream error: {event['error']}")
+
+                        frame_count += 1
+                        if first_frame_at is None:
+                            first_frame_at = time.monotonic()
+                        if isinstance(event.get("usage"), dict):
+                            usage = event["usage"]
+
+                        choices = event.get("choices")
+                        if not isinstance(choices, list) or not choices:
+                            continue
+                        choice = choices[0]
+                        if not isinstance(choice, dict):
+                            raise RuntimeError("LLM stream returned an invalid choice")
+                        delta = choice.get("delta")
+                        if isinstance(delta, dict):
+                            chunk = delta.get("content")
+                            if isinstance(chunk, str):
+                                content.append(chunk)
+                        if choice.get("finish_reason") is not None:
+                            finish_reason = str(choice["finish_reason"])
+        except (httpx.RemoteProtocolError, httpx.TimeoutException) as exc:
+            first = (
+                round(first_frame_at - started, 1)
+                if first_frame_at is not None
+                else None
+            )
+            raise RuntimeError(
+                "LLM stream interrupted "
+                f"(frames={frame_count}, bytes={byte_count}, first_frame_s={first})"
+            ) from exc
+
+        if not done or finish_reason is None:
+            raise RuntimeError(
+                "LLM stream ended incomplete "
+                f"(done={done}, finish_reason={finish_reason!r}, frames={frame_count})"
+            )
+
+        logger.info(
+            "LLM stream complete: first_frame=%.1fs frames=%d bytes=%d elapsed=%.1fs",
+            (first_frame_at - started) if first_frame_at is not None else 0.0,
+            frame_count,
+            byte_count,
+            time.monotonic() - started,
+        )
+        result: dict[str, Any] = {
+            "choices": [
+                {
+                    "message": {"content": "".join(content)},
+                    "finish_reason": finish_reason,
+                }
+            ]
+        }
+        if usage is not None:
+            result["usage"] = usage
+        return result
+
     async def chat(
         self,
         prompt: str,
@@ -139,8 +247,7 @@ class HTTPLLMClient:
         if isinstance(response_format, dict) and response_format:
             payload["response_format"] = response_format
 
-        self._last_payload_var.set(copy.deepcopy(payload))
-        data = await self._post_with_retry(self.summary_endpoint, payload)
+        data = await self._stream_chat(payload)
         logger.debug("HTTP LLM chat response: %s", data)
         return self.backend.parse_summary_response(data), data
 

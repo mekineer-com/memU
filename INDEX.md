@@ -46,7 +46,7 @@
 | `database/postgres/` | Removed |
 | `database/repositories/` | Backend-agnostic Protocol contracts: memory_item, memory_category, resource, entity, triple, category_item, dossier_candidate |
 | `llm/wrapper.py` | LLM client factory — dispatches to backends |
-| `llm/http_client.py` | LLM HTTP client |
+| `llm/http_client.py` | LLM HTTP client; chat uses one-attempt SSE streaming while vision and embeddings retain bounded transport retries |
 | `llm/backends/` | Provider impls: `openai.py` (httpx-based, covers OpenAI-compatible APIs) |
 | `llm/claude_cli.py` | `ClaudeCLIClient` — Claude Code CLI adapter. Uses soul workspace for session/resume calls, neutral workspace for no-session calls (prevents persona bleed). |
 | `embedding/` | Embedding client factory + backends (same pattern as llm/): `openai.py`, `doubao.py`, `gemini.py` (multimodal) |
