@@ -55,14 +55,17 @@ async def test_split_into_episodes_remains_bound_to_service(monkeypatch: pytest.
 
 
 @pytest.mark.asyncio
-async def test_route_segment_uses_configured_episode_limit() -> None:
+async def test_route_segment_uses_size_based_episode_guidance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     service = _service()
     service.memorize_config.episodes_per_segment = 4
+    monkeypatch.setattr(service, "_estimate_text_tokens", lambda _text: 8_000)
     rows = [
         {
             "title": f"Moment {index}",
             "episode_summary": "A small story.",
-            "episode_item": None,
+            "episode_item": "A small story.",
             "categories": ["Daily life"],
             "day": "2026-01-02",
         }
@@ -78,7 +81,37 @@ async def test_route_segment_uses_configured_episode_limit() -> None:
     )
 
     assert len(episodes) == 4
-    assert "Write 1-4 meaningful stories" in client.prompts[0]
+    assert "Write episodes as 1-4 meaningful stories" in client.prompts[0]
+
+
+@pytest.mark.asyncio
+async def test_route_segment_scales_episode_guidance_without_discarding_valid_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = _service()
+    monkeypatch.setattr(service, "_estimate_text_tokens", lambda _text: 45_000)
+    rows = [
+        {
+            "title": f"Moment {index}",
+            "episode_summary": "A complete story.",
+            "episode_item": "A compact story.",
+            "categories": ["One", "Two", "Three", "Four"],
+            "day": "2026-01-02",
+        }
+        for index in range(9)
+    ]
+    client = _RouterStub(json.dumps({"excluded_types": [], "episodes": rows}))
+
+    _routed, episodes = await service._route_segment(
+        "fictional long conversation",
+        ["knowledge"],
+        llm_client=client,
+        source_days=["2026-01-02"],
+    )
+
+    assert "Write episodes as 1-8 meaningful stories" in client.prompts[0]
+    assert len(episodes) == 9
+    assert episodes[0]["categories"] == ["One", "Two", "Three"]
 
 
 @pytest.mark.asyncio
@@ -113,7 +146,7 @@ async def test_route_segment_ignores_full_exclusion(caplog: pytest.LogCaptureFix
     service = _service()
     client = _RouterStub(
         '{"excluded_types": ["profile", "knowledge"], "episodes": '
-        '[{"title": "Anchor", "episode_summary": "Full story.", "episode_item": null, '
+        '[{"title": "Anchor", "episode_summary": "Full story.", "episode_item": "Full story.", '
         '"categories": ["Daily life"], "day": "2026-01-02"}]}'
     )
 
@@ -136,18 +169,18 @@ async def test_route_segment_ignores_full_exclusion(caplog: pytest.LogCaptureFix
     [
         {
             "title": "Missing category", "episode_summary": "Short story.",
-            "episode_item": None, "day": "2026-01-02",
+            "episode_item": "Compact story.", "day": "2026-01-02",
         },
         {
             "title": "Bad category", "episode_summary": "Short story.",
-            "episode_item": None, "categories": 42, "day": "2026-01-02",
+            "episode_item": "Compact story.", "categories": 42, "day": "2026-01-02",
         },
         {
             "title": "Bad day", "episode_summary": "Short story.",
-            "episode_item": None, "categories": ["Daily life"], "day": "2026-01-03",
+            "episode_item": "Compact story.", "categories": ["Daily life"], "day": "2026-01-03",
         },
         {
-            "title": "Verbose", "episode_summary": "First. Second. Third.",
+            "title": "Missing item", "episode_summary": "Short story.",
             "episode_item": None, "categories": ["Daily life"], "day": "2026-01-02",
         },
     ],
@@ -656,7 +689,7 @@ async def test_batch_full_exclusion_runs_all_types_and_keeps_episodes(
             memory_types,
             llm_client=_RouterStub(
                 '{"excluded_types": ["profile", "knowledge"], "episodes": '
-                '[{"title": "Anchor", "episode_summary": "Full story.", "episode_item": null, '
+                '[{"title": "Anchor", "episode_summary": "Full story.", "episode_item": "Full story.", '
                 '"categories": ["Daily life"], "day": "2026-01-02"}]}'
             ),
             source_days=_kwargs["source_days"],

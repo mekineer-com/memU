@@ -28,13 +28,13 @@ JSON only. No explanation. No markdown.
 Of these memory types: {allowed_types}
 Are any not relevant? Write the excluded type(s) in the JSON.
 
-Write 1-{max_episodes} meaningful stories as episodes. Always write at least one episode. Each episode needs:
+Write episodes as 1-{max_episodes} meaningful stories. Always write at least one episode. Each episode needs:
 - title: very short topical anchor
 - episode_summary: a short paragraph capturing what matters. Write in first person for your observations, third person for the user. Focus on what shifted or was revealed — not a play-by-play.
-- episode_item: if the episode_summary is more than two sentences, a 1-2 sentence distillation for long-term memory; otherwise null
+- episode_item: a 1-2 sentence distillation for long-term memory. Always provide it.
 - categories: propose 1-3 categories. Prefer from the list above, but can be new one(s) if none from above fit. Categories belong to either lore, topics, or goals.  They range from broad life domains to secret revelries.
 - day: YYYY-MM-DD shown in the chats for when the story happened. If the story happens over many days, pick the day best suited to remember the episode by.
 
 JSON schema:
-{{"excluded_types": ["excluded_type_1", "excluded_type_2"], "episodes": [{{"title": "short anchor", "episode_summary": "short paragraph", "episode_item": "1-2 sentence distillation or null", "categories": ["category_1", "category_2"], "day": "YYYY-MM-DD"}}]}}
+{{"excluded_types": ["excluded_type_1", "excluded_type_2"], "episodes": [{{"title": "short anchor", "episode_summary": "short paragraph", "episode_item": "1-2 sentence distillation", "categories": ["category_1", "category_2"], "day": "YYYY-MM-DD"}}]}}
 """.strip()

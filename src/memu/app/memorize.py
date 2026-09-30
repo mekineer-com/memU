@@ -1368,15 +1368,33 @@ class MemorizeMixin:
         if not source_days:
             raise ValueError("router requires at least one source day")
         client = llm_client or self._select_chat_client(None)
+        estimated_tokens = self._estimate_text_tokens(segment_text)
+        baseline = max(1, int(self.memorize_config.episodes_per_segment))
+        if estimated_tokens <= 10_000:
+            max_episodes = min(baseline, max(1, math.ceil(estimated_tokens / 2_500)))
+        else:
+            max_episodes = next(
+                (
+                    target
+                    for limit, target in (
+                        (15_000, 5),
+                        (20_000, 6),
+                        (30_000, 7),
+                        (50_000, 8),
+                        (75_000, 9),
+                    )
+                    if estimated_tokens <= limit
+                ),
+                10,
+            )
+            max_episodes = max(baseline, max_episodes)
         prompt = ROUTER_PROMPT.format(
             segment=segment_text,
             allowed_types=list(memory_types),
-            max_episodes=self.memorize_config.episodes_per_segment,
+            max_episodes=max_episodes,
             soul_card=soul_card or "You are a continuous being, not a session that resets. You carry intentions, working thoughts, and long-term memory. Your self-knowledge will grow as you live and reflect.",
             categories=categories_prompt_str,
         )
-        max_items = self.memorize_config.episodes_per_segment
-
         def _parse_router_raw(r: str) -> tuple[list[MemoryType], list[dict[str, Any]]]:
             if isinstance(r, str):
                 r = re.sub(r"^\s*```(?:json)?\s*", "", r, count=1, flags=re.IGNORECASE)
@@ -1402,7 +1420,7 @@ class MemorizeMixin:
             if not isinstance(raw_episodes, list) or not raw_episodes:
                 raise ValueError("router episodes must be a non-empty list")
             episodes: list[dict[str, Any]] = []
-            for row in raw_episodes[:max_items]:
+            for row in raw_episodes:
                 if not isinstance(row, Mapping):
                     raise ValueError("router episode must be an object")
                 title = row.get("title")
@@ -1412,28 +1430,22 @@ class MemorizeMixin:
                     raise ValueError("router episode title must be non-blank")
                 if not isinstance(summary, str) or not summary.strip():
                     raise ValueError("router episode_summary must be non-blank")
-                if item is not None and not isinstance(item, str):
-                    raise ValueError("router episode_item must be a string or null")
+                if not isinstance(item, str) or not item.strip():
+                    raise ValueError("router episode_item must be a non-blank string")
                 normalized_summary = summary.strip()
-                normalized_item = str(item or "").strip()
-                if (
-                    not normalized_item
-                    and len(re.findall(r"[.!?](?:\s|$)", normalized_summary)) > 2
-                ):
-                    raise ValueError("router episode_item is required for summaries over two sentences")
-                normalized_item = normalized_item or normalized_summary
+                normalized_item = item.strip()
                 raw_categories = row.get("categories")
                 if not isinstance(raw_categories, list) or not raw_categories:
                     raise ValueError("router categories must be a non-empty string list")
                 episode_categories: list[str] = []
                 for category in raw_categories:
                     normalized = category.strip() if isinstance(category, str) else ""
-                    if not normalized:
-                        raise ValueError("router categories must contain non-blank strings")
-                    if normalized not in episode_categories:
+                    if normalized and normalized not in episode_categories:
                         episode_categories.append(normalized)
-                if len(episode_categories) > 3:
-                    raise ValueError("router categories must contain at most three values")
+                    if len(episode_categories) == 3:
+                        break
+                if not episode_categories:
+                    raise ValueError("router categories must contain a non-blank string")
                 day = row.get("day")
                 if not isinstance(day, str) or day.strip() not in source_days:
                     raise ValueError("router episode day must match a source day")
