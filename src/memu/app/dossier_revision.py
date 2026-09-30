@@ -428,6 +428,8 @@ def _parse_patches(container: Element) -> list[tuple[str, str, str]]:
         if ref in seen:
             raise ValueError(f"Duplicate prose patch reference: {ref}")
         seen.add(ref)
+        if action == "after":
+            action = "add_after"
         if action not in {"replace", "add_after", "remove"}:
             raise ValueError(f"Invalid prose patch action: {action}")
         if len(section) != 1 or section[0].tag != "body" or section[0].attrib:

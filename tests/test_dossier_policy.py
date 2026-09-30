@@ -1116,6 +1116,12 @@ River records each day with care [M{refs[pending.id]}].</body></section>
     assert "## Current Practice" in result["resulting_prose"]
     assert "## Timeline\n- 2026-07-18" in result["resulting_prose"]
 
+    alias_result = await service.generate_dossier_revision(
+        bundle,
+        chat_client=FakeChatClient(response.replace('action="add_after"', 'action="after"')),
+    )
+    assert alias_result["resulting_prose"] == result["resulting_prose"]
+
 
 @pytest.mark.asyncio
 async def test_generate_dossier_revision_patches_single_unlabeled_section(tmp_path) -> None:
