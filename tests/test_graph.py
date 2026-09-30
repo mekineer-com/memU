@@ -2229,7 +2229,7 @@ def test_graph_pending_excludes_superseded_memories():
     assert store.triple_repo.get_edges_from(old.id, predicate="evolved_into", where=scope)
 
 
-def test_graph_pending_groups_near_duplicate_embeddings(monkeypatch):
+def test_graph_pending_groups_near_duplicate_embeddings():
     service = MemoryService(
         database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
         user_config={"model": GraphScope},
@@ -2246,21 +2246,6 @@ def test_graph_pending_groups_near_duplicate_embeddings(monkeypatch):
         memory_type="episode", summary="lives in Lisbon", embedding=[0.0, 1.0], user_data=scope
     )
 
-    list_items = store.memory_item_repo.list_items
-    list_items_by_ids = store.memory_item_repo.list_items_by_ids
-    embedding_args = []
-
-    def tracked_list_items(*args, **kwargs):
-        embedding_args.append(("all", kwargs.get("include_embeddings", True)))
-        return list_items(*args, **kwargs)
-
-    def tracked_list_items_by_ids(*args, **kwargs):
-        embedding_args.append(("pending", kwargs.get("include_embeddings", False)))
-        return list_items_by_ids(*args, **kwargs)
-
-    monkeypatch.setattr(store.memory_item_repo, "list_items", tracked_list_items)
-    monkeypatch.setattr(store.memory_item_repo, "list_items_by_ids", tracked_list_items_by_ids)
-
     items = service.graph_list_pending(where=scope)["items"]
     by_id = {node["memory_id"]: node for node in items}
 
@@ -2273,8 +2258,6 @@ def test_graph_pending_groups_near_duplicate_embeddings(monkeypatch):
 
     ids_in_order = [node["memory_id"] for node in items]
     assert abs(ids_in_order.index(dupe_a.id) - ids_in_order.index(dupe_b.id)) == 1
-    assert ("pending", True) in embedding_args
-    assert all(include is False for source, include in embedding_args if source == "all")
 
 
 def test_graph_delete_memory_removes_dependents():

@@ -1421,7 +1421,7 @@ class GraphMixin:
 
     def graph_list_pending(self, *, where: Mapping[str, Any] | None = None) -> dict[str, Any]:
         store = self._get_database()
-        items = store.memory_item_repo.list_items(where, include_embeddings=False)
+        items = store.memory_item_repo.list_items(where)
         categories = store.memory_category_repo.list_categories(where)
         active_category_ids = self._graph_active_category_ids(where) if categories else set()
         relations = store.category_item_repo.list_relations(where)
@@ -1434,14 +1434,7 @@ class GraphMixin:
                 category_names_by_item.setdefault(rel.item_id, []).append(category.name)
                 category_ids_by_item.setdefault(rel.item_id, []).append(rel.category_id)
 
-        pending_ids = {item.id for item in items.values() if getattr(item, "approved_at", None) is None}
-        pending_source = list(
-            store.memory_item_repo.list_items_by_ids(
-                pending_ids,
-                where,
-                include_embeddings=True,
-            ).values()
-        )
+        pending_source = [item for item in items.values() if getattr(item, "approved_at", None) is None]
         clusters = _cluster_by_embedding(pending_source)
         # Reorder so cluster members are adjacent; non-clustered items keep their place after clusters.
         original_order = {item.id: idx for idx, item in enumerate(pending_source)}
