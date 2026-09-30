@@ -93,7 +93,7 @@ def _utc(value: Any) -> datetime | None:
     return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
 
 
-DUPE_CLUSTER_THRESHOLD = 0.76
+DUPE_CLUSTER_THRESHOLD = 0.88
 
 
 def _cluster_by_embedding(items: list[Any]) -> dict[str, dict[str, Any]]:
