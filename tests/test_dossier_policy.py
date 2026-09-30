@@ -1122,6 +1122,17 @@ River records each day with care [M{refs[pending.id]}].</body></section>
     )
     assert alias_result["resulting_prose"] == result["resulting_prose"]
 
+    direct_body_result = await service.generate_dossier_revision(
+        bundle,
+        chat_client=FakeChatClient(
+            response.replace(
+                '<section ref="S2" action="replace"><body>',
+                '<section ref="S2" action="replace">',
+            ).replace("</body></section>", "</section>", 1)
+        ),
+    )
+    assert direct_body_result["resulting_prose"] == result["resulting_prose"]
+
 
 @pytest.mark.asyncio
 async def test_generate_dossier_revision_patches_single_unlabeled_section(tmp_path) -> None:
