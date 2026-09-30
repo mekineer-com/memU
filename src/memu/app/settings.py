@@ -167,11 +167,6 @@ class MemorizeConfig(BaseModel):
         description="User prompt overrides for each memory type extraction.",
     )
     memory_extract_llm_profile: str = Field(default="default", description="LLM profile for memory extract.")
-    episodes_per_segment: int = Field(
-        default=3,
-        ge=1,
-        description="Maximum number of episodes the extraction router can return for one conversation segment.",
-    )
     min_chunk_tokens: int = Field(
         default=4000,
         description="Configured memorize chunk size used to set per-memory-type extraction targets.",

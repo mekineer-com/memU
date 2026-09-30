@@ -59,7 +59,6 @@ async def test_route_segment_uses_size_based_episode_guidance(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     service = _service()
-    service.memorize_config.episodes_per_segment = 4
     monkeypatch.setattr(service, "_estimate_text_tokens", lambda _text: 8_000)
     rows = [
         {

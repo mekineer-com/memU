@@ -1369,9 +1369,8 @@ class MemorizeMixin:
             raise ValueError("router requires at least one source day")
         client = llm_client or self._select_chat_client(None)
         estimated_tokens = self._estimate_text_tokens(segment_text)
-        baseline = max(1, int(self.memorize_config.episodes_per_segment))
         if estimated_tokens <= 10_000:
-            max_episodes = min(baseline, max(1, math.ceil(estimated_tokens / 2_500)))
+            max_episodes = max(1, math.ceil(estimated_tokens / 2_500))
         else:
             max_episodes = next(
                 (
@@ -1387,7 +1386,6 @@ class MemorizeMixin:
                 ),
                 10,
             )
-            max_episodes = max(baseline, max_episodes)
         prompt = ROUTER_PROMPT.format(
             segment=segment_text,
             allowed_types=list(memory_types),
