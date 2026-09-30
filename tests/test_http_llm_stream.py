@@ -113,3 +113,18 @@ async def test_chat_rejects_error_and_incomplete_streams(monkeypatch) -> None:
         await client.chat("prompt")
     with pytest.raises(RuntimeError, match="ended incomplete"):
         await client.chat("prompt")
+
+
+@pytest.mark.asyncio
+async def test_chat_preserves_http_error_detail_without_retry(monkeypatch) -> None:
+    calls = 0
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(402, json={"error": "insufficient balance"})
+
+    client = _client(monkeypatch, handler)
+    with pytest.raises(RuntimeError, match="402.*insufficient balance"):
+        await client.chat("prompt")
+    assert calls == 1

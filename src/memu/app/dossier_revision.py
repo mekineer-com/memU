@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import re
 from collections.abc import Mapping, Sequence
 from datetime import datetime
@@ -24,7 +25,11 @@ def contains_memory_reference_token(text: str) -> bool:
 
 
 def estimate_prompt_tokens(text: str) -> int:
-    return max(int(len(text.split()) / 0.75), (len(text) + 3) // 4)
+    # XML, citations, and identifiers tokenize more densely than ordinary prose.
+    return max(
+        int(len(text.split()) / 0.75),
+        math.ceil(len(text.encode("utf-8")) / 2.5),
+    )
 
 
 def strip_memory_citations(text: str) -> str:

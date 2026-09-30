@@ -143,8 +143,15 @@ class HTTPLLMClient:
                     headers=self._headers(),
                 ) as response:
                     if response.is_error:
-                        await response.aread()
-                        response.raise_for_status()
+                        body = (await response.aread()).decode("utf-8", errors="replace")
+                        detail = " ".join(body.split())[:500]
+                        try:
+                            response.raise_for_status()
+                        except httpx.HTTPStatusError as exc:
+                            suffix = f": {detail}" if detail else ""
+                            raise RuntimeError(
+                                f"LLM HTTP {response.status_code}{suffix}"
+                            ) from exc
                     async for line in response.aiter_lines():
                         byte_count += len(line.encode("utf-8"))
                         if not line or line.startswith(":"):

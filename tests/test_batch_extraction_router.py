@@ -185,7 +185,7 @@ async def test_route_segment_ignores_full_exclusion(caplog: pytest.LogCaptureFix
     ],
 )
 @pytest.mark.asyncio
-async def test_route_segment_retries_required_episode_metadata(
+async def test_route_segment_rejects_required_episode_metadata_without_retry(
     episode: dict[str, object],
 ) -> None:
     service = _service()
@@ -199,7 +199,7 @@ async def test_route_segment_retries_required_episode_metadata(
             source_days=["2026-01-02"],
         )
 
-    assert len(client.prompts) == 2
+    assert len(client.prompts) == 1
 
 
 @pytest.mark.asyncio
@@ -497,7 +497,7 @@ async def test_batch_router_failure_stops_before_persistence(monkeypatch: pytest
     monkeypatch.setattr(service, "_memorize_categorize_items", _mark_persistence)
     monkeypatch.setattr(service, "_list_declared_relationship_roster", lambda **_kwargs: [])
 
-    with pytest.raises(ValueError, match="Router reply still invalid"):
+    with pytest.raises(ValueError, match="Router reply invalid"):
         await service.memorize_segments_batch(
             modality="conversation",
             segments=[

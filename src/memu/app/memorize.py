@@ -1458,17 +1458,12 @@ class MemorizeMixin:
                 )
             return routed_types, episodes
 
-        for attempt in range(2):
-            raw = await client.chat(prompt)
-            try:
-                return _parse_router_raw(raw)
-            except (json.JSONDecodeError, TypeError, ValueError) as exc:
-                if attempt == 0:
-                    logger.error("Router reply invalid — retrying: %s", exc)
-                    continue
-                self._dump_unparseable_reply(raw, "router", attempt=2)
-                raise ValueError("Router reply still invalid after retry") from exc
-        raise AssertionError("unreachable")
+        raw = await client.chat(prompt)
+        try:
+            return _parse_router_raw(raw)
+        except (json.JSONDecodeError, TypeError, ValueError) as exc:
+            self._dump_unparseable_reply(raw, "router", attempt=1)
+            raise ValueError(f"Router reply invalid: {exc}") from exc
 
     def _dump_unparseable_reply(self, reply: str, memory_type: str, attempt: int) -> None:
         import datetime
@@ -1514,7 +1509,7 @@ class MemorizeMixin:
         valid_pairs = [(mtype, prompt) for mtype, prompt in typed_prompts if prompt.strip()]
         tasks = [client.chat(prompt) for _, prompt in valid_pairs]
         responses = list(await asyncio.gather(*tasks))
-        for i, ((mtype, prompt), response) in enumerate(zip(valid_pairs, responses)):
+        for (mtype, _prompt), response in zip(valid_pairs, responses, strict=True):
             try:
                 self._parse_structured_entries(
                     [mtype], [response],
@@ -1524,24 +1519,10 @@ class MemorizeMixin:
                 )
             except ValueError as exc:
                 self._dump_unparseable_reply(response, mtype, attempt=1)
-                logger.error(
-                    "Extraction reply invalid for memory_type=%s — retrying: %s", mtype, exc
-                )
-                retry_response = await client.chat(prompt)
-                try:
-                    self._parse_structured_entries(
-                        [mtype], [retry_response],
-                        default_source_message_ids=default_source_message_ids,
-                        speaker_roster=speaker_roster,
-                        source_days=source_days,
-                    )
-                except ValueError as exc:
-                    self._dump_unparseable_reply(retry_response, mtype, attempt=2)
-                    snippet = repr(retry_response[:200])
-                    raise ValueError(
-                        f"Extraction reply still unparseable after retry for memory_type={mtype}: {snippet}"
-                    ) from exc
-                responses[i] = retry_response
+                snippet = repr(response[:200])
+                raise ValueError(
+                    f"Extraction reply invalid for memory_type={mtype}: {exc}; reply={snippet}"
+                ) from exc
         return self._parse_structured_entries(
             [mtype for mtype, _ in valid_pairs],
             responses,
