@@ -156,6 +156,8 @@ class HTTPLLMClient:
                         byte_count += len(line.encode("utf-8"))
                         if not line or line.startswith(":"):
                             continue
+                        if line.partition(":")[0] in {"event", "id", "retry"}:
+                            continue
                         if not line.startswith("data:"):
                             raise RuntimeError("LLM stream returned a non-data SSE frame")
                         raw = line[5:].strip()
@@ -190,7 +192,7 @@ class HTTPLLMClient:
                                 content.append(chunk)
                         if choice.get("finish_reason") is not None:
                             finish_reason = str(choice["finish_reason"])
-        except (httpx.RemoteProtocolError, httpx.TimeoutException) as exc:
+        except httpx.TransportError as exc:
             first = (
                 round(first_frame_at - started, 1)
                 if first_frame_at is not None

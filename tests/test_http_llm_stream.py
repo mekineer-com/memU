@@ -34,6 +34,7 @@ async def test_chat_assembles_sse_and_preserves_usage(monkeypatch) -> None:
         captured.update(json.loads(request.content))
         body = "\n\n".join(
             [
+                "event: message\nid: 1\nretry: 1000",
                 'data: {"choices":[{"delta":{"role":"assistant"},"finish_reason":null}]}',
                 'data: {"choices":[{"delta":{"reasoning":"ignored"},"finish_reason":null}]}',
                 'data: {"choices":[{"delta":{"content":"hello"},"finish_reason":null}]}',
@@ -60,19 +61,23 @@ async def test_chat_assembles_sse_and_preserves_usage(monkeypatch) -> None:
 
 
 class _BrokenStream(httpx.AsyncByteStream):
+    def __init__(self, error_type) -> None:
+        self.error_type = error_type
+
     async def __aiter__(self):
         yield b'data: {"choices":[{"delta":{"content":"partial"}}]}\n\n'
-        raise httpx.RemoteProtocolError("disconnected")
+        raise self.error_type("disconnected")
 
 
 @pytest.mark.asyncio
-async def test_chat_does_not_retry_partial_stream(monkeypatch) -> None:
+@pytest.mark.parametrize("error_type", [httpx.RemoteProtocolError, httpx.ReadError])
+async def test_chat_does_not_retry_partial_stream(monkeypatch, error_type) -> None:
     calls = 0
 
     def handler(_request: httpx.Request) -> httpx.Response:
         nonlocal calls
         calls += 1
-        return httpx.Response(200, stream=_BrokenStream())
+        return httpx.Response(200, stream=_BrokenStream(error_type))
 
     client = _client(monkeypatch, handler)
     with pytest.raises(RuntimeError, match=r"frames=1, bytes="):

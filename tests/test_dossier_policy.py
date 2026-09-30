@@ -622,12 +622,39 @@ async def test_sparse_memorize_context_validates_before_database_work(tmp_path) 
 
 
 @pytest.mark.asyncio
-async def test_sparse_memorize_context_accepts_all_scaled_router_episodes(tmp_path) -> None:
+async def test_sparse_memorize_context_accepts_all_scaled_router_episodes(tmp_path, monkeypatch) -> None:
     service = _service(tmp_path)
-    client = FakeEmbedClient()
+    await service.ensure_dossier_anchors(SCOPE, embedding_client=FakeEmbedClient())
+    categories = [
+        _category(
+            service,
+            f"Dossier {index}",
+            evidence=datetime(2026, 1, index + 1, tzinfo=UTC),
+            summary=f"Dossier {index} prose",
+        )
+        for index in range(10)
+    ]
+
+    class _IndexedEmbedClient:
+        def __init__(self) -> None:
+            self.calls: list[list[str]] = []
+
+        async def embed(self, texts: list[str]) -> list[list[float]]:
+            self.calls.append(list(texts))
+            return [[float(index), 1.0] for index, _text in enumerate(texts)]
+
+    async def ranked_for_episode(query_embedding, **kwargs):
+        if kwargs["activity"] == "inactive":
+            return []
+        category = categories[int(query_embedding[0])]
+        assert category in kwargs["categories"]
+        return [(category, 1.0)]
+
+    client = _IndexedEmbedClient()
+    monkeypatch.setattr(service, "search_dossiers", ranked_for_episode)
     episodes = [
         {"title": f"Story {index}", "summary": f"Complete summary {index}"}
-        for index in range(9)
+        for index in range(10)
     ]
 
     result = await service.select_memorize_dossier_context(
@@ -638,8 +665,9 @@ async def test_sparse_memorize_context_accepts_all_scaled_router_episodes(tmp_pa
     )
 
     assert client.calls[-1] == [
-        f"Story {index}: Complete summary {index}" for index in range(9)
+        f"Story {index}: Complete summary {index}" for index in range(10)
     ]
+    assert result["relevant_dossiers"] == categories
     assert result["narrative_self"] is None
 
 

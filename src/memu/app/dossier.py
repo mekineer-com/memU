@@ -1178,7 +1178,7 @@ class DossierMixin:
             "dossier_index": self.build_dossier_index(scope, dossiers=active),
             "narrative_self": narrative,
             "anchor_dossiers": [anchors[role] for role in ("soul", "user")],
-            "relevant_dossiers": relevant[:9],
+            "relevant_dossiers": relevant,
         }
 
     async def search_dossiers(
