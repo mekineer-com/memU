@@ -2277,6 +2277,28 @@ def test_graph_pending_groups_near_duplicate_embeddings(monkeypatch):
     assert all(include is False for source, include in embedding_args if source == "all")
 
 
+@pytest.mark.parametrize(
+    ("profile", "threshold"),
+    [
+        ("text-embedding-3-large:3072", 0.76),
+        ("gemini-embedding-2:3072", 0.88),
+    ],
+)
+def test_graph_pending_dedupe_threshold_follows_database_profile(profile, threshold):
+    service = MemoryService(
+        database_config={
+            "metadata_store": {
+                "provider": "sqlite",
+                "dsn": "sqlite:///:memory:",
+                "embedding_profile": profile,
+            }
+        },
+        user_config={"model": GraphScope},
+    )
+
+    assert service._approval_dupe_threshold() == threshold
+
+
 def test_graph_delete_memory_removes_dependents():
     service = MemoryService(
         database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},

@@ -93,10 +93,13 @@ def _utc(value: Any) -> datetime | None:
     return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
 
 
-DUPE_CLUSTER_THRESHOLD = 0.88
+APPROVAL_DUPE_THRESHOLDS = {
+    "text-embedding-3-large:3072": 0.76,
+    "gemini-embedding-2:3072": 0.88,
+}
 
 
-def _cluster_by_embedding(items: list[Any]) -> dict[str, dict[str, Any]]:
+def _cluster_by_embedding(items: list[Any], threshold: float) -> dict[str, dict[str, Any]]:
     """Cluster items by pairwise cosine similarity (transitive closure).
 
     Returns {item_id: {"similar_to": [...], "similarity": float}} for clustered
@@ -114,7 +117,7 @@ def _cluster_by_embedding(items: list[Any]) -> dict[str, dict[str, Any]]:
             if not vec_j:
                 continue
             score = cosine_similarity(vec_i, vec_j)
-            if score >= DUPE_CLUSTER_THRESHOLD:
+            if score >= threshold:
                 pairs.append((i, j, score))
 
     if not pairs:
@@ -209,6 +212,14 @@ def _pack_embedding(values: list[float]) -> str:
 
 
 class GraphMixin:
+    def _approval_dupe_threshold(self) -> float:
+        profile = self.database_config.metadata_store.embedding_profile
+        if profile is None:
+            embedding = self.llm_profiles.profiles.get("embedding", self.llm_profiles.default)
+            model = embedding.embed_model
+            profile = f"{model}:3072"
+        return APPROVAL_DUPE_THRESHOLDS[profile]
+
     def _dossier_usages_by_item(
         self,
         items: Iterable[Any],
@@ -1442,7 +1453,7 @@ class GraphMixin:
                 include_embeddings=True,
             ).values()
         )
-        clusters = _cluster_by_embedding(pending_source)
+        clusters = _cluster_by_embedding(pending_source, self._approval_dupe_threshold())
         # Reorder so cluster members are adjacent; non-clustered items keep their place after clusters.
         original_order = {item.id: idx for idx, item in enumerate(pending_source)}
         pending_source.sort(
