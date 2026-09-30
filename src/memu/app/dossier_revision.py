@@ -432,11 +432,16 @@ def _parse_patches(container: Element) -> list[tuple[str, str, str]]:
             action = "add_after"
         if action not in {"replace", "add_after", "remove"}:
             raise ValueError(f"Invalid prose patch action: {action}")
-        if len(section) != 1 or section[0].tag != "body" or section[0].attrib:
-            raise ValueError("Prose patch requires one body")
-        if (section.text or "").strip() or (section[0].tail or "").strip():
-            raise ValueError("Unexpected text in prose patch section")
-        body = _leaf_text(section[0]).strip()
+        if not list(section) and action == "remove":
+            if (section.text or "").strip():
+                raise ValueError("Unexpected text in prose patch section")
+            body = ""
+        else:
+            if len(section) != 1 or section[0].tag != "body" or section[0].attrib:
+                raise ValueError("Prose patch requires one body")
+            if (section.text or "").strip() or (section[0].tail or "").strip():
+                raise ValueError("Unexpected text in prose patch section")
+            body = _leaf_text(section[0]).strip()
         if action == "remove":
             if body:
                 raise ValueError("Remove patch body must be empty")

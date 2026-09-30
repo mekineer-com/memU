@@ -1205,9 +1205,19 @@ async def test_generate_dossier_revision_keep_and_remove_section(tmp_path) -> No
 
     kept = await service.generate_dossier_revision(bundle, chat_client=FakeChatClient(keep))
     patched = await service.generate_dossier_revision(bundle, chat_client=FakeChatClient(removed))
+    compact_remove = await service.generate_dossier_revision(
+        bundle,
+        chat_client=FakeChatClient(
+            removed.replace(
+                '<section ref="S1" action="remove"><body></body></section>',
+                '<section ref="S1" action="remove" />',
+            )
+        ),
+    )
 
     assert kept["resulting_prose"] == current
     assert patched["resulting_prose"] == "## Timeline\n- 2026-07-01: Earlier event."
+    assert compact_remove["resulting_prose"] == patched["resulting_prose"]
 
 
 @pytest.mark.asyncio
