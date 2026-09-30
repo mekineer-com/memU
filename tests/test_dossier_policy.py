@@ -607,7 +607,7 @@ async def test_sparse_memorize_context_validates_before_database_work(tmp_path) 
     invalid = (
         [],
         [{"title": "", "summary": "summary"}],
-        [{"title": "title", "summary": "summary"}] * 4,
+        [{"title": "title", "summary": ""}],
     )
     for episodes in invalid:
         with pytest.raises(ValueError):
@@ -619,6 +619,28 @@ async def test_sparse_memorize_context_validates_before_database_work(tmp_path) 
             )
     assert client.calls == []
     assert service.database.memory_category_repo.list_categories(SCOPE) == {}
+
+
+@pytest.mark.asyncio
+async def test_sparse_memorize_context_accepts_all_scaled_router_episodes(tmp_path) -> None:
+    service = _service(tmp_path)
+    client = FakeEmbedClient()
+    episodes = [
+        {"title": f"Story {index}", "summary": f"Complete summary {index}"}
+        for index in range(9)
+    ]
+
+    result = await service.select_memorize_dossier_context(
+        episodes,
+        SCOPE,
+        narrative_self=None,
+        embedding_client=client,
+    )
+
+    assert client.calls[-1] == [
+        f"Story {index}: Complete summary {index}" for index in range(9)
+    ]
+    assert result["narrative_self"] is None
 
 
 def test_memory_refs_are_strict_scoped_and_resolve_merged_rows(tmp_path) -> None:
