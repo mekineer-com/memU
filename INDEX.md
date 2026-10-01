@@ -10,7 +10,7 @@
 | Package | Purpose |
 |---------|---------|
 | `app/service.py` | `MemoryService` — top-level facade, only public API |
-| `app/dossier.py` | Dossier core policy: anchors, deterministic active sets, whole-life continuity corpus, sparse memorize context, compact index, strict `[M#]` handles, revision preparation, and stale-safe apply |
+| `app/dossier.py` | Dossier core policy: anchors, deterministic active sets, whole-life continuity corpus, sparse memorize context, compact index, strict `[M#]` handles, async revision preparation, synchronous caller-session writes, and post-commit cache/journal finishing. Standalone apply composes the same parts. |
 | `app/dossier_revision.py` | Pure dossier-revision parsing and deterministic section-patch assembly; first-run anchor rules are evaluated independently per role |
 | `app/memorize.py` | Memorize workflow: preprocess → route → extract → store. Image resources memorize from a supplied caption and are persisted before extraction. Roster supports same-role ambiguity + relationship-entity triggers; dedupe keys by `(source_role, speaker_id, summary)`; parse failures retry once before propagating. |
 | `app/memorize_parsing.py` | Parsing/normalization seam: message-index extraction, source-message-id normalization, timestamp parsing, XML/JSON memory-type response parsing |

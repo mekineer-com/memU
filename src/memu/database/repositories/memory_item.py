@@ -26,6 +26,7 @@ class MemoryItemRepo(Protocol):
         include_superseded: bool = False,
         include_merged: bool = False,
         include_embeddings: bool = True,
+        session: Any | None = None,
     ) -> dict[str, MemoryItem]: ...
 
     def list_recent_items(

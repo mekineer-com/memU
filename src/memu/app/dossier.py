@@ -698,6 +698,23 @@ class DossierMixin:
         _allow_empty_text: bool = False,
         _journal_actor: str = "dossier_revision",
     ) -> MemoryCategory:
+        prepared = await self.prepare_dossier_revision_apply(
+            bundle, decision, where,
+            embedding_client=embedding_client, _allow_empty_text=_allow_empty_text,
+        )
+        return self._apply_prepared_dossier_revision(
+            bundle, prepared, _journal_actor=_journal_actor,
+        )
+
+    async def prepare_dossier_revision_apply(
+        self,
+        bundle: Mapping[str, Any],
+        decision: Mapping[str, Any],
+        where: Mapping[str, Any],
+        *,
+        embedding_client: Any | None = None,
+        _allow_empty_text: bool = False,
+    ) -> dict[str, Any]:
         scope = _scope(where)
         dossier = bundle["dossier"]
         if not isinstance(dossier, MemoryCategory):
@@ -741,152 +758,178 @@ class DossierMixin:
                 raise ValueError("Dossier embedding response count does not match input")
             embedding = _embedding_vector(raw_embeddings[0], label="dossier identity")
 
-        store = self._get_database()
-        session_cm = self._sqlite_write_session(store)
+        return {
+            "scope": scope, "dossier": dossier, "description": description,
+            "prose": prose, "add_ids": add_ids, "remove_ids": remove_ids,
+            "cleanup_ids": cleanup_ids, "cited_ids": cited_ids,
+            "embedding": embedding, "allow_empty_text": _allow_empty_text,
+        }
+
+    def _apply_prepared_dossier_revision(
+        self, bundle: Mapping[str, Any], prepared: Mapping[str, Any],
+        *, _journal_actor: str,
+    ) -> MemoryCategory:
+        session_cm = self._sqlite_write_session(self._get_database())
         if session_cm is None:
             raise RuntimeError("Dossier revision apply requires SQLite")
-
-        committed: MemoryCategory | None = None
-        prose_before = str(dossier.summary or "")
-        prose_changed = False
         with session_cm as session:
-            current = store.memory_category_repo.list_categories(scope, session=session).get(dossier.id)
-            if current is None or current.kind not in DOSSIER_KINDS:
-                raise DossierRevisionStaleError("Dossier revision target changed")
-            relations = [
-                relation
-                for relation in store.category_item_repo.list_relations(scope, session=session)
-                if relation.category_id == current.id
-            ]
-            linked_items, linked_inactive_ids = _load_linked_items(
-                store,
-                relations,
-                scope,
-                session=session,
-            )
-
-            shown_tokens = list(bundle["shown_item_tokens"])
-            expected_inactive_ids = set(bundle["shown_inactive_item_ids"])
-            if bundle.get("narrow_stale_validation"):
-                validation_ids = add_ids | cited_ids | cleanup_ids
-                shown_tokens = [token for token in shown_tokens if token[0] in validation_ids]
-                expected_inactive_ids &= validation_ids
-            shown_ids = {token[0] for token in shown_tokens}
-            shown_items = store.memory_item_repo.list_items_by_ids(
-                shown_ids,
-                scope,
-                include_superseded=True,
-                include_merged=True,
-                session=session,
-            )
-            active_shown_ids = set(
-                store.memory_item_repo.list_items_by_ids(shown_ids, scope, session=session)
-            )
-            current_shown_tokens = sorted(
-                (item.id, item.updated_at, item.memory_ref, item.merged_into)
-                for item in shown_items.values()
-            )
-            current_relation_tokens = sorted(
-                (relation.id, relation.created_at, relation.updated_at) for relation in relations
-            )
-            stale = (
-                current.updated_at != bundle["category_updated_at"]
-                or current_relation_tokens != list(bundle["relation_tokens"])
-                or linked_inactive_ids != set(bundle["linked_inactive_item_ids"])
-                or current_shown_tokens != shown_tokens
-                or shown_ids - active_shown_ids != expected_inactive_ids
-            )
-            if stale:
-                raise DossierRevisionStaleError("Dossier revision snapshot changed")
-
-            if cleanup_ids != linked_inactive_ids:
-                raise ValueError("Dossier cleanup decisions do not match inactive memberships")
-            linked_active_ids = set(linked_items) - linked_inactive_ids
-            if not remove_ids <= (shown_ids & linked_active_ids):
-                raise ValueError("Dossier removal includes an unshown or inactive membership")
-            allowed_add_ids = {
-                item.id for item in bundle["candidate_items"]
-            } | set(bundle["cited_unlinked_item_ids"]) | (shown_ids & linked_active_ids)
-            if not add_ids <= allowed_add_ids:
-                raise ValueError("Dossier addition includes an unshown candidate")
-            if add_ids & remove_ids:
-                raise ValueError("Dossier memory cannot be both added and removed")
-
-            resulting_members = (set(linked_items) | add_ids) - remove_ids - cleanup_ids
-            shown_by_ref = {
-                item.memory_ref: item.id
-                for item in shown_items.values()
-                if item.memory_ref is not None
-            }
-            try:
-                prose_cited_ids = {
-                    shown_by_ref[memory_ref] for memory_ref in self.extract_memory_refs(prose)
-                }
-            except KeyError as exc:
-                raise ValueError("Dossier prose cites a memory outside review context") from exc
-            if prose_cited_ids != cited_ids:
-                raise ValueError("Dossier citations changed after generation")
-            if not cited_ids <= resulting_members:
-                raise ValueError("Dossier prose cites a removed or unlinked memory")
-            active_members = store.memory_item_repo.list_items_by_ids(
-                resulting_members,
-                scope,
-                session=session,
-            )
-            if set(active_members) != resulting_members:
-                raise ValueError("Dossier result contains an inactive or wrong-scope memory")
-            if resulting_members and not prose.strip():
-                raise ValueError("A dossier with members requires nonblank prose")
-
-            for item_id in remove_ids | cleanup_ids:
-                store.category_item_repo.unlink_item_category(
-                    item_id,
-                    current.id,
-                    scope,
-                    session=session,
-                )
-            for item_id in add_ids:
-                store.category_item_repo.link_item_category(
-                    item_id,
-                    current.id,
-                    scope,
-                    session=session,
-                )
-
-            final_items = store.memory_item_repo.list_items_by_ids(
-                resulting_members,
-                scope,
-                session=session,
-            )
-            last_evidence_at = (
-                max((_item_time(item) for item in final_items.values()), default=None)
-            )
-            completed_at = datetime.now(UTC)
-            description_changed = (bool(resulting_members) or _allow_empty_text) and description != current.description
-            prose_changed = prose != str(current.summary or "")
-            update: dict[str, Any] = {
-                "category_id": current.id,
-                "last_evidence_at": last_evidence_at,
-                "last_revised_at": completed_at,
-                "where": scope,
-                "session": session,
-            }
-            if description_changed:
-                update.update(
-                    description=description,
-                    previous_description=current.description,
-                    embedding=embedding,
-                )
-            if prose_changed:
-                update.update(summary=prose)
-                if current.summary is not None:
-                    update["previous_summary"] = current.summary
-            committed = store.memory_category_repo.update_category(**update)
+            committed = self.write_dossier_revision(bundle, prepared, session=session)
             session.commit()
+        return self.finish_dossier_revision(bundle, committed, prepared["scope"], _journal_actor=_journal_actor)
 
-        if committed is None:
-            raise RuntimeError("Dossier revision did not commit")
+    def write_dossier_revision(
+        self, bundle: Mapping[str, Any], prepared: Mapping[str, Any], *, session: Any,
+    ) -> MemoryCategory:
+        store = self._get_database()
+        scope = prepared["scope"]
+        dossier = prepared["dossier"]
+        description, prose = prepared["description"], prepared["prose"]
+        add_ids, remove_ids = prepared["add_ids"], prepared["remove_ids"]
+        cleanup_ids, cited_ids = prepared["cleanup_ids"], prepared["cited_ids"]
+        embedding = prepared["embedding"]
+        _allow_empty_text = prepared["allow_empty_text"]
+        current = store.memory_category_repo.list_categories(scope, session=session).get(dossier.id)
+        if current is None or current.kind not in DOSSIER_KINDS:
+            raise DossierRevisionStaleError("Dossier revision target changed")
+        relations = [
+            relation
+            for relation in store.category_item_repo.list_relations(scope, session=session)
+            if relation.category_id == current.id
+        ]
+        linked_items, linked_inactive_ids = _load_linked_items(
+            store,
+            relations,
+            scope,
+            session=session,
+        )
 
+        shown_tokens = list(bundle["shown_item_tokens"])
+        expected_inactive_ids = set(bundle["shown_inactive_item_ids"])
+        if bundle.get("narrow_stale_validation"):
+            validation_ids = add_ids | cited_ids | cleanup_ids
+            shown_tokens = [token for token in shown_tokens if token[0] in validation_ids]
+            expected_inactive_ids &= validation_ids
+        shown_ids = {token[0] for token in shown_tokens}
+        shown_items = store.memory_item_repo.list_items_by_ids(
+            shown_ids,
+            scope,
+            include_superseded=True,
+            include_merged=True,
+            session=session,
+        )
+        active_shown_ids = set(
+            store.memory_item_repo.list_items_by_ids(shown_ids, scope, session=session)
+        )
+        current_shown_tokens = sorted(
+            (item.id, item.updated_at, item.memory_ref, item.merged_into)
+            for item in shown_items.values()
+        )
+        current_relation_tokens = sorted(
+            (relation.id, relation.created_at, relation.updated_at) for relation in relations
+        )
+        stale = (
+            current.updated_at != bundle["category_updated_at"]
+            or current_relation_tokens != list(bundle["relation_tokens"])
+            or linked_inactive_ids != set(bundle["linked_inactive_item_ids"])
+            or current_shown_tokens != shown_tokens
+            or shown_ids - active_shown_ids != expected_inactive_ids
+        )
+        if stale:
+            raise DossierRevisionStaleError("Dossier revision snapshot changed")
+
+        if cleanup_ids != linked_inactive_ids:
+            raise ValueError("Dossier cleanup decisions do not match inactive memberships")
+        linked_active_ids = set(linked_items) - linked_inactive_ids
+        if not remove_ids <= (shown_ids & linked_active_ids):
+            raise ValueError("Dossier removal includes an unshown or inactive membership")
+        allowed_add_ids = {
+            item.id for item in bundle["candidate_items"]
+        } | set(bundle["cited_unlinked_item_ids"]) | (shown_ids & linked_active_ids)
+        if not add_ids <= allowed_add_ids:
+            raise ValueError("Dossier addition includes an unshown candidate")
+        if add_ids & remove_ids:
+            raise ValueError("Dossier memory cannot be both added and removed")
+
+        resulting_members = (set(linked_items) | add_ids) - remove_ids - cleanup_ids
+        shown_by_ref = {
+            item.memory_ref: item.id
+            for item in shown_items.values()
+            if item.memory_ref is not None
+        }
+        try:
+            prose_cited_ids = {
+                shown_by_ref[memory_ref] for memory_ref in self.extract_memory_refs(prose)
+            }
+        except KeyError as exc:
+            raise ValueError("Dossier prose cites a memory outside review context") from exc
+        if prose_cited_ids != cited_ids:
+            raise ValueError("Dossier citations changed after generation")
+        if not cited_ids <= resulting_members:
+            raise ValueError("Dossier prose cites a removed or unlinked memory")
+        active_members = store.memory_item_repo.list_items_by_ids(
+            resulting_members,
+            scope,
+            session=session,
+        )
+        if set(active_members) != resulting_members:
+            raise ValueError("Dossier result contains an inactive or wrong-scope memory")
+        if resulting_members and not prose.strip():
+            raise ValueError("A dossier with members requires nonblank prose")
+
+        for item_id in remove_ids | cleanup_ids:
+            store.category_item_repo.unlink_item_category(
+                item_id,
+                current.id,
+                scope,
+                session=session,
+            )
+        for item_id in add_ids:
+            store.category_item_repo.link_item_category(
+                item_id,
+                current.id,
+                scope,
+                session=session,
+            )
+
+        final_items = store.memory_item_repo.list_items_by_ids(
+            resulting_members,
+            scope,
+            session=session,
+        )
+        last_evidence_at = (
+            max((_item_time(item) for item in final_items.values()), default=None)
+        )
+        completed_at = datetime.now(UTC)
+        description_changed = (bool(resulting_members) or _allow_empty_text) and description != current.description
+        prose_changed = prose != str(current.summary or "")
+        update: dict[str, Any] = {
+            "category_id": current.id,
+            "last_evidence_at": last_evidence_at,
+            "last_revised_at": completed_at,
+            "where": scope,
+            "session": session,
+        }
+        if description_changed:
+            update.update(
+                description=description,
+                previous_description=current.description,
+                embedding=embedding,
+            )
+        if prose_changed:
+            update.update(summary=prose)
+            if current.summary is not None:
+                update["previous_summary"] = current.summary
+        committed = store.memory_category_repo.update_category(**update)
+        return committed
+
+    def finish_dossier_revision(
+        self, bundle: Mapping[str, Any], committed: MemoryCategory, where: Mapping[str, Any],
+        *, _journal_actor: str = "dossier_revision",
+    ) -> MemoryCategory:
+        store = self._get_database()
+        scope = _scope(where)
+        prose_before = str(bundle["dossier"].summary or "")
+        prose_changed = str(committed.summary or "") != prose_before
         fresh = committed
         try:
             fresh = store.memory_category_repo.list_categories(scope)[committed.id]
@@ -906,6 +949,27 @@ class DossierMixin:
                 logger.exception("Failed to journal committed dossier revision %s", committed.id)
         return fresh
 
+    async def prepare_anchor_revision_apply(
+        self,
+        bundle: Mapping[str, Any],
+        decision: Mapping[str, Any],
+        where: Mapping[str, Any],
+        *,
+        embedding_client: Any | None = None,
+    ) -> dict[str, Any]:
+        anchor = bundle.get("dossier")
+        if not isinstance(anchor, MemoryCategory) or anchor.anchor_role not in {"soul", "user"}:
+            raise ValueError("Anchor revision bundle has no dossier anchor")
+        if decision.get("anchor_role") != anchor.anchor_role:
+            raise ValueError("Anchor revision role does not match bundle")
+        return await self.prepare_dossier_revision_apply(
+            bundle,
+            decision,
+            where,
+            embedding_client=embedding_client,
+            _allow_empty_text=True,
+        )
+
     async def apply_anchor_revision(
         self,
         bundle: Mapping[str, Any],
@@ -914,19 +978,10 @@ class DossierMixin:
         *,
         embedding_client: Any | None = None,
     ) -> MemoryCategory:
-        anchor = bundle.get("dossier")
-        if not isinstance(anchor, MemoryCategory) or anchor.anchor_role not in {"soul", "user"}:
-            raise ValueError("Anchor revision bundle has no dossier anchor")
-        if decision.get("anchor_role") != anchor.anchor_role:
-            raise ValueError("Anchor revision role does not match bundle")
-        return await self.apply_dossier_revision(
-            bundle,
-            decision,
-            where,
-            embedding_client=embedding_client,
-            _allow_empty_text=True,
-            _journal_actor="anchor_revision",
+        prepared = await self.prepare_anchor_revision_apply(
+            bundle, decision, where, embedding_client=embedding_client,
         )
+        return self._apply_prepared_dossier_revision(bundle, prepared, _journal_actor="anchor_revision")
 
     def list_active_dossiers(self, where: Mapping[str, Any]) -> list[MemoryCategory]:
         scope = _scope(where)

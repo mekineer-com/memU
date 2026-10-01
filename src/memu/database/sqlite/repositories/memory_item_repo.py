@@ -385,6 +385,7 @@ WHERE version = 1 AND model IN ({placeholders})
         include_superseded: bool = False,
         include_merged: bool = False,
         include_embeddings: bool = True,
+        session: Any | None = None,
     ) -> dict[str, MemoryItem]:
         """List memory items matching the where clause.
 
@@ -397,21 +398,26 @@ WHERE version = 1 AND model IN ({placeholders})
         Returns:
             Dictionary of item ID to MemoryItem mapping.
         """
-        with self._sessions.session() as session:
-            stmt = select(self._memory_item_model)
-            if not include_embeddings:
-                stmt = stmt.options(defer(self._memory_item_model.embedding))
-            filters = self._build_filters(self._memory_item_model, where)
-            active_filter = self._active_item_filter(
-                self._memory_item_model,
-                include_superseded=include_superseded,
-                include_merged=include_merged,
-            )
-            if active_filter is not None:
-                filters.append(active_filter)
-            if filters:
-                stmt = stmt.where(*filters)
-            rows = session.exec(stmt).all()
+        if session is None:
+            with self._sessions.session() as managed_session:
+                return self.list_items(
+                    where, include_superseded=include_superseded, include_merged=include_merged,
+                    include_embeddings=include_embeddings, session=managed_session,
+                )
+        stmt = select(self._memory_item_model)
+        if not include_embeddings:
+            stmt = stmt.options(defer(self._memory_item_model.embedding))
+        filters = self._build_filters(self._memory_item_model, where)
+        active_filter = self._active_item_filter(
+            self._memory_item_model,
+            include_superseded=include_superseded,
+            include_merged=include_merged,
+        )
+        if active_filter is not None:
+            filters.append(active_filter)
+        if filters:
+            stmt = stmt.where(*filters)
+        rows = session.exec(stmt).all()
 
         return {
             row.id: self._to_memory_item(row, embedding=None if include_embeddings else [])
