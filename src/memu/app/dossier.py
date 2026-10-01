@@ -970,19 +970,6 @@ class DossierMixin:
             _allow_empty_text=True,
         )
 
-    async def apply_anchor_revision(
-        self,
-        bundle: Mapping[str, Any],
-        decision: Mapping[str, Any],
-        where: Mapping[str, Any],
-        *,
-        embedding_client: Any | None = None,
-    ) -> MemoryCategory:
-        prepared = await self.prepare_anchor_revision_apply(
-            bundle, decision, where, embedding_client=embedding_client,
-        )
-        return self._apply_prepared_dossier_revision(bundle, prepared, _journal_actor="anchor_revision")
-
     def list_active_dossiers(self, where: Mapping[str, Any]) -> list[MemoryCategory]:
         scope = _scope(where)
         store = self._get_database()

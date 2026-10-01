@@ -1599,7 +1599,7 @@ async def test_apply_dossier_revision_detects_snapshot_races(tmp_path, race) -> 
 
 
 @pytest.mark.asyncio
-async def test_apply_dossier_revision_rolls_back_all_writes(tmp_path, monkeypatch) -> None:
+async def test_caller_owned_dossier_revision_rolls_back_all_writes(tmp_path, monkeypatch) -> None:
     service, store, _anchors, category, pending, candidate, refs, bundle = _revision_case(
         tmp_path,
         summary="## Health\nEarlier account.",
@@ -1624,9 +1624,19 @@ async def test_apply_dossier_revision_rolls_back_all_writes(tmp_path, monkeypatc
         return original_update(**kwargs)
 
     monkeypatch.setattr(store.memory_category_repo, "update_category", fail_transaction)
+    prepared = await service.prepare_dossier_revision_apply(bundle, decision, SCOPE)
+    before_cache = {key: value.model_dump() for key, value in store.categories.items()}
     with pytest.raises(RuntimeError, match="injected failure"):
-        await service.apply_dossier_revision(bundle, decision, SCOPE)
+        with store._sessions.session() as session:
+            new = store.memory_item_repo.create_item(
+                memory_type="knowledge", summary="Not committed", embedding=[1.0, 0.0],
+                user_data=SCOPE, session=session,
+            )
+            assert new.id in store.memory_item_repo.list_items(SCOPE, session=session)
+            service.write_dossier_revision(bundle, prepared, session=session)
 
+    assert new.id not in store.memory_item_repo.list_items(SCOPE)
+    assert {key: value.model_dump() for key, value in store.categories.items()} == before_cache
     relations = store.category_item_repo.list_relations(SCOPE)
     assert {relation.item_id for relation in relations} == {pending.id}
     items = store.memory_item_repo.list_items_by_ids({pending.id, candidate.id}, SCOPE)
@@ -1917,13 +1927,20 @@ My human is shaped by this lived moment [M{refs[period.id]}].</body></section></
 
     store.memory_item_repo.update_item(item_id=unused.id, summary="Changed but still uncited.")
 
-    for role in ("soul", "user"):
-        await service.apply_anchor_revision(
-            bundles[role],
-            decisions[role],
-            SCOPE,
-            embedding_client=FakeEmbedClient(),
+    prepared = {
+        role: await service.prepare_anchor_revision_apply(
+            bundles[role], decisions[role], SCOPE, embedding_client=FakeEmbedClient(),
         )
+        for role in ("soul", "user")
+    }
+    with store._sessions.session() as session:
+        committed = {
+            role: service.write_dossier_revision(bundles[role], prepared[role], session=session)
+            for role in ("soul", "user")
+        }
+        session.commit()
+    for role in ("soul", "user"):
+        service.finish_dossier_revision(bundles[role], committed[role], SCOPE, _journal_actor="anchor_revision")
 
     relations = store.category_item_repo.list_relations(SCOPE)
     members = {
