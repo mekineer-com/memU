@@ -309,21 +309,26 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
         self,
         category_id: str,
         where: Mapping[str, Any] | None = None,
+        *,
+        session: Any | None = None,
     ) -> MemoryCategory:
-        with self._sessions.session() as session:
-            filters = [self._memory_category_model.id == category_id, *self._build_filters(self._memory_category_model, where)]
-            row = session.exec(select(self._memory_category_model).where(*filters)).first()
-            if row is None:
-                msg = f"Category with id {category_id} not found"
-                raise KeyError(msg)
-            row.approved_description = row.description
-            row.approved_summary = row.summary
-            session.add(row)
-            session.commit()
-            session.refresh(row)
-        cat = self._to_category(row)
-        self.categories[row.id] = cat
-        return cat
+        if session is None:
+            with self._sessions.session() as managed_session:
+                category = self.approve_category_summary(category_id, where, session=managed_session)
+                managed_session.commit()
+            self.categories[category.id] = category
+            return category
+        filters = [self._memory_category_model.id == category_id, *self._build_filters(self._memory_category_model, where)]
+        row = session.exec(select(self._memory_category_model).where(*filters)).first()
+        if row is None:
+            msg = f"Category with id {category_id} not found"
+            raise KeyError(msg)
+        row.approved_description = row.description
+        row.approved_summary = row.summary
+        session.add(row)
+        session.flush()
+        session.refresh(row)
+        return self._to_category(row)
 
     def update_category(
         self,

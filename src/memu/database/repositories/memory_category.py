@@ -83,4 +83,6 @@ class MemoryCategoryRepo(Protocol):
         self,
         category_id: str,
         where: Mapping[str, Any] | None = None,
+        *,
+        session: Any | None = None,
     ) -> MemoryCategory: ...

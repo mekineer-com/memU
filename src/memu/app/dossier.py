@@ -285,7 +285,7 @@ class DossierMixin:
             session.commit()
         return anchors
 
-    async def update_dossier(
+    async def prepare_dossier_update(
         self,
         category_id: str,
         where: Mapping[str, Any],
@@ -299,7 +299,7 @@ class DossierMixin:
         last_evidence_at: datetime | None | EllipsisType = ...,
         last_revised_at: datetime | None | EllipsisType = ...,
         embedding_client: Any | None = None,
-    ) -> MemoryCategory:
+    ) -> dict[str, Any]:
         scope = _scope(where)
         store = self._get_database()
         current = store.memory_category_repo.list_categories(scope).get(category_id)
@@ -333,24 +333,81 @@ class DossierMixin:
                 raise ValueError("Dossier embedding response count does not match input")
             embedding = _embedding_vector(raw_embeddings[0], label="dossier identity")
 
-        return store.memory_category_repo.update_category(
+        return {
+            "name": final_name if name is not None else None,
+            "description": final_description if description is not None else None,
+            "summary": final_summary,
+            "embedding": embedding,
+            "kind": kind,
+            "lore_subtype": lore_subtype,
+            "entity_id": entity_id,
+            "last_evidence_at": last_evidence_at,
+            "last_revised_at": last_revised_at,
+            "identity_text": final_identity,
+            "source_identity": category_identity_text(current.name, current.description),
+            "source_summary": current.summary,
+        }
+
+    def write_dossier_update(
+        self, category_id: str, where: Mapping[str, Any], prepared: dict[str, Any], *, session: Any
+    ) -> tuple[MemoryCategory, MemoryCategory]:
+        scope = _scope(where)
+        store = self._get_database()
+        current = store.memory_category_repo.list_categories({**scope, "id": category_id}, session=session).get(category_id)
+        if current is None:
+            raise KeyError(f"Dossier with id {category_id} not found in scope")
+        name = prepared["name"]
+        description = prepared["description"]
+        final_name = current.name if name is None else name
+        final_description = current.description if description is None else description
+        if (
+            category_identity_text(current.name, current.description) != prepared["source_identity"]
+            or current.summary != prepared["source_summary"]
+            or category_identity_text(final_name, final_description) != prepared["identity_text"]
+        ):
+            raise DossierRevisionStaleError("summary_snapshot_stale")
+        changes = {key: prepared[key] for key in (
+            "name", "description", "summary", "embedding", "kind", "lore_subtype",
+            "entity_id", "last_evidence_at", "last_revised_at",
+        )}
+        updated = store.memory_category_repo.update_category(
             category_id=category_id,
-            name=final_name if name is not None else None,
-            description=final_description if description is not None else None,
-            previous_description=(
-                current.description
-                if description is not None and final_description != current.description
-                else None
-            ),
-            summary=final_summary,
-            previous_summary=current.summary if summary is not None and current.summary is not None else None,
-            embedding=embedding,
-            kind=kind,
-            lore_subtype=lore_subtype,
-            entity_id=entity_id,
-            last_evidence_at=last_evidence_at,
-            last_revised_at=last_revised_at,
+            previous_description=current.description if description is not None and description != current.description else None,
+            previous_summary=current.summary if prepared["summary"] is not None else None,
+            where=scope,
+            session=session,
+            **changes,
         )
+        return updated, current
+
+    async def update_dossier(
+        self,
+        category_id: str,
+        where: Mapping[str, Any],
+        *,
+        name: str | None = None,
+        description: str | None = None,
+        summary: str | None = None,
+        kind: DossierKind | None | EllipsisType = ...,
+        lore_subtype: str | None | EllipsisType = ...,
+        entity_id: str | None | EllipsisType = ...,
+        last_evidence_at: datetime | None | EllipsisType = ...,
+        last_revised_at: datetime | None | EllipsisType = ...,
+        embedding_client: Any | None = None,
+    ) -> MemoryCategory:
+        prepared = await self.prepare_dossier_update(
+            category_id, where, name=name, description=description, summary=summary,
+            kind=kind, lore_subtype=lore_subtype, entity_id=entity_id,
+            last_evidence_at=last_evidence_at, last_revised_at=last_revised_at,
+            embedding_client=embedding_client,
+        )
+        store = self._get_database()
+        with store._sessions.session() as session:
+            session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+            updated, _before = self.write_dossier_update(category_id, where, prepared, session=session)
+            session.commit()
+        store.memory_category_repo.categories[updated.id] = updated
+        return updated
 
     def list_due_dossiers(
         self,
