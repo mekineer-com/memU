@@ -2503,9 +2503,9 @@ def test_graph_update_category_summary_commits_identity_and_prose_then_journals(
     saved = store.memory_category_repo.list_categories(scope)[category.id]
     journal = (tmp_path / "s.summary_journal.jsonl").read_text(encoding="utf-8").splitlines()
     entry = json.loads(journal[0])
-    assert updated["summary"] == "new category summary"
+    assert updated["summary"] == "## unlabeled\nnew category summary"
     assert updated["previous_summary"] == "old category summary"
-    assert saved.summary == "new category summary"
+    assert saved.summary == "## unlabeled\nnew category summary"
     assert saved.previous_summary == "old category summary"
     assert (saved.name, saved.description, saved.embedding) == (
         "Friends",
@@ -2632,7 +2632,7 @@ def test_graph_update_category_summary_journal_failure_keeps_db_update(monkeypat
     asyncio.run(service.graph_update_category_summary(category.id, summary="new", where=scope))
 
     saved = store.memory_category_repo.list_categories(scope)[category.id]
-    assert saved.summary == "new"
+    assert saved.summary == "## unlabeled\nnew"
     assert saved.previous_summary == "old"
 
 

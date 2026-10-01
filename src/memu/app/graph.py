@@ -1451,7 +1451,10 @@ class GraphMixin:
                 append_category_summary_journal(**journal)
             except Exception:
                 logger.exception("Failed to journal committed category edit %s", category.id)
-        return self.graph_memory(f"category:{category.id}", where=where)
+        detail = self.graph_memory(f"category:{category.id}", where=where)
+        if refresh_memberships and detail is None:
+            raise KeyError(f"category not found in scope: {category.id}")
+        return detail
 
     async def graph_update_category_summary(
         self,

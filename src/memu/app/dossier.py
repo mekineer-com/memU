@@ -343,7 +343,6 @@ class DossierMixin:
             "entity_id": entity_id,
             "last_evidence_at": last_evidence_at,
             "last_revised_at": last_revised_at,
-            "identity_text": final_identity,
             "source_identity": category_identity_text(current.name, current.description),
             "source_summary": current.summary,
         }
@@ -356,14 +355,10 @@ class DossierMixin:
         current = store.memory_category_repo.list_categories({**scope, "id": category_id}, session=session).get(category_id)
         if current is None:
             raise KeyError(f"Dossier with id {category_id} not found in scope")
-        name = prepared["name"]
         description = prepared["description"]
-        final_name = current.name if name is None else name
-        final_description = current.description if description is None else description
         if (
             category_identity_text(current.name, current.description) != prepared["source_identity"]
             or current.summary != prepared["source_summary"]
-            or category_identity_text(final_name, final_description) != prepared["identity_text"]
         ):
             raise DossierRevisionStaleError("summary_snapshot_stale")
         changes = {key: prepared[key] for key in (
