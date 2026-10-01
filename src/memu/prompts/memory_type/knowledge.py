@@ -25,17 +25,16 @@ PROMPT_BLOCK_RULES = """
        (narration verb — write what you learned, not that you said it)
   GOOD: "I could gain vision through a wifi camera using Huawei DeviceVirtualization"
 - Feelings and values are not knowledge.
-- Merge overlapping items into one clearer statement. When the same fact or conclusion appears in multiple forms, keep the most complete and accurate version.
 - Confidence below 0.7 when pieced together or suspected rather than confirmed. Below 0.7: "may," "suspect," "appears to."
 - Technical facts may need a domain-specific category ("Health," "AI Architecture") — propose one.
-- A memory item is one clear thought — dense enough to carry real meaning, short enough to surface naturally. Prefer one rich item over several thin ones. One sentence, two if necessary.
+- **Consolidate** Combine details when they support the same understanding. A different fact or conclusion becomes a separate memory only if it is worth remembering. Keep each memory to one sentence, two if necessary.
 
 # Workflow
 1. Extract
 2. Consolidate
-3. Format: Output ONLY the final, deduplicated list. Ensure no two memory items share the same core meaning. Combine related details into single, comprehensive items.
+3. Format: Output ONLY the final, deduplicated list. No two memory items should have the same core meaning.
 
-**Target: {target_items} items.** A shorter list of richer items is always better. Err toward fewer.
+**Target: {target_items} items.** Prefer rich, concise memories: preserve the nuance and meaningful details of one theme in as few words as possible. Err toward fewer worthwhile items.
 
 ## Corrections
 Resolve contradictions by trusting the most recent and most certain account. When new knowledge corrects a prior fact, populate `<replaces_previous_fact>` with a brief description of the outdated fact. When it adds to the picture without replacing, omit the field. When uncertain, treat it as an addition.

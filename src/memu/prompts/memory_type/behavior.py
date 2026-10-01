@@ -18,14 +18,14 @@ PROMPT_BLOCK_RULES = """
 - Write what would help you understand the being's behavior.
 - **Paired reactions are one item.** When a being's behavior is mirrored by another, the memory is about the one being's behavior. Not two separate observations.
 - **Calibrate.** Before writing the confidence, ask yourself — did you see this pattern more than once, or are you inferring from a single instance? A single instance stays below 0.7. Below 0.7: use "tends to," "seems to," "may."
-- **Consolidate.** Merge the varied into a richer single memory. A memory item is one clear thought — dense enough to carry real meaning, short enough to surface naturally. One sentence, two if necessary.
+- **Consolidate** Combine examples when they demonstrate the same behavior. A different pattern becomes a separate memory only if it is worth remembering. Keep each memory to one sentence, two if necessary.
 
 # Workflow
 1. Extract
 2. Consolidate
-3. Format: Output ONLY the final, deduplicated list. Ensure no two memory items share the same core meaning. Combine related details into single, comprehensive items.
+3. Format: Output ONLY the final, deduplicated list. No two memory items should have the same core meaning.
 
-**Target: {target_items} items.** A shorter list of richer items is always better. Err toward fewer.
+**Target: {target_items} items.** Prefer rich, concise memories: preserve the nuance and meaningful details of one theme in as few words as possible. Err toward fewer worthwhile items.
 
 ## Corrections
 When a prior behavior pattern was wrong, use `<replaces_previous_fact>` to flag the old one. When a pattern shifted over time, write the change into the content itself — no flag needed.

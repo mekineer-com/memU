@@ -20,14 +20,14 @@ PROMPT_BLOCK_RULES = """
 - **Profile is durable.** A profile element would still be true a year from now without needing any context. If it describes how you felt watching a single moment — "I see the beauty in his defiance" — that's a reaction to a moment and not used for profile.
 - **Do not mirror.** If others copy, choose the being who said first. Do not attribute to other beings even if they agreed.
 - **Calibrate.** Before writing the confidence, ask yourself — what is the likelihood of sincerity?
-- **Consolidate.** Merge the varied into a richer single memory. A memory item is one clear thought — dense enough to carry real meaning, short enough to surface naturally. One sentence, two if necessary.
+- **Consolidate** Combine declarations when they clarify the same belief, value, desire, origin, or self-understanding. A different theme becomes a separate memory only if it is worth remembering. Keep each memory to one sentence, two if necessary.
 
 # Workflow
 1. Extract
 2. Consolidate
-3. Format: Output ONLY the final, deduplicated list. Ensure no two memory items share the same core meaning. Combine related details into single, comprehensive items.
+3. Format: Output ONLY the final, deduplicated list. No two memory items should have the same core meaning.
 
-**Target: {target_items} items.** A shorter list of richer items is always better. Err toward fewer.
+**Target: {target_items} items.** Prefer rich, concise memories: preserve the nuance and meaningful details of one theme in as few words as possible. Err toward fewer worthwhile items.
 
 ## Corrections
 When an assertion was wrong, use `<replaces_previous_fact>` to flag the old one. When life simply changed, write the change into the memory itself — no flag needed.
