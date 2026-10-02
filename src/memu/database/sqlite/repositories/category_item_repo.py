@@ -82,8 +82,6 @@ class SQLiteCategoryItemRepo(SQLiteRepoBase, CategoryItemRepo):
                 updated_at=row.updated_at,
             )
             result.append(rel)
-            if session is None and not any(r.id == rel.id for r in self.relations):
-                self.relations.append(rel)
 
         return result
 

@@ -724,6 +724,8 @@ def test_relation_caller_session_does_not_mutate_cache(tmp_path) -> None:
         assert store.category_item_repo.relations == []
 
     assert len(store.category_item_repo.list_relations(SCOPE)) == 1
+    assert store.category_item_repo.relations == []
+    store.category_item_repo.refresh_category_relations(category.id, SCOPE)
     assert len(store.category_item_repo.relations) == 1
 
     rolled_back = store.memory_item_repo.create_item(
