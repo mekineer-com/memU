@@ -47,7 +47,7 @@
 | `database/repositories/` | Backend-agnostic Protocol contracts: memory_item, memory_category, resource, entity, triple, category_item, dossier_candidate |
 | `llm/wrapper.py` | LLM client factory — dispatches to backends |
 | `llm/http_client.py` | LLM HTTP client; chat uses one-attempt SSE streaming while vision and embeddings retain bounded transport retries |
-| `llm/backends/` | Provider impls: `openai.py` (httpx-based, covers OpenAI-compatible APIs) |
+| `llm/backends/` | Provider impls: `openai.py` (OpenAI-compatible APIs; rejects output-limit cutoffs before returning chat/vision text) |
 | `llm/claude_cli.py` | `ClaudeCLIClient` — Claude Code CLI adapter. Uses soul workspace for session/resume calls, neutral workspace for no-session calls (prevents persona bleed). |
 | `embedding/` | Embedding client factory + backends (same pattern as llm/): `openai.py`, `doubao.py`, `gemini.py` (multimodal) |
 | `workflow/` | DAG runner: `step.py` (unit), `pipeline.py` (graph), `runner.py` (executor), `interceptor.py` (hook mechanism) |

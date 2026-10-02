@@ -6,6 +6,7 @@ import httpx
 import pytest
 
 from memu.llm.http_client import HTTPLLMClient
+from memu.llm.wrapper import LLMClientWrapper, LLMInterceptorRegistry
 
 
 def _client(monkeypatch: pytest.MonkeyPatch, handler) -> HTTPLLMClient:
@@ -58,6 +59,53 @@ async def test_chat_assembles_sse_and_preserves_usage(monkeypatch) -> None:
     assert captured["stream"] is True
     assert captured["stream_options"] == {"include_usage": True}
     assert captured["response_format"] == {"type": "json_object"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("method", ["chat", "vision"])
+@pytest.mark.parametrize("finish_reason", ["length", "stop", "tool_calls"])
+async def test_output_cutoff_fails_before_success_without_retry(
+    monkeypatch, tmp_path, method, finish_reason
+) -> None:
+    calls = 0
+    events = []
+    content = '{"items": []}'
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        choice = {"finish_reason": finish_reason}
+        if method == "chat":
+            choice["delta"] = {"content": content}
+            return httpx.Response(
+                200, text=f'data: {json.dumps({"choices": [choice]})}\n\ndata: [DONE]\n\n'
+            )
+        choice["message"] = {"content": content}
+        return httpx.Response(200, json={"choices": [choice]})
+
+    async def after(*_args):
+        events.append("success")
+
+    async def on_error(*_args):
+        events.append("error")
+
+    registry = LLMInterceptorRegistry()
+    registry.register_after(after)
+    registry.register_on_error(on_error)
+    client = LLMClientWrapper(_client(monkeypatch, handler), registry=registry)
+    args = ["prompt"]
+    if method == "vision":
+        image = tmp_path / "image.png"
+        image.write_bytes(b"test image")
+        args.append(str(image))
+    if finish_reason == "length":
+        with pytest.raises(RuntimeError, match="truncated at the output token limit"):
+            await getattr(client, method)(*args)
+        assert events == ["error"]
+    else:
+        assert await getattr(client, method)(*args) == content
+        assert events == ["success"]
+    assert calls == 1
 
 
 class _BrokenStream(httpx.AsyncByteStream):
