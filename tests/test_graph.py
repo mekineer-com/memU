@@ -722,6 +722,10 @@ def test_entity_delete_accepts_only_completely_unreferenced_extracted_rows():
         Triple(subject_id=item.id, subject_kind="memory", predicate="mentions", object_id=mentioned.id, object_kind="entity"),
         user_data=scope,
     )
+    store.triple_repo.add(
+        Triple(subject_id=mentioned.id, subject_kind="entity", predicate="evokes", object_id=orphan.id,
+               object_kind="entity", valid_to=datetime.now(UTC)), user_data=scope,
+    )
     store.memory_item_repo.create_item(
         memory_type="social",
         summary="Attributed",
@@ -739,10 +743,66 @@ def test_entity_delete_accepts_only_completely_unreferenced_extracted_rows():
     assert {entity.id for entity in store.entity_repo.list_all(scope)}.issuperset(
         {source.id, relationship.id, mentioned.id, speaker.id, dossier.id}
     )
+    with store._sessions.session() as session:
+        assert len(store.triple_repo.list_entity_references(mentioned.id, scope, session)) == 2
 
     service.graph_delete_entity(orphan.id, where=scope)
     assert store.entity_repo.list_by_ids({orphan.id}, scope) == []
     assert item.id in store.memory_item_repo.list_items(scope, include_embeddings=False)
+
+
+@pytest.mark.parametrize("fail_delete", [False, True])
+def test_entity_delete_cleans_hidden_links_atomically(monkeypatch, fail_delete):
+    service = MemoryService(
+        database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
+        user_config={"model": GraphScope},
+    )
+    store = service._get_database()
+    scope = {"user_id": "TestOwner", "soul_id": "TestSoul"}
+    other_scope = {"user_id": "OtherOwner", "soul_id": "OtherSoul"}
+    entity = store.entity_repo.create("Old association", "topic", scope)
+    other = store.entity_repo.create("Other entity", "topic", scope)
+    items = [store.memory_item_repo.create_item(
+        memory_type="knowledge", summary=f"Example {index}", embedding=[0.1], user_data=scope,
+    ) for index in range(4)]
+    for index in (0, 1, 2):
+        store.triple_repo.add(Triple(
+            subject_id=items[index].id, subject_kind="memory", predicate="mentions",
+            object_id=entity.id, object_kind="entity",
+            valid_to=datetime.now(UTC) if index == 0 else None,
+        ), user_data=scope)
+    store.triple_repo.add(Triple(
+        subject_id=items[1].id, subject_kind="memory", predicate="evolved_into",
+        object_id=items[3].id, object_kind="memory",
+    ), user_data=scope)
+    store.memory_item_repo.update_item(item_id=items[2].id, merged_into=items[3].id)
+    for subject, target in ((entity.id, other.id), (other.id, entity.id)):
+        store.triple_repo.add(Triple(
+            subject_id=subject, subject_kind="entity", predicate="evokes",
+            object_id=target, object_kind="entity",
+        ), user_data=scope)
+    store.triple_repo.add(Triple(
+        subject_id=entity.id, subject_kind="entity", predicate="mentions",
+        object_id="foreign-memory", object_kind="memory",
+    ), user_data=other_scope)
+    with store._sessions.session() as session:
+        before = store.triple_repo.list_entity_references(entity.id, scope, session)
+    assert next(row for row in service.graph_atomic_entities(where=scope)["entities"] if row["id"] == entity.id)["orphan"]
+    if fail_delete:
+        def fail(*args, **kwargs):
+            raise RuntimeError("delete failed")
+        monkeypatch.setattr(store.entity_repo, "delete", fail)
+        with pytest.raises(RuntimeError, match="delete failed"):
+            service.graph_delete_entity(entity.id, where=scope)
+    else:
+        service.graph_delete_entity(entity.id, where=scope)
+    assert bool(store.entity_repo.list_by_ids({entity.id}, scope)) == fail_delete
+    with store._sessions.session() as session:
+        remaining = store.triple_repo.list_entity_references(entity.id, scope, session)
+        assert {edge.id for edge in remaining} == ({edge.id for edge in before} if fail_delete else set())
+        assert len(store.triple_repo.list_entity_references(entity.id, other_scope, session)) == 1
+    assert store.entity_repo.list_by_ids({other.id}, scope)
+    assert len(store.memory_item_repo.list_items(scope, include_superseded=True, include_merged=True)) == 4
 
 
 def test_graph_atomic_canvas_source_includes_embeddings_and_category_tags():

@@ -687,10 +687,18 @@ class GraphMixin:
                     ]
                     conflicts.append(f"Speaker memories: {', '.join(refs)}")
                 references = store.triple_repo.list_entity_references(entity_id, scope, session)
-                if references:
-                    conflicts.append(f"Graph references: {len(references)}")
+                mention_ids = {
+                    edge.subject_id for edge in references
+                    if edge.valid_to is None and edge.predicate == "mentions"
+                    and edge.subject_kind == "memory" and edge.object_kind == "entity"
+                    and edge.object_id == entity_id
+                }
+                active_mentions = store.memory_item_repo.list_items_by_ids(mention_ids, scope, session=session)
+                if active_mentions:
+                    conflicts.append(f"Graph references: {len(active_mentions)}")
                 if conflicts:
                     raise EntityActionConflictError(conflicts)
+                store.triple_repo.delete_entity_references(entity_id, scope, session)
                 store.entity_repo.delete(entity_id, where=scope, session=session)
                 session.commit()
 

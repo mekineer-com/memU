@@ -38,7 +38,7 @@
 | `database/sqlite/repositories/category_item_repo.py` | Category–item link persistence |
 | `database/sqlite/repositories/resource_repo.py` | Resource (segment file) persistence |
 | `database/sqlite/repositories/entity_repo.py` | Scoped entity persistence, stable-ID edits, aliases, and source-reference lookup |
-| `database/sqlite/repositories/triple_repo.py` | Triple (graph edge) persistence and temporal queries |
+| `database/sqlite/repositories/triple_repo.py` | Triple (graph edge) persistence, temporal queries, and caller-transactional entity-reference cleanup. Entity Delete blocks current mentions from active memories and removes hidden links; identity/dossier/speaker safeguards remain. |
 | `database/sqlite/repositories/dossier_candidate_repo.py` | Durable unresolved category proposals with idempotent create, review-consideration state, and atomic resolution |
 | `scripts/install-sqlite-vec.py` | Verifies and installs the pinned official sqlite-vec artifact for Linux, macOS, or Windows |
 | `scripts/migrate-embeddings-to-blob.py` | Offline dry-run/backup/migration tool for converting one explicitly named stopped soul DB from legacy JSON TEXT embeddings to canonical float32 BLOBs |

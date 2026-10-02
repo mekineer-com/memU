@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import or_
-from sqlmodel import select
+from sqlmodel import delete, select
 
 from memu.database.models import Triple
 from memu.database.repositories.triple import TripleRepo
@@ -311,6 +311,16 @@ class SQLiteTripleRepo(SQLiteRepoBase, TripleRepo):
             )
         ).all()
         return [self._row_to_triple(row) for row in rows]
+
+    def delete_entity_references(self, entity_id: str, where: Mapping[str, Any], session: Any) -> None:
+        scope = self._require_scope(where)
+        session.exec(delete(self._triple_model).where(
+            or_(
+                (self._triple_model.subject_kind == "entity") & (self._triple_model.subject_id == entity_id),
+                (self._triple_model.object_kind == "entity") & (self._triple_model.object_id == entity_id),
+            ),
+            *self._build_filters(self._triple_model, scope),
+        ))
 
     def get_connected_memory_edges(
         self,
