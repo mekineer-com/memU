@@ -495,8 +495,8 @@ class DossierMixin:
             pending_ids &= _selected_evidence_ids(store, scope, segment_ids)
         excluded_evidence = _selected_evidence_ids(store, scope, excluded_segment_ids)
         pending_ids -= excluded_evidence
-        linked_inactive_ids -= excluded_evidence
-        if not pending_ids and not linked_inactive_ids:
+        cleanup_inactive_ids = linked_inactive_ids - excluded_evidence
+        if not pending_ids and not cleanup_inactive_ids:
             raise ValueError(f"Dossier {category_id} is not due for revision")
 
         anchors = store.memory_category_repo.list_anchor_categories(scope)
@@ -532,12 +532,13 @@ class DossierMixin:
 
         evolved_ids = {
             edge.object_id
-            for item_id in linked_inactive_ids
+            for item_id in cleanup_inactive_ids
             for edge in store.triple_repo.get_edges_from(
                 item_id, predicate="evolved_into", where=scope
             )
             if edge.object_kind == "memory"
         }
+        evolved_ids -= excluded_evidence
         candidate_items.update(
             store.memory_item_repo.list_items_by_ids(evolved_ids, scope)
         )
@@ -551,7 +552,7 @@ class DossierMixin:
         prompt_items.update(candidate_items)
         all_shown_items = {
             **prompt_items,
-            **{item_id: linked_items[item_id] for item_id in linked_inactive_ids},
+            **{item_id: linked_items[item_id] for item_id in cleanup_inactive_ids},
         }
         missing_refs = sorted(
             item_id
@@ -570,7 +571,7 @@ class DossierMixin:
                 "lineage_state": "merged" if linked_items[item_id].merged_into else "superseded",
                 "merged_into": linked_items[item_id].merged_into,
             }
-            for item_id in sorted(linked_inactive_ids)
+            for item_id in sorted(cleanup_inactive_ids)
         ]
         return {
             "dossier": category,
@@ -601,7 +602,7 @@ class DossierMixin:
             ),
             "candidate_items": sorted(candidate_items.values(), key=_item_sort_key),
             "untouched_item_ids": sorted(
-                set(linked_items) - pending_ids - set(cited_items) - linked_inactive_ids
+                set(linked_items) - pending_ids - set(cited_items) - cleanup_inactive_ids
             ),
             "excluded_review_item_ids": sorted(excluded_evidence),
             "active_life_goals": [
@@ -898,7 +899,8 @@ class DossierMixin:
         if stale:
             raise DossierRevisionStaleError("Dossier revision snapshot changed")
 
-        if cleanup_ids != linked_inactive_ids:
+        excluded_inactive_ids = linked_inactive_ids & set(bundle.get("excluded_review_item_ids", ()))
+        if cleanup_ids != linked_inactive_ids - excluded_inactive_ids:
             raise ValueError("Dossier cleanup decisions do not match inactive memberships")
         linked_active_ids = set(linked_items) - linked_inactive_ids
         if not remove_ids <= (shown_ids & linked_active_ids):
@@ -932,7 +934,7 @@ class DossierMixin:
             scope,
             session=session,
         )
-        if set(active_members) != resulting_members:
+        if set(active_members) != resulting_members - excluded_inactive_ids:
             raise ValueError("Dossier result contains an inactive or wrong-scope memory")
         if resulting_members and not prose.strip():
             raise ValueError("A dossier with members requires nonblank prose")
