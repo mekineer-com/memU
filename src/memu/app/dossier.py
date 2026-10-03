@@ -466,6 +466,7 @@ class DossierMixin:
         narrative_self: str | None = None,
         active_life_goals: Sequence[str] = (),
         removed_life_goals: Sequence[str] = (),
+        segment_ids: Sequence[str] | None = None,
     ) -> dict[str, Any]:
         scope = _scope(where)
         store = self._get_database()
@@ -485,6 +486,8 @@ class DossierMixin:
             if _membership_needs_review(relation)
         ]
         pending_ids = {relation.item_id for relation in pending_relations}
+        if segment_ids is not None:
+            pending_ids &= _selected_evidence_ids(store, scope, segment_ids)
         if not pending_ids and not linked_inactive_ids:
             raise ValueError(f"Dossier {category_id} is not due for revision")
 

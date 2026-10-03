@@ -834,7 +834,8 @@ def test_due_dossiers_cover_first_revision_and_membership_review(tmp_path) -> No
         service.prepare_dossier_revision(clean.id, SCOPE)
 
 
-def test_reviewed_membership_does_not_hide_later_evidence(tmp_path) -> None:
+@pytest.mark.asyncio
+async def test_reviewed_membership_does_not_hide_later_evidence(tmp_path, monkeypatch) -> None:
     service = _service(tmp_path, retrieve_config={"item": {"top_k": 0}})
     store = service.database
     _seed_anchors(service)
@@ -846,16 +847,25 @@ def test_reviewed_membership_does_not_hide_later_evidence(tmp_path) -> None:
         ) for segment in ("first", "later")
     ]
     first_link = store.category_item_repo.link_item_category(first.id, category.id, SCOPE)
-    later_link = store.category_item_repo.link_item_category(later.id, category.id, SCOPE)
-    # Model a completed first-span checkpoint, not a historical batch runner.
-    completed = later_link.updated_at + timedelta(seconds=1)
-    _mark_reviewed(store, category.id, [first.id], completed)
-    store.memory_category_repo.update_category(category_id=category.id, last_revised_at=completed)
+    store.category_item_repo.link_item_category(later.id, category.id, SCOPE)
+    store.memory_item_repo.backfill_memory_refs(SCOPE)
+    bundle = service.prepare_dossier_revision(category.id, SCOPE, segment_ids=["first"])
+    assert [item.id for item in bundle["pending_items"]] == [first.id]
+    assert later.id in bundle["untouched_item_ids"]
+    monkeypatch.setattr("memu.app.dossier.append_category_summary_journal", lambda **_kw: None)
+    revised = await service.apply_dossier_revision(bundle, {
+        "dossier_id": category.id, "description": category.description,
+        "resulting_prose": "## Current\nA steady account.", "add_item_ids": [],
+        "remove_item_ids": [], "cleanup_item_ids": [], "cited_item_ids": [],
+    }, SCOPE, embedding_client=FakeEmbedClient())
+    completed = revised.last_revised_at
     assert service.list_due_dossiers(SCOPE, segment_ids=["first"]) == []
     assert [row.id for row in service.list_due_dossiers(SCOPE, segment_ids=["later"])] == [category.id]
     assert [item.id for item in service.prepare_dossier_revision(category.id, SCOPE)["pending_items"]] == [later.id]
     first_after = store.category_item_repo.list_relations({**SCOPE, "item_id": first.id})[0]
     assert first_after.updated_at == first_link.updated_at
+    assert first_after.reviewed_at == completed
+    assert store.category_item_repo.list_relations({**SCOPE, "item_id": later.id})[0].reviewed_at is None
     _mark_reviewed(store, category.id, [later.id], completed)
     assert service.list_due_dossiers(SCOPE) == []
 
