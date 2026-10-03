@@ -10,7 +10,7 @@
 | Package | Purpose |
 |---------|---------|
 | `app/service.py` | `MemoryService` — top-level facade, only public API |
-| `app/dossier.py` | Dossier core policy: anchors, deterministic active sets, whole-life continuity corpus, sparse memorize context, compact index, strict `[M#]` handles, async revision/manual-edit preparation, synchronous caller-session writes, and post-commit cache/journal finishing. AI review is tracked per membership via `reviewed_at`, separate from human approval; marker writes share the revision transaction. Standalone apply/edit composes the same parts; manual edits recheck prose and embedding identity after preparation. |
+| `app/dossier.py` | Dossier core policy: anchors, deterministic active sets, whole-life continuity corpus, sparse memorize context, compact index, strict `[M#]` handles, async revision/manual-edit preparation, synchronous caller-session writes, and post-commit cache/journal finishing. AI review is tracked per membership via `reviewed_at`, separate from human approval; marker writes share the revision transaction. Historical `segment_ids` select pending evidence through merged-memory lineage, leaving later evidence due; AI-added candidate links are also marked considered. Standalone apply/edit composes the same parts; manual edits recheck prose and embedding identity after preparation. |
 | `app/dossier_revision.py` | Pure dossier-revision parsing and deterministic section-patch assembly; first-run anchor rules are evaluated independently per role |
 | `app/memorize.py` | Memorize workflow: preprocess → route → extract → store. Image resources memorize from a supplied caption and are persisted before extraction. Roster supports same-role ambiguity + relationship-entity triggers; dedupe keys by `(source_role, speaker_id, summary)`; parse failures retry once before propagating. |
 | `app/memorize_parsing.py` | Parsing/normalization seam: message-index extraction, source-message-id normalization, timestamp parsing, XML/JSON memory-type response parsing |
@@ -92,7 +92,7 @@ Marcos-reviewed dossier prompts.
 | `MemoryCategory` | id, name, description, embedding, summary approval fields, kind/subtype/entity/anchor, evidence/revision timestamps |
 | `DossierCandidate` | proposed/normalized name, item/segment/day provenance, consideration timestamp, optional resolved category/timestamp |
 | `memory_ref_counters` | scoped next `[M#]` value; owned by `memory_item_repo` |
-| `CategoryItem` | id, item_id, category_id |
+| `CategoryItem` | id, item_id, category_id, created_at, updated_at, reviewed_at (AI consideration, not human approval) |
 | `Resource` | id, url, modality, local_path, caption, embedding |
 | `Entity` | id, name, free-text entity_type, normalized, properties (JSON) |
 | `Triple` | id, subject_id, subject_kind, predicate, object_id, object_kind, valid_from, valid_to (NULL=current), confidence, source_memory_id, properties (JSON) |
