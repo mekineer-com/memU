@@ -139,6 +139,7 @@ class SQLiteCategoryItemModel(SQLiteBaseModelMixin, CategoryItem):
 
     item_id: str = Field(sa_column=Column(String, nullable=False))
     category_id: str = Field(sa_column=Column(String, nullable=False))
+    reviewed_at: datetime | None = Field(default=None, sa_column=Column(DateTime, nullable=True))
 
     __table_args__ = (Index("idx_category_items_unique", "item_id", "category_id", unique=True),)
 

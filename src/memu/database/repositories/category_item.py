@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from datetime import datetime
 from typing import Any, Protocol, runtime_checkable
 
 from memu.database.models import CategoryItem
@@ -41,5 +42,15 @@ class CategoryItemRepo(Protocol):
         category_id: str,
         where: Mapping[str, Any],
     ) -> list[CategoryItem]: ...
+
+    def mark_reviewed(
+        self,
+        category_id: str,
+        item_ids: set[str],
+        where: Mapping[str, Any],
+        *,
+        reviewed_at: datetime,
+        session: Any,
+    ) -> None: ...
 
     def get_item_categories(self, item_id: str) -> list[CategoryItem]: ...

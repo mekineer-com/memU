@@ -112,6 +112,10 @@ def _timestamp(value: datetime) -> float:
     return (value if value.tzinfo is not None else value.replace(tzinfo=UTC)).timestamp()
 
 
+def _membership_needs_review(relation: CategoryItem) -> bool:
+    return relation.reviewed_at is None or _timestamp(relation.updated_at) > _timestamp(relation.reviewed_at)
+
+
 def _item_time(item: MemoryItem) -> datetime:
     return item.happened_at or item.created_at
 
@@ -428,16 +432,10 @@ class DossierMixin:
             ]
             if not category_relations:
                 continue
-            if category.last_revised_at is None:
-                due_relations = category_relations
-            else:
-                revised_at = _timestamp(category.last_revised_at)
-                due_relations = [
-                    relation
-                    for relation in category_relations
-                    if _timestamp(relation.updated_at) > revised_at
-                    or relation.item_id in inactive_ids
-                ]
+            due_relations = [
+                relation for relation in category_relations
+                if _membership_needs_review(relation) or relation.item_id in inactive_ids
+            ]
             if due_relations:
                 actionable.append(
                     (min(_timestamp(relation.updated_at) for relation in due_relations), category)
@@ -481,11 +479,10 @@ class DossierMixin:
             if relation.category_id == category.id
         ]
         linked_items, linked_inactive_ids = _load_linked_items(store, relations, scope)
-        revised_at = None if category.last_revised_at is None else _timestamp(category.last_revised_at)
         pending_relations = [
             relation
             for relation in relations
-            if revised_at is None or _timestamp(relation.updated_at) > revised_at
+            if _membership_needs_review(relation)
         ]
         pending_ids = {relation.item_id for relation in pending_relations}
         if not pending_ids and not linked_inactive_ids:
@@ -568,7 +565,7 @@ class DossierMixin:
             "dossier": category,
             "category_updated_at": category.updated_at,
             "relation_tokens": sorted(
-                (relation.id, relation.created_at, relation.updated_at) for relation in relations
+                (relation.id, relation.created_at, relation.updated_at, relation.reviewed_at) for relation in relations
             ),
             "linked_item_ids": sorted(linked_items),
             "linked_inactive_item_ids": sorted(linked_inactive_ids),
@@ -676,7 +673,7 @@ class DossierMixin:
             "dossier": anchor,
             "category_updated_at": anchor.updated_at,
             "relation_tokens": sorted(
-                (relation.id, relation.created_at, relation.updated_at) for relation in relations
+                (relation.id, relation.created_at, relation.updated_at, relation.reviewed_at) for relation in relations
             ),
             "linked_item_ids": sorted(linked_items),
             "linked_inactive_item_ids": sorted(linked_inactive_ids),
@@ -877,7 +874,7 @@ class DossierMixin:
             for item in shown_items.values()
         )
         current_relation_tokens = sorted(
-            (relation.id, relation.created_at, relation.updated_at) for relation in relations
+            (relation.id, relation.created_at, relation.updated_at, relation.reviewed_at) for relation in relations
         )
         stale = (
             current.updated_at != bundle["category_updated_at"]
@@ -952,6 +949,13 @@ class DossierMixin:
             max((_item_time(item) for item in final_items.values()), default=None)
         )
         completed_at = datetime.now(UTC)
+        store.category_item_repo.mark_reviewed(
+            current.id,
+            {item.id for item in bundle["pending_items"]} | add_ids,
+            scope,
+            reviewed_at=completed_at,
+            session=session,
+        )
         description_changed = (bool(resulting_members) or _allow_empty_text) and description != current.description
         prose_changed = prose != str(current.summary or "")
         update: dict[str, Any] = {

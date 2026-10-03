@@ -59,10 +59,12 @@ def test_fresh_schema_is_additive_and_runtime_creation_allocates_reference(tmp_p
         item_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(memory_items)")}
         category_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(categories)")}
         candidate_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(dossier_candidates)")}
+        relation_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(category_items)")}
 
     assert {"dossier_candidates", "memory_ref_counters"} <= tables
     assert "memory_ref" in item_columns
     assert "last_considered_at" in candidate_columns
+    assert "reviewed_at" in relation_columns
     assert {
         "kind",
         "lore_subtype",

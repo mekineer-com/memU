@@ -780,7 +780,15 @@ def test_dossier_repository_writes_share_caller_transaction(tmp_path) -> None:
     assert store.category_item_repo.list_relations({"item_id": item.id}) != []
 
 
-def test_due_dossiers_cover_first_revision_and_watermark(tmp_path) -> None:
+def _mark_reviewed(store, category_id, item_ids, reviewed_at, scope=SCOPE):
+    with store._sessions.session() as session:
+        store.category_item_repo.mark_reviewed(
+            category_id, set(item_ids), scope, reviewed_at=reviewed_at, session=session,
+        )
+        session.commit()
+
+
+def test_due_dossiers_cover_first_revision_and_membership_review(tmp_path) -> None:
     service = _service(tmp_path)
     store = service.database
     due = _category(service, "Due")
@@ -812,6 +820,10 @@ def test_due_dossiers_cover_first_revision_and_watermark(tmp_path) -> None:
     store.memory_category_repo.update_category(
         category_id=clean.id, last_revised_at=revised_at
     )
+    _mark_reviewed(store, clean.id, [clean_item.id], revised_at, scope=OTHER_SCOPE)
+    assert clean.id in {category.id for category in service.list_due_dossiers(SCOPE)}
+    _mark_reviewed(store, clean.id, [clean_item.id], revised_at)
+    assert store.category_item_repo.link_item_category(clean_item.id, clean.id, SCOPE).reviewed_at == revised_at.replace(tzinfo=None)
 
     assert {category.id for category in service.list_due_dossiers(SCOPE)} == {due.id, excluded.id}
     assert [
@@ -820,6 +832,32 @@ def test_due_dossiers_cover_first_revision_and_watermark(tmp_path) -> None:
     ] == [due.id]
     with pytest.raises(ValueError, match="not due for revision"):
         service.prepare_dossier_revision(clean.id, SCOPE)
+
+
+def test_reviewed_membership_does_not_hide_later_evidence(tmp_path) -> None:
+    service = _service(tmp_path, retrieve_config={"item": {"top_k": 0}})
+    store = service.database
+    _seed_anchors(service)
+    category = _category(service, "Two spans")
+    first, later = [
+        store.memory_item_repo.create_item(
+            memory_type="episode", summary=segment, embedding=[1.0, 0.0],
+            user_data=SCOPE, segment_id=segment,
+        ) for segment in ("first", "later")
+    ]
+    first_link = store.category_item_repo.link_item_category(first.id, category.id, SCOPE)
+    later_link = store.category_item_repo.link_item_category(later.id, category.id, SCOPE)
+    # Model a completed first-span checkpoint, not a historical batch runner.
+    completed = later_link.updated_at + timedelta(seconds=1)
+    _mark_reviewed(store, category.id, [first.id], completed)
+    store.memory_category_repo.update_category(category_id=category.id, last_revised_at=completed)
+    assert service.list_due_dossiers(SCOPE, segment_ids=["first"]) == []
+    assert [row.id for row in service.list_due_dossiers(SCOPE, segment_ids=["later"])] == [category.id]
+    assert [item.id for item in service.prepare_dossier_revision(category.id, SCOPE)["pending_items"]] == [later.id]
+    first_after = store.category_item_repo.list_relations({**SCOPE, "item_id": first.id})[0]
+    assert first_after.updated_at == first_link.updated_at
+    _mark_reviewed(store, category.id, [later.id], completed)
+    assert service.list_due_dossiers(SCOPE) == []
 
 
 def test_due_dossiers_include_linked_merge_and_supersession(tmp_path) -> None:
@@ -848,6 +886,8 @@ def test_due_dossiers_include_linked_merge_and_supersession(tmp_path) -> None:
             category_id=category.id,
             last_revised_at=revised_at,
         )
+    _mark_reviewed(store, merged_category.id, [merged_item.id], revised_at)
+    _mark_reviewed(store, superseded_category.id, [superseded_item.id], revised_at)
     assert service.list_due_dossiers(SCOPE) == []
 
     store.memory_item_repo.update_item(item_id=merged_item.id, merged_into=survivor.id)
@@ -915,6 +955,7 @@ def test_prepare_dossier_revision_bounds_actionable_evidence(tmp_path) -> None:
         ),
         last_revised_at=revised_at,
     )
+    _mark_reviewed(store, category.id, [cited.id, untouched.id, cleanup.id], revised_at)
     store.category_item_repo.link_item_category(pending.id, category.id, SCOPE)
     store.triple_repo.add(
         Triple(
@@ -1530,6 +1571,13 @@ async def test_apply_dossier_revision_commits_one_reviewed_result(tmp_path, monk
     members = store.memory_item_repo.list_items_by_ids({pending.id, candidate.id}, SCOPE)
     assert relation_ids == {pending.id, candidate.id}
     assert cached_relation_ids == relation_ids
+    relations = store.category_item_repo.list_relations({**SCOPE, "category_id": category.id})
+    assert all(relation.reviewed_at == revised.last_revised_at for relation in relations)
+    assert all(
+        relation.reviewed_at == revised.last_revised_at
+        for relation in store.category_item_repo.relations if relation.category_id == category.id
+    )
+    assert category.id not in {row.id for row in service.list_due_dossiers(SCOPE)}
     assert all(item.approved_at is None for item in members.values())
     assert revised.description == decision["description"]
     assert revised.summary == prose
@@ -1544,7 +1592,7 @@ async def test_apply_dossier_revision_commits_one_reviewed_result(tmp_path, monk
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("race", ["category", "relation", "shown_item", "lineage"])
+@pytest.mark.parametrize("race", ["category", "relation", "shown_item", "lineage", "review_marker"])
 async def test_apply_dossier_revision_detects_snapshot_races(tmp_path, race) -> None:
     service, store, _anchors, category, pending, _candidate, refs, bundle = _revision_case(
         tmp_path,
@@ -1565,6 +1613,8 @@ async def test_apply_dossier_revision_detects_snapshot_races(tmp_path, race) -> 
         store.category_item_repo.link_item_category(extra.id, category.id, SCOPE)
     elif race == "shown_item":
         store.memory_item_repo.update_item(item_id=pending.id, summary="concurrent edit")
+    elif race == "review_marker":
+        _mark_reviewed(store, category.id, [pending.id], datetime.now(UTC))
     else:
         replacement = store.memory_item_repo.create_item(
             memory_type="knowledge",
@@ -1641,6 +1691,7 @@ async def test_caller_owned_dossier_revision_rolls_back_all_writes(tmp_path, mon
     assert {key: value.model_dump() for key, value in store.categories.items()} == before_cache
     relations = store.category_item_repo.list_relations(SCOPE)
     assert {relation.item_id for relation in relations} == {pending.id}
+    assert all(relation.reviewed_at is None for relation in relations)
     items = store.memory_item_repo.list_items_by_ids({pending.id, candidate.id}, SCOPE)
     assert all(item.approved_at is None for item in items.values())
 

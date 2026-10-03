@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping
+from datetime import datetime
 from typing import Any
 
-from sqlmodel import select
+from sqlmodel import select, update
 
 from memu.database.models import CategoryItem
 from memu.database.repositories.category_item import CategoryItemRepo
@@ -80,6 +81,7 @@ class SQLiteCategoryItemRepo(SQLiteRepoBase, CategoryItemRepo):
                 category_id=row.category_id,
                 created_at=row.created_at,
                 updated_at=row.updated_at,
+                reviewed_at=row.reviewed_at,
             )
             result.append(rel)
 
@@ -134,6 +136,7 @@ class SQLiteCategoryItemRepo(SQLiteRepoBase, CategoryItemRepo):
                 category_id=existing.category_id,
                 created_at=existing.created_at,
                 updated_at=existing.updated_at,
+                reviewed_at=existing.reviewed_at,
             )
             return rel
 
@@ -156,6 +159,7 @@ class SQLiteCategoryItemRepo(SQLiteRepoBase, CategoryItemRepo):
             category_id=row.category_id,
             created_at=row.created_at,
             updated_at=row.updated_at,
+            reviewed_at=row.reviewed_at,
             **user_data,
         )
         return rel
@@ -201,6 +205,22 @@ class SQLiteCategoryItemRepo(SQLiteRepoBase, CategoryItemRepo):
             session.flush()
             return True
         return False
+
+    def mark_reviewed(
+        self,
+        category_id: str,
+        item_ids: set[str],
+        where: Mapping[str, Any],
+        *,
+        reviewed_at: datetime,
+        session: Any,
+    ) -> None:
+        filters = self._build_filters(self._category_item_model, {**where, "category_id": category_id})
+        session.exec(
+            update(self._category_item_model)
+            .where(*filters, self._category_item_model.item_id.in_(item_ids))
+            .values(reviewed_at=reviewed_at)
+        )
 
     def refresh_category_relations(
         self,

@@ -133,6 +133,7 @@ class DossierCandidate(BaseRecord):
 class CategoryItem(BaseRecord):
     item_id: str
     category_id: str
+    reviewed_at: datetime | None = None
 
 
 __all__ = [
