@@ -57,6 +57,7 @@ class MemoryService(DossierMixin, GraphMixin, MemorizeMixin, RetrieveMixin):
         user_config: UserConfig | dict[str, Any] | None = None,
         claude_code: bool = False,
         claude_code_model: str = "claude-opus-4-7",
+        claude_code_context_window_tokens: int | None = None,
         claude_code_effort: str = "medium",
         claude_code_permission_mode: str | None = None,
         claude_code_settings: str | None = None,
@@ -73,6 +74,7 @@ class MemoryService(DossierMixin, GraphMixin, MemorizeMixin, RetrieveMixin):
         self.retrieve_config = self._validate_config(retrieve_config, RetrieveConfig)
         self._claude_code = bool(claude_code)
         self._claude_code_model = str(claude_code_model or "claude-opus-4-7").strip() or "claude-opus-4-7"
+        self._claude_code_context_window_tokens = claude_code_context_window_tokens
         self._claude_code_effort = str(claude_code_effort or "").strip() or None
         self._claude_code_permission_mode = str(claude_code_permission_mode or "").strip() or None
         self._claude_code_settings = str(claude_code_settings or "").strip() or None

@@ -63,6 +63,7 @@ class LLMConfig(BaseModel):
     base_url: str = Field(default="https://api.openai.com/v1")
     api_key: str = Field(default="OPENAI_API_KEY")
     chat_model: str = Field(default="")
+    context_window_tokens: int | None = Field(default=None, gt=0, description="Local total-context budgeting metadata; not sent to the provider.")
     endpoint_overrides: dict[str, str] = Field(
         default_factory=dict,
         description="Optional overrides for HTTP endpoints (keys: 'chat'/'summary').",
