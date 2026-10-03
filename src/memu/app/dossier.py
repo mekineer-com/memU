@@ -413,6 +413,7 @@ class DossierMixin:
         where: Mapping[str, Any],
         *,
         segment_ids: Sequence[str] | None = None,
+        excluded_segment_ids: Sequence[str] = (),
     ) -> list[MemoryCategory]:
         scope = _scope(where)
         store = self._get_database()
@@ -421,6 +422,9 @@ class DossierMixin:
         if segment_ids is not None:
             evidence_ids = _selected_evidence_ids(store, scope, segment_ids)
             relations = [relation for relation in relations if relation.item_id in evidence_ids]
+        if excluded_segment_ids:
+            excluded_ids = _selected_evidence_ids(store, scope, excluded_segment_ids)
+            relations = [relation for relation in relations if relation.item_id not in excluded_ids]
         _linked_items, inactive_ids = _load_linked_items(store, relations, scope)
 
         actionable: list[tuple[float, MemoryCategory]] = []
@@ -467,6 +471,7 @@ class DossierMixin:
         active_life_goals: Sequence[str] = (),
         removed_life_goals: Sequence[str] = (),
         segment_ids: Sequence[str] | None = None,
+        excluded_segment_ids: Sequence[str] = (),
     ) -> dict[str, Any]:
         scope = _scope(where)
         store = self._get_database()
@@ -488,6 +493,9 @@ class DossierMixin:
         pending_ids = {relation.item_id for relation in pending_relations}
         if segment_ids is not None:
             pending_ids &= _selected_evidence_ids(store, scope, segment_ids)
+        excluded_evidence = _selected_evidence_ids(store, scope, excluded_segment_ids)
+        pending_ids -= excluded_evidence
+        linked_inactive_ids -= excluded_evidence
         if not pending_ids and not linked_inactive_ids:
             raise ValueError(f"Dossier {category_id} is not due for revision")
 
@@ -507,7 +515,7 @@ class DossierMixin:
         candidate_items: dict[str, MemoryItem] = {}
         if top_k:
             query = _embedding_vector(category.embedding, label=f"dossier {category.id} identity")
-            excluded_ids = set(linked_items) | set(cited_items)
+            excluded_ids = set(linked_items) | set(cited_items) | excluded_evidence
             hits = store.memory_item_repo.vector_search_items(
                 query,
                 top_k + len(excluded_ids),
@@ -595,6 +603,7 @@ class DossierMixin:
             "untouched_item_ids": sorted(
                 set(linked_items) - pending_ids - set(cited_items) - linked_inactive_ids
             ),
+            "excluded_review_item_ids": sorted(excluded_evidence),
             "active_life_goals": [
                 goal.strip() for goal in active_life_goals if category.kind == "goal" and goal.strip()
             ],
@@ -954,7 +963,8 @@ class DossierMixin:
         completed_at = datetime.now(UTC)
         store.category_item_repo.mark_reviewed(
             current.id,
-            {item.id for item in bundle["pending_items"]} | add_ids,
+            ({item.id for item in bundle["pending_items"]} | add_ids)
+            - set(bundle.get("excluded_review_item_ids", ())),
             scope,
             reviewed_at=completed_at,
             session=session,

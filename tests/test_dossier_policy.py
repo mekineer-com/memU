@@ -835,6 +835,46 @@ def test_due_dossiers_cover_first_revision_and_membership_review(tmp_path) -> No
 
 
 @pytest.mark.asyncio
+async def test_ordinary_revision_leaves_import_pending_members_unreviewed(tmp_path, monkeypatch) -> None:
+    service = _service(tmp_path, retrieve_config={"item": {"top_k": 1}})
+    store = service.database
+    _seed_anchors(service)
+    category = _category(service, "Shared evidence")
+    items = [
+        store.memory_item_repo.create_item(
+            memory_type="episode", summary=text, embedding=[1.0, 0.0],
+            user_data=SCOPE, segment_id=segment_id,
+        ) for text, segment_id in (
+            ("current", "ordinary"), ("historical", "import-pending"),
+            ("historical candidate", "import-pending"), ("unsegmented", None),
+        )
+    ]
+    current, historical, candidate, unsegmented = items
+    for item in (current, historical, unsegmented):
+        store.category_item_repo.link_item_category(item.id, category.id, SCOPE)
+    store.memory_item_repo.backfill_memory_refs(SCOPE)
+    historical = store.memory_item_repo.list_items_by_ids({historical.id}, SCOPE)[historical.id]
+    prose = f"## Current\nA retained reference [M{historical.memory_ref}]."
+    store.memory_category_repo.update_category(category_id=category.id, summary=prose)
+    assert service.list_due_dossiers(SCOPE, excluded_segment_ids=["import-pending"])[0].id == category.id
+    bundle = service.prepare_dossier_revision(category.id, SCOPE, excluded_segment_ids=["import-pending"])
+    assert {item.id for item in bundle["pending_items"]} == {current.id, unsegmented.id}
+    assert candidate.id not in {item.id for item in bundle["candidate_items"]}
+    monkeypatch.setattr("memu.app.dossier.append_category_summary_journal", lambda **_kw: None)
+    await service.apply_dossier_revision(bundle, {
+        "dossier_id": category.id, "description": category.description,
+        "resulting_prose": prose, "add_item_ids": [historical.id],
+        "remove_item_ids": [], "cleanup_item_ids": [], "cited_item_ids": [historical.id],
+    }, SCOPE, embedding_client=FakeEmbedClient())
+    relations = {row.item_id: row for row in store.category_item_repo.list_relations(SCOPE)}
+    assert relations[current.id].reviewed_at is not None
+    assert relations[unsegmented.id].reviewed_at is not None
+    assert relations[historical.id].reviewed_at is None
+    assert service.list_due_dossiers(SCOPE, excluded_segment_ids=["import-pending"]) == []
+    assert service.list_due_dossiers(SCOPE, segment_ids=["import-pending"])[0].id == category.id
+
+
+@pytest.mark.asyncio
 async def test_reviewed_membership_does_not_hide_later_evidence(tmp_path, monkeypatch) -> None:
     service = _service(tmp_path, retrieve_config={"item": {"top_k": 0}})
     store = service.database
