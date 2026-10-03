@@ -164,7 +164,7 @@ def parse_dossier_revision(
     by_ref = {f"[M{item.memory_ref}]": item for item in items.values()}
     decisions = _parse_decisions(children["decisions"], by_ref, statuses)
     purged_ids = {item.id for item in statuses["purged"]}
-    cleanup_ids = set(bundle["linked_inactive_item_ids"])
+    cleanup_ids = set(bundle["linked_inactive_item_ids"]) - set(bundle.get("excluded_review_item_ids", ()))
     remove_ids = {by_ref[ref].id for ref, decision in decisions.items() if decision == "remove"}
     add_ids = {by_ref[ref].id for ref, decision in decisions.items() if decision == "add"}
 
@@ -313,7 +313,7 @@ def parse_anchor_revisions(
             )
         cited_ids = {by_ref[ref].id for ref in resulting_refs}
         linked_ids = set(bundle["linked_item_ids"])
-        cleanup_ids = set(bundle["linked_inactive_item_ids"])
+        cleanup_ids = set(bundle["linked_inactive_item_ids"]) - set(bundle.get("excluded_review_item_ids", ()))
         add_ids = cited_ids - linked_ids
         if not add_ids <= set(bundle["actionable_item_ids"]):
             raise ValueError("Anchor adds a memory outside actionable reflection evidence")

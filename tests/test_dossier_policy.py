@@ -851,7 +851,7 @@ async def test_ordinary_revision_leaves_import_pending_members_unreviewed(tmp_pa
         )
     ]
     current, historical, candidate, unsegmented = items
-    for item in (current, historical, unsegmented):
+    for item in ((current, unsegmented) if case == "active" else (current, historical, unsegmented)):
         store.category_item_repo.link_item_category(item.id, category.id, SCOPE)
     store.memory_item_repo.backfill_memory_refs(SCOPE)
     historical = store.memory_item_repo.list_items_by_ids({historical.id}, SCOPE)[historical.id]
@@ -880,13 +880,22 @@ async def test_ordinary_revision_leaves_import_pending_members_unreviewed(tmp_pa
     assert set(bundle["linked_inactive_item_ids"]) == ({inactive.id} if inactive is not None else set())
     cleanup_ids = [inactive.id] if case == "successor" else []
     assert {item.id for item in bundle["cleanup_items"]} == set(cleanup_ids)
+    decisions = "".join(
+        f'<decision ref="[M{item.memory_ref}]" action="add" />'
+        for item in bundle["pending_items"] if item.id not in cleanup_ids
+    )
+    response = (
+        f'<dossier_revisions><dossier_revision dossier_id="{category.id}">'
+        f'<description>{category.description}</description>'
+        '<prose_action>keep</prose_action><prose_patches></prose_patches>'
+        f'<decisions>{decisions}</decisions></dossier_revision></dossier_revisions>'
+    )
+    [decision] = parse_dossier_revision_batch(response, [bundle])
+    assert set(decision["cleanup_item_ids"]) == set(cleanup_ids)
+    if case == "active":
+        assert historical.id in decision["add_item_ids"]
     monkeypatch.setattr("memu.app.dossier.append_category_summary_journal", lambda **_kw: None)
-    await service.apply_dossier_revision(bundle, {
-        "dossier_id": category.id, "description": category.description,
-        "resulting_prose": prose, "add_item_ids": [historical.id] if case == "active" else [],
-        "remove_item_ids": [], "cleanup_item_ids": cleanup_ids,
-        "cited_item_ids": [historical.id] if case == "active" else [],
-    }, SCOPE, embedding_client=FakeEmbedClient())
+    await service.apply_dossier_revision(bundle, decision, SCOPE, embedding_client=FakeEmbedClient())
     relations = {row.item_id: row for row in store.category_item_repo.list_relations(SCOPE)}
     assert relations[current.id].reviewed_at is not None
     assert relations[unsegmented.id].reviewed_at is not None
