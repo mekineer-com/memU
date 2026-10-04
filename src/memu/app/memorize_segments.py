@@ -229,7 +229,8 @@ def grouped_chat_happened_at(message: Mapping[str, Any]) -> Any:
 
 def _grouped_chat_timestamp(message: Mapping[str, Any]) -> Any:
     return (
-        message.get("received_at")
+        message.get("source_day")
+        or message.get("received_at")
         or message.get("ts_ms")
         or message.get("created_at")
         or message.get("timestamp")

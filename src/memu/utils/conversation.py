@@ -150,6 +150,8 @@ def _conversation_kind_and_key(conversation_id: str) -> tuple[str, str]:
         return ("mentra_dm", cid[len("mentra:"):].strip() or "Smartglasses")
     if cid.startswith("replika:dm:"):
         return ("replika_dm", cid[len("replika:dm:"):].split(":", 1)[0].strip() or "Replika")
+    if cid.startswith("import:dm:"):
+        return ("import_dm", cid[len("import:dm:"):])
     if cid.startswith("sillytavern:"):
         return ("sillytavern_dm", cid[len("sillytavern:"):].strip() or "sillytavern")
     if cid.startswith("integrity:"):
@@ -214,6 +216,8 @@ def _conversation_heading(
         return f"[dm][{(chat_name or '').strip() or 'Smartglasses'}]"
     if kind == "replika_dm":
         return f"[dm][{(chat_name or '').strip() or key or 'Replika'}]"
+    if kind == "import_dm":
+        return f"[dm][{(chat_name or '').strip() or key}]"
     return f"[dm][{key or 'sillytavern'}]"
 
 
@@ -388,6 +392,11 @@ def format_grouped_chat_history(
     for cid, rows in by_conversation.items():
         kind, key = _conversation_kind_and_key(cid)
         section_key = _conversation_section_title(kind)
+        if kind == "import_dm":
+            label = str(rows[0].get("app_label") or "").strip()
+            if not label:
+                raise ValueError("Imported conversations require their chat-app label")
+            section_key = f"My {label} Conversations:"
         entries = sections.setdefault(section_key, [])
         chat_name = ""
         for msg in reversed(rows):
@@ -423,7 +432,7 @@ def format_grouped_chat_history(
                     "role": role,
                     "speaker": speaker,
                     "content": content,
-                    "received_at": msg.get("received_at"),
+                    "received_at": msg.get("source_day") or msg.get("received_at"),
                 }
             )
         rendered = format_chat_messages(

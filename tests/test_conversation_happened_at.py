@@ -3,6 +3,7 @@ from datetime import datetime
 
 from memu.app.service import MemoryService
 from memu.app.memorize_segments import grouped_chat_happened_at
+from memu.utils.conversation import format_grouped_chat_history
 
 
 def _service() -> MemoryService:
@@ -39,6 +40,16 @@ def test_grouped_chat_happened_at_accepts_timestamp_fallback() -> None:
 
 def test_grouped_chat_happened_at_preserves_calendar_only_day() -> None:
     assert grouped_chat_happened_at({"received_at": "2026-01-02"}) == datetime(2026, 1, 2)
+
+
+def test_imported_source_day_and_app_label_survive_utc_normalization() -> None:
+    row = {"conversation_id": "import:dm:fictional-chat", "app_label": "Nomi",
+           "source_day": "2025-02-01", "received_at": "2025-01-31T22:30:00+00:00",
+           "role": "user", "name": "TestSpeaker", "content": "hello"}
+    assert grouped_chat_happened_at(row) == datetime(2025, 2, 1)
+    rendered = format_grouped_chat_history([row], time_label_resolver=lambda value: value)
+    assert "My Nomi Conversations:" in rendered and "--- 2025-02-01 ---" in rendered
+    assert "[TestSpeaker] hello" in rendered and "My SillyTavern" not in rendered
 
 
 def test_resolve_entry_happened_at_uses_memory_selected_day() -> None:
