@@ -299,13 +299,17 @@ def _build_speaker_map(
         role = str(message.get("role") or "").strip().lower()
         name = str(message.get("name") or message.get("speaker") or "").strip()
         normalized_name = name or None
+        imported_user = role in {"user", "human", "participant"} and (
+            message.get("source_label") == "import"
+            or str(message.get("source_conversation_id") or message.get("conversation_id") or "").startswith("import:dm:")
+        )
 
         speaker_id: str
         speaker_label: str
         if role in {"assistant", "soul"}:
             speaker_label = normalized_name or soul_label_default
             speaker_id = _normalize_speaker_slug("soul", soul_name or speaker_label)
-        elif role in {"user", "human", "participant"}:
+        elif role in {"user", "human", "participant"} and not imported_user:
             speaker_label = normalized_name or user_label_default
             speaker_id = user_id_default
         elif normalized_name:
@@ -317,6 +321,8 @@ def _build_speaker_map(
                 speaker_id = (entity_speaker_ids or {}).get(normalize_entity_name(normalized_name), "")
             if not speaker_id:
                 continue
+        elif imported_user:
+            continue
         else:
             speaker_label = role or "environment"
             speaker_id = _normalize_speaker_slug("environment", speaker_label)
