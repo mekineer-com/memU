@@ -1518,6 +1518,10 @@ async def test_generate_dynamic_category_review_reuses_profile_and_preflights(
         return client
 
     monkeypatch.setattr(service, "_select_chat_client", select)
+    service.memorize_config.category_update_llm_profile = "small_category"
+    service.llm_profiles.profiles["small_category"] = service.llm_profiles.profiles["default"].model_copy(
+        update={"context_window_tokens": 100},
+    )
     decision = await service.generate_dynamic_category_review(bundle)
 
     assert decision["name"] == "Garden Magic"
@@ -1528,12 +1532,20 @@ async def test_generate_dynamic_category_review_reuses_profile_and_preflights(
         )
     ]
 
-    bundle["memories"][0]["item"] = item.model_copy(update={"summary": "word " * 80_000})
     monkeypatch.setattr(
         service,
         "_select_chat_client",
         lambda *_args, **_kwargs: pytest.fail("client selected before prompt preflight"),
     )
+    async def prepare(**_kwargs):
+        return [bundle]
+    monkeypatch.setattr(service, "prepare_dynamic_category_review", prepare)
+    with pytest.raises(ValueError, match="Import dynamic dossier prompt exceeds model input budget"):
+        await service._memorize_persist_and_index(
+            {"items": [item], "store": service.database, "user": SCOPE}, None,
+            enforce_input_budget=True,
+        )
+    bundle["memories"][0]["item"] = item.model_copy(update={"summary": "word " * 80_000})
     with pytest.raises(ValueError, match="exceeds 100000 tokens"):
         await service.generate_dynamic_category_review(bundle)
 

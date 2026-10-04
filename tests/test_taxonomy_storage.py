@@ -608,13 +608,13 @@ async def test_dynamic_category_review_counts_canonical_memories_and_fails_on_ba
     broken.dossier_candidate_repo.add_candidate(proposed_name="topic", item_id=deleted.id, where=SCOPE)
     broken.dossier_candidate_repo.add_candidate(proposed_name="topic", item_id=live.id, where=SCOPE)
     broken.memory_item_repo.hard_delete_item(deleted.id, SCOPE)
-    with pytest.raises(KeyError, match="not found in scope"):
-        await memorize_categories.prepare_dynamic_category_review(
-            store=broken,
-            where=SCOPE,
-            cluster_size=2,
-            search_dossiers=no_hits,
-        )
+    assert {row.item_id for row in broken.dossier_candidate_repo.list_candidates(SCOPE)} == {live.id}
+    assert await memorize_categories.prepare_dynamic_category_review(
+        store=broken,
+        where=SCOPE,
+        cluster_size=2,
+        search_dossiers=no_hits,
+    ) == []
 
 
 @pytest.mark.asyncio

@@ -38,6 +38,48 @@ class _EmbedStub:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("stage", ["router", "knowledge"])
+@pytest.mark.parametrize("cli", [False, True])
+async def test_import_batch_checks_rendered_prompts_on_selected_model(monkeypatch, stage, cli):
+    service = _service()
+    service.memorize_config.memory_types = ["knowledge"]
+    service.memorize_config.memory_extract_llm_profile = "extraction"
+    profile = service.llm_profiles.profiles["default"]
+    service.llm_profiles.profiles["extraction"] = profile.model_copy(update={
+        "context_window_tokens": 100_000 if cli else (100 if stage == "router" else 30_000),
+        "max_tokens": 10,
+    })
+    service._claude_code = cli
+    service._claude_code_context_window_tokens = 100 if stage == "router" else 30_000
+    client = _RouterStub(json.dumps({"excluded_types": [], "episodes": [{
+        "title": "Garden", "episode_summary": "A small garden.", "episode_item": "A small garden.",
+        "categories": ["Gardens"], "day": "2026-01-02",
+    }]}))
+    monkeypatch.setattr(service, "_select_chat_client", lambda *_a, **_kw: client)
+    monkeypatch.setattr(service, "list_active_dossiers", lambda *_: [])
+    async def anchors(*_a, **_kw):
+        return None
+    async def dossier_context(*_a, **_kw):
+        return {"categories_str": "Gardens", "narrative_self": "x" * 100_000}
+    monkeypatch.setattr(service, "ensure_dossier_anchors", anchors)
+    monkeypatch.setattr(service, "select_memorize_dossier_context", dossier_context)
+    with pytest.raises(ValueError, match=f"Import {stage} prompt exceeds model input budget"):
+        await service.memorize_segments_batch(
+            modality="conversation",
+            segments=[{
+                "resource_url": "memory://import",
+                "raw_text": json.dumps([{"role": "user", "content": "A garden story.",
+                                         "received_at": "2026-01-02T10:00:00+00:00"}]),
+                "segment": {"message_indices": [0]},
+            }],
+            user={"user_id": "TestOwner", "soul_id": "TestSoul"},
+            enforce_input_budget=True,
+        )
+    assert len(client.prompts) == (0 if stage == "router" else 1)
+    assert service.database.memory_item_repo.list_items() == {}
+
+
+@pytest.mark.asyncio
 async def test_split_into_episodes_remains_bound_to_service(monkeypatch: pytest.MonkeyPatch) -> None:
     service = _service()
 
@@ -673,10 +715,12 @@ async def test_context_only_batch_skips_llm_and_returns_plural_empty_shape(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("enforce_budget", [False, True])
 async def test_batch_full_exclusion_runs_all_types_and_keeps_episodes(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, enforce_budget,
 ) -> None:
     service = _service()
+    service.llm_profiles.profiles["default"].context_window_tokens = 100_000
     service.memorize_config.memory_types = ["profile", "knowledge"]
     actual_route = service._route_segment
     routed_types: list[str] = []
@@ -695,6 +739,7 @@ async def test_batch_full_exclusion_runs_all_types_and_keeps_episodes(
         )
 
     async def _capture_extract(*, memory_types, **_kwargs):
+        assert _kwargs["input_budget"] == (80_000 if enforce_budget else None)
         routed_types.extend(memory_types)
         return []
 
@@ -706,6 +751,10 @@ async def test_batch_full_exclusion_runs_all_types_and_keeps_episodes(
     async def _noop_step(state, _step_context):
         return state
 
+    async def _persist(state, _step_context, **kwargs):
+        assert kwargs.get("enforce_input_budget", False) is enforce_budget
+        return state
+
     def _build_empty(state, _step_context):
         state["response"] = {"resources": [], "items": [], "categories": [], "relations": [], "pending_segment_ids": []}
         return state
@@ -715,7 +764,7 @@ async def test_batch_full_exclusion_runs_all_types_and_keeps_episodes(
     monkeypatch.setattr(service, "_list_declared_relationship_roster", lambda **_kwargs: [])
     monkeypatch.setattr(service, "_memorize_categorize_items", _capture_categorize)
     monkeypatch.setattr(service, "_memorize_dedupe_merge", _noop_step)
-    monkeypatch.setattr(service, "_memorize_persist_and_index", _noop_step)
+    monkeypatch.setattr(service, "_memorize_persist_and_index", _persist)
     monkeypatch.setattr(service, "_memorize_build_response", _build_empty)
 
     await service.memorize_segments_batch(
@@ -731,6 +780,7 @@ async def test_batch_full_exclusion_runs_all_types_and_keeps_episodes(
             }
         ],
         user={"user_id": "test-user", "soul_id": "TestSoul"},
+        enforce_input_budget=enforce_budget,
     )
 
     assert routed_types == ["profile", "knowledge"]

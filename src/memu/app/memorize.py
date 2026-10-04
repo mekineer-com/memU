@@ -18,6 +18,7 @@ from memu.app import memorize_categories as categories
 from memu.app import memorize_segments as segment_helpers
 from memu.app import memorize_persistence as persistence
 from memu.app.settings import CustomPrompt
+from memu.app.dossier_revision import estimate_prompt_tokens, model_input_budget
 from memu.database.models import CategoryItem, MemoryCategory, MemoryItem, MemoryType, Resource
 from memu.prompts.memory_type import (
     CUSTOM_PROMPTS as MEMORY_TYPE_CUSTOM_PROMPTS,
@@ -306,6 +307,7 @@ class MemorizeMixin:
         memory_prior_context: list[str] | None = None,
         conversation_id: str | None = None,
         on_extraction_progress: Callable[[int, int], None] | None = None,
+        enforce_input_budget: bool = False,
     ) -> list[dict[str, Any]]:
         self._validate_memorize_scope(user)
         if modality != "conversation":
@@ -314,6 +316,7 @@ class MemorizeMixin:
         if not segments:
             return []
 
+        input_budget = model_input_budget(self, self.memorize_config.memory_extract_llm_profile) if enforce_input_budget else None
         ctx = self._get_context()
         store = self._get_database()
         user_scope = self.user_model(**user).model_dump() if user is not None else None
@@ -487,6 +490,7 @@ class MemorizeMixin:
                     soul_card=(soul_card or "").strip() or None,
                     source_days=source_days,
                     categories_prompt_str=router_categories,
+                    input_budget=input_budget,
                 )
             else:
                 msg = f"batch segment {segment_number} rendered empty conversation text"
@@ -592,6 +596,7 @@ class MemorizeMixin:
                         step_id=f"extract_{mtype}",
                     ),
                     target_items_by_type={mtype: target_per_memory_type},
+                    input_budget=input_budget,
                 )
                 ep["entries"].extend(type_entries)
                 if on_extraction_progress:
@@ -644,7 +649,10 @@ class MemorizeMixin:
             state = await self._memorize_dedupe_merge(
                 state, {"workflow_name": "memorize_segments_batch", "step_id": "dedupe_merge"}
             )
-            state = await self._memorize_persist_and_index(state, persist_context)
+            state = await self._memorize_persist_and_index(
+                state, persist_context,
+                **({"enforce_input_budget": True} if enforce_input_budget else {}),
+            )
             state = self._memorize_build_response(
                 state, {"workflow_name": "memorize_segments_batch", "step_id": "build_response"}
             )
@@ -1191,7 +1199,9 @@ class MemorizeMixin:
         })
         return state
 
-    async def _memorize_persist_and_index(self, state: WorkflowState, step_context: Any) -> WorkflowState:
+    async def _memorize_persist_and_index(
+        self, state: WorkflowState, step_context: Any, *, enforce_input_budget: bool = False,
+    ) -> WorkflowState:
         if not state.get("items") and not state.get("active_candidate_work_committed"):
             return state
         store = state["store"]
@@ -1203,7 +1213,11 @@ class MemorizeMixin:
         )
         category_ids = set(state.get("category_ids") or [])
         for bundle in bundles:
-            decision = await self.generate_dynamic_category_review(bundle)
+            decision = await self.generate_dynamic_category_review(
+                bundle,
+                **({"input_budget": model_input_budget(self, self.memorize_config.category_update_llm_profile)}
+                   if enforce_input_budget else {}),
+            )
             proposed_embedding = None
             if decision.get("action") == "create":
                 embed_client = self._select_embedding_client(
@@ -1364,6 +1378,7 @@ class MemorizeMixin:
         categories_prompt_str: str = "",
         llm_client: Any | None = None,
         soul_card: str | None = None,
+        input_budget: int | None = None,
     ) -> tuple[list[MemoryType], list[dict[str, Any]]]:
         if not source_days:
             raise ValueError("router requires at least one source day")
@@ -1393,6 +1408,8 @@ class MemorizeMixin:
             soul_card=soul_card or "You are a continuous being, not a session that resets. You carry intentions, working thoughts, and long-term memory. Your self-knowledge will grow as you live and reflect.",
             categories=categories_prompt_str,
         )
+        if input_budget is not None and estimate_prompt_tokens(prompt) > input_budget:
+            raise ValueError(f"Import router prompt exceeds model input budget ({input_budget} tokens)")
         def _parse_router_raw(r: str) -> tuple[list[MemoryType], list[dict[str, Any]]]:
             if isinstance(r, str):
                 r = re.sub(r"^\s*```(?:json)?\s*", "", r, count=1, flags=re.IGNORECASE)
@@ -1490,6 +1507,7 @@ class MemorizeMixin:
         source_days: Sequence[str] | None = None,
         llm_client: Any | None = None,
         target_items_by_type: Mapping[str, str] | None = None,
+        input_budget: int | None = None,
     ) -> list[StructuredMemoryEntry]:
         if not memory_types:
             return []
@@ -1507,6 +1525,10 @@ class MemorizeMixin:
             for mtype in memory_types
         ]
         valid_pairs = [(mtype, prompt) for mtype, prompt in typed_prompts if prompt.strip()]
+        if input_budget is not None:
+            for mtype, prompt in valid_pairs:
+                if estimate_prompt_tokens(prompt) > input_budget:
+                    raise ValueError(f"Import {mtype} prompt exceeds model input budget ({input_budget} tokens)")
         tasks = [client.chat(prompt) for _, prompt in valid_pairs]
         responses = list(await asyncio.gather(*tasks))
         for (mtype, _prompt), response in zip(valid_pairs, responses, strict=True):
@@ -1678,12 +1700,14 @@ class MemorizeMixin:
         bundle: Mapping[str, Any],
         *,
         chat_client: Any | None = None,
+        input_budget: int | None = None,
     ) -> dict[str, Any]:
         return await categories.generate_dynamic_category_review(
             bundle=bundle,
             select_chat_client=self._select_chat_client,
             profile=self.memorize_config.category_update_llm_profile,
             chat_client=chat_client,
+            input_budget=input_budget,
         )
 
     def apply_dynamic_category_review(

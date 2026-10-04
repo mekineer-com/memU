@@ -32,6 +32,21 @@ def estimate_prompt_tokens(text: str) -> int:
     )
 
 
+def model_input_budget(svc: Any, profile: str | None) -> int:
+    if getattr(svc, "_claude_code", False):
+        context = svc._claude_code_context_window_tokens
+        output_cap = 0  # The CLI does not use the API profile's output cap.
+        model = svc._claude_code_model
+    else:
+        cfg = svc.llm_profiles.profiles[profile or "default"]
+        context, output_cap, model = cfg.context_window_tokens, cfg.max_tokens or 0, cfg.chat_model
+    if type(context) is not int or context <= 0:
+        raise ValueError(f"context_window_tokens is required for model {model}")
+    if context <= output_cap:
+        raise ValueError("model context_window_tokens must exceed max_tokens")
+    return (context - output_cap) * 4 // 5
+
+
 def strip_memory_citations(text: str) -> str:
     stripped = _MEMORY_REFS.sub("", text)
     stripped = re.sub(r"[ \t]+([.,;:!?])", r"\1", stripped)

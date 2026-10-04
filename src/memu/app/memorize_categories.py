@@ -10,7 +10,7 @@ from xml.etree.ElementTree import Element
 
 from defusedxml import ElementTree
 
-from memu.app.dossier_revision import contains_memory_reference_token, strip_memory_citations
+from memu.app.dossier_revision import contains_memory_reference_token, estimate_prompt_tokens, strip_memory_citations
 from memu.database.models import MemoryCategory, MemoryItem
 from memu.database.vector import cosine_similarity, cosine_topk
 from memu.prompts.dynamic_dossier_review import (
@@ -600,9 +600,12 @@ async def generate_dynamic_category_review(
     select_chat_client: Callable[..., Any],
     profile: str,
     chat_client: Any | None = None,
+    input_budget: int | None = None,
 ) -> dict[str, Any]:
     system_prompt, user_prompt = render_dynamic_category_review_prompts(bundle)
-    if len((system_prompt + "\n" + user_prompt).split()) / 0.75 > 100_000:
+    if input_budget is not None and estimate_prompt_tokens(system_prompt + "\n" + user_prompt) > input_budget:
+        raise ValueError(f"Import dynamic dossier prompt exceeds model input budget ({input_budget} tokens)")
+    if input_budget is None and len((system_prompt + "\n" + user_prompt).split()) / 0.75 > 100_000:
         raise ValueError("Dynamic dossier review prompt exceeds 100000 tokens")
     client = chat_client or select_chat_client(
         {"operation": "dossier", "step_id": "dynamic_review"},
