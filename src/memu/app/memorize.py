@@ -559,7 +559,8 @@ class MemorizeMixin:
                 for mtype in memory_types
                 if mtype in set(ep["applicable_types"])
             ]
-            for i, (ep, mtype) in enumerate(extraction_jobs):
+            prepared_extractions = []
+            for ep, mtype in extraction_jobs:
                 segment_text = str(ep.get("text") or "").strip()
                 episode_review = "\n\n".join(
                     f"Episode: {episode['title']}\nEpisode Summary:\n{episode['summary']}"
@@ -581,23 +582,29 @@ class MemorizeMixin:
                         "segment extraction prompt estimated at %d tokens (>100000)",
                         estimated_tokens,
                     )
-                type_entries = await self._generate_entries_from_text(
-                    resource_text=extraction_text,
-                    store=store,
-                    memory_types=[mtype],
-                    categories_prompt_str=ep["dossier_context"]["categories_str"],
-                    dossier_context=ep["dossier_context"],
-                    speaker_roster=speaker_roster,
-                    default_source_message_ids=ep["message_indices"],
+                kwargs = {
+                    "resource_text": extraction_text,
+                    "memory_types": [mtype],
+                    "categories_prompt_str": ep["dossier_context"]["categories_str"],
+                    "dossier_context": ep["dossier_context"],
+                    "speaker_roster": speaker_roster,
+                    "target_items_by_type": {mtype: target_per_memory_type},
+                    "input_budget": input_budget,
+                }
+                if input_budget is not None:
+                    kwargs["prepared_prompts"] = self._prepare_entry_prompts(**kwargs)
+                kwargs.update(
+                    store=store, default_source_message_ids=ep["message_indices"],
                     source_days=tuple(ep["source_day_happened_at"]),
                     llm_client=self._with_llm_step(
                         extract_client,
                         operation="memorize",
                         step_id=f"extract_{mtype}",
                     ),
-                    target_items_by_type={mtype: target_per_memory_type},
-                    input_budget=input_budget,
                 )
+                prepared_extractions.append((ep, kwargs))
+            for i, (ep, kwargs) in enumerate(prepared_extractions):
+                type_entries = await self._generate_entries_from_text(**kwargs)
                 ep["entries"].extend(type_entries)
                 if on_extraction_progress:
                     on_extraction_progress(i + 1, len(extraction_jobs))
@@ -1494,24 +1501,17 @@ class MemorizeMixin:
         except (OSError, TypeError, ValueError) as exc:
             logger.error("Failed to dump unparseable extraction reply: %s", exc)
 
-    async def _generate_entries_from_text(
+    def _prepare_entry_prompts(
         self,
         *,
         resource_text: str,
-        store: Database,
         memory_types: list[MemoryType],
         categories_prompt_str: str,
         dossier_context: Mapping[str, Any] | None = None,
         speaker_roster: Sequence[SpeakerRosterEntry] | None = None,
-        default_source_message_ids: list[int] | None = None,
-        source_days: Sequence[str] | None = None,
-        llm_client: Any | None = None,
         target_items_by_type: Mapping[str, str] | None = None,
         input_budget: int | None = None,
-    ) -> list[StructuredMemoryEntry]:
-        if not memory_types:
-            return []
-        client = llm_client or self._select_chat_client(None)
+    ) -> list[tuple[MemoryType, str]]:
         soul_context_str = self._format_soul_context_for_prompt(dossier_context)
         typed_prompts = [
             (mtype, self._build_memory_type_prompt(
@@ -1529,6 +1529,32 @@ class MemorizeMixin:
             for mtype, prompt in valid_pairs:
                 if estimate_prompt_tokens(prompt) > input_budget:
                     raise ValueError(f"Import {mtype} prompt exceeds model input budget ({input_budget} tokens)")
+        return valid_pairs
+
+    async def _generate_entries_from_text(
+        self,
+        *,
+        resource_text: str,
+        store: Database,
+        memory_types: list[MemoryType],
+        categories_prompt_str: str,
+        dossier_context: Mapping[str, Any] | None = None,
+        speaker_roster: Sequence[SpeakerRosterEntry] | None = None,
+        default_source_message_ids: list[int] | None = None,
+        source_days: Sequence[str] | None = None,
+        llm_client: Any | None = None,
+        target_items_by_type: Mapping[str, str] | None = None,
+        input_budget: int | None = None,
+        prepared_prompts: list[tuple[MemoryType, str]] | None = None,
+    ) -> list[StructuredMemoryEntry]:
+        if not memory_types:
+            return []
+        valid_pairs = prepared_prompts if prepared_prompts is not None else self._prepare_entry_prompts(
+            resource_text=resource_text, memory_types=memory_types, categories_prompt_str=categories_prompt_str,
+            dossier_context=dossier_context, speaker_roster=speaker_roster,
+            target_items_by_type=target_items_by_type, input_budget=input_budget,
+        )
+        client = llm_client or self._select_chat_client(None)
         tasks = [client.chat(prompt) for _, prompt in valid_pairs]
         responses = list(await asyncio.gather(*tasks))
         for (mtype, _prompt), response in zip(valid_pairs, responses, strict=True):

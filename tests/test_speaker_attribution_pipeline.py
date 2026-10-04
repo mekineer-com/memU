@@ -132,3 +132,28 @@ def test_attribution_pipeline_fills_user_and_soul_speakers_with_fallback_indices
     assert loaded_soul.source_message_ids == [0, 1, 2]
     assert loaded_soul.source_role == "soul"
     assert loaded_soul.emotional_intensity == 0.2
+
+
+def test_unresolved_import_guest_is_not_attributed_to_the_soul():
+    service = _service()
+    scope = {"user_id": "TestOwner", "soul_id": "TestSoul"}
+    messages = [
+        {"_message_index": 0, "role": "user", "name": "GuestSpeaker", "source_label": "import"},
+        {"_message_index": 1, "role": "assistant", "name": "CompanionDisplay", "source_label": "import"},
+    ]
+    speaker_map = service._build_speaker_map(messages, scope)
+    responses = [f"<item><memory><source_role>{role}</source_role><content>{content}</content>"
+                 "<day>2025-01-01</day><categories><category>Gardens</category></categories></memory></item>"
+                 for role, content in [("entity", "GuestSpeaker grows orchids"), ("soul", "I enjoy the garden")]]
+    entries = [service._parse_structured_entries(
+        ["profile"], [response], default_source_message_ids=[0, 1], source_days=["2025-01-01"],
+    )[0] for response in responses]
+    attributed = [service._attribute_memory(entry, speaker_map) for entry in entries]
+    items, _ = asyncio.run(service._persist_memory_items(
+        resource_id=None, structured_entries=attributed, store=service.database,
+        embed_client=_EmbedClient(), user=scope,
+    ))
+    loaded = [service.database.memory_item_repo.get_item(item.id) for item in items]
+    assert loaded[0].speaker_id is None and loaded[0].speaker_label is None
+    assert loaded[1].speaker_id == "soul:testsoul" and loaded[1].speaker_label == "CompanionDisplay"
+    assert all(item.source_message_ids == [0, 1] for item in loaded)

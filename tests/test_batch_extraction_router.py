@@ -38,11 +38,16 @@ class _EmbedStub:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("stage", ["router", "knowledge"])
+@pytest.mark.parametrize("stage", ["router", "knowledge", "late_type"])
 @pytest.mark.parametrize("cli", [False, True])
 async def test_import_batch_checks_rendered_prompts_on_selected_model(monkeypatch, stage, cli):
     service = _service()
     service.memorize_config.memory_types = ["knowledge"]
+    if stage == "late_type":
+        service.memorize_config.memory_types = ["profile", "knowledge"]
+        build = service._build_memory_type_prompt
+        monkeypatch.setattr(service, "_build_memory_type_prompt", lambda **kw:
+            build(**kw) + ("fictional " * 30_000 if kw["memory_type"] == "knowledge" else ""))
     service.memorize_config.memory_extract_llm_profile = "extraction"
     profile = service.llm_profiles.profiles["default"]
     service.llm_profiles.profiles["extraction"] = profile.model_copy(update={
@@ -55,15 +60,23 @@ async def test_import_batch_checks_rendered_prompts_on_selected_model(monkeypatc
         "title": "Garden", "episode_summary": "A small garden.", "episode_item": "A small garden.",
         "categories": ["Gardens"], "day": "2026-01-02",
     }]}))
+    if stage == "late_type":
+        async def chat(prompt):
+            client.prompts.append(prompt)
+            return client.payload if len(client.prompts) == 1 else (
+                "<item><memory><content>A garden fact.</content><day>2026-01-02</day>"
+                "<categories><category>Gardens</category></categories></memory></item>"
+            )
+        monkeypatch.setattr(client, "chat", chat)
     monkeypatch.setattr(service, "_select_chat_client", lambda *_a, **_kw: client)
     monkeypatch.setattr(service, "list_active_dossiers", lambda *_: [])
     async def anchors(*_a, **_kw):
         return None
     async def dossier_context(*_a, **_kw):
-        return {"categories_str": "Gardens", "narrative_self": "x" * 100_000}
+        return {"categories_str": "Gardens", "narrative_self": "" if stage == "late_type" else "x" * 100_000}
     monkeypatch.setattr(service, "ensure_dossier_anchors", anchors)
     monkeypatch.setattr(service, "select_memorize_dossier_context", dossier_context)
-    with pytest.raises(ValueError, match=f"Import {stage} prompt exceeds model input budget"):
+    with pytest.raises(ValueError, match=f"Import {'knowledge' if stage == 'late_type' else stage} prompt exceeds model input budget"):
         await service.memorize_segments_batch(
             modality="conversation",
             segments=[{

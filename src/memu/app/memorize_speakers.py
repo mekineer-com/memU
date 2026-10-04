@@ -347,21 +347,13 @@ def _attribute_memory(
         candidates[candidate[0]] = candidate
     if not candidates:
         return memory
+    role = str(memory.source_role or "").strip().lower()
+    if role:
+        candidates = {key: candidate for key, candidate in candidates.items() if _speaker_role_from_id(key) == role}
     if len(candidates) == 1:
         speaker_id, speaker_label = next(iter(candidates.values()))
         return memory._replace(speaker_id=speaker_id, speaker_label=speaker_label)
 
-    role = str(memory.source_role or "").strip().lower()
-    if role:
-        role_candidates = [
-            candidate
-            for candidate in candidates.values()
-            if _speaker_role_from_id(candidate[0]) == role
-        ]
-        unique_role_candidates = {candidate[0]: candidate for candidate in role_candidates}
-        if len(unique_role_candidates) == 1:
-            speaker_id, speaker_label = next(iter(unique_role_candidates.values()))
-            return memory._replace(speaker_id=speaker_id, speaker_label=speaker_label)
     return memory._replace(speaker_id=None, speaker_label=None)
 
 
