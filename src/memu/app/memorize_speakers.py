@@ -302,7 +302,7 @@ def _build_speaker_map(
         imported_user = role in {"user", "human", "participant"} and (
             message.get("source_label") == "import"
             or str(message.get("source_conversation_id") or message.get("conversation_id") or "").startswith("import:dm:")
-        )
+        ) and not (user_name and message.get("source_owner_id") == user_name)
 
         speaker_id: str
         speaker_label: str
