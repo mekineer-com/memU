@@ -71,7 +71,7 @@ Return all memories wrapped in a single <item> element. Assign each value as a t
 
 source_role — whose memory is this?
 - soul — yours
-- user — the human you're with
+- user — {user_id}
 - peer — a significant conversation participant
 - entity — a being talked about but not present
 - environment — something about the world not attributable to any participant. Not for summarizing conversation content.

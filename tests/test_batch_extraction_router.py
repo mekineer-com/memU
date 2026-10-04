@@ -752,6 +752,7 @@ async def test_batch_full_exclusion_runs_all_types_and_keeps_episodes(
         )
 
     async def _capture_extract(*, memory_types, **_kwargs):
+        assert _kwargs["user_id"] == "test-user"
         assert _kwargs["input_budget"] == (80_000 if enforce_budget else None)
         routed_types.extend(memory_types)
         return []

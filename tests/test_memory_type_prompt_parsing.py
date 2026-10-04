@@ -8,6 +8,17 @@ def _service() -> MemoryService:
     return MemoryService(database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}})
 
 
+@pytest.mark.parametrize("memory_type", ["profile", "behavior", "knowledge", "social"])
+def test_extraction_role_names_the_scoped_owner(memory_type):
+    prompt = _service()._build_memory_type_prompt(
+        memory_type=memory_type, resource_text="TestOwner and GuestSpeaker talked.",
+        categories_str="", soul_context_str="", user_id="TestOwner",
+    )
+    assert "- user — TestOwner" in prompt
+    assert "{user_id}" not in prompt and "- user — the human you're with" not in prompt
+    assert "- peer — a significant conversation participant" in prompt
+
+
 @pytest.mark.parametrize("memory_type", ["knowledge", "behavior"])
 def test_build_memory_type_prompt_injects_soul_context_for_activated_types(memory_type: MemoryType) -> None:
     service = _service()

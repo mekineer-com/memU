@@ -590,6 +590,7 @@ class MemorizeMixin:
                     "speaker_roster": speaker_roster,
                     "target_items_by_type": {mtype: target_per_memory_type},
                     "input_budget": input_budget,
+                    "user_id": str(speaker_scope.get("user_id") or "user"),
                 }
                 if input_budget is not None:
                     kwargs["prepared_prompts"] = self._prepare_entry_prompts(**kwargs)
@@ -886,6 +887,7 @@ class MemorizeMixin:
                 )
             ),
             llm_client=llm_client,
+            user_id=str((state.get("user") or {}).get("user_id") or "user"),
         )
         structured_entries = self._decorate_entries_with_plan_context(
             structured_entries,
@@ -1358,6 +1360,7 @@ class MemorizeMixin:
         speaker_roster: Sequence[SpeakerRosterEntry] | None = None,
         source_days: Sequence[str] | None = None,
         llm_client: Any | None = None,
+        user_id: str = "user",
     ) -> list[StructuredMemoryEntry]:
         if not memory_types or not text:
             return []
@@ -1374,6 +1377,7 @@ class MemorizeMixin:
             if modality == "conversation"
             else None,
             llm_client=client,
+            user_id=user_id,
         )
 
     async def _route_segment(
@@ -1511,6 +1515,7 @@ class MemorizeMixin:
         speaker_roster: Sequence[SpeakerRosterEntry] | None = None,
         target_items_by_type: Mapping[str, str] | None = None,
         input_budget: int | None = None,
+        user_id: str = "user",
     ) -> list[tuple[MemoryType, str]]:
         soul_context_str = self._format_soul_context_for_prompt(dossier_context)
         typed_prompts = [
@@ -1521,6 +1526,7 @@ class MemorizeMixin:
                 soul_context_str=soul_context_str,
                 speaker_roster=speaker_roster,
                 target_items=(target_items_by_type or {}).get(mtype, ""),
+                user_id=user_id,
             ))
             for mtype in memory_types
         ]
@@ -1546,6 +1552,7 @@ class MemorizeMixin:
         target_items_by_type: Mapping[str, str] | None = None,
         input_budget: int | None = None,
         prepared_prompts: list[tuple[MemoryType, str]] | None = None,
+        user_id: str = "user",
     ) -> list[StructuredMemoryEntry]:
         if not memory_types:
             return []
@@ -1553,6 +1560,7 @@ class MemorizeMixin:
             resource_text=resource_text, memory_types=memory_types, categories_prompt_str=categories_prompt_str,
             dossier_context=dossier_context, speaker_roster=speaker_roster,
             target_items_by_type=target_items_by_type, input_budget=input_budget,
+            user_id=user_id,
         )
         client = llm_client or self._select_chat_client(None)
         tasks = [client.chat(prompt) for _, prompt in valid_pairs]
@@ -2058,6 +2066,7 @@ class MemorizeMixin:
         soul_context_str: str,
         speaker_roster: Sequence[SpeakerRosterEntry] | None = None,
         target_items: str = "",
+        user_id: str = "user",
     ) -> str:
         configured_prompt = self.memorize_config.memory_type_prompts.get(memory_type)
         if configured_prompt is None:
@@ -2082,6 +2091,7 @@ class MemorizeMixin:
             soul_context=safe_soul_context,
             speaker_roster_block=speaker_roster_block,
             target_items=target_items,
+            user_id=self._escape_prompt_value(user_id),
         )
         if not target_items:
             rendered = re.sub(r"\*\*Target:[^*]*\*\*\s*", "", rendered)
