@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping
+from datetime import date
 from typing import Any
 
 from sqlmodel import delete, select
@@ -77,6 +78,8 @@ class SQLiteResourceRepo(SQLiteRepoBase, ResourceRepo):
                 local_path=row.local_path,
                 caption=row.caption,
                 embedding=self._normalize_embedding(self._get_row_embedding(row)),
+                source_start_day=row.source_start_day,
+                source_end_day=row.source_end_day,
                 created_at=row.created_at,
                 updated_at=row.updated_at,
             )
@@ -111,6 +114,8 @@ class SQLiteResourceRepo(SQLiteRepoBase, ResourceRepo):
                     local_path=row.local_path,
                     caption=row.caption,
                     embedding=self._normalize_embedding(self._get_row_embedding(row)),
+                    source_start_day=row.source_start_day,
+                    source_end_day=row.source_end_day,
                     created_at=row.created_at,
                     updated_at=row.updated_at,
                     )
@@ -143,6 +148,8 @@ class SQLiteResourceRepo(SQLiteRepoBase, ResourceRepo):
         user_data: dict[str, Any],
         segment_id: str | None = None,
         conversation_id: str | None = None,
+        source_start_day: date | None = None,
+        source_end_day: date | None = None,
         memory_retrieve_history: list[str] | None = None,
         memory_prior_context: list[str] | None = None,
         session: Any | None = None,
@@ -173,6 +180,8 @@ class SQLiteResourceRepo(SQLiteRepoBase, ResourceRepo):
                     user_data=user_data,
                     segment_id=segment_id,
                     conversation_id=conversation_id,
+                    source_start_day=source_start_day,
+                    source_end_day=source_end_day,
                     memory_retrieve_history=memory_retrieve_history,
                     memory_prior_context=memory_prior_context,
                     session=session,
@@ -196,6 +205,10 @@ class SQLiteResourceRepo(SQLiteRepoBase, ResourceRepo):
                 existing.segment_id = segment_id
             if conversation_id is not None:
                 existing.conversation_id = conversation_id
+            if source_start_day is not None:
+                existing.source_start_day = source_start_day
+            if source_end_day is not None:
+                existing.source_end_day = source_end_day
             if memory_retrieve_history is not None:
                 existing.memory_retrieve_history = memory_retrieve_history
             if memory_prior_context is not None:
@@ -216,6 +229,8 @@ class SQLiteResourceRepo(SQLiteRepoBase, ResourceRepo):
                 embedding=None,
                 segment_id=segment_id,
                 conversation_id=conversation_id,
+                source_start_day=source_start_day,
+                source_end_day=source_end_day,
                 memory_retrieve_history=memory_retrieve_history,
                 memory_prior_context=memory_prior_context,
                 created_at=now,
@@ -236,6 +251,8 @@ class SQLiteResourceRepo(SQLiteRepoBase, ResourceRepo):
             embedding=self._normalize_embedding(self._get_row_embedding(row)),
             segment_id=getattr(row, "segment_id", None),
             conversation_id=getattr(row, "conversation_id", None),
+            source_start_day=row.source_start_day,
+            source_end_day=row.source_end_day,
             memory_retrieve_history=getattr(row, "memory_retrieve_history", None),
             memory_prior_context=getattr(row, "memory_prior_context", None),
             created_at=row.created_at,

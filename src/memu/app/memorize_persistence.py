@@ -3,6 +3,7 @@ from __future__ import annotations
 import mimetypes
 from pathlib import Path
 from collections.abc import Awaitable, Callable, Mapping
+from datetime import date
 from typing import Any
 
 from memu.database.models import Triple, entity_is_ignored
@@ -33,6 +34,8 @@ async def _create_resource_with_caption(
     memory_retrieve_history: list[str] | None,
     memory_prior_context: list[str] | None,
     session: Any | None,
+    source_start_day: date | None = None,
+    source_end_day: date | None = None,
 ) -> Any:
     caption_text = caption.strip() if caption else None
     if modality in {"image", "audio", "video"}:
@@ -58,6 +61,8 @@ async def _create_resource_with_caption(
         "caption": caption_text,
         "embedding": caption_embedding,
         "user_data": dict(user or {}),
+        "source_start_day": source_start_day,
+        "source_end_day": source_end_day,
     }
     if segment_id:
         resource_kwargs["segment_id"] = segment_id

@@ -1,5 +1,5 @@
 import json
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from types import SimpleNamespace
 
 import pytest
@@ -410,10 +410,11 @@ async def test_persist_plan_keeps_segment_local_path_without_flattened_copy(
     local_path.parent.mkdir(parents=True)
     local_path.write_text("[]", encoding="utf-8")
     captured: dict[str, object] = {}
+    create_resource = service._create_resource_with_caption
 
     async def _resource(**kwargs):
         captured.update(kwargs)
-        return SimpleNamespace(id="res1", embedding=None)
+        return await create_resource(**kwargs)
 
     monkeypatch.setattr(service, "_create_resource_with_caption", _resource)
 
@@ -425,13 +426,18 @@ async def test_persist_plan_keeps_segment_local_path_without_flattened_copy(
             "episodes": [],
             "entries": [],
             "message_happened_at_map": {},
+            "source_day_happened_at": {
+                day: memorize_segments.grouped_chat_happened_at({"source_day": day,
+                    "received_at": "2025-12-31T12:00:00Z"})
+                for day in ("2026-01-03", "2026-01-01", "2026-01-02")
+            },
             "segment_id": "chat:0-1",
             "segment_messages": [{"role": "user", "content": "primary"}],
         },
         modality="conversation",
         local_path=str(local_path),
         ctx=SimpleNamespace(),
-        store=SimpleNamespace(),
+        store=service.database,
         embed_client=SimpleNamespace(),
         user_scope={},
         conversation_id="chat",
@@ -441,6 +447,17 @@ async def test_persist_plan_keeps_segment_local_path_without_flattened_copy(
     )
 
     assert captured["local_path"] == str(local_path)
+    assert captured["source_start_day"] == date(2026, 1, 1)
+    assert captured["source_end_day"] == date(2026, 1, 3)
+    repo = service.database.resource_repo
+    resource = next(iter(repo.resources.values()))
+    # Reusing a Resource without new bounds must retain its source dates.
+    updated = repo.create_resource(url=str(local_path), modality="conversation",
+        local_path=str(local_path), caption=None, embedding=None, user_data={})
+    assert updated.id == resource.id and updated.source_end_day == date(2026, 1, 3)
+    repo.resources.clear()
+    reloaded = repo.list_resources()[resource.id]
+    assert (reloaded.source_start_day, reloaded.source_end_day) == (date(2026, 1, 1), date(2026, 1, 3))
     assert not (service.fs.base / "2026-01-01.jsonl").exists()
 
 

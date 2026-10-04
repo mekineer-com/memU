@@ -5,12 +5,12 @@ from __future__ import annotations
 import copy as _copy
 import logging
 import secrets
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Literal
 
 import pendulum
 from pydantic import BaseModel
-from sqlalchemy import JSON, Float, Integer, LargeBinary, MetaData, String, Text
+from sqlalchemy import JSON, Date, Float, Integer, LargeBinary, MetaData, String, Text
 from sqlmodel import Column, DateTime, Field, Index, SQLModel, func
 
 from memu.database.models import (
@@ -67,6 +67,8 @@ class SQLiteResourceModel(SQLiteBaseModelMixin, Resource):
     embedding: bytes | None = Field(default=None, sa_column=Column(LargeBinary, nullable=True))  # type: ignore[assignment]
     segment_id: str | None = Field(default=None, sa_column=Column(String, nullable=True))
     conversation_id: str | None = Field(default=None, sa_column=Column(String, nullable=True))
+    source_start_day: date | None = Field(default=None, sa_column=Column(Date, nullable=True))
+    source_end_day: date | None = Field(default=None, sa_column=Column(Date, nullable=True))
     memory_retrieve_history: list[str] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
     memory_prior_context: list[str] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
 

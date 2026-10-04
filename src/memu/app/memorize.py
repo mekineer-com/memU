@@ -7,6 +7,7 @@ import math
 import pathlib
 import re
 from collections.abc import Awaitable, Callable, Mapping, Sequence
+from datetime import date
 from typing import TYPE_CHECKING, Any, NamedTuple, cast
 
 from pydantic import BaseModel
@@ -1055,6 +1056,7 @@ class MemorizeMixin:
 
         res = existing_resource
         if res is None:
+            source_days = sorted(source_day_happened_at or {}) if modality == "conversation" else []
             res = await self._create_resource_with_caption(
                 resource_url=plan["resource_url"],
                 modality=modality,
@@ -1065,6 +1067,8 @@ class MemorizeMixin:
                 user=user_scope,
                 segment_id=segment_id,
                 conversation_id=conversation_id,
+                source_start_day=date.fromisoformat(source_days[0]) if source_days else None,
+                source_end_day=date.fromisoformat(source_days[-1]) if source_days else None,
                 memory_retrieve_history=plan.get("memory_retrieve_history"),
                 memory_prior_context=plan.get("memory_prior_context"),
                 **kwargs,
@@ -1303,6 +1307,8 @@ class MemorizeMixin:
         user: Mapping[str, Any] | None = None,
         segment_id: str | None = None,
         conversation_id: str | None = None,
+        source_start_day: date | None = None,
+        source_end_day: date | None = None,
         memory_retrieve_history: list[str] | None = None,
         memory_prior_context: list[str] | None = None,
         session: Any | None = None,
@@ -1320,6 +1326,8 @@ class MemorizeMixin:
                 user=user,
                 segment_id=segment_id,
                 conversation_id=conversation_id,
+                source_start_day=source_start_day,
+                source_end_day=source_end_day,
                 memory_retrieve_history=memory_retrieve_history,
                 memory_prior_context=memory_prior_context,
                 session=session,
