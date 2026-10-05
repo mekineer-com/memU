@@ -205,7 +205,6 @@ def _prefilter_dedupe_candidate_ids(
     anchor_id: str,
     anchor: Any,
     active_pool: Mapping[str, Any],
-    merged_map: Mapping[str, str],
     summary_tokens: Mapping[str, set[str]],
     token_index: Mapping[str, set[str]],
     token_freq: Mapping[str, int],
@@ -222,10 +221,10 @@ def _prefilter_dedupe_candidate_ids(
 
     for token in selected_tokens:
         for candidate_id in token_index.get(token, set()):
-            if candidate_id == anchor_id or candidate_id in merged_map:
+            if candidate_id == anchor_id:
                 continue
             candidate = active_pool.get(candidate_id)
-            if candidate is None or _is_merged_item(candidate):
+            if candidate is None:
                 continue
             candidate_role = _dedupe_source_role(candidate)
             candidate_speaker_id = _dedupe_speaker_id(candidate)
@@ -242,9 +241,7 @@ def _prefilter_dedupe_candidate_ids(
 
     if not candidate_scores:
         for candidate_id, candidate in active_pool.items():
-            if candidate_id == anchor_id or candidate_id in merged_map:
-                continue
-            if _is_merged_item(candidate):
+            if candidate_id == anchor_id:
                 continue
             candidate_role = _dedupe_source_role(candidate)
             candidate_speaker_id = _dedupe_speaker_id(candidate)
@@ -300,7 +297,6 @@ async def _prepare_dedupe_merges(
         return []
 
     threshold = max(0.0, min(1.0, float(semantic_dedupe_similarity_threshold)))
-    merged_map: dict[str, str] = {}
     pairs: list[tuple[str, str, Any, Any]] = []
     dedupe_embed_client: Any | None = None
     dedupe_embed_cache: dict[str, list[float] | None] = {}
@@ -328,7 +324,6 @@ async def _prepare_dedupe_merges(
             anchor_id=new_item_id,
             anchor=anchor,
             active_pool=active_pool,
-            merged_map=merged_map,
             summary_tokens=summary_tokens,
             token_index=token_index,
             token_freq=token_freq,
@@ -376,7 +371,6 @@ async def _prepare_dedupe_merges(
                 continue
 
             pairs.append((redundant.id, survivor.id, redundant.updated_at, survivor.updated_at))
-            merged_map[redundant.id] = survivor.id
             active_pool.pop(redundant.id, None)
             if redundant.id == new_item_id:
                 break
@@ -400,6 +394,9 @@ async def _memorize_dedupe_merge(
         semantic_dedupe_similarity_threshold=semantic_dedupe_similarity_threshold,
         select_embedding_client=select_embedding_client,
     )
+    on_complete = state.get("on_dedupe_complete")
+    if not pairs and on_complete is None:
+        return state
     store = state["store"]
     session_cm = _sqlite_write_session(store)
     if session_cm is None:
@@ -423,7 +420,6 @@ async def _memorize_dedupe_merge(
                 continue
             store.memory_item_repo.update_item(item_id=redundant_id, merged_into=survivor_id, session=session)
             merged_map[redundant_id] = survivor_id
-        on_complete = state.get("on_dedupe_complete")
         if on_complete is not None:
             on_complete(session)
         session.commit()

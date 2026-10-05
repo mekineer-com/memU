@@ -252,7 +252,6 @@ def test_prefilter_dedupe_candidates_respects_source_role_and_speaker_id(service
         anchor_id="a",
         anchor=anchor,
         active_pool=active_pool,
-        merged_map={},
         summary_tokens=summary_tokens,
         token_index=token_index,
         token_freq=token_freq,

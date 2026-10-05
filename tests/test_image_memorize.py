@@ -1,5 +1,7 @@
 from pathlib import Path
 from datetime import UTC, datetime
+from types import SimpleNamespace
+from itertools import count
 
 import pytest
 from pydantic import BaseModel
@@ -35,7 +37,8 @@ async def test_dedupe_prepared_pairs_reject_concurrent_changes(tmp_path, monkeyp
             happened_at=datetime(year, 1, 1, tzinfo=UTC), user_data=scope,
         )
     old, anchor = add(2020), add(2021)
-    state = {"items": [anchor], "relations": [], "store": store, "user": scope}
+    state = {"items": [old, anchor], "relations": [SimpleNamespace(item_id=old.id)],
+             "store": store, "user": scope}
     prepare = memorize_dedupe._prepare_dedupe_merges
     async def interleave(*args, **kwargs):
         pairs = await prepare(*args, **kwargs)
@@ -73,12 +76,45 @@ async def test_dedupe_prepared_pairs_reject_concurrent_changes(tmp_path, monkeyp
     await service._memorize_dedupe_merge(state, None)
     rows = store.memory_item_repo.list_items(scope, include_merged=True, include_superseded=True)
     assert rows[old.id].merged_into == (anchor.id if change is None else None)
+    assert {item.id for item in state["items"]} == ({anchor.id} if change is None else {old.id, anchor.id})
+    assert bool(state["relations"]) == (change is not None)
     store.close()
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("mode", ["merge", "rollback", "disabled", "empty"])
-async def test_dedupe_phase_and_merges_share_transaction(tmp_path, mode):
+async def test_dedupe_chain_rechecks_candidates_after_preceding_merge(tmp_path, monkeypatch):
+    service = _service(tmp_path)
+    store = service.database
+    scope = {"user_id": "TestOwner", "soul_id": "TestSoul"}
+    ids = count(1)
+    with monkeypatch.context() as fixed_ids:
+        fixed_ids.setattr("memu.database.sqlite.models.secrets.token_hex", lambda *_: f"{next(ids):08x}")
+        items = [store.memory_item_repo.create_item(
+            memory_type="knowledge", summary="Fictional garden project", embedding=[1.0, 0.0],
+            happened_at=datetime(year, 1, 1, tzinfo=UTC), user_data=scope,
+        ) for year in (2020, 2021, 2022)]
+    for item, name in zip(items, ["First", None, "Second"], strict=True):
+        candidate = store.dossier_candidate_repo.add_candidate(proposed_name="Garden", item_id=item.id, where=scope)
+        if name:
+            category = store.memory_category_repo.get_or_create_category(
+                name=name, description=name, embedding=[1.0, 0.0], user_data=scope,
+            )
+            with service._sqlite_write_session(store) as session:
+                session.connection().exec_driver_sql(
+                    "UPDATE dossier_candidates SET resolved_category_id = ? WHERE id = ?", (category.id, candidate.id))
+                session.commit()
+    state = {"items": items[:2], "relations": [], "store": store, "user": scope}
+    await service._memorize_dedupe_merge(state, None)
+    rows = store.memory_item_repo.list_items(scope, include_merged=True)
+    assert rows[items[0].id].merged_into == items[1].id
+    assert rows[items[1].id].merged_into is None
+    assert [item.id for item in state["items"]] == [items[1].id]
+    store.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["merge", "rollback", "disabled", "empty", "no_hook"])
+async def test_dedupe_phase_and_merges_share_transaction(tmp_path, monkeypatch, mode):
     service = _service(tmp_path)
     store = service.database
     scope = {"user_id": "TestOwner", "soul_id": "TestSoul"}
@@ -94,9 +130,14 @@ async def test_dedupe_phase_and_merges_share_transaction(tmp_path, mode):
         if mode == "rollback":
             raise RuntimeError("phase write failed")
     service.memorize_config.semantic_dedupe_enabled = mode != "disabled"
-    state = {"store": store, "user": scope, "items": [] if mode == "empty" else [items[1]],
-             "relations": [], "on_dedupe_complete": complete}
-    if mode == "rollback":
+    state = {"store": store, "user": scope, "items": [] if mode in {"empty", "no_hook"} else [items[1]],
+             "relations": [], "on_dedupe_complete": None if mode == "no_hook" else complete}
+    if mode == "no_hook":
+        with monkeypatch.context() as no_transaction:
+            no_transaction.setattr(memorize_persistence, "_sqlite_write_session",
+                lambda *_: pytest.fail("No pairs or phase hook should open no write transaction"))
+            await service._memorize_dedupe_merge(state, None)
+    elif mode == "rollback":
         with pytest.raises(RuntimeError, match="phase write failed"):
             await service._memorize_dedupe_merge(state, None)
     else:
@@ -105,7 +146,7 @@ async def test_dedupe_phase_and_merges_share_transaction(tmp_path, mode):
     assert sum(bool(row.merged_into) for row in rows.values()) == (1 if mode == "merge" else 0)
     with service._sqlite_write_session(store) as session:
         assert session.connection().exec_driver_sql("SELECT phase FROM test_phase").scalar_one() == (
-            "dedupe" if mode == "rollback" else "review")
+            "dedupe" if mode in {"rollback", "no_hook"} else "review")
     store.close()
 
 
