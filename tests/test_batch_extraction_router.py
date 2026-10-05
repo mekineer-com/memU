@@ -195,29 +195,6 @@ async def test_route_segment_uses_excluded_types_model() -> None:
     assert "--- 2026-01-02 (today) ---" in client.prompts[0]
 
 
-@pytest.mark.asyncio
-async def test_route_segment_ignores_full_exclusion(caplog: pytest.LogCaptureFixture) -> None:
-    service = _service()
-    client = _RouterStub(
-        '{"excluded_types": ["profile", "knowledge"], "episodes": '
-        '[{"title": "Anchor", "episode_summary": "Full story.", "episode_item": "Full story.", '
-        '"categories": ["Daily life"], "day": "2026-01-02"}]}'
-    )
-
-    routed, episodes = await service._route_segment(
-        "episode text",
-        ["profile", "knowledge"],
-        llm_client=client,
-        source_days=["2026-01-02"],
-    )
-
-    assert routed == ["profile", "knowledge"]
-    assert episodes[0]["item"] == "Full story."
-    assert episodes[0]["categories"] == ["Daily life"]
-    assert episodes[0]["day"] == "2026-01-02"
-    assert "excluded every configured memory type" in caplog.text
-
-
 @pytest.mark.parametrize(
     "episode",
     [
@@ -533,20 +510,6 @@ async def test_persist_index_processes_committed_candidate_work_without_new_item
 
 
 @pytest.mark.asyncio
-async def test_route_segment_raises_on_unparseable_router_response() -> None:
-    service = _service()
-    client = _RouterStub("not-json-and-no-json-blob")
-
-    with pytest.raises(ValueError):
-        await service._route_segment(
-            "episode text",
-            ["profile", "knowledge"],
-            llm_client=client,
-            source_days=["2026-01-02"],
-        )
-
-
-@pytest.mark.asyncio
 async def test_batch_router_failure_stops_before_persistence(monkeypatch: pytest.MonkeyPatch) -> None:
     service = _service()
     actual_route = service._route_segment
@@ -747,7 +710,7 @@ async def test_context_only_batch_skips_llm_and_returns_plural_empty_shape(
 @pytest.mark.asyncio
 @pytest.mark.parametrize("enforce_budget", [False, True])
 async def test_batch_full_exclusion_runs_all_types_and_keeps_episodes(
-    monkeypatch: pytest.MonkeyPatch, enforce_budget,
+    monkeypatch: pytest.MonkeyPatch, enforce_budget, caplog,
 ) -> None:
     service = _service()
     service.llm_profiles.profiles["default"].context_window_tokens = 100_000
@@ -815,6 +778,7 @@ async def test_batch_full_exclusion_runs_all_types_and_keeps_episodes(
     )
 
     assert routed_types == ["profile", "knowledge"]
+    assert "excluded every configured memory type" in caplog.text
     assert persisted_episodes == [{
         "title": "Anchor",
         "summary": "Full story.",

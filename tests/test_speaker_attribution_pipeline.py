@@ -47,30 +47,30 @@ def test_attribution_pipeline_fills_user_and_soul_speakers_with_fallback_indices
     service = _service()
     store = service._get_database()
     ctx = service._get_context()
-    user_data = {"user_id": "marcos", "soul_id": "siri"}
+    user_data = {"user_id": "testowner", "soul_id": "testsoul"}
 
-    # Simulated episode. Note the display-name mismatch: message.name="MarcosDisplay"
-    # is NOT case-equal to scope.user_id="marcos" — the bug was that this tripped
-    # the old code into slugging the user as entity:marcosdisplay.
+    # Simulated episode. Note the display-name mismatch: message.name="TestOwnerDisplay"
+    # is NOT case-equal to scope.user_id="testowner" — the bug was that this tripped
+    # the old code into slugging the user as entity:testownerdisplay.
     segment_messages = [
-        {"_message_index": 0, "role": "user", "name": "MarcosDisplay", "content": "Hi"},
-        {"_message_index": 1, "role": "assistant", "name": "Siri", "content": "Hello"},
-        {"_message_index": 2, "role": "user", "name": "MarcosDisplay", "content": "Thanks"},
+        {"_message_index": 0, "role": "user", "name": "TestOwnerDisplay", "content": "Hi"},
+        {"_message_index": 1, "role": "assistant", "name": "TestSoul", "content": "Hello"},
+        {"_message_index": 2, "role": "user", "name": "TestOwnerDisplay", "content": "Thanks"},
     ]
     message_indices = [0, 1, 2]
     speaker_map = service._build_speaker_map(segment_messages, user_data)
 
     # Post-55525ae: user-role messages always resolve to the scope user slug,
     # with the display name as the label.
-    assert speaker_map[0] == ("user:marcos", "MarcosDisplay")
-    assert speaker_map[1] == ("soul:siri", "Siri")
+    assert speaker_map[0] == ("user:testowner", "TestOwnerDisplay")
+    assert speaker_map[1] == ("soul:testsoul", "TestSoul")
 
     # Simulate generalized memories. The prompt does not ask the model to tie
     # each memory to individual messages.
     entries = [
         StructuredMemoryEntry(
             memory_type="behavior",
-            content="Marcos greeted Siri warmly",
+            content="TestOwner greeted TestSoul warmly",
             categories=[],
             source_role="user",
             confidence=0.8,
@@ -80,7 +80,7 @@ def test_attribution_pipeline_fills_user_and_soul_speakers_with_fallback_indices
         ),
         StructuredMemoryEntry(
             memory_type="behavior",
-            content="I greeted Marcos back",
+            content="I greeted TestOwner back",
             categories=[],
             source_role="soul",
             confidence=0.8,
@@ -96,12 +96,12 @@ def test_attribution_pipeline_fills_user_and_soul_speakers_with_fallback_indices
     assert decorated[1].source_message_ids == [0, 1, 2]
 
     # Attribute from speaker_map. Source_role=user + multi-speaker range →
-    # role-based disambiguation picks user:marcos.
+    # role-based disambiguation picks user:testowner.
     attributed = [service._attribute_memory(entry, speaker_map) for entry in decorated]
-    assert attributed[0].speaker_id == "user:marcos"
-    assert attributed[0].speaker_label == "MarcosDisplay"
-    assert attributed[1].speaker_id == "soul:siri"
-    assert attributed[1].speaker_label == "Siri"
+    assert attributed[0].speaker_id == "user:testowner"
+    assert attributed[0].speaker_label == "TestOwnerDisplay"
+    assert attributed[1].speaker_id == "soul:testsoul"
+    assert attributed[1].speaker_label == "TestSoul"
 
     # Persist. reinforce=True by default (memorize_config). Post-39511ef:
     # persisted provenance and reflection_salience survive the reinforce branch.
@@ -121,14 +121,14 @@ def test_attribution_pipeline_fills_user_and_soul_speakers_with_fallback_indices
     loaded_soul = store.memory_item_repo.get_item(items[1].id)
     assert loaded_user is not None and loaded_soul is not None
 
-    assert loaded_user.speaker_id == "user:marcos"
-    assert loaded_user.speaker_label == "MarcosDisplay"
+    assert loaded_user.speaker_id == "user:testowner"
+    assert loaded_user.speaker_label == "TestOwnerDisplay"
     assert loaded_user.source_message_ids == [0, 1, 2]
     assert loaded_user.source_role == "user"
     assert loaded_user.emotional_intensity == 0.7
 
-    assert loaded_soul.speaker_id == "soul:siri"
-    assert loaded_soul.speaker_label == "Siri"
+    assert loaded_soul.speaker_id == "soul:testsoul"
+    assert loaded_soul.speaker_label == "TestSoul"
     assert loaded_soul.source_message_ids == [0, 1, 2]
     assert loaded_soul.source_role == "soul"
     assert loaded_soul.emotional_intensity == 0.2

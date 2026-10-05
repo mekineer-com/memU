@@ -17,6 +17,7 @@ def test_claude_cli_uses_workspace_and_cleans_prompt_file(monkeypatch, tmp_path:
 
     def fake_run(cmd, *, cwd, input, text, capture_output, timeout, check):
         prompt_file = Path(cmd[cmd.index("--system-prompt-file") + 1])
+        seen["cmd"] = cmd
         seen["cwd"] = cwd
         seen["prompt_file"] = prompt_file
         seen["system_prompt"] = prompt_file.read_text(encoding="utf-8")
@@ -32,6 +33,7 @@ def test_claude_cli_uses_workspace_and_cleans_prompt_file(monkeypatch, tmp_path:
     assert raw["provider"] == "claude_code"
     assert seen["cwd"] == tmp_path
     assert seen["input"] == "hello"
+    assert "--safe-mode" in seen["cmd"]
     assert seen["system_prompt"] == "system"
     assert not seen["prompt_file"].exists()
     assert list((tmp_path / ".prompts").iterdir()) == []
@@ -106,23 +108,6 @@ def test_claude_cli_passes_settings(monkeypatch, tmp_path: Path) -> None:
 
     assert "--settings" in seen["cmd"]
     assert seen["cmd"][seen["cmd"].index("--settings") + 1] == str(tmp_path / "siri-settings.json")
-
-
-def test_claude_cli_uses_safe_mode(monkeypatch, tmp_path: Path) -> None:
-    seen: dict[str, object] = {}
-
-    monkeypatch.setattr(claude_cli.shutil, "which", lambda _binary: "/bin/claude")
-
-    def fake_run(cmd, *, cwd, input, text, capture_output, timeout, check):
-        seen["cmd"] = cmd
-        return subprocess.CompletedProcess(cmd, 0, stdout="reply", stderr="")
-
-    monkeypatch.setattr(claude_cli.subprocess, "run", fake_run)
-    client = ClaudeCLIClient(model="claude-opus-4-7", workspace=tmp_path)
-
-    client._run_claude(prompt="hello", system_prompt="system")
-
-    assert "--safe-mode" in seen["cmd"]
 
 
 def test_claude_cli_passes_session_id(monkeypatch, tmp_path: Path) -> None:

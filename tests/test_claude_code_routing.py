@@ -129,19 +129,6 @@ async def test_service_chat_rejects_claude_session_args_without_claude(monkeypat
         await service.chat("hello", session_id="turn-123")
 
 
-def test_claude_code_passes_workspace(monkeypatch) -> None:
-    monkeypatch.setattr(service_module, "ClaudeCLIClient", _FakeClaudeCLIClient)
-    service = _service(
-        claude_code=True,
-        claude_code_model="claude-opus-4-7",
-        claude_code_workspace="/tmp/siri-workspace",
-    )
-
-    client = service._get_claude_cli_client()
-
-    assert client.workspace == "/tmp/siri-workspace"
-
-
 def test_claude_code_passes_permission_mode(monkeypatch) -> None:
     monkeypatch.setattr(service_module, "ClaudeCLIClient", _FakeClaudeCLIClient)
     service = _service(

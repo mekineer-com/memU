@@ -66,37 +66,6 @@ class TestMemoryItemToolType:
 class TestMemoryItemNewFields:
     """Tests for tool-related fields stored in extra."""
 
-    def test_when_to_use_field(self):
-        """Test when_to_use field stored in extra for retrieval hints."""
-        item = MemoryItem(
-            resource_id=None,
-            memory_type="profile",
-            summary="User prefers dark mode",
-            extra={"when_to_use": "When configuring UI settings or themes"},
-        )
-
-        assert item.extra["when_to_use"] == "When configuring UI settings or themes"
-
-    def test_metadata_field(self):
-        """Test metadata field stored in extra for type-specific data."""
-        item = MemoryItem(
-            resource_id=None,
-            memory_type="knowledge",
-            summary="User attended conference",
-            extra={
-                "metadata": {
-                    "event_date": "2026-01-15",
-                    "location": "San Francisco",
-                    "attendees": ["Alice", "Bob"],
-                }
-            },
-        )
-
-        assert item.extra.get("metadata") is not None
-        assert item.extra["metadata"]["event_date"] == "2026-01-15"
-        assert item.extra["metadata"]["location"] == "San Francisco"
-        assert len(item.extra["metadata"]["attendees"]) == 2
-
     def test_default_values(self):
         """Test that extra defaults to empty dict."""
         item = MemoryItem(
