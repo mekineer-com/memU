@@ -65,6 +65,9 @@ def test_sql_vector_search_matches_numpy_and_scope(store: SQLiteStore) -> None:
     )
     with pytest.raises(ValueError, match="dimension mismatch"):
         store.memory_item_repo.vector_search_items([1.0, 0.0], 3, scope)
+    with pytest.raises(ValueError, match="dimension mismatch"):
+        cosine_topk([1.0, 0.0], [(item.id, item.embedding)
+                    for item in store.memory_item_repo.list_items(scope).values()], 3)
 
 
 def test_hybrid_search_and_embedding_free_materialization(store: SQLiteStore, monkeypatch) -> None:

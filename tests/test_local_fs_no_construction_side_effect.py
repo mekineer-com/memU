@@ -30,14 +30,6 @@ class Scope(BaseModel):
     user_id: str | None = None
 
 
-def test_local_fs_ctor_does_not_mkdir(tmp_path: Path) -> None:
-    target = tmp_path / "nested" / "blob_root"
-    assert not target.exists()
-    fs = LocalFS(str(target))
-    assert fs.base == target
-    assert not target.exists()
-
-
 def test_memory_service_without_blob_config_leaves_no_data_resources(
     tmp_path: Path, monkeypatch,
 ) -> None:

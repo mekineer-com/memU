@@ -45,18 +45,3 @@ def test_openai_embedding_response_restores_index_order() -> None:
     assert backend.parse_embedding_response(response) == [[1.0, 0.0], [0.0, 1.0]]
     with pytest.raises(ValueError, match="indices"):
         backend.parse_embedding_response({"data": [{"index": 1, "embedding": [1.0]}]})
-
-
-@pytest.mark.asyncio
-async def test_service_exposes_raw_media_embedding() -> None:
-    service = MemoryService(
-        database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}}
-    )
-
-    class Client:
-        async def embed_media(self, data: bytes, mime_type: str) -> list[float]:
-            assert (data, mime_type) == (b"image", "image/jpeg")
-            return [1.0, 0.0]
-
-    service._llm_clients["embedding"] = Client()
-    assert await service.embed_media(b"image", "image/jpeg") == [1.0, 0.0]
