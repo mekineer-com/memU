@@ -308,6 +308,8 @@ class MemorizeMixin:
         memory_prior_context: list[str] | None = None,
         conversation_id: str | None = None,
         on_extraction_progress: Callable[[int, int], None] | None = None,
+        on_segment_saved: Callable[[Any, str, list[str]], None] | None = None,
+        on_dedupe_complete: Callable[[Any, str], None] | None = None,
         enforce_input_budget: bool = False,
     ) -> list[dict[str, Any]]:
         self._validate_memorize_scope(user)
@@ -643,6 +645,11 @@ class MemorizeMixin:
                 "category_ids": list(ctx.category_ids),
                 "user": user_scope,
                 "segment_plans": [plan],
+                "on_segment_saved": on_segment_saved,
+                "on_dedupe_complete": (
+                    (lambda session, url=ep["resource_url"]: on_dedupe_complete(session, url))
+                    if on_dedupe_complete is not None and not ep["context_only"] else None
+                ),
             }
             categorize_context = {
                 "workflow_name": "memorize_segments_batch",
@@ -1191,6 +1198,9 @@ class MemorizeMixin:
                         plan_resources, delta = await self._process_plan(plan, session=session, **common)
                         resources.extend(plan_resources)
                         homeless_item_count += delta
+                    on_saved = state.get("on_segment_saved")
+                    if on_saved is not None and resources:
+                        on_saved(session, state["segment_plans"][0]["resource_url"], pending_segment_ids)
                     session.commit()
                 except Exception:
                     session.rollback()

@@ -258,30 +258,30 @@ def _prefilter_dedupe_candidate_ids(
     return [candidate_id for candidate_id, _score in ordered[:64]]
 
 
-async def _memorize_dedupe_merge(
+async def _prepare_dedupe_merges(
     state: dict[str, Any],
     _step_context: Any,
     *,
     semantic_dedupe_enabled: bool,
     semantic_dedupe_similarity_threshold: float,
     select_embedding_client: Callable[..., Any],
-) -> dict[str, Any]:
+) -> list[tuple[str, str, Any, Any]]:
     items = list(state.get("items") or [])
     state["items"] = items
 
     if not semantic_dedupe_enabled:
-        return state
+        return []
     if len(items) < 1:
-        return state
+        return []
 
     dedupe_scope = _build_semantic_dedupe_scope(state.get("user"))
     if dedupe_scope is None:
-        return state
+        return []
 
     store = state["store"]
     active_pool = dict(store.memory_item_repo.list_items(dedupe_scope))
     if len(active_pool) < 2:
-        return state
+        return []
 
     new_item_ids: list[str] = []
     seen_new: set[str] = set()
@@ -293,16 +293,15 @@ async def _memorize_dedupe_merge(
         pool_item = active_pool.get(item_id)
         if pool_item is None:
             continue
-        if _is_merged_item(pool_item):
-            continue
         if _item_embedding(pool_item) is None:
             continue
         new_item_ids.append(item_id)
     if not new_item_ids:
-        return state
+        return []
 
     threshold = max(0.0, min(1.0, float(semantic_dedupe_similarity_threshold)))
     merged_map: dict[str, str] = {}
+    pairs: list[tuple[str, str, Any, Any]] = []
     dedupe_embed_client: Any | None = None
     dedupe_embed_cache: dict[str, list[float] | None] = {}
     summary_tokens: dict[str, set[str]] = {}
@@ -318,7 +317,7 @@ async def _memorize_dedupe_merge(
 
     for new_item_id in new_item_ids:
         anchor = active_pool.get(new_item_id)
-        if anchor is None or _is_merged_item(anchor):
+        if anchor is None:
             continue
         anchor_embedding = _item_embedding(anchor)
         if anchor_embedding is None:
@@ -371,30 +370,74 @@ async def _memorize_dedupe_merge(
             candidate = active_pool.get(candidate_id)
             if current_anchor is None or candidate is None:
                 continue
-            if _is_merged_item(current_anchor) or _is_merged_item(candidate):
-                continue
 
             survivor, redundant = _choose_survivor_and_redundant(current_anchor, candidate)
             if survivor.id == redundant.id:
                 continue
 
-            store.memory_item_repo.update_item(item_id=redundant.id, merged_into=survivor.id)
+            pairs.append((redundant.id, survivor.id, redundant.updated_at, survivor.updated_at))
             merged_map[redundant.id] = survivor.id
             active_pool.pop(redundant.id, None)
             if redundant.id == new_item_id:
                 break
+
+    return pairs
+
+
+async def _memorize_dedupe_merge(
+    state: dict[str, Any],
+    step_context: Any,
+    *,
+    semantic_dedupe_enabled: bool,
+    semantic_dedupe_similarity_threshold: float,
+    select_embedding_client: Callable[..., Any],
+) -> dict[str, Any]:
+    from memu.app.memorize_persistence import _sqlite_write_session
+
+    pairs = await _prepare_dedupe_merges(
+        state, step_context,
+        semantic_dedupe_enabled=semantic_dedupe_enabled,
+        semantic_dedupe_similarity_threshold=semantic_dedupe_similarity_threshold,
+        select_embedding_client=select_embedding_client,
+    )
+    store = state["store"]
+    session_cm = _sqlite_write_session(store)
+    if session_cm is None:
+        raise RuntimeError("Semantic dedupe requires SQLite")
+    merged_map: dict[str, str] = {}
+    with session_cm as session:
+        session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+        fresh = store.memory_item_repo.list_items_by_ids(
+            {item_id for pair in pairs for item_id in pair[:2]},
+            where=state.get("user"), session=session,
+        )
+        for redundant_id, survivor_id, redundant_version, survivor_version in pairs:
+            redundant, survivor = fresh.get(redundant_id), fresh.get(survivor_id)
+            if redundant is None or survivor is None:
+                continue
+            if redundant.updated_at != redundant_version or survivor.updated_at != survivor_version:
+                continue
+            if store.memory_item_repo.merge_candidates_conflict(
+                redundant_id, survivor_id, where=state.get("user") or {}, session=session,
+            ):
+                continue
+            store.memory_item_repo.update_item(item_id=redundant_id, merged_into=survivor_id, session=session)
+            merged_map[redundant_id] = survivor_id
+        on_complete = state.get("on_dedupe_complete")
+        if on_complete is not None:
+            on_complete(session)
+        session.commit()
 
     if not merged_map:
         return state
 
     merged_ids = set(merged_map.keys())
     remaining_items: list[Any] = []
-    for item in items:
+    for item in state["items"]:
         item_id = getattr(item, "id", None)
         if item_id in merged_ids:
             continue
-        refreshed = active_pool.get(item_id)
-        remaining_items.append(refreshed if refreshed is not None else item)
+        remaining_items.append(item)
     state["items"] = remaining_items
     state["relations"] = [
         rel for rel in (state.get("relations") or []) if getattr(rel, "item_id", None) not in merged_ids

@@ -1,9 +1,12 @@
 from pathlib import Path
+from datetime import UTC, datetime
 
 import pytest
 from pydantic import BaseModel
 
 from memu.app import memorize_persistence
+from memu.app import memorize_dedupe
+from memu.database.models import Triple
 from memu.app.service import MemoryService
 
 
@@ -18,6 +21,92 @@ def _service(tmp_path: Path) -> MemoryService:
         database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
         user_config={"model": Scope},
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("change", [None, "edit", "delete", "merge", "supersede", "conflict"])
+async def test_dedupe_prepared_pairs_reject_concurrent_changes(tmp_path, monkeypatch, change):
+    service = _service(tmp_path)
+    store = service.database
+    scope = {"user_id": "TestOwner", "soul_id": "TestSoul"}
+    def add(year):
+        return store.memory_item_repo.create_item(
+            memory_type="knowledge", summary="Fictional garden project", embedding=[1.0, 0.0],
+            happened_at=datetime(year, 1, 1, tzinfo=UTC), user_data=scope,
+        )
+    old, anchor = add(2020), add(2021)
+    state = {"items": [anchor], "relations": [], "store": store, "user": scope}
+    prepare = memorize_dedupe._prepare_dedupe_merges
+    async def interleave(*args, **kwargs):
+        pairs = await prepare(*args, **kwargs)
+        assert len(pairs) == 1
+        if change == "edit":
+            store.memory_item_repo.update_summary_with_history(
+                item_id=anchor.id, summary="A completely different fictional topic",
+                embedding=[0.0, 1.0], where=scope,
+            )
+        elif change == "delete":
+            service.graph_delete_memories([anchor.id], where=scope)
+        elif change in {"merge", "supersede"}:
+            successor = add(2022)
+            if change == "merge":
+                store.memory_item_repo.update_item(item_id=anchor.id, merged_into=successor.id)
+            else:
+                store.triple_repo.add(Triple(subject_id=anchor.id, subject_kind="memory",
+                    predicate="evolved_into", object_id=successor.id, object_kind="memory"), user_data=scope)
+        elif change == "conflict":
+            for item, name in ((old, "First"), (anchor, "Second")):
+                category = store.memory_category_repo.get_or_create_category(
+                    name=name, description=name, embedding=[1.0, 0.0], user_data=scope,
+                )
+                candidate = store.dossier_candidate_repo.add_candidate(
+                    proposed_name="Garden", item_id=item.id, where=scope,
+                )
+                with service._sqlite_write_session(store) as session:
+                    session.connection().exec_driver_sql(
+                        "UPDATE dossier_candidates SET resolved_category_id = ? WHERE id = ?",
+                        (category.id, candidate.id),
+                    )
+                    session.commit()
+        return pairs
+    monkeypatch.setattr(memorize_dedupe, "_prepare_dedupe_merges", interleave)
+    await service._memorize_dedupe_merge(state, None)
+    rows = store.memory_item_repo.list_items(scope, include_merged=True, include_superseded=True)
+    assert rows[old.id].merged_into == (anchor.id if change is None else None)
+    store.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["merge", "rollback", "disabled", "empty"])
+async def test_dedupe_phase_and_merges_share_transaction(tmp_path, mode):
+    service = _service(tmp_path)
+    store = service.database
+    scope = {"user_id": "TestOwner", "soul_id": "TestSoul"}
+    items = [store.memory_item_repo.create_item(
+        memory_type="knowledge", summary="Fictional garden project", embedding=[1.0, 0.0], user_data=scope,
+    ) for _ in range(2)]
+    with service._sqlite_write_session(store) as session:
+        session.connection().exec_driver_sql("CREATE TABLE test_phase (phase TEXT)")
+        session.connection().exec_driver_sql("INSERT INTO test_phase VALUES ('dedupe')")
+        session.commit()
+    def complete(session):
+        session.connection().exec_driver_sql("UPDATE test_phase SET phase = 'review'")
+        if mode == "rollback":
+            raise RuntimeError("phase write failed")
+    service.memorize_config.semantic_dedupe_enabled = mode != "disabled"
+    state = {"store": store, "user": scope, "items": [] if mode == "empty" else [items[1]],
+             "relations": [], "on_dedupe_complete": complete}
+    if mode == "rollback":
+        with pytest.raises(RuntimeError, match="phase write failed"):
+            await service._memorize_dedupe_merge(state, None)
+    else:
+        await service._memorize_dedupe_merge(state, None)
+    rows = store.memory_item_repo.list_items(scope, include_merged=True)
+    assert sum(bool(row.merged_into) for row in rows.values()) == (1 if mode == "merge" else 0)
+    with service._sqlite_write_session(store) as session:
+        assert session.connection().exec_driver_sql("SELECT phase FROM test_phase").scalar_one() == (
+            "dedupe" if mode == "rollback" else "review")
+    store.close()
 
 
 @pytest.mark.asyncio

@@ -724,6 +724,26 @@ WHERE version = 1 AND model IN ({placeholders})
 
         return self._to_memory_item(row, embedding=embedding)
 
+    @staticmethod
+    def _candidate_resolutions_conflict(left: Any, right: Any) -> bool:
+        return bool(left.resolved_category_id and right.resolved_category_id
+                    and left.resolved_category_id != right.resolved_category_id)
+
+    def merge_candidates_conflict(
+        self, redundant_id: str, survivor_id: str, *, where: Mapping[str, Any], session: Any,
+    ) -> bool:
+        model = self._sqla_models.DossierCandidate
+        for candidate in session.exec(select(model).where(
+            model.item_id == redundant_id, *self._build_filters(model, where),
+        )).all():
+            existing = session.exec(select(model).where(
+                model.item_id == survivor_id, model.normalized_name == candidate.normalized_name,
+                *self._build_filters(model, where),
+            )).first()
+            if existing is not None and self._candidate_resolutions_conflict(existing, candidate):
+                return True
+        return False
+
     def update_item(
         self,
         *,
@@ -836,11 +856,7 @@ WHERE version = 1 AND model IN ({placeholders})
                     candidate.updated_at = now
                     session.add(candidate)
                 else:
-                    if (
-                        existing.resolved_category_id
-                        and candidate.resolved_category_id
-                        and existing.resolved_category_id != candidate.resolved_category_id
-                    ):
+                    if self._candidate_resolutions_conflict(existing, candidate):
                         raise ValueError("Merged dossier candidates resolve to different categories")
                     if existing.resolved_category_id is None and candidate.resolved_category_id is not None:
                         existing.resolved_category_id = candidate.resolved_category_id
