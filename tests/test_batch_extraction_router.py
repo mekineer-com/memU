@@ -568,7 +568,7 @@ async def test_resume_segment_reads_original_rows_and_skips_completed_dedupe(mon
     monkeypatch.setattr(service, "_memorize_persist_and_index", review)
     list_items = store.memory_item_repo.list_items
     monkeypatch.setattr(store.memory_item_repo, "list_items", lambda *args, **kwargs:
-        dict(reversed(list(list_items(*args, **kwargs).items()))))
+        dict(sorted(list_items(*args, **kwargs).items(), key=lambda row: row[1].memory_ref, reverse=True)))
     await service.resume_memorize_segment(
         segment_id="segment", phase=phase, user=scope,
         on_dedupe_complete=lambda _session: None, enforce_input_budget=True,
