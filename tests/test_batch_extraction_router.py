@@ -1,4 +1,6 @@
 import json
+import asyncio
+import sqlite3
 from datetime import UTC, date, datetime
 from types import SimpleNamespace
 
@@ -6,7 +8,7 @@ import pytest
 
 from memu.app import memorize_parsing as parsing
 from memu.app import memorize_segments
-from memu.app.memorize import SpeakerRosterEntry
+from memu.app.memorize import SpeakerRosterEntry, StructuredMemoryEntry
 from memu.app.service import MemoryService
 
 
@@ -240,23 +242,12 @@ async def test_persist_plan_uses_short_episode_summary_as_item(
 ) -> None:
     service = _service()
     monkeypatch.setattr(service, "file_category_proposals", lambda **_kwargs: ([], []))
-    created_items: list[dict[str, object]] = []
-
-    async def _resource(**_kwargs):
-        return SimpleNamespace(id="res1", embedding=[0.1])
-
-    class _MemoryItemRepo:
-        def create_item(self, **kwargs):
-            created_items.append(kwargs)
-            return SimpleNamespace(id="episode1", summary=kwargs["summary"])
-
-    monkeypatch.setattr(service, "_create_resource_with_caption", _resource)
     embed_client = _EmbedStub()
+    monkeypatch.setattr(service, "_select_embedding_client", lambda _ctx: embed_client)
     happened_at = datetime(2026, 1, 2, 10, tzinfo=UTC)
-    relations: list[object] = []
 
-    await service._process_plan(
-        {
+    state = await service._memorize_categorize_items({
+        "segment_plans": [{
             "resource_url": "memory://episode",
             "text": "conversation",
             "caption": None,
@@ -273,30 +264,22 @@ async def test_persist_plan_uses_short_episode_summary_as_item(
             "segment_id": "chat:0-1",
             "message_indices": [2, 4],
             "segment_messages": [],
-        },
-        modality="conversation",
-        local_path=None,
-        ctx=SimpleNamespace(),
-        store=SimpleNamespace(
-            memory_item_repo=_MemoryItemRepo(),
-        ),
-        embed_client=embed_client,
-        user_scope={},
-        conversation_id="chat",
-        items=[],
-        relations=relations,
-        pending_segment_ids=[],
-    )
+        }],
+        "modality": "conversation", "local_path": None,
+        "store": service.database, "user": {"user_id": "TestOwner", "soul_id": "TestSoul"}, "conversation_id": "chat",
+    }, SimpleNamespace())
 
-    assert created_items
-    assert created_items[0]["summary"] == "Anchor: Full short story."
-    assert created_items[0]["embedding"] == [1.0, 1.0]
-    assert created_items[0]["extra"]["episode_summary"] == "Full short story."
-    assert created_items[0]["extra"]["episode_categories"] == ["Unmatched proposal"]
-    assert created_items[0]["extra"]["memory_date"] == "2026-01-02"
-    assert created_items[0]["happened_at"] == happened_at
-    assert created_items[0]["source_message_ids"] == [2, 4]
-    assert relations == []
+    item = service.database.memory_item_repo.list_items(
+        {"user_id": "TestOwner", "soul_id": "TestSoul"},
+    )[state["items"][0].id]
+    assert item.summary == "Anchor: Full short story."
+    assert item.embedding == [1.0, 1.0]
+    assert item.extra["episode_summary"] == "Full short story."
+    assert item.extra["episode_categories"] == ["Unmatched proposal"]
+    assert item.extra["memory_date"] == "2026-01-02"
+    assert item.happened_at == happened_at.replace(tzinfo=None)
+    assert item.source_message_ids == [2, 4]
+    assert state["relations"] == []
     assert embed_client.payloads == [["Anchor: Full short story."]]
 
 
@@ -306,23 +289,13 @@ async def test_episode_items_use_their_own_embeddings(
 ) -> None:
     service = _service()
     monkeypatch.setattr(service, "file_category_proposals", lambda **_kwargs: ([], []))
-    created_items: list[dict[str, object]] = []
-
-    async def _resource(**_kwargs):
-        return SimpleNamespace(id="res1", embedding=[99.0, 99.0])
-
-    class _MemoryItemRepo:
-        def create_item(self, **kwargs):
-            created_items.append(kwargs)
-            return SimpleNamespace(id=f"episode-{len(created_items)}", summary=kwargs["summary"])
-
-    monkeypatch.setattr(service, "_create_resource_with_caption", _resource)
     embed_client = _EmbedStub()
+    monkeypatch.setattr(service, "_select_embedding_client", lambda _ctx: embed_client)
     first_day = datetime(2026, 1, 2, 10, tzinfo=UTC)
     second_day = datetime(2026, 1, 3, 10, tzinfo=UTC)
 
-    await service._process_plan(
-        {
+    state = await service._memorize_categorize_items({
+        "segment_plans": [{
             "resource_url": "memory://episode",
             "text": "conversation",
             "caption": "whole segment",
@@ -344,35 +317,29 @@ async def test_episode_items_use_their_own_embeddings(
             },
             "segment_id": "chat:0-1",
             "segment_messages": [],
-        },
-        modality="conversation",
-        local_path=None,
-        ctx=SimpleNamespace(),
-        store=SimpleNamespace(
-            memory_item_repo=_MemoryItemRepo(),
-        ),
-        embed_client=embed_client,
-        user_scope={},
-        conversation_id="chat",
-        items=[],
-        relations=[],
-        pending_segment_ids=[],
-    )
+        }],
+        "modality": "conversation", "local_path": None,
+        "store": service.database, "user": {"user_id": "TestOwner", "soul_id": "TestSoul"}, "conversation_id": "chat",
+    }, SimpleNamespace())
+    rows = service.database.memory_item_repo.list_items({"user_id": "TestOwner", "soul_id": "TestSoul"})
+    created_items = [rows[item.id] for item in state["items"]]
 
-    assert [item["summary"] for item in created_items] == [
+    assert [item.summary for item in created_items] == [
         "Choice: A compact choice.",
         "Discovery: A compact discovery.",
     ]
-    assert [item["embedding"] for item in created_items] == [[1.0, 1.0], [2.0, 1.0]]
-    assert embed_client.payloads == [[
+    assert [item.embedding for item in created_items] == [[1.0, 1.0], [2.0, 1.0]]
+    assert embed_client.payloads == [["whole segment"], [
         "Choice: A compact choice.",
         "Discovery: A compact discovery.",
     ]]
-    assert [item["extra"]["episode_summary"] for item in created_items] == [
+    assert [item.extra["episode_summary"] for item in created_items] == [
         "A fuller account of a choice.",
         "A fuller account of a discovery.",
     ]
-    assert [item["happened_at"] for item in created_items] == [first_day, second_day]
+    assert [item.happened_at for item in created_items] == [
+        first_day.replace(tzinfo=None), second_day.replace(tzinfo=None),
+    ]
 
 
 @pytest.mark.asyncio
@@ -386,17 +353,8 @@ async def test_persist_plan_keeps_segment_local_path_without_flattened_copy(
     local_path = tmp_path / "st_chats" / "chat" / "segments" / "2026-01-01.json"
     local_path.parent.mkdir(parents=True)
     local_path.write_text("[]", encoding="utf-8")
-    captured: dict[str, object] = {}
-    create_resource = service._create_resource_with_caption
-
-    async def _resource(**kwargs):
-        captured.update(kwargs)
-        return await create_resource(**kwargs)
-
-    monkeypatch.setattr(service, "_create_resource_with_caption", _resource)
-
-    await service._process_plan(
-        {
+    state = await service._memorize_categorize_items({
+        "segment_plans": [{
             "resource_url": str(local_path),
             "text": "conversation",
             "caption": None,
@@ -410,22 +368,14 @@ async def test_persist_plan_keeps_segment_local_path_without_flattened_copy(
             },
             "segment_id": "chat:0-1",
             "segment_messages": [{"role": "user", "content": "primary"}],
-        },
-        modality="conversation",
-        local_path=str(local_path),
-        ctx=SimpleNamespace(),
-        store=service.database,
-        embed_client=SimpleNamespace(),
-        user_scope={},
-        conversation_id="chat",
-        items=[],
-        relations=[],
-        pending_segment_ids=[],
-    )
+        }],
+        "modality": "conversation", "local_path": str(local_path),
+        "store": service.database, "user": {}, "conversation_id": "chat",
+    }, SimpleNamespace())
 
-    assert captured["local_path"] == str(local_path)
-    assert captured["source_start_day"] == date(2026, 1, 1)
-    assert captured["source_end_day"] == date(2026, 1, 3)
+    assert state["resources"][0].local_path == str(local_path)
+    assert state["resources"][0].source_start_day == date(2026, 1, 1)
+    assert state["resources"][0].source_end_day == date(2026, 1, 3)
     repo = service.database.resource_repo
     resource = next(iter(repo.resources.values()))
     # Reusing a Resource without new bounds must retain its source dates.
@@ -441,10 +391,8 @@ async def test_persist_plan_keeps_segment_local_path_without_flattened_copy(
 @pytest.mark.asyncio
 async def test_context_only_plan_creates_nothing() -> None:
     service = _service()
-    pending_segment_ids: list[str] = []
-
-    resources, item_count = await service._process_plan(
-        {
+    state = await service._memorize_categorize_items({
+        "segment_plans": [{
             "resource_url": "memory://background",
             "text": "background context",
             "caption": None,
@@ -452,22 +400,104 @@ async def test_context_only_plan_creates_nothing() -> None:
             "entries": [],
             "segment_id": "background:0-1",
             "context_only": True,
-        },
-        modality="conversation",
-        local_path=None,
-        ctx=SimpleNamespace(),
-        store=SimpleNamespace(),
-        embed_client=SimpleNamespace(),
-        user_scope={},
-        conversation_id="background",
-        items=[],
-        relations=[],
-        pending_segment_ids=pending_segment_ids,
-    )
+        }],
+        "modality": "conversation", "local_path": None,
+        "store": service.database, "user": {}, "conversation_id": "background",
+    }, SimpleNamespace())
 
-    assert resources == []
-    assert item_count == 0
-    assert pending_segment_ids == []
+    assert state["resources"] == []
+    assert state["items"] == []
+    assert state["pending_segment_ids"] == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("file_backed", [True, False])
+@pytest.mark.parametrize("failure", [None, "preparation", "publication"])
+async def test_categorize_prepares_without_write_lock_and_publishes_atomically(
+    tmp_path, monkeypatch, file_backed, failure,
+):
+    path = tmp_path / "fictional.db"
+    service = MemoryService(
+        blob_config={"resources_dir": str(tmp_path / "resources")},
+        database_config={"metadata_store": {"provider": "sqlite",
+            "dsn": f"sqlite:///{path}" if file_backed else "sqlite:///:memory:"}},
+        memorize_config={"enable_confidence_normalization": True},
+    )
+    store = service.database
+    scope = {"user_id": "TestOwner", "soul_id": "TestSoul"}
+    old = store.memory_item_repo.create_item(
+        memory_type="knowledge", summary="Old garden plan", embedding=[1.0, 0.0], user_data=scope,
+    )
+    with store._sessions.session() as session:
+        session.connection().exec_driver_sql("CREATE TABLE checkpoint (value INTEGER)")
+        session.commit()
+    entries = [StructuredMemoryEntry(
+        memory_type="knowledge", content=text, categories=[], source_role=None,
+        confidence=0.8, source_message_ids=[0], reflection_salience=0.7,
+        replaces_previous_fact="Old garden plan", memory_date="2026-01-02",
+        entities=[{"name": "Fictional Garden", "type": "place"}],
+    ) for text in ["New garden plan", "Another garden detail"]]
+    payloads = []
+
+    class Embed:
+        async def embed(self, texts):
+            payloads.append(texts)
+            await asyncio.sleep(0)
+            if file_backed:
+                # A synchronous competitor would block the holder's event loop in the old flow.
+                with sqlite3.connect(path, timeout=0.08) as conn:
+                    conn.execute("INSERT INTO checkpoint VALUES (0)")
+            if texts == [entry.content for entry in entries] and failure == "preparation":
+                raise RuntimeError("preparation failed")
+            return [[1.0, 0.0] for _ in texts]
+
+    monkeypatch.setattr(service, "_select_embedding_client", lambda _ctx: Embed())
+    monkeypatch.setattr(service, "_normalize_confidence", lambda rows: [
+        entry._replace(confidence=0.3) for entry in rows
+    ])
+    def saved(session, url, pending):
+        assert url == "memory://prepared" and pending == ["chat:0-1"]
+        session.connection().exec_driver_sql("INSERT INTO checkpoint VALUES (1)")
+        if failure == "publication":
+            raise RuntimeError("publication failed")
+
+    state = {
+        "segment_plans": [{"resource_url": "memory://prepared", "text": "A fictional conversation",
+            "caption": "Segment caption", "segment_id": "chat:0-1", "entries": entries,
+            "extract_model": "fictional-model", "source_day_happened_at": {
+                "2026-01-02": datetime(2026, 1, 2, tzinfo=UTC)}, "episodes": [{
+                "title": "Garden", "summary": "A garden story", "item": "A garden plan",
+                "categories": [], "day": "2026-01-02"}]}],
+        "modality": "conversation", "local_path": None, "store": store,
+        "user": scope, "conversation_id": "chat", "on_segment_saved": saved,
+    }
+    if failure:
+        with pytest.raises(RuntimeError, match=f"{failure} failed"):
+            await service._memorize_categorize_items(state, {})
+    else:
+        await service._memorize_categorize_items(state, {})
+    rows = store.memory_item_repo.list_items(scope, include_superseded=True)
+    resources = store.resource_repo.list_resources(scope)
+    with store._sessions.session() as session:
+        assert session.connection().exec_driver_sql(
+            "SELECT count(*) FROM checkpoint WHERE value = 1",
+        ).scalar_one() == (0 if failure else 1)
+    assert len(resources) == (0 if failure else 1)
+    assert len(rows) == (1 if failure else 4)
+    assert len({item.memory_ref for item in rows.values()}) == len(rows)
+    assert payloads[:3] == [["Segment caption"], ["Garden: A garden plan"], [entry.content for entry in entries]]
+    if failure == "preparation":
+        assert not (tmp_path / "resources" / "prepared.txt").exists()
+    if not failure:
+        episode, first, second = state["items"]
+        assert episode.memory_ref < first.memory_ref < second.memory_ref
+        assert first.summary == "I have a faint suspicion that new garden plan"
+        assert first.embedding == [1.0, 0.0] and first.extra["model"] == "fictional-model"
+        assert payloads[-1] == ["Old garden plan", "Old garden plan"]
+        edges = store.triple_repo.get_edges_from(old.id, "evolved_into", where=scope)
+        assert len(edges) == 1 and edges[0].object_id == first.id
+        assert store.triple_repo.get_edges_from(first.id, "mentions", where=scope)
+    store.close()
 
 
 @pytest.mark.asyncio

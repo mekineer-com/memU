@@ -998,47 +998,22 @@ class MemorizeMixin:
         )
         return existing, linked
 
-    async def _process_plan(
+    async def _prepare_plan(
         self,
         plan: dict[str, Any],
         *,
         modality: str,
         local_path: str | None,
-        ctx: Any,
         store: Any,
         embed_client: Any,
         user_scope: dict[str, Any],
         conversation_id: str | None,
-        items: list[MemoryItem],
-        relations: list[CategoryItem],
-        candidate_work: list[Any] | None = None,
-        pending_segment_ids: list[str],
-        session: Any = None,
-    ) -> tuple[list[Resource], int]:
+    ) -> dict[str, Any]:
         if plan.get("context_only"):
-            return [], 0
+            return {}
 
-        kwargs: dict[str, Any] = {}
-        if session is not None:
-            kwargs["session"] = session
-
-        episode_local_path = local_path or str(plan["resource_url"])
-        segment_messages = plan.get("segment_messages") or []
-        if (
-            modality in {"conversation", "text", "document"}
-            and not segment_messages
-            and isinstance(plan.get("text"), str)
-            and plan["text"].strip()
-        ):
-            episode_file = pathlib.Path(self.fs.base) / f"{pathlib.Path(plan['resource_url']).stem}.txt"
-            episode_file.parent.mkdir(parents=True, exist_ok=True)
-            episode_file.write_text(plan["text"], encoding="utf-8")
-            episode_local_path = str(episode_file)
-
-        segment_id = str(plan.get("segment_id") or "").strip() or None
         source_day_happened_at = plan.get("source_day_happened_at")
         raw_episodes = plan.get("episodes") or []
-        item_proposals: list[tuple[MemoryItem, Sequence[str]]] = []
         if raw_episodes:
             if not isinstance(source_day_happened_at, Mapping):
                 raise ValueError("episode plan missing source day map")
@@ -1050,38 +1025,98 @@ class MemorizeMixin:
         linked: dict[str, MemoryItem] = {}
         if modality == "image":
             existing_resource, linked = self._image_retry_state(
-                store,
-                user_scope,
-                str(plan["resource_url"]),
-                plan.get("caption"),
+                store, user_scope, str(plan["resource_url"]), plan.get("caption"),
             )
+        prepared: dict[str, Any] = {"existing_resource": existing_resource, "linked": linked}
+        if existing_resource is not None and linked:
+            return prepared
+
+        episode_local_path = local_path or str(plan["resource_url"])
+        if (
+            modality in {"conversation", "text", "document"}
+            and not plan.get("segment_messages")
+            and isinstance(plan.get("text"), str)
+            and plan["text"].strip()
+        ):
+            episode_local_path = str(pathlib.Path(self.fs.base) / f"{pathlib.Path(plan['resource_url']).stem}.txt")
+        if existing_resource is None:
+            source_days = sorted(source_day_happened_at or {}) if modality == "conversation" else []
+            prepared["resource_kwargs"] = await persistence._prepare_resource_with_caption(
+                resource_url=plan["resource_url"],
+                modality=modality,
+                local_path=episode_local_path,
+                caption=plan.get("caption"),
+                embed_client=embed_client,
+                select_embedding_client=self._select_embedding_client,
+                user=user_scope,
+                segment_id=str(plan.get("segment_id") or "").strip() or None,
+                conversation_id=conversation_id,
+                source_start_day=date.fromisoformat(source_days[0]) if source_days else None,
+                source_end_day=date.fromisoformat(source_days[-1]) if source_days else None,
+                memory_retrieve_history=plan.get("memory_retrieve_history"),
+                memory_prior_context=plan.get("memory_prior_context"),
+            )
+        episode_texts = [f"{str(row['title']).strip()}: {str(row['item']).strip()}" for row in raw_episodes]
+        prepared["episode_texts"] = episode_texts
+        prepared["episode_embeddings"] = await embed_client.embed(episode_texts) if episode_texts else []
+        # Supersede lookup is the final await; the caller saves synchronously next.
+        prepared["items"] = await persistence._prepare_memory_items(
+            structured_entries=plan.get("entries") or [],
+            store=store,
+            embed_client=embed_client,
+            user=user_scope,
+            enable_confidence_normalization=self.memorize_config.enable_confidence_normalization,
+            normalize_confidence=self._normalize_confidence,
+            find_supersede_targets=self._find_supersede_targets,
+        )
+        return prepared
+
+    def _process_plan(
+        self,
+        plan: dict[str, Any],
+        *,
+        modality: str,
+        store: Any,
+        prepared: dict[str, Any],
+        user_scope: dict[str, Any],
+        conversation_id: str | None,
+        items: list[MemoryItem],
+        relations: list[CategoryItem],
+        candidate_work: list[Any] | None = None,
+        pending_segment_ids: list[str],
+        session: Any,
+    ) -> tuple[list[Resource], int]:
+        if plan.get("context_only"):
+            return [], 0
+
+        segment_messages = plan.get("segment_messages") or []
+        if (
+            modality in {"conversation", "text", "document"}
+            and not segment_messages
+            and isinstance(plan.get("text"), str)
+            and plan["text"].strip()
+        ):
+            episode_file = pathlib.Path(self.fs.base) / f"{pathlib.Path(plan['resource_url']).stem}.txt"
+            episode_file.parent.mkdir(parents=True, exist_ok=True)
+            episode_file.write_text(plan["text"], encoding="utf-8")
+
+        segment_id = str(plan.get("segment_id") or "").strip() or None
+        source_day_happened_at = plan.get("source_day_happened_at")
+        raw_episodes = plan.get("episodes") or []
+        item_proposals: list[tuple[MemoryItem, Sequence[str]]] = []
+        existing_resource = prepared["existing_resource"]
+        linked = prepared["linked"]
         if existing_resource is not None and linked:
             items.extend(linked.values())
             return [existing_resource], 0
 
         res = existing_resource
         if res is None:
-            source_days = sorted(source_day_happened_at or {}) if modality == "conversation" else []
-            res = await self._create_resource_with_caption(
-                resource_url=plan["resource_url"],
-                modality=modality,
-                local_path=episode_local_path,
-                caption=plan.get("caption"),
-                store=store,
-                embed_client=embed_client,
-                user=user_scope,
-                segment_id=segment_id,
-                conversation_id=conversation_id,
-                source_start_day=date.fromisoformat(source_days[0]) if source_days else None,
-                source_end_day=date.fromisoformat(source_days[-1]) if source_days else None,
-                memory_retrieve_history=plan.get("memory_retrieve_history"),
-                memory_prior_context=plan.get("memory_prior_context"),
-                **kwargs,
-            )
+            res = store.resource_repo.create_resource(**prepared["resource_kwargs"], session=session)
 
         if raw_episodes:
-            episode_texts = [f"{str(row['title']).strip()}: {str(row['item']).strip()}" for row in raw_episodes]
-            episode_embeddings = await embed_client.embed(episode_texts)
+            episode_texts = prepared["episode_texts"]
+            episode_embeddings = prepared["episode_embeddings"]
             for row, full_item, episode_embedding in zip(raw_episodes, episode_texts, episode_embeddings, strict=True):
                 title = str(row["title"]).strip()
                 episode_summary = str(row["summary"]).strip()
@@ -1109,12 +1144,12 @@ class MemorizeMixin:
                     source_message_ids=list(plan.get("message_indices") or []),
                     happened_at=happened_at_value,
                     extra=extra_payload,
-                    **({"session": session} if session is not None else {}),
+                    session=session,
                 )
                 items.append(summary_item)
                 item_proposals.append((summary_item, episode_categories))
 
-        entries = plan.get("entries") or []
+        entries, item_embeddings, supersede_targets = prepared["items"]
         if segment_id:
             pending_segment_ids.append(segment_id)
         if not entries:
@@ -1129,20 +1164,19 @@ class MemorizeMixin:
                 candidate_work.extend(candidates)
             return [res], 0
 
-        persist_kwargs: dict[str, Any] = {}
-        if session is not None:
-            persist_kwargs["session"] = session
-        mem_items, homeless_delta = await self._persist_memory_items(
+        mem_items, homeless_delta = persistence._persist_memory_items(
             resource_id=res.id,
             structured_entries=entries,
             store=store,
-            embed_client=embed_client,
+            item_embeddings=item_embeddings,
+            supersede_targets=supersede_targets,
             user=user_scope,
             conversation_id=conversation_id,
             segment_id=segment_id,
             extract_model=str(plan.get("extract_model") or "").strip() or None,
             source_day_happened_at=source_day_happened_at,
-            **persist_kwargs,
+            session=session,
+            hedge_summary_for_confidence=self._hedge_summary_for_confidence,
         )
         items.extend(mem_items)
         item_proposals.extend(
@@ -1162,7 +1196,6 @@ class MemorizeMixin:
 
     async def _memorize_categorize_items(self, state: WorkflowState, step_context: Any) -> WorkflowState:
         embed_client = self._select_embedding_client(step_context)
-        ctx = state["ctx"]
         store = state["store"]
         modality = state["modality"]
         local_path = state["local_path"]
@@ -1176,10 +1209,7 @@ class MemorizeMixin:
 
         common = dict(
             modality=modality,
-            local_path=local_path,
-            ctx=ctx,
             store=store,
-            embed_client=embed_client,
             user_scope=user_scope,
             conversation_id=state.get("conversation_id"),
             items=items,
@@ -1188,26 +1218,27 @@ class MemorizeMixin:
             pending_segment_ids=pending_segment_ids,
         )
 
-        session_cm = self._sqlite_write_session(store)
-        if session_cm is not None:
-            with session_cm as session:
-                try:
-                    for plan in state.get("segment_plans", []):
-                        plan_resources, delta = await self._process_plan(plan, session=session, **common)
-                        resources.extend(plan_resources)
-                        homeless_item_count += delta
-                    on_saved = state.get("on_segment_saved")
-                    if on_saved is not None and resources:
-                        on_saved(session, state["segment_plans"][0]["resource_url"], pending_segment_ids)
-                    session.commit()
-                except Exception:
-                    session.rollback()
-                    raise
-        else:
-            for plan in state.get("segment_plans", []):
-                plan_resources, delta = await self._process_plan(plan, **common)
-                resources.extend(plan_resources)
-                homeless_item_count += delta
+        prepared_plans = [
+            await self._prepare_plan(
+                plan, modality=modality, local_path=local_path, store=store,
+                embed_client=embed_client, user_scope=user_scope,
+                conversation_id=state.get("conversation_id"),
+            )
+            for plan in state.get("segment_plans", [])
+        ]
+        with store._sessions.session() as session:
+            try:
+                for plan, prepared in zip(state.get("segment_plans", []), prepared_plans, strict=True):
+                    plan_resources, delta = self._process_plan(plan, prepared=prepared, session=session, **common)
+                    resources.extend(plan_resources)
+                    homeless_item_count += delta
+                on_saved = state.get("on_segment_saved")
+                if on_saved is not None and resources:
+                    on_saved(session, state["segment_plans"][0]["resource_url"], pending_segment_ids)
+                session.commit()
+            except Exception:
+                session.rollback()
+                raise
 
         state.update({
             "resources": resources,
@@ -1780,40 +1811,6 @@ class MemorizeMixin:
             proposed_embedding=proposed_embedding,
             near_duplicate_threshold=near_duplicate_threshold,
         )
-
-    async def _persist_memory_items(
-        self,
-        *,
-        resource_id: str,
-        structured_entries: list[StructuredMemoryEntry],
-        store: Database,
-        embed_client: Any | None = None,
-        user: Mapping[str, Any] | None = None,
-        conversation_id: str | None = None,
-        segment_id: str | None = None,
-        extract_model: str | None = None,
-        source_day_happened_at: Mapping[str, Any] | None = None,
-        session: Any | None = None,
-    ) -> tuple[list[MemoryItem], int]:
-        items, homeless_count = await persistence._persist_memory_items(
-            resource_id=resource_id,
-            structured_entries=cast(list[Any], structured_entries),
-            store=store,
-            embed_client=embed_client or self._select_embedding_client(
-                {"operation": "memorize", "step_id": "persist_memory_items"}
-            ),
-            user=user,
-            conversation_id=conversation_id,
-            segment_id=segment_id,
-            extract_model=extract_model,
-            source_day_happened_at=source_day_happened_at,
-            session=session,
-            enable_confidence_normalization=self.memorize_config.enable_confidence_normalization,
-            normalize_confidence=lambda entries: cast(list[Any], self._normalize_confidence(cast(list[StructuredMemoryEntry], entries))),
-            find_supersede_targets=self._find_supersede_targets,
-            hedge_summary_for_confidence=self._hedge_summary_for_confidence,
-        )
-        return cast(list[MemoryItem], items), homeless_count
 
     def _supersede_similarity_threshold(self) -> float:
         return dedupe._supersede_similarity_threshold(

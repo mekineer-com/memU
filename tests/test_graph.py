@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 from pydantic import BaseModel
 
-from memu.app import category_summary_journal, memorize_persistence
+from memu.app import category_summary_journal
 from memu.app.dossier import DossierRevisionStaleError
 from memu.app.graph import (
     DossierMembershipConflictError,
@@ -675,25 +675,14 @@ def test_memorize_does_not_add_mentions_to_ignored_entity():
         async def embed(self, texts):
             return [[0.1] for _text in texts]
 
-    async def no_supersede(**_kwargs):
-        return {}
-
-    items, _ = asyncio.run(memorize_persistence._persist_memory_items(
-        resource_id="segment-1",
-        structured_entries=[entry],
-        store=store,
-        embed_client=_Embed(),
-        user=scope,
-        conversation_id=None,
-        segment_id="segment-1",
-        extract_model=None,
-        source_day_happened_at=None,
-        session=None,
-        enable_confidence_normalization=False,
-        normalize_confidence=lambda entries: entries,
-        find_supersede_targets=no_supersede,
-        hedge_summary_for_confidence=lambda summary, _confidence: summary,
-    ))
+    service._llm_clients["embedding"] = _Embed()
+    entry.replaces_previous_fact = None
+    state = asyncio.run(service._memorize_categorize_items({
+        "segment_plans": [{"resource_url": "memory://ignored", "entries": [entry], "segment_id": "segment-1"}],
+        "modality": "conversation", "local_path": None,
+        "store": store, "user": scope,
+    }, {}))
+    items = state["items"]
 
     assert len(items) == 1
     assert store.entity_repo.get_or_create("Recurring Noise", "topic", scope).id == entity.id

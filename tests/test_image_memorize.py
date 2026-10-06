@@ -272,38 +272,22 @@ async def test_completed_image_resource_retry_creates_no_second_item(tmp_path: P
     )
     assert [row["id"] for row in public["items"]] == [item.id]
 
-    items = []
-    resources, homeless = await service._process_plan(
-        {"resource_url": resource.url, "text": "A caption.", "caption": "A caption.", "entries": []},
-        modality="image",
-        local_path=resource.local_path,
-        ctx=None,
-        store=store,
-        embed_client=FailClient(),
-        user_scope=scope,
-        conversation_id="mentra:phone",
-        items=items,
-        relations=[],
-        pending_segment_ids=[],
-    )
-    assert resources[0].id == resource.id
-    assert [row.id for row in items] == [item.id]
-    assert homeless == 0
+    service._llm_clients["embedding"] = FailClient()
+    state = await service._memorize_categorize_items({
+        "segment_plans": [{"resource_url": resource.url, "text": "A caption.", "caption": "A caption.", "entries": []}],
+        "modality": "image", "local_path": resource.local_path,
+        "store": store, "user": scope, "conversation_id": "mentra:phone",
+    }, {})
+    assert state["resources"][0].id == resource.id
+    assert [row.id for row in state["items"]] == [item.id]
+    assert state["homeless_item_count"] == 0
 
     with pytest.raises(ValueError, match="caption conflicts"):
-        await service._process_plan(
-            {"resource_url": resource.url, "text": "Different.", "caption": "Different.", "entries": []},
-            modality="image",
-            local_path=resource.local_path,
-            ctx=None,
-            store=store,
-            embed_client=FailClient(),
-            user_scope=scope,
-            conversation_id="mentra:phone",
-            items=[],
-            relations=[],
-            pending_segment_ids=[],
-        )
+        await service._memorize_categorize_items({
+            "segment_plans": [{"resource_url": resource.url, "text": "Different.", "caption": "Different.", "entries": []}],
+            "modality": "image", "local_path": resource.local_path,
+            "store": store, "user": scope, "conversation_id": "mentra:phone",
+        }, {})
 
 
 @pytest.mark.asyncio
@@ -320,24 +304,18 @@ async def test_unlinked_image_resource_retry_reuses_resource(tmp_path: Path) -> 
         user_data=scope,
     )
 
-    async def fail_create(**_kwargs):
-        raise AssertionError("retry must reuse the unlinked Resource")
+    class FailClient:
+        async def embed_media(self, *_args):
+            raise AssertionError("retry must not embed the saved media again")
 
-    service._create_resource_with_caption = fail_create
-    resources, _ = await service._process_plan(
-        {"resource_url": resource.url, "text": "A caption.", "caption": "A caption.", "entries": []},
-        modality="image",
-        local_path=resource.local_path,
-        ctx=None,
-        store=store,
-        embed_client=object(),
-        user_scope=scope,
-        conversation_id="mentra:phone",
-        items=[],
-        relations=[],
-        pending_segment_ids=[],
-    )
-    assert [row.id for row in resources] == [resource.id]
+    service._llm_clients["embedding"] = FailClient()
+    state = await service._memorize_categorize_items({
+        "segment_plans": [{"resource_url": resource.url, "text": "A caption.", "caption": "A caption.", "entries": []}],
+        "modality": "image", "local_path": resource.local_path,
+        "store": store, "user": scope, "conversation_id": "mentra:phone",
+    }, {})
+    assert [row.id for row in state["resources"]] == [resource.id]
+    assert list(store.resource_repo.list_resources(where=scope)) == [resource.id]
 
 
 def test_merged_only_image_lineage_is_not_complete(tmp_path: Path) -> None:

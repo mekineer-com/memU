@@ -19,13 +19,12 @@ def _resolve_entry_happened_at(
     return source_day_happened_at.get(memory_date)
 
 
-async def _create_resource_with_caption(
+async def _prepare_resource_with_caption(
     *,
     resource_url: str,
     modality: str,
     local_path: str,
     caption: str | None,
-    store: Any,
     embed_client: Any | None,
     select_embedding_client: Callable[..., Any],
     user: Mapping[str, Any] | None,
@@ -33,10 +32,9 @@ async def _create_resource_with_caption(
     conversation_id: str | None,
     memory_retrieve_history: list[str] | None,
     memory_prior_context: list[str] | None,
-    session: Any | None,
     source_start_day: date | None = None,
     source_end_day: date | None = None,
-) -> Any:
+) -> dict[str, Any]:
     caption_text = caption.strip() if caption else None
     if modality in {"image", "audio", "video"}:
         mime_type = mimetypes.guess_type(local_path)[0]
@@ -72,6 +70,11 @@ async def _create_resource_with_caption(
         resource_kwargs["memory_retrieve_history"] = memory_retrieve_history
     if memory_prior_context:
         resource_kwargs["memory_prior_context"] = memory_prior_context
+    return resource_kwargs
+
+
+async def _create_resource_with_caption(*, store: Any, session: Any | None, **kwargs: Any) -> Any:
+    resource_kwargs = await _prepare_resource_with_caption(**kwargs)
     if session is not None:
         return store.resource_repo.create_resource(**resource_kwargs, session=session)
     return store.resource_repo.create_resource(**resource_kwargs)
@@ -87,37 +90,48 @@ def _sqlite_write_session(store: Any) -> Any | None:
     return None
 
 
-async def _persist_memory_items(
+async def _prepare_memory_items(
     *,
-    resource_id: str,
     structured_entries: list[Any],
     store: Any,
     embed_client: Any,
     user: Mapping[str, Any] | None,
-    conversation_id: str | None,
-    segment_id: str | None,
-    extract_model: str | None,
-    source_day_happened_at: Mapping[str, Any] | None,
-    session: Any | None,
     enable_confidence_normalization: bool,
     normalize_confidence: Callable[[list[Any]], list[Any]],
     find_supersede_targets: Callable[..., Awaitable[dict[int, str]]],
-    hedge_summary_for_confidence: Callable[[str, float | None], str],
-) -> tuple[list[Any], int]:
+) -> tuple[list[Any], list[list[float]], dict[int, str]]:
     summary_payloads = [entry.content for entry in structured_entries]
     item_embeddings = await embed_client.embed(summary_payloads) if summary_payloads else []
-    items: list[Any] = []
-    superseded_targets: set[str] = set()
 
     if enable_confidence_normalization:
         structured_entries = normalize_confidence(structured_entries)
-    homeless_count = sum(1 for entry in structured_entries if not entry.categories)
     supersede_targets = await find_supersede_targets(
         structured_entries=structured_entries,
         store=store,
         embed_client=embed_client,
         user=user,
     )
+    return structured_entries, item_embeddings, supersede_targets
+
+
+def _persist_memory_items(
+    *,
+    resource_id: str,
+    structured_entries: list[Any],
+    item_embeddings: list[list[float]],
+    supersede_targets: dict[int, str],
+    store: Any,
+    user: Mapping[str, Any] | None,
+    conversation_id: str | None,
+    segment_id: str | None,
+    extract_model: str | None,
+    source_day_happened_at: Mapping[str, Any] | None,
+    session: Any,
+    hedge_summary_for_confidence: Callable[[str, float | None], str],
+) -> tuple[list[Any], int]:
+    items: list[Any] = []
+    superseded_targets: set[str] = set()
+    homeless_count = sum(1 for entry in structured_entries if not entry.categories)
     normalized_extract_model = str(extract_model or "").strip() or None
     for idx, (entry, emb) in enumerate(zip(structured_entries, item_embeddings, strict=True)):
         resolved_summary = hedge_summary_for_confidence(entry.content, entry.confidence)
@@ -140,10 +154,7 @@ async def _persist_memory_items(
         }
         if normalized_extract_model is not None:
             item_kwargs["extra"] = {"model": normalized_extract_model}
-        if session is not None:
-            item = store.memory_item_repo.create_item(**item_kwargs, session=session)
-        else:
-            item = store.memory_item_repo.create_item(**item_kwargs)
+        item = store.memory_item_repo.create_item(**item_kwargs, session=session)
         items.append(item)
         if entry.entities:
             for ent_data in entry.entities:

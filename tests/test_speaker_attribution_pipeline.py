@@ -46,7 +46,6 @@ def _service() -> MemoryService:
 def test_attribution_pipeline_fills_user_and_soul_speakers_with_fallback_indices() -> None:
     service = _service()
     store = service._get_database()
-    ctx = service._get_context()
     user_data = {"user_id": "testowner", "soul_id": "testsoul"}
 
     # Simulated episode. Note the display-name mismatch: message.name="TestOwnerDisplay"
@@ -106,15 +105,15 @@ def test_attribution_pipeline_fills_user_and_soul_speakers_with_fallback_indices
     # Persist. reinforce=True by default (memorize_config). Post-39511ef:
     # persisted provenance and reflection_salience survive the reinforce branch.
     async def _persist():
-        return await service._persist_memory_items(
-            resource_id="res-1",
-            structured_entries=attributed,
-            store=store,
-            embed_client=_EmbedClient(),
-            user=user_data,
-        )
+        service._llm_clients["embedding"] = _EmbedClient()
+        state = await service._memorize_categorize_items({
+            "segment_plans": [{"resource_url": "memory://attribution", "entries": attributed}],
+            "modality": "conversation", "local_path": None,
+            "store": store, "user": user_data,
+        }, {})
+        return state["items"]
 
-    items, _ = asyncio.run(_persist())
+    items = asyncio.run(_persist())
     assert len(items) == 2
 
     loaded_user = store.memory_item_repo.get_item(items[0].id)
@@ -149,10 +148,13 @@ def test_unresolved_import_guest_is_not_attributed_to_the_soul():
         ["profile"], [response], default_source_message_ids=[0, 1], source_days=["2025-01-01"],
     )[0] for response in responses]
     attributed = [service._attribute_memory(entry, speaker_map) for entry in entries]
-    items, _ = asyncio.run(service._persist_memory_items(
-        resource_id=None, structured_entries=attributed, store=service.database,
-        embed_client=_EmbedClient(), user=scope,
-    ))
+    service._llm_clients["embedding"] = _EmbedClient()
+    state = asyncio.run(service._memorize_categorize_items({
+        "segment_plans": [{"resource_url": "memory://guest", "entries": attributed}],
+        "modality": "conversation", "local_path": None,
+        "store": service.database, "user": scope,
+    }, {}))
+    items = state["items"]
     loaded = [service.database.memory_item_repo.get_item(item.id) for item in items]
     assert loaded[0].speaker_id is None and loaded[0].speaker_label is None
     assert loaded[1].speaker_id == "soul:testsoul" and loaded[1].speaker_label == "CompanionDisplay"

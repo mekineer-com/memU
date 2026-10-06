@@ -55,10 +55,10 @@ async def test_persist_memory_items_stamps_extract_model_in_extra() -> None:
     store = _StubStore()
     entry = SimpleNamespace(
         memory_type="profile",
-        content="Marcos likes tea",
+        content="TestOwner likes tea",
         source_role="user",
-        speaker_id="user:marcos",
-        speaker_label="Marcos",
+        speaker_id="user:testowner",
+        speaker_label="TestOwner",
         confidence=0.8,
         source_message_ids=[1],
         reflection_salience=0.7,
@@ -70,20 +70,25 @@ async def test_persist_memory_items_stamps_extract_model_in_extra() -> None:
     async def _find_supersede_targets(**_kwargs: Any) -> dict[int, str]:
         return {}
 
-    items, homeless = await persistence._persist_memory_items(
+    entries, embeddings, targets = await persistence._prepare_memory_items(
+        structured_entries=[entry], store=store, embed_client=_StubEmbedClient(),
+        user={"user_id": "u1", "soul_id": "s1"},
+        enable_confidence_normalization=False,
+        normalize_confidence=lambda entries: entries,
+        find_supersede_targets=_find_supersede_targets,
+    )
+    items, homeless = persistence._persist_memory_items(
         resource_id="res-1",
-        structured_entries=[entry],
+        structured_entries=entries,
+        item_embeddings=embeddings,
+        supersede_targets=targets,
         store=store,
-        embed_client=_StubEmbedClient(),
         user={"user_id": "u1", "soul_id": "s1"},
         conversation_id="conv-1",
         segment_id="ep-1",
         extract_model="claude-opus-4-6",
         source_day_happened_at={"2026-05-22": "2026-05-22T12:00:00Z"},
         session=None,
-        enable_confidence_normalization=False,
-        normalize_confidence=lambda entries: entries,
-        find_supersede_targets=_find_supersede_targets,
         hedge_summary_for_confidence=lambda summary, _confidence: summary,
     )
 
@@ -100,10 +105,10 @@ async def test_persist_memory_items_without_extract_model_does_not_set_extra() -
     store = _StubStore()
     entry = SimpleNamespace(
         memory_type="profile",
-        content="Marcos likes tea",
+        content="TestOwner likes tea",
         source_role="user",
-        speaker_id="user:marcos",
-        speaker_label="Marcos",
+        speaker_id="user:testowner",
+        speaker_label="TestOwner",
         confidence=0.8,
         source_message_ids=[1],
         reflection_salience=0.7,
@@ -115,20 +120,25 @@ async def test_persist_memory_items_without_extract_model_does_not_set_extra() -
     async def _find_supersede_targets(**_kwargs: Any) -> dict[int, str]:
         return {}
 
-    await persistence._persist_memory_items(
+    entries, embeddings, targets = await persistence._prepare_memory_items(
+        structured_entries=[entry], store=store, embed_client=_StubEmbedClient(),
+        user={"user_id": "u1", "soul_id": "s1"},
+        enable_confidence_normalization=False,
+        normalize_confidence=lambda entries: entries,
+        find_supersede_targets=_find_supersede_targets,
+    )
+    persistence._persist_memory_items(
         resource_id="res-1",
-        structured_entries=[entry],
+        structured_entries=entries,
+        item_embeddings=embeddings,
+        supersede_targets=targets,
         store=store,
-        embed_client=_StubEmbedClient(),
         user={"user_id": "u1", "soul_id": "s1"},
         conversation_id="conv-1",
         segment_id="ep-1",
         extract_model=None,
         source_day_happened_at={"2026-05-22": "2026-05-22T12:00:00Z"},
         session=None,
-        enable_confidence_normalization=False,
-        normalize_confidence=lambda entries: entries,
-        find_supersede_targets=_find_supersede_targets,
         hedge_summary_for_confidence=lambda summary, _confidence: summary,
     )
 
