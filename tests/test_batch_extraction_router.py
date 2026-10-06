@@ -408,6 +408,8 @@ async def test_context_only_plan_creates_nothing() -> None:
     assert state["resources"] == []
     assert state["items"] == []
     assert state["pending_segment_ids"] == []
+    assert service._llm_clients["embedding"].payloads == []
+    assert service.database.resource_repo.list_resources() == {}
 
 
 @pytest.mark.asyncio
@@ -486,6 +488,7 @@ async def test_categorize_prepares_without_write_lock_and_publishes_atomically(
     assert len(rows) == (1 if failure else 4)
     assert len({item.memory_ref for item in rows.values()}) == len(rows)
     assert payloads[:3] == [["Segment caption"], ["Garden: A garden plan"], [entry.content for entry in entries]]
+    assert len(payloads) == (3 if failure == "preparation" else 4)
     if failure == "preparation":
         assert not (tmp_path / "resources" / "prepared.txt").exists()
     if not failure:

@@ -197,7 +197,6 @@ async def test_image_resource_uses_raw_bytes_and_preserves_path(tmp_path: Path) 
         conversation_id="mentra:phone",
         memory_retrieve_history=None,
         memory_prior_context=None,
-        session=None,
     )
     assert captured["media"] == (b"pixels", "image/png")
     assert captured["resource"]["local_path"] == str(image)

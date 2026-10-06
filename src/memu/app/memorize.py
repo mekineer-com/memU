@@ -737,7 +737,7 @@ class MemorizeMixin:
                 step_id="categorize_items",
                 role="categorize",
                 handler=self._memorize_categorize_items,
-                requires={"segment_plans", "ctx", "store", "local_path", "modality", "user"},
+                requires={"segment_plans", "store", "local_path", "modality", "user"},
                 produces={"resources", "items", "relations", "homeless_item_count"},
                 capabilities={"db", "vector"},
                 config={"embed_llm_profile": "embedding"},
@@ -1096,7 +1096,7 @@ class MemorizeMixin:
             and isinstance(plan.get("text"), str)
             and plan["text"].strip()
         ):
-            episode_file = pathlib.Path(self.fs.base) / f"{pathlib.Path(plan['resource_url']).stem}.txt"
+            episode_file = pathlib.Path(prepared["resource_kwargs"]["local_path"])
             episode_file.parent.mkdir(parents=True, exist_ok=True)
             episode_file.write_text(plan["text"], encoding="utf-8")
 
@@ -1342,15 +1342,8 @@ class MemorizeMixin:
         local_path: str,
         caption: str | None,
         store: Database,
-        embed_client: Any | None = None,
         user: Mapping[str, Any] | None = None,
-        segment_id: str | None = None,
         conversation_id: str | None = None,
-        source_start_day: date | None = None,
-        source_end_day: date | None = None,
-        memory_retrieve_history: list[str] | None = None,
-        memory_prior_context: list[str] | None = None,
-        session: Any | None = None,
     ) -> Resource:
         return cast(
             Resource,
@@ -1360,16 +1353,13 @@ class MemorizeMixin:
                 local_path=local_path,
                 caption=caption,
                 store=store,
-                embed_client=embed_client,
+                embed_client=None,
                 select_embedding_client=self._select_embedding_client,
                 user=user,
-                segment_id=segment_id,
+                segment_id=None,
                 conversation_id=conversation_id,
-                source_start_day=source_start_day,
-                source_end_day=source_end_day,
-                memory_retrieve_history=memory_retrieve_history,
-                memory_prior_context=memory_prior_context,
-                session=session,
+                memory_retrieve_history=None,
+                memory_prior_context=None,
             ),
         )
 

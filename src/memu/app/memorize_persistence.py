@@ -73,10 +73,8 @@ async def _prepare_resource_with_caption(
     return resource_kwargs
 
 
-async def _create_resource_with_caption(*, store: Any, session: Any | None, **kwargs: Any) -> Any:
+async def _create_resource_with_caption(*, store: Any, **kwargs: Any) -> Any:
     resource_kwargs = await _prepare_resource_with_caption(**kwargs)
-    if session is not None:
-        return store.resource_repo.create_resource(**resource_kwargs, session=session)
     return store.resource_repo.create_resource(**resource_kwargs)
 
 
