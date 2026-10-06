@@ -65,7 +65,6 @@ test = [
 
 [project.optional-dependencies]
 langgraph = ["langgraph>=0.0.10", "langchain-core>=0.1.0"]
-claude = ["claude-agent-sdk>=0.1.24"]
 
 [project.urls]
 "Homepage" = "https://github.com/NevaMind-AI/MemU"
@@ -74,10 +73,6 @@ claude = ["claude-agent-sdk>=0.1.24"]
 
 [project.scripts]
 memu-server = "memu.server.cli:main"
-
-[tool.deptry.per_rule_ignores]
-# Optional dependencies used in examples/
-DEP002 = ["claude-agent-sdk"]
 
 [tool.mypy]
 files = ["src", "tests"]
