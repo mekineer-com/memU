@@ -131,9 +131,10 @@ def test_mentra_chat_history_has_smartglasses_section() -> None:
     ("replika:dm:Fictional-Soul:2026", None, "My Replika Conversation:", True),
     ("import:dm:fictional-replika", "Replika", "My Replika Conversations:", True),
     ("import:dm:fictional-replika", "replika", "My replika Conversations:", True),
-    ("import:dm:fictional-other", "OtherApp", "My OtherApp Conversations:", False),
+    ("import:dm:fictional-other", "OtherApp", "My OtherApp Conversations:", True),
+    ("sillytavern:fictional-local", None, "My SillyTavern Conversations:", False),
 ])
-def test_replika_chat_history_has_context_once(cid, label, section, has_context) -> None:
+def test_external_chat_history_has_context_once(cid, label, section, has_context) -> None:
     rendered = format_grouped_chat_history(
         [
             {
@@ -158,10 +159,10 @@ def test_replika_chat_history_has_context_once(cid, label, section, has_context)
 
     assert section in rendered
     assert "[dm][Fictional Soul]" in rendered
-    assert rendered.count("These conversations happened on Replika.com.") == int(has_context)
-    assert ("Fictional Soul was speaking there" in rendered) is has_context
-    assert ("from OpenAlma" in rendered) is has_context
-    assert "My SillyTavern Conversations:" not in rendered
+    assert rendered.count("These conversations took place outside OpenAlma.") == int(has_context)
+    assert (f"Although presented as '{section.removesuffix(':')}', " in rendered) is has_context
+    assert ("I was speaking there without access to my OpenAlma memories or conversations." in rendered) is has_context
+    assert "Replika often supplied limited prior context" not in rendered
 
 
 def test_dated_relative_time_label_includes_local_day() -> None:

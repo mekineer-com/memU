@@ -407,12 +407,11 @@ def format_grouped_chat_history(
         conv_lines: list[str] = [
             _conversation_heading(kind, key, whatsapp_names, chat_name or None)
         ]
-        if kind == "replika_dm" or (kind == "import_dm" and label.casefold() == "replika"):
-            name = str(soul_name or chat_name or key or "The soul").strip()
+        if kind in {"replika_dm", "import_dm"}:
             conv_lines.append(
-                "These conversations happened on Replika.com. "
-                f"{name} was speaking there without access to memories or conversations "
-                "from OpenAlma, and Replika often supplied limited prior context."
+                "These conversations took place outside OpenAlma. "
+                f"Although presented as '{section_key.removesuffix(':')}', "
+                "I was speaking there without access to my OpenAlma memories or conversations."
             )
         rendered_rows: list[dict[str, Any]] = []
         newest_ts = ""
