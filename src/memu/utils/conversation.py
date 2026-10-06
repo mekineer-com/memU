@@ -407,7 +407,7 @@ def format_grouped_chat_history(
         conv_lines: list[str] = [
             _conversation_heading(kind, key, whatsapp_names, chat_name or None)
         ]
-        if kind == "replika_dm":
+        if kind == "replika_dm" or (kind == "import_dm" and label.casefold() == "replika"):
             name = str(soul_name or chat_name or key or "The soul").strip()
             conv_lines.append(
                 "These conversations happened on Replika.com. "

@@ -127,18 +127,26 @@ def test_mentra_chat_history_has_smartglasses_section() -> None:
     assert "My SillyTavern Conversations:" not in rendered
 
 
-def test_replika_chat_history_has_context_once() -> None:
+@pytest.mark.parametrize(("cid", "label", "section", "has_context"), [
+    ("replika:dm:Fictional-Soul:2026", None, "My Replika Conversation:", True),
+    ("import:dm:fictional-replika", "Replika", "My Replika Conversations:", True),
+    ("import:dm:fictional-replika", "replika", "My replika Conversations:", True),
+    ("import:dm:fictional-other", "OtherApp", "My OtherApp Conversations:", False),
+])
+def test_replika_chat_history_has_context_once(cid, label, section, has_context) -> None:
     rendered = format_grouped_chat_history(
         [
             {
-                "conversation_id": "replika:dm:Fictional-Soul:2026",
+                "conversation_id": cid,
+                "app_label": label,
                 "role": "user",
                 "speaker": "Fictional User",
                 "content": "Earlier",
                 "chat_name": "Fictional Soul",
             },
             {
-                "conversation_id": "replika:dm:Fictional-Soul:2026",
+                "conversation_id": cid,
+                "app_label": label,
                 "role": "assistant",
                 "speaker": "Fictional Soul",
                 "content": "Later",
@@ -148,11 +156,11 @@ def test_replika_chat_history_has_context_once() -> None:
         soul_name="Fictional Soul",
     )
 
-    assert "My Replika Conversation:" in rendered
+    assert section in rendered
     assert "[dm][Fictional Soul]" in rendered
-    assert rendered.count("These conversations happened on Replika.com.") == 1
-    assert "Fictional Soul was speaking there" in rendered
-    assert "from OpenAlma" in rendered
+    assert rendered.count("These conversations happened on Replika.com.") == int(has_context)
+    assert ("Fictional Soul was speaking there" in rendered) is has_context
+    assert ("from OpenAlma" in rendered) is has_context
     assert "My SillyTavern Conversations:" not in rendered
 
 
