@@ -543,6 +543,43 @@ async def test_persist_index_processes_committed_candidate_work_without_new_item
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("phase", ["dedupe", "review"])
+async def test_resume_segment_reads_original_rows_and_skips_completed_dedupe(monkeypatch, phase):
+    service = _service()
+    store = service.database
+    scope = {"user_id": "TestOwner", "soul_id": "TestSoul"}
+    items = [store.memory_item_repo.create_item(
+        memory_type="knowledge", summary=f"Fictional memory {i}", embedding=[1.0, 0.0],
+        user_data=scope, segment_id="segment", source_role="user",
+    ) for i in range(3)]
+    store.memory_item_repo.update_item(item_id=items[0].id, merged_into=items[1].id)
+    from memu.database.models import Triple
+    store.triple_repo.add(Triple(subject_id=items[1].id, subject_kind="memory",
+        predicate="evolved_into", object_id=items[2].id, object_kind="memory"), user_data=scope)
+    dedupes, reviews = [], []
+    async def dedupe(state, _context):
+        dedupes.append([item.id for item in state["items"]])
+        return state
+    async def review(state, _context, *, enforce_input_budget):
+        reviews.append(([item.id for item in state["items"]], enforce_input_budget))
+        assert state["active_candidate_work_committed"]
+        return state
+    monkeypatch.setattr(service, "_memorize_dedupe_merge", dedupe)
+    monkeypatch.setattr(service, "_memorize_persist_and_index", review)
+    await service.resume_memorize_segment(
+        segment_id="segment", phase=phase, user=scope,
+        on_dedupe_complete=lambda _session: None, enforce_input_budget=True,
+    )
+    assert dedupes == ([[item.id for item in items]] if phase == "dedupe" else [])
+    assert reviews == [([item.id for item in items], True)]
+    await service.resume_memorize_segment(
+        segment_id="empty", phase="review", user=scope,
+        on_dedupe_complete=lambda _session: None,
+    )
+    assert reviews[-1] == ([], False)
+
+
+@pytest.mark.asyncio
 async def test_batch_router_failure_stops_before_persistence(monkeypatch: pytest.MonkeyPatch) -> None:
     service = _service()
     actual_route = service._route_segment

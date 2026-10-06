@@ -1298,6 +1298,28 @@ class MemorizeMixin:
         state["category_ids"] = sorted(category_ids)
         return state
 
+    async def resume_memorize_segment(
+        self, *, segment_id: str, phase: str, user: Mapping[str, Any],
+        on_dedupe_complete: Callable[[Any], None], enforce_input_budget: bool = False,
+    ) -> None:
+        if phase not in {"dedupe", "review"}:
+            raise ValueError(f"Unknown Memorize recovery phase: {phase}")
+        store = self._get_database()
+        items = store.memory_item_repo.list_items(
+            {**user, "segment_id": segment_id}, include_merged=True, include_superseded=True,
+        )
+        state: WorkflowState = {
+            "store": store, "user": dict(user),
+            "items": sorted(items.values(), key=lambda item: item.memory_ref),
+            "relations": [], "category_ids": [], "active_candidate_work_committed": True,
+            "on_dedupe_complete": on_dedupe_complete,
+        }
+        if phase == "dedupe":
+            state = await self._memorize_dedupe_merge(state, {"step_id": "dedupe_merge"})
+        await self._memorize_persist_and_index(
+            state, {"step_id": "persist_index"}, enforce_input_budget=enforce_input_budget,
+        )
+
     def _memorize_build_response(self, state: WorkflowState, step_context: Any) -> WorkflowState:
         store = state["store"]
         resources = [self._model_dump_without_embeddings(r) for r in state.get("resources", [])]
