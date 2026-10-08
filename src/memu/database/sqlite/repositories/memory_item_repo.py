@@ -599,7 +599,6 @@ WHERE version = 1 AND model IN ({placeholders})
             with self._sessions.session() as managed_session:
                 deleted = self.hard_delete_item(item_id, where, session=managed_session)
                 managed_session.commit()
-            self._state.relations[:] = [rel for rel in self._state.relations if rel.item_id != item_id]
             return deleted
 
         category_item_model = self._sqla_models.CategoryItem

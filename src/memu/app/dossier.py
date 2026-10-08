@@ -1004,7 +1004,6 @@ class DossierMixin:
         fresh = committed
         try:
             fresh = store.memory_category_repo.list_categories(scope)[committed.id]
-            store.category_item_repo.refresh_category_relations(committed.id, scope)
         except Exception:
             logger.exception("Failed to refresh dossier revision caches for %s", committed.id)
         if prose_changed:

@@ -702,7 +702,7 @@ def test_memory_refs_are_strict_scoped_and_resolve_merged_rows(tmp_path) -> None
         service.format_memory_ref(0)
 
 
-def test_relation_caller_session_does_not_mutate_cache(tmp_path) -> None:
+def test_relation_caller_session_rollback_preserves_sql(tmp_path) -> None:
     service = _service(tmp_path)
     store = service.database
     category = _category(service, "Health")
@@ -710,23 +710,17 @@ def test_relation_caller_session_does_not_mutate_cache(tmp_path) -> None:
         memory_type="episode", summary="health", embedding=[1.0, 0.0], user_data=SCOPE
     )
     relation = store.category_item_repo.link_item_category(item.id, category.id, SCOPE)
-    assert [cached.id for cached in store.category_item_repo.relations] == [relation.id]
+    assert [row.id for row in store.category_item_repo.list_relations(SCOPE)] == [relation.id]
     assert not store.category_item_repo.unlink_item_category(
         item.id,
         category.id,
         OTHER_SCOPE,
     )
-    assert [cached.id for cached in store.category_item_repo.relations] == [relation.id]
-    store.category_item_repo.relations.clear()
 
     with store._sessions.session() as session:
         assert len(store.category_item_repo.list_relations(SCOPE, session=session)) == 1
-        assert store.category_item_repo.relations == []
 
     assert len(store.category_item_repo.list_relations(SCOPE)) == 1
-    assert store.category_item_repo.relations == []
-    store.category_item_repo.refresh_category_relations(category.id, SCOPE)
-    assert len(store.category_item_repo.relations) == 1
 
     rolled_back = store.memory_item_repo.create_item(
         memory_type="episode", summary="rolled back", embedding=[1.0, 0.0], user_data=SCOPE
@@ -735,7 +729,6 @@ def test_relation_caller_session_does_not_mutate_cache(tmp_path) -> None:
         store.category_item_repo.link_item_category(
             rolled_back.id, category.id, SCOPE, session=session
         )
-        assert all(rel.item_id != rolled_back.id for rel in store.category_item_repo.relations)
         session.rollback()
     assert store.category_item_repo.list_relations({"item_id": rolled_back.id}) == []
 
@@ -1655,20 +1648,10 @@ async def test_apply_dossier_revision_commits_one_reviewed_result(tmp_path, monk
         for relation in store.category_item_repo.list_relations(SCOPE)
         if relation.category_id == category.id
     }
-    cached_relation_ids = {
-        relation.item_id
-        for relation in store.category_item_repo.relations
-        if relation.category_id == category.id
-    }
     members = store.memory_item_repo.list_items_by_ids({pending.id, candidate.id}, SCOPE)
     assert relation_ids == {pending.id, candidate.id}
-    assert cached_relation_ids == relation_ids
     relations = store.category_item_repo.list_relations({**SCOPE, "category_id": category.id})
     assert all(relation.reviewed_at == revised.last_revised_at for relation in relations)
-    assert all(
-        relation.reviewed_at == revised.last_revised_at
-        for relation in store.category_item_repo.relations if relation.category_id == category.id
-    )
     assert category.id not in {row.id for row in service.list_due_dossiers(SCOPE)}
     assert all(item.approved_at is None for item in members.values())
     assert revised.description == decision["description"]
@@ -1824,10 +1807,6 @@ async def test_apply_dossier_revision_keeps_empty_dossier_text(tmp_path, monkeyp
     assert revised.summary == "## Health\nHistorical account."
     assert revised.last_evidence_at is None and revised.last_revised_at is not None
     assert store.category_item_repo.list_relations({"category_id": category.id}) == []
-    assert all(
-        relation.category_id != category.id
-        for relation in store.category_item_repo.relations
-    )
     assert client.calls == [] and journal[0]["summary_before"] == old_prose
 
 

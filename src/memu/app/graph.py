@@ -1452,8 +1452,6 @@ class GraphMixin:
     ) -> dict[str, Any] | None:
         store = self._get_database()
         store.memory_category_repo.categories[category.id] = category
-        if refresh_memberships:
-            store.category_item_repo.refresh_category_relations(category.id, where)
         if journal is not None:
             try:
                 append_category_summary_journal(**journal)
@@ -1637,7 +1635,6 @@ class GraphMixin:
                 if item_id in items
             ]
             session.commit()
-        store._state.relations[:] = [rel for rel in store._state.relations if rel.item_id not in raw_ids]
         return [
             self._memory_node(
                 item,

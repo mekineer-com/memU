@@ -47,7 +47,6 @@ class SQLiteCategoryItemRepo(SQLiteRepoBase, CategoryItemRepo):
             scope_fields=scope_fields,
         )
         self._category_item_model = category_item_model
-        self.relations = self._state.relations
 
     def list_relations(
         self,
@@ -113,8 +112,6 @@ class SQLiteCategoryItemRepo(SQLiteRepoBase, CategoryItemRepo):
                     session=session,
                 )
                 session.commit()
-                if not any(existing.id == rel.id for existing in self.relations):
-                    self.relations.append(rel)
                 return rel
 
         # Check if relation already exists
@@ -187,12 +184,6 @@ class SQLiteCategoryItemRepo(SQLiteRepoBase, CategoryItemRepo):
                     session=managed_session,
                 )
                 managed_session.commit()
-            if deleted:
-                self.relations[:] = [
-                    relation
-                    for relation in self.relations
-                    if not (relation.item_id == item_id and relation.category_id == category_id)
-                ]
             return deleted
 
         filters = self._build_filters(
@@ -221,29 +212,5 @@ class SQLiteCategoryItemRepo(SQLiteRepoBase, CategoryItemRepo):
             .where(*filters, self._category_item_model.item_id.in_(item_ids))
             .values(reviewed_at=reviewed_at)
         )
-
-    def refresh_category_relations(
-        self,
-        category_id: str,
-        where: Mapping[str, Any],
-    ) -> list[CategoryItem]:
-        relations = self.list_relations({**where, "category_id": category_id})
-        self.relations[:] = [
-            relation for relation in self.relations if relation.category_id != category_id
-        ]
-        self.relations.extend(relations)
-        return relations
-
-    def get_item_categories(self, item_id: str) -> list[CategoryItem]:
-        """Get all category relations for a given item.
-
-        Args:
-            item_id: Memory item ID.
-
-        Returns:
-            List of CategoryItem relations for the item.
-        """
-        return self.list_relations({"item_id": item_id})
-
 
 __all__ = ["SQLiteCategoryItemRepo"]

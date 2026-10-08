@@ -11,8 +11,6 @@ from memu.database.models import CategoryItem
 class CategoryItemRepo(Protocol):
     """Repository contract for item/category relations."""
 
-    relations: list[CategoryItem]
-
     def list_relations(
         self,
         where: Mapping[str, Any] | None = None,
@@ -37,12 +35,6 @@ class CategoryItemRepo(Protocol):
         session: Any | None = None,
     ) -> bool: ...
 
-    def refresh_category_relations(
-        self,
-        category_id: str,
-        where: Mapping[str, Any],
-    ) -> list[CategoryItem]: ...
-
     def mark_reviewed(
         self,
         category_id: str,
@@ -52,5 +44,3 @@ class CategoryItemRepo(Protocol):
         reviewed_at: datetime,
         session: Any,
     ) -> None: ...
-
-    def get_item_categories(self, item_id: str) -> list[CategoryItem]: ...

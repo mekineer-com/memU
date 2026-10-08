@@ -80,21 +80,6 @@ def test_fresh_schema_is_additive_and_runtime_creation_allocates_reference(tmp_p
     assert store.dossier_candidate_repo.list_candidates(SCOPE) == []
 
 
-def test_relation_reads_do_not_scan_the_write_cache(tmp_path) -> None:
-    store = _store(tmp_path)
-    item = _item(store, SCOPE)
-    category = _category(store, SCOPE, "Example", kind="topic")
-    relation = store.category_item_repo.link_item_category(item.id, category.id, SCOPE)
-
-    class NoScan(list):
-        def __iter__(self):
-            raise AssertionError("relation reads must not scan the cache")
-
-    store.category_item_repo.relations = NoScan([relation])
-    assert [row.id for row in store.category_item_repo.list_relations(SCOPE)] == [relation.id]
-    assert [row.id for row in store.category_item_repo.get_item_categories(item.id)] == [relation.id]
-
-
 def test_legacy_reopen_adds_schema_without_assigning_taxonomy(tmp_path) -> None:
     path = tmp_path / "legacy.db"
     store = _store(tmp_path, path.name)
@@ -391,7 +376,6 @@ def test_clear_categories_removes_only_scoped_taxonomy_state(tmp_path) -> None:
         other_relation.id
     ]
     assert len(store.dossier_candidate_repo.list_candidates(OTHER_SCOPE)) == 1
-    assert relation not in store.category_item_repo.relations
 
     store.dossier_candidate_repo.add_candidate(
         proposed_name="Candidate Only", item_id=item.id, where=SCOPE
@@ -841,7 +825,7 @@ async def test_dynamic_category_review_apply_is_atomic_and_collision_safe(tmp_pa
         for candidate in memory["candidates"]
         if candidate.id == accepted
     )
-    assert store.category_item_repo.get_item_categories(accepted_item_id)[0].category_id == existing.id
+    assert store.category_item_repo.list_relations({**SCOPE, "item_id": accepted_item_id})[0].category_id == existing.id
     with store._sessions.session() as session:
         replay = memorize_categories.apply_dynamic_category_review(
             store=store,

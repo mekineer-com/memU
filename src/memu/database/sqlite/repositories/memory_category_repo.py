@@ -205,10 +205,6 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
 
             for cat_id in deleted:
                 self.categories.pop(cat_id, None)
-            deleted_ids = set(deleted)
-            self._state.relations[:] = [
-                relation for relation in self._state.relations if relation.category_id not in deleted_ids
-            ]
 
         return deleted
 
