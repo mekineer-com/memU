@@ -544,6 +544,10 @@ async def test_resume_segment_reads_original_rows_and_skips_completed_dedupe(mon
         memory_type="knowledge", summary=f"Fictional memory {i}", embedding=[1.0, 0.0],
         user_data=scope, segment_id="segment", source_role="user",
     ) for i in range(3)]
+    store.memory_item_repo.create_item(
+        memory_type="knowledge", summary="Another fictional Soul's memory", embedding=[1.0, 0.0],
+        user_data={"user_id": "TestOwner", "soul_id": "OtherTestSoul"}, segment_id="segment",
+    )
     store.memory_item_repo.update_item(item_id=items[0].id, merged_into=items[1].id)
     from memu.database.models import Triple
     store.triple_repo.add(Triple(subject_id=items[1].id, subject_kind="memory",
@@ -561,6 +565,11 @@ async def test_resume_segment_reads_original_rows_and_skips_completed_dedupe(mon
     list_items = store.memory_item_repo.list_items
     monkeypatch.setattr(store.memory_item_repo, "list_items", lambda *args, **kwargs:
         dict(sorted(list_items(*args, **kwargs).items(), key=lambda row: row[1].memory_ref, reverse=True)))
+    with pytest.raises(ValueError, match="'soul_id' is missing/blank"):
+        await service.resume_memorize_segment(
+            segment_id="segment", phase=phase, user={"user_id": "TestOwner"},
+            on_dedupe_complete=lambda _session: None,
+        )
     await service.resume_memorize_segment(
         segment_id="segment", phase=phase, user=scope,
         on_dedupe_complete=lambda _session: None, enforce_input_budget=True,

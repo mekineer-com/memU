@@ -1300,6 +1300,7 @@ class MemorizeMixin:
     ) -> None:
         if phase not in {"dedupe", "review"}:
             raise ValueError(f"Unknown Memorize recovery phase: {phase}")
+        self._validate_memorize_scope(dict(user))
         store = self._get_database()
         items = store.memory_item_repo.list_items(
             {**user, "segment_id": segment_id}, include_merged=True, include_superseded=True,
