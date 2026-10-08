@@ -828,9 +828,10 @@ def test_due_dossiers_cover_first_revision_and_membership_review(tmp_path) -> No
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("case", ["active", "inactive", "successor"])
+@pytest.mark.parametrize("case", ["active", "inactive", "successor", "successor-chain", "successor-merged"])
 async def test_ordinary_revision_leaves_import_pending_members_unreviewed(tmp_path, monkeypatch, case) -> None:
-    service = _service(tmp_path, retrieve_config={"item": {"top_k": 0 if case == "successor" else 1}})
+    successor = case.startswith("successor")
+    service = _service(tmp_path, retrieve_config={"item": {"top_k": 0 if successor else 1}})
     store = service.database
     _seed_anchors(service)
     category = _category(service, "Shared evidence")
@@ -844,34 +845,50 @@ async def test_ordinary_revision_leaves_import_pending_members_unreviewed(tmp_pa
         )
     ]
     current, historical, candidate, unsegmented = items
-    for item in ((current, unsegmented) if case == "active" else (current, historical, unsegmented)):
+    for item in ((current, unsegmented) if case == "active" or successor else (current, historical, unsegmented)):
         store.category_item_repo.link_item_category(item.id, category.id, SCOPE)
     store.memory_item_repo.backfill_memory_refs(SCOPE)
     historical = store.memory_item_repo.list_items_by_ids({historical.id}, SCOPE)[historical.id]
     inactive = None
     if case == "inactive":
         inactive = historical
-    elif case == "successor":
+    elif successor:
         inactive = store.memory_item_repo.create_item(
             memory_type="episode", summary="Earlier ordinary evidence", embedding=[1.0, 0.0],
             user_data=SCOPE, segment_id="ordinary",
         )
         store.category_item_repo.link_item_category(inactive.id, category.id, SCOPE)
     if inactive is not None:
+        replacement = candidate
+        if case == "successor-chain":
+            replacement = store.memory_item_repo.create_item(
+                memory_type="episode", summary="Intermediate ordinary evidence", embedding=[1.0, 0.0],
+                user_data=SCOPE, segment_id="ordinary",
+            )
+            store.triple_repo.add(Triple(
+                subject_id=replacement.id, subject_kind="memory", predicate="evolved_into",
+                object_id=candidate.id, object_kind="memory", source_memory_id=candidate.id,
+            ), user_data=SCOPE)
         store.triple_repo.add(Triple(
             subject_id=inactive.id, subject_kind="memory", predicate="evolved_into",
-            object_id=candidate.id, object_kind="memory", source_memory_id=candidate.id,
+            object_id=replacement.id, object_kind="memory", source_memory_id=replacement.id,
         ), user_data=SCOPE)
+        if case == "successor-merged":
+            candidate = store.memory_item_repo.create_item(
+                memory_type="episode", summary="Surviving ordinary evidence", embedding=[1.0, 0.0],
+                user_data=SCOPE, segment_id="ordinary",
+            )
+            store.memory_item_repo.update_item(item_id=replacement.id, merged_into=candidate.id)
     prose = (f"## Current\nA retained reference [M{historical.memory_ref}]."
              if case == "active" else "## Current\nA steady account.")
     store.memory_category_repo.update_category(category_id=category.id, summary=prose)
     assert service.list_due_dossiers(SCOPE, excluded_segment_ids=["import-pending"])[0].id == category.id
     bundle = service.prepare_dossier_revision(category.id, SCOPE, excluded_segment_ids=["import-pending"])
-    expected_pending = {current.id, unsegmented.id} | ({inactive.id} if case == "successor" else set())
+    expected_pending = {current.id, unsegmented.id}
     assert {item.id for item in bundle["pending_items"]} == expected_pending
     assert candidate.id not in {item.id for item in bundle["candidate_items"]}
     assert set(bundle["linked_inactive_item_ids"]) == ({inactive.id} if inactive is not None else set())
-    cleanup_ids = [inactive.id] if case == "successor" else []
+    cleanup_ids = []
     assert {item.id for item in bundle["cleanup_items"]} == set(cleanup_ids)
     decisions = "".join(
         f'<decision ref="[M{item.memory_ref}]" action="add" />'
@@ -892,9 +909,28 @@ async def test_ordinary_revision_leaves_import_pending_members_unreviewed(tmp_pa
     relations = {row.item_id: row for row in store.category_item_repo.list_relations(SCOPE)}
     assert relations[current.id].reviewed_at is not None
     assert relations[unsegmented.id].reviewed_at is not None
-    assert relations[historical.id].reviewed_at is None
+    if not successor:
+        assert relations[historical.id].reviewed_at is None
+    else:
+        assert inactive.id in relations and candidate.id not in relations
     assert service.list_due_dossiers(SCOPE, excluded_segment_ids=["import-pending"]) == []
     assert service.list_due_dossiers(SCOPE, segment_ids=["import-pending"])[0].id == category.id
+    if successor:
+        assert [row.id for row in service.list_dossiers_for_segments(SCOPE, segment_ids=["import-pending"])] == [category.id]
+        imported = service.prepare_dossier_revision(category.id, SCOPE, segment_ids=["import-pending"])
+        assert {item.id for item in imported["candidate_items"]} == {candidate.id}
+        assert inactive.id in {item.id for item in imported["cleanup_items"]}
+        await service.apply_dossier_revision(imported, {
+            "dossier_id": category.id, "description": category.description,
+            "resulting_prose": f"## Current\nUpdated account [M{candidate.memory_ref}].",
+            "add_item_ids": [candidate.id], "remove_item_ids": [],
+            "cleanup_item_ids": [inactive.id], "cited_item_ids": [candidate.id],
+        }, SCOPE, embedding_client=FakeEmbedClient())
+        final = store.category_item_repo.list_relations({**SCOPE, "category_id": category.id})
+        assert candidate.id in {row.item_id for row in final}
+        assert inactive.id not in {row.item_id for row in final}
+        assert next(row for row in final if row.item_id == candidate.id).reviewed_at is not None
+        assert service.list_due_dossiers(SCOPE, segment_ids=["import-pending"]) == []
 
 
 @pytest.mark.asyncio

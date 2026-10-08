@@ -181,6 +181,16 @@ def _selected_evidence_ids(
             seen.add(current.id)
             current = items[current.merged_into]
             evidence_ids.add(current.id)
+    # Keep predecessor links until their replacement's own evidence is reviewed.
+    lineage = set(evidence_ids)
+    while lineage:
+        predecessors = {
+            edge.subject_id for edge in store.triple_repo.list_edges_for_memories(lineage, ["evolved_into"], scope)
+            if edge.object_id in lineage and edge.subject_kind == edge.object_kind == "memory"
+            and edge.subject_id in items
+        }
+        lineage = predecessors - evidence_ids
+        evidence_ids.update(lineage)
     return evidence_ids
 
 
@@ -530,14 +540,19 @@ class DossierMixin:
             if missing:
                 raise KeyError(f"Dossier candidate memories disappeared: {sorted(missing)}")
 
-        evolved_ids = {
-            edge.object_id
-            for item_id in cleanup_inactive_ids
-            for edge in store.triple_repo.get_edges_from(
-                item_id, predicate="evolved_into", where=scope
+        evolved_ids: set[str] = set()
+        lineage = set(cleanup_inactive_ids)
+        while lineage:
+            lineage_items = store.memory_item_repo.list_items_by_ids(
+                lineage, scope, include_superseded=True, include_merged=True,
             )
-            if edge.object_kind == "memory"
-        }
+            successors = {
+                edge.object_id
+                for edge in store.triple_repo.list_edges_for_memories(lineage, ["evolved_into"], scope)
+                if edge.subject_id in lineage and edge.subject_kind == edge.object_kind == "memory"
+            } | {item.merged_into for item in lineage_items.values() if item.merged_into}
+            evolved_ids.update(lineage)
+            lineage = successors - evolved_ids
         evolved_ids -= excluded_evidence
         candidate_items.update(
             store.memory_item_repo.list_items_by_ids(evolved_ids, scope)

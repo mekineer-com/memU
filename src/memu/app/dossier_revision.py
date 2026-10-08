@@ -328,7 +328,7 @@ def parse_anchor_revisions(
             )
         cited_ids = {by_ref[ref].id for ref in resulting_refs}
         linked_ids = set(bundle["linked_item_ids"])
-        cleanup_ids = set(bundle["linked_inactive_item_ids"]) - set(bundle.get("excluded_review_item_ids", ()))
+        cleanup_ids = set(bundle["linked_inactive_item_ids"])
         add_ids = cited_ids - linked_ids
         if not add_ids <= set(bundle["actionable_item_ids"]):
             raise ValueError("Anchor adds a memory outside actionable reflection evidence")
