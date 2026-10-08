@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 import struct
 
 import pytest
@@ -148,7 +149,7 @@ def test_store_rejects_legacy_text_embeddings(tmp_path) -> None:
     finally:
         manager.close()
 
-    with pytest.raises(RuntimeError, match=r"resources: non_blob=1.*migrate-embeddings-to-blob"):
+    with pytest.raises(RuntimeError, match=r"non-canonical SQLite embeddings \(resources: non_blob=1"):
         SQLiteStore(dsn=dsn, scope_model=LegacyEmbeddingScope, sqla_models=models)
 
 
@@ -279,3 +280,28 @@ def test_populated_unstamped_database_refuses_profiled_open(tmp_path) -> None:
             scope_model=EmbeddingBlobScope,
             embedding_profile="text-embedding-3-large:3072",
         )
+
+
+@pytest.mark.parametrize("empty_fts", [False, True])
+def test_current_schema_reopen_preserves_all_data(tmp_path, empty_fts) -> None:
+    path = tmp_path / "current.db"
+    dsn = f"sqlite:///{path}"
+    store = SQLiteStore(dsn=dsn, scope_model=EmbeddingBlobScope)
+    try:
+        store.memory_item_repo.create_item(
+            memory_type="knowledge", summary="Fictional explorer collects moon rocks", embedding=[0.25, 0.75],
+            user_data={"user_id": "fictional-explorer"},
+        )
+        with store._sessions.engine.begin() as conn:
+            conn.exec_driver_sql("ALTER TABLE memory_items ADD COLUMN preserved_note TEXT")
+            conn.exec_driver_sql("UPDATE memory_items SET preserved_note = 'keep', approved_at = NULL")
+            if empty_fts:
+                conn.exec_driver_sql("DELETE FROM memory_items_fts")
+    finally:
+        store.close()
+    with sqlite3.connect(path) as conn:
+        before = list(conn.iterdump())
+    reopened = SQLiteStore(dsn=dsn, scope_model=EmbeddingBlobScope)
+    reopened.close()
+    with sqlite3.connect(path) as conn:
+        assert list(conn.iterdump()) == before

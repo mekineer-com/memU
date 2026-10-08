@@ -6,7 +6,6 @@ import logging
 from typing import Any
 
 from pydantic import BaseModel
-from sqlmodel import SQLModel
 
 from memu.database.interfaces import Database
 from memu.database.repositories import (
@@ -159,11 +158,7 @@ class SQLiteStore(Database):
                     )
         if invalid:
             detail = "; ".join(invalid)
-            database = self._sessions._sqlite_file_from_dsn(self.dsn) or self.dsn
-            msg = (
-                f"non-canonical SQLite embeddings ({detail}); stop services and run "
-                f"scripts/migrate-embeddings-to-blob.py {database} --apply"
-            )
+            msg = f"non-canonical SQLite embeddings ({detail})"
             raise RuntimeError(msg)
 
     def _assert_embedding_profile(self) -> None:
@@ -203,10 +198,9 @@ class SQLiteStore(Database):
 
     def _ensure_fts_table(self) -> None:
         """Create FTS5 virtual table for BM25 keyword search on memory items."""
-        try:
-            with self._sessions.engine.begin() as conn:
-                conn.exec_driver_sql(
-                    """
+        with self._sessions.engine.begin() as conn:
+            conn.exec_driver_sql(
+                """
 CREATE VIRTUAL TABLE IF NOT EXISTS memory_items_fts
 USING fts5(
     summary,
@@ -215,29 +209,7 @@ USING fts5(
     tokenize='porter unicode61'
 )
 """
-                )
-                fts_count = conn.exec_driver_sql("SELECT COUNT(*) FROM memory_items_fts").scalar()
-                if fts_count == 0:
-                    items_count = conn.exec_driver_sql("SELECT COUNT(*) FROM memory_items").scalar()
-                    if items_count and items_count > 0:
-                        conn.exec_driver_sql(
-                            """
-INSERT INTO memory_items_fts(summary, memory_type, item_id)
-SELECT m.summary, m.memory_type, m.id
-FROM memory_items AS m
-WHERE (m.merged_into IS NULL OR TRIM(m.merged_into) = '')
-  AND NOT EXISTS (
-    SELECT 1 FROM triples AS t
-    WHERE t.subject_id = m.id
-      AND t.subject_kind = 'memory'
-      AND t.predicate = 'evolved_into'
-      AND t.valid_to IS NULL
-  )
-"""
-                        )
-                        logger.info("FTS5: backfilled %d items", items_count)
-        except Exception:
-            logger.warning("FTS5 table creation/backfill failed", exc_info=True)
+            )
 
     def _ensure_model_score_calibration_table(self) -> None:
         with self._sessions.engine.begin() as conn:
@@ -278,80 +250,9 @@ ON memory_item_edit_history(memory_item_id, edited_at)
 """
             )
 
-    def _ensure_category_previous_summary_column(self) -> None:
-        with self._sessions.engine.begin() as conn:
-            columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(categories)").fetchall()}
-            if "previous_summary" not in columns:
-                conn.exec_driver_sql("ALTER TABLE categories ADD COLUMN previous_summary TEXT")
-
-    def _ensure_approval_columns(self) -> None:
-        with self._sessions.engine.begin() as conn:
-            memory_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(memory_items)").fetchall()}
-            if "approved_at" not in memory_columns:
-                conn.exec_driver_sql("ALTER TABLE memory_items ADD COLUMN approved_at DATETIME")
-                conn.exec_driver_sql("UPDATE memory_items SET approved_at = CURRENT_TIMESTAMP")
-
-            category_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(categories)").fetchall()}
-            if "previous_description" not in category_columns:
-                conn.exec_driver_sql("ALTER TABLE categories ADD COLUMN previous_description TEXT")
-            if "approved_description" not in category_columns:
-                conn.exec_driver_sql("ALTER TABLE categories ADD COLUMN approved_description TEXT")
-                conn.exec_driver_sql("UPDATE categories SET approved_description = description")
-            if "approved_summary" not in category_columns:
-                conn.exec_driver_sql("ALTER TABLE categories ADD COLUMN approved_summary TEXT")
-                conn.exec_driver_sql("UPDATE categories SET approved_summary = summary WHERE summary IS NOT NULL")
-
-    def _ensure_taxonomy_columns(self) -> None:
-        additions = {
-            "memory_items": {"memory_ref": "INTEGER"},
-            "category_items": {"reviewed_at": "DATETIME"},
-            "dossier_candidates": {"last_considered_at": "DATETIME"},
-            "categories": {
-                "kind": "TEXT",
-                "lore_subtype": "TEXT",
-                "entity_id": "TEXT",
-                "anchor_role": "TEXT",
-                "last_evidence_at": "DATETIME",
-                "last_revised_at": "DATETIME",
-            },
-        }
-        with self._sessions.engine.begin() as conn:
-            for table, columns in additions.items():
-                existing = {row[1] for row in conn.exec_driver_sql(f"PRAGMA table_info({table})").fetchall()}
-                for name, sql_type in columns.items():
-                    if name not in existing:
-                        conn.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {name} {sql_type}")
-
-    def _ensure_taxonomy_indexes(self) -> None:
-        names = {
-            "ix_categories__activity_scoped",
-            "ix_categories__anchor_scoped",
-            "ix_categories__entity_scoped",
-            "ix_category_items__category_scoped",
-            "ix_dossier_candidates__unique_scoped",
-            "ix_memory_items__ref_scoped",
-            "ix_memory_ref_counters__unique_scoped",
-        }
-        with self._sessions.engine.begin() as conn:
-            for table in (
-                self._sqla_models.MemoryCategory.__table__,
-                self._sqla_models.CategoryItem.__table__,
-                self._sqla_models.MemoryItem.__table__,
-                self._sqla_models.DossierCandidate.__table__,
-                self._sqla_models.MemoryRefCounter.__table__,
-            ):
-                for index in table.indexes:
-                    if index.name in names:
-                        index.create(conn, checkfirst=True)
-
     def _create_tables(self) -> None:
         """Create SQLite tables if they don't exist."""
-        SQLModel.metadata.create_all(self._sessions.engine)
         self._sqla_models.Base.metadata.create_all(self._sessions.engine)
-        self._ensure_category_previous_summary_column()
-        self._ensure_approval_columns()
-        self._ensure_taxonomy_columns()
-        self._ensure_taxonomy_indexes()
         self._ensure_fts_table()
         self._ensure_model_score_calibration_table()
         self._ensure_memory_item_edit_history_table()

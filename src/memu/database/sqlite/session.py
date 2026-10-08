@@ -153,8 +153,8 @@ class SQLiteSessionManager:
                 )
                 raise RuntimeError(msg)
 
+            cur = dbapi_conn.cursor()
             try:
-                cur = dbapi_conn.cursor()
                 # WAL => readers don't block writers (and vice-versa) as much.
                 cur.execute("PRAGMA journal_mode=WAL")
                 # Reasonable tradeoff for speed vs durability.
@@ -163,10 +163,8 @@ class SQLiteSessionManager:
                 cur.execute("PRAGMA busy_timeout=30000")
                 # Basic integrity.
                 cur.execute("PRAGMA foreign_keys=ON")
+            finally:
                 cur.close()
-            except Exception:
-                # Don't crash just because pragmas aren't supported.
-                return
 
     def session(self) -> Session:
         """Create a new database session."""

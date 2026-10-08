@@ -207,7 +207,7 @@ def _merge_models(
 
     return type(
         f"{user_model.__name__}{core_model.__name__}{name_suffix}",
-        (user_model, core_model),
+        (core_model,) if user_model is BaseModel else (user_model, core_model),
         base_attrs,
     )
 

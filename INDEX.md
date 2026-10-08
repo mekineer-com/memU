@@ -27,7 +27,7 @@
 | `database/factory.py` | `build_database()` — sqlite backend selector (Postgres removed) |
 | `database/interfaces.py` | `Database` Protocol — the repo surface engine code programs against |
 | `database/vector.py` | `cosine_topk`, `reciprocal_rank_fusion`, `relative_score_fusion`, `autocut_first_cluster`, `salience_score`, `rerank_by_salience` |
-| `database/sqlite/sqlite.py` | `SQLiteStore` — concrete backend; idempotent `_ensure_*_columns` migration helpers |
+| `database/sqlite/sqlite.py` | `SQLiteStore` — current-schema creation, indexes and embedding validation |
 | `database/sqlite/schema.py` | Per-scope SQLAlchemy model factory (`get_sqlite_sqlalchemy_models`) |
 | `database/sqlite/models.py` | Per-table model classes + `build_sqlite_table_model` |
 | `database/sqlite/session.py` | Session factory; loads the required platform-specific package-local sqlite-vec extension on every connection |
@@ -40,8 +40,7 @@
 | `database/sqlite/repositories/triple_repo.py` | Triple (graph edge) persistence, temporal queries, and caller-transactional entity-reference cleanup. Entity Delete blocks current mentions from active memories and removes hidden links; identity/dossier/speaker safeguards remain. |
 | `database/sqlite/repositories/dossier_candidate_repo.py` | Durable unresolved category proposals with idempotent create, review-consideration state, and atomic resolution |
 | `scripts/install-sqlite-vec.py` | Verifies and installs the pinned official sqlite-vec artifact for Linux, macOS, or Windows |
-| `scripts/migrate-embeddings-to-blob.py` | Offline dry-run/backup/migration tool for converting one explicitly named stopped soul DB from legacy JSON TEXT embeddings to canonical float32 BLOBs |
-| `scripts/migrate-entity-speaker-ids.py` | One-time dry-run/backup migration from legacy name-derived entity speaker refs to stable entity IDs; archive after the release cutover |
+| `_archive/database-tools/` | Historical embedding-BLOB and entity-speaker migration scripts with their tests; reference only, outside the active suite |
 | `database/postgres/` | Removed |
 | `database/repositories/` | Backend-agnostic Protocol contracts: memory_item, memory_category, resource, entity, triple, category_item, dossier_candidate |
 | `llm/wrapper.py` | LLM client factory — dispatches to backends |
@@ -80,7 +79,7 @@ Marcos-reviewed dossier prompts.
 | Modify retrieval | `app/retrieve.py`, `app/settings.py`, `prompts/retrieve/pre_retrieval_decision.py` | — |
 | Add LLM provider | `llm/backends/base.py` | New `llm/backends/{provider}.py`, register in `llm/wrapper.py` |
 | Add embedding provider | `embedding/backends/base.py` | New `embedding/backends/{provider}.py`, register in `embedding/http_client.py` |
-| Change DB schema | `database/models.py`, `database/sqlite/schema.py`, `database/sqlite/sqlite.py` | Domain model, fresh schema, then additive legacy DDL |
+| Change DB schema | `database/models.py`, `database/sqlite/schema.py`, `database/sqlite/sqlite.py` | Domain model and fresh schema; prerelease data preparation is a separately authorized one-time operation |
 | Run the test suite | `tests/README.md` | — |
 
 ## Database Tables

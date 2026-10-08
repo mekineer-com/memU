@@ -79,15 +79,6 @@ python3 -m venv --system-site-packages .venv
 
 SQLite storage requires the pinned `sqlite-vec` extension installed by that script. It verifies and installs the official loadable artifact for glibc Linux x86-64/ARM64, macOS Intel/Apple Silicon, or Windows x86-64. Because sqlite-vec's Linux artifact requires glibc, Alpine uses the retained source-build fallback. The generated package-local extension is ignored by Git and loaded automatically by memU.
 
-Before the sqlite-vec storage cutover, inspect and migrate each stopped soul database explicitly:
-
-```bash
-scripts/migrate-embeddings-to-blob.py path/to/soul.db
-scripts/migrate-embeddings-to-blob.py path/to/soul.db --apply
-```
-
-Dry-run is the default. `--apply` requires all processes using that database to be stopped and creates a timestamped backup before conversion.
-
 ---
 
 ## Usage
