@@ -935,7 +935,7 @@ async def test_ordinary_revision_leaves_import_pending_members_unreviewed(tmp_pa
 
 @pytest.mark.asyncio
 async def test_reviewed_membership_does_not_hide_later_evidence(tmp_path, monkeypatch) -> None:
-    service = _service(tmp_path, retrieve_config={"item": {"top_k": 0}})
+    service = _service(tmp_path, retrieve_config={"item": {"top_k": 1}})
     store = service.database
     _seed_anchors(service)
     category = _category(service, "Two spans")
@@ -947,9 +947,16 @@ async def test_reviewed_membership_does_not_hide_later_evidence(tmp_path, monkey
     ]
     first_link = store.category_item_repo.link_item_category(first.id, category.id, SCOPE)
     store.category_item_repo.link_item_category(later.id, category.id, SCOPE)
+    future_candidate = store.memory_item_repo.create_item(
+        memory_type="episode", summary="Later unlinked evidence", embedding=[1.0, 0.0],
+        user_data=SCOPE, segment_id="later",
+    )
     store.memory_item_repo.backfill_memory_refs(SCOPE)
-    bundle = service.prepare_dossier_revision(category.id, SCOPE, segment_ids=["first"])
+    bundle = service.prepare_dossier_revision(
+        category.id, SCOPE, segment_ids=["first"], excluded_segment_ids=["later"],
+    )
     assert [item.id for item in bundle["pending_items"]] == [first.id]
+    assert future_candidate.id not in {item.id for item in bundle["candidate_items"]}
     assert later.id in bundle["untouched_item_ids"]
     monkeypatch.setattr("memu.app.dossier.append_category_summary_journal", lambda **_kw: None)
     revised = await service.apply_dossier_revision(bundle, {
