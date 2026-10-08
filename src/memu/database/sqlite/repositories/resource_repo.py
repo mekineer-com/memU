@@ -13,7 +13,6 @@ from memu.database.repositories.resource import ResourceRepo
 from memu.database.sqlite.repositories.base import SQLiteRepoBase
 from memu.database.sqlite.schema import SQLiteSQLAModels
 from memu.database.sqlite.session import SQLiteSessionManager
-from memu.database.state import DatabaseState
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +23,6 @@ class SQLiteResourceRepo(SQLiteRepoBase, ResourceRepo):
     def __init__(
         self,
         *,
-        state: DatabaseState,
         resource_model: type[Any],
         sqla_models: SQLiteSQLAModels,
         sessions: SQLiteSessionManager,
@@ -33,20 +31,17 @@ class SQLiteResourceRepo(SQLiteRepoBase, ResourceRepo):
         """Initialize resource repository.
 
         Args:
-            state: Shared database state for caching.
             resource_model: SQLModel class for resources.
             sqla_models: SQLAlchemy model container.
             sessions: Session manager for database connections.
             scope_fields: List of user scope field names.
         """
         super().__init__(
-            state=state,
             sqla_models=sqla_models,
             sessions=sessions,
             scope_fields=scope_fields,
         )
         self._resource_model = resource_model
-        self.resources = self._state.resources
 
     def list_resources(self, where: Mapping[str, Any] | None = None) -> dict[str, Resource]:
         """List resources matching the where clause.
@@ -57,10 +52,6 @@ class SQLiteResourceRepo(SQLiteRepoBase, ResourceRepo):
         Returns:
             Dictionary of resource ID to Resource mapping.
         """
-        # Prefer cached data if available and no filter
-        if not where and self.resources:
-            return dict(self.resources)
-
         with self._sessions.session() as session:
             stmt = select(self._resource_model)
             filters = self._build_filters(self._resource_model, where)
@@ -81,7 +72,6 @@ class SQLiteResourceRepo(SQLiteRepoBase, ResourceRepo):
                 updated_at=row.updated_at,
             )
             result[row.id] = res
-            self.resources[row.id] = res
 
         return result
 
@@ -125,10 +115,6 @@ class SQLiteResourceRepo(SQLiteRepoBase, ResourceRepo):
                 del_stmt = del_stmt.where(*filters)
             session.exec(del_stmt)
             session.commit()
-
-            # Clean up cache
-            for res_id in deleted:
-                self.resources.pop(res_id, None)
 
         return deleted
 
@@ -242,7 +228,6 @@ class SQLiteResourceRepo(SQLiteRepoBase, ResourceRepo):
             updated_at=row.updated_at,
             **user_data,
         )
-        self.resources[row.id] = res
         return res
 
 

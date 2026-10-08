@@ -27,8 +27,9 @@ def _service() -> MemoryService:
     )
 
 
-def test_embedding_blob_round_trips_across_repositories() -> None:
-    store = _service()._get_database()
+def test_embedding_blob_round_trips_across_repositories(tmp_path) -> None:
+    dsn = f"sqlite:///{tmp_path / 'round-trip.db'}"
+    store = SQLiteStore(dsn=dsn, scope_model=EmbeddingBlobScope)
     scope = {"user_id": "blob"}
 
     item = store.memory_item_repo.create_item(
@@ -64,6 +65,9 @@ def test_embedding_blob_round_trips_across_repositories() -> None:
         embedding=[2.1, 2.2],
         user_data=scope,
     )
+    observer = SQLiteStore(dsn=dsn, scope_model=EmbeddingBlobScope)
+    assert observer.resource_repo.list_resources()[resource.id].embedding == pytest.approx([2.1, 2.2])
+    assert observer.memory_category_repo.list_categories(scope)[category.id].embedding == pytest.approx([1.3, 1.4])
     updated_resource = store.resource_repo.create_resource(
         url="blob-resource",
         modality="conversation",
@@ -78,6 +82,29 @@ def test_embedding_blob_round_trips_across_repositories() -> None:
     assert updated_category.embedding == pytest.approx([1.3, 1.4])
     assert updated_resource.id == resource.id
     assert updated_resource.embedding == pytest.approx([2.3, 2.4])
+    store.memory_category_repo.update_category(category_id=category.id, description="persisted update", where=scope)
+    assert observer.resource_repo.list_resources()[resource.id].embedding == pytest.approx([2.3, 2.4])
+    assert observer.memory_category_repo.list_categories(scope)[category.id].description == "persisted update"
+    with store._sessions.session() as session:
+        rolled_back = store.resource_repo.create_resource(
+            url="rolled-back", modality="image", local_path="rolled-back", caption="not committed",
+            embedding=[2.3, 2.4], user_data=scope, session=session,
+        )
+        store.memory_category_repo.update_category(
+            category_id=category.id, summary="not committed", where=scope, session=session,
+        )
+        session.rollback()
+    assert rolled_back.id not in store.resource_repo.list_resources()
+    assert store.memory_category_repo.list_categories(scope)[category.id].summary is None
+    other_resource = store.resource_repo.create_resource(
+        url="other-scope", modality="image", local_path="other-scope", caption=None,
+        embedding=[2.3, 2.4], user_data={"user_id": "other"},
+    )
+    assert set(store.resource_repo.list_resources(scope)) == {resource.id}
+    assert set(store.resource_repo.list_resources()) == {resource.id, other_resource.id}
+    assert set(observer.resource_repo.clear_resources({"user_id": "other"})) == {other_resource.id}
+    assert set(store.resource_repo.list_resources()) == {resource.id}
+    observer.close()
 
     with store._sessions.engine.connect() as conn:
         canonical = [
@@ -160,8 +187,6 @@ def test_malformed_embedding_blob_fails_loudly() -> None:
     )
     with store._sessions.engine.begin() as conn:
         conn.exec_driver_sql("UPDATE resources SET embedding = ? WHERE id = ?", (b"bad", resource.id))
-    store.resources.clear()
-
     with pytest.raises(ValueError, match="Malformed embedding BLOB length: 3 bytes"):
         store.resource_repo.list_resources({"user_id": "blob"})
 

@@ -12,7 +12,6 @@ from memu.database.repositories.dossier_candidate import DossierCandidateRepo
 from memu.database.sqlite.repositories.base import SQLiteRepoBase
 from memu.database.sqlite.schema import SQLiteSQLAModels
 from memu.database.sqlite.session import SQLiteSessionManager
-from memu.database.state import DatabaseState
 from memu.utils.taxonomy import normalize_category_name
 
 
@@ -21,12 +20,11 @@ class SQLiteDossierCandidateRepo(SQLiteRepoBase, DossierCandidateRepo):
         self,
         *,
         dossier_candidate_model: type[Any],
-        state: DatabaseState,
         sqla_models: SQLiteSQLAModels,
         sessions: SQLiteSessionManager,
         scope_fields: list[str],
     ) -> None:
-        super().__init__(state=state, sqla_models=sqla_models, sessions=sessions, scope_fields=scope_fields)
+        super().__init__(sqla_models=sqla_models, sessions=sessions, scope_fields=scope_fields)
         self._candidate_model = dossier_candidate_model
 
     @staticmethod

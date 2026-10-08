@@ -54,13 +54,9 @@ def test_format_query_context_rejects_legacy_string_entries():
 
 def test_format_category_content_uses_summary_text_without_wrapper():
     mixin = RetrieveMixin()
-    store = SimpleNamespace(
-        memory_category_repo=SimpleNamespace(categories={}),
-    )
     out = mixin._format_category_content(
         [("relationships", 0.7)],
         {"relationships": "# Relationships\nClose bonds matter."},
-        store,
         categories={"relationships": SimpleNamespace(name="Relationships", summary="")},
     )
 

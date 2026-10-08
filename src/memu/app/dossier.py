@@ -415,7 +415,6 @@ class DossierMixin:
             session.connection().exec_driver_sql("BEGIN IMMEDIATE")
             updated, _before = self.write_dossier_update(category_id, where, prepared, session=session)
             session.commit()
-        store.memory_category_repo.categories[updated.id] = updated
         return updated
 
     def list_due_dossiers(

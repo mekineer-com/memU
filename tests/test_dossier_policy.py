@@ -742,7 +742,7 @@ def test_dossier_repository_writes_share_caller_transaction(tmp_path) -> None:
     )
     store.memory_item_repo.backfill_memory_refs(SCOPE)
     store.category_item_repo.link_item_category(item.id, category.id, SCOPE)
-    cached = store.memory_category_repo.list_categories(SCOPE)[category.id]
+    before = store.memory_category_repo.list_categories(SCOPE)[category.id]
 
     with pytest.raises(KeyError):
         store.memory_category_repo.update_category(
@@ -763,12 +763,12 @@ def test_dossier_repository_writes_share_caller_transaction(tmp_path) -> None:
             item.id, category.id, SCOPE, session=session
         )
         assert changed.description == "changed"
-        assert store.memory_category_repo.categories[category.id] == cached
+        assert store.memory_category_repo.list_categories(SCOPE, session=session)[category.id] == changed
         session.rollback()
 
     restored = store.memory_category_repo.list_categories(SCOPE)[category.id]
     restored_item = store.memory_item_repo.list_items_by_ids({item.id}, SCOPE)[item.id]
-    assert restored.description == "Health description"
+    assert restored == before
     assert restored_item.approved_at is None
     assert store.category_item_repo.list_relations({"item_id": item.id}) != []
 
@@ -1795,7 +1795,7 @@ async def test_caller_owned_dossier_revision_rolls_back_all_writes(tmp_path, mon
 
     monkeypatch.setattr(store.memory_category_repo, "update_category", fail_transaction)
     prepared = await service.prepare_dossier_revision_apply(bundle, decision, SCOPE)
-    before_cache = {key: value.model_dump() for key, value in store.categories.items()}
+    before = store.memory_category_repo.list_categories(SCOPE)
     with pytest.raises(RuntimeError, match="injected failure"):
         with store._sessions.session() as session:
             new = store.memory_item_repo.create_item(
@@ -1806,7 +1806,7 @@ async def test_caller_owned_dossier_revision_rolls_back_all_writes(tmp_path, mon
             service.write_dossier_revision(bundle, prepared, session=session)
 
     assert new.id not in store.memory_item_repo.list_items(SCOPE)
-    assert {key: value.model_dump() for key, value in store.categories.items()} == before_cache
+    assert store.memory_category_repo.list_categories(SCOPE) == before
     relations = store.category_item_repo.list_relations(SCOPE)
     assert {relation.item_id for relation in relations} == {pending.id}
     assert all(relation.reviewed_at is None for relation in relations)

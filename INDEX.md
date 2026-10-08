@@ -10,7 +10,7 @@
 | Package | Purpose |
 |---------|---------|
 | `app/service.py` | `MemoryService` — top-level facade, only public API |
-| `app/dossier.py` | Dossier core policy: anchors, deterministic active sets, whole-life continuity corpus, sparse memorize context, compact index, strict `[M#]` handles, async revision/manual-edit preparation, synchronous caller-session writes, and post-commit cache/journal finishing. AI review is tracked per membership via `reviewed_at`, separate from human approval; marker writes share the revision transaction. Historical `segment_ids` select pending evidence through merged-memory lineage, leaving later evidence due; AI-added candidate links are also marked considered. Standalone apply/edit composes the same parts; manual edits recheck prose and embedding identity after preparation. |
+| `app/dossier.py` | Dossier core policy: anchors, deterministic active sets, whole-life continuity corpus, sparse memorize context, compact index, strict `[M#]` handles, async revision/manual-edit preparation, synchronous caller-session writes, and post-commit journal finishing. AI review is tracked per membership via `reviewed_at`, separate from human approval; marker writes share the revision transaction. Historical `segment_ids` select pending evidence through merged-memory lineage, leaving later evidence due; AI-added candidate links are also marked considered. Standalone apply/edit composes the same parts; manual edits recheck prose and embedding identity after preparation. |
 | `app/dossier_revision.py` | Pure dossier-revision parsing, deterministic section-patch assembly, shared prompt-token estimation and model input allowance; first-run anchor rules are evaluated independently per role |
 | `app/memorize.py` | Memorize workflow: preprocess → route → extract → store. `resume_memorize_segment` finishes saved dedupe/review without extraction. Image resources memorize from a supplied caption and are persisted before extraction. Roster supports same-role ambiguity + relationship-entity triggers; dedupe keys by `(source_role, speaker_id, summary)`; parse failures retry once before propagating. |
 | `app/memorize_parsing.py` | Parsing/normalization seam: message-index extraction, source-message-id normalization, timestamp parsing, XML/JSON memory-type response parsing |
@@ -26,7 +26,6 @@
 | `database/models.py` | Backend-agnostic records, including dossier metadata, scoped `memory_ref`, and `DossierCandidate` |
 | `database/factory.py` | `build_database()` — sqlite backend selector (Postgres removed) |
 | `database/interfaces.py` | `Database` Protocol — the repo surface engine code programs against |
-| `database/state.py` | `DatabaseState` dataclass — in-memory cache of loaded categories/resources |
 | `database/vector.py` | `cosine_topk`, `reciprocal_rank_fusion`, `relative_score_fusion`, `autocut_first_cluster`, `salience_score`, `rerank_by_salience` |
 | `database/sqlite/sqlite.py` | `SQLiteStore` — concrete backend; idempotent `_ensure_*_columns` migration helpers |
 | `database/sqlite/schema.py` | Per-scope SQLAlchemy model factory (`get_sqlite_sqlalchemy_models`) |

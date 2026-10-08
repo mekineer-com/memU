@@ -376,7 +376,6 @@ class RetrieveMixin:
             retrieved_content = self._format_category_content(
                 hits,
                 state.get("category_summary_lookup", {}),
-                store,
                 categories=category_pool,
             )
 
@@ -622,7 +621,7 @@ class RetrieveMixin:
         where_filters = state["where"]
         resource_pool = store.resource_repo.list_resources(where_filters)
         state["resource_pool"] = resource_pool
-        visual_corpus = self._resource_visual_corpus(store, resources=resource_pool)
+        visual_corpus = self._resource_visual_corpus(resources=resource_pool)
         captions = [
             (resource_id, str(resource.caption or "").strip())
             for resource_id, resource in resource_pool.items()
@@ -941,13 +940,11 @@ class RetrieveMixin:
         self,
         hits: list[tuple[str, float]],
         summaries: dict[str, str],
-        store: Database,
-        categories: Mapping[str, Any] | None = None,
+        categories: Mapping[str, Any],
     ) -> str:
-        category_pool = categories if categories is not None else store.memory_category_repo.categories
         lines = []
         for cid, _score in hits:
-            cat = category_pool.get(cid)
+            cat = categories.get(cid)
             if not cat:
                 continue
             summary = summaries.get(cid) or cat.summary or ""
@@ -958,11 +955,10 @@ class RetrieveMixin:
         return "\n\n".join(lines).strip()
 
     def _resource_visual_corpus(
-        self, store: Database, resources: Mapping[str, Any] | None = None
+        self, resources: Mapping[str, Any]
     ) -> list[tuple[str, list[float]]]:
-        resource_pool = resources if resources is not None else store.resource_repo.resources
         corpus: list[tuple[str, list[float]]] = []
-        for rid, res in resource_pool.items():
+        for rid, res in resources.items():
             if res.modality in {"image", "audio", "video"} and res.embedding:
                 corpus.append((rid, res.embedding))
         return corpus

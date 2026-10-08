@@ -14,7 +14,6 @@ from memu.database.repositories.category_item import CategoryItemRepo
 from memu.database.sqlite.repositories.base import SQLiteRepoBase
 from memu.database.sqlite.schema import SQLiteSQLAModels
 from memu.database.sqlite.session import SQLiteSessionManager
-from memu.database.state import DatabaseState
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +24,6 @@ class SQLiteCategoryItemRepo(SQLiteRepoBase, CategoryItemRepo):
     def __init__(
         self,
         *,
-        state: DatabaseState,
         category_item_model: type[Any],
         sqla_models: SQLiteSQLAModels,
         sessions: SQLiteSessionManager,
@@ -34,14 +32,12 @@ class SQLiteCategoryItemRepo(SQLiteRepoBase, CategoryItemRepo):
         """Initialize category-item repository.
 
         Args:
-            state: Shared database state for caching.
             category_item_model: SQLModel class for category-item relations.
             sqla_models: SQLAlchemy model container.
             sessions: Session manager for database connections.
             scope_fields: List of user scope field names.
         """
         super().__init__(
-            state=state,
             sqla_models=sqla_models,
             sessions=sessions,
             scope_fields=scope_fields,

@@ -10,7 +10,6 @@ from typing import Any
 import pendulum
 
 from memu.database.sqlite.session import SQLiteSessionManager
-from memu.database.state import DatabaseState
 
 
 class SQLiteRepoBase:
@@ -19,12 +18,10 @@ class SQLiteRepoBase:
     def __init__(
         self,
         *,
-        state: DatabaseState,
         sqla_models: Any,
         sessions: SQLiteSessionManager,
         scope_fields: list[str],
     ) -> None:
-        self._state = state
         self._sqla_models = sqla_models
         self._sessions = sessions
         self._scope_fields = scope_fields

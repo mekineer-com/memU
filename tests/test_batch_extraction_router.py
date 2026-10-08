@@ -370,11 +370,10 @@ async def test_persist_plan_keeps_segment_local_path_without_flattened_copy(
 
     assert state["resources"][0].local_path == str(local_path)
     repo = service.database.resource_repo
-    resource = next(iter(repo.resources.values()))
+    resource = next(iter(repo.list_resources().values()))
     updated = repo.create_resource(url=str(local_path), modality="conversation",
         local_path=str(local_path), caption=None, embedding=None, user_data={})
     assert updated.id == resource.id
-    repo.resources.clear()
     reloaded = repo.list_resources()[resource.id]
     assert reloaded.local_path == str(local_path)
     assert not (service.fs.base / "2026-01-01.jsonl").exists()

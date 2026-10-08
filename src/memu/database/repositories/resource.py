@@ -10,8 +10,6 @@ from memu.database.models import Resource
 class ResourceRepo(Protocol):
     """Repository contract for resource records."""
 
-    resources: dict[str, Resource]
-
     def list_resources(self, where: Mapping[str, Any] | None = None) -> dict[str, Resource]: ...
 
     def clear_resources(self, where: Mapping[str, Any] | None = None) -> dict[str, Resource]: ...

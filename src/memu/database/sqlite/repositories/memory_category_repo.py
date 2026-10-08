@@ -17,7 +17,6 @@ from memu.database.repositories.memory_category import MemoryCategoryRepo
 from memu.database.sqlite.repositories.base import SQLiteRepoBase
 from memu.database.sqlite.schema import SQLiteSQLAModels
 from memu.database.sqlite.session import SQLiteSessionManager
-from memu.database.state import DatabaseState
 from memu.utils.taxonomy import DOSSIER_KINDS
 
 logger = logging.getLogger(__name__)
@@ -29,7 +28,6 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
     def __init__(
         self,
         *,
-        state: DatabaseState,
         memory_category_model: type[Any],
         sqla_models: SQLiteSQLAModels,
         sessions: SQLiteSessionManager,
@@ -38,20 +36,17 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
         """Initialize memory category repository.
 
         Args:
-            state: Shared database state for caching.
             memory_category_model: SQLModel class for memory categories.
             sqla_models: SQLAlchemy model container.
             sessions: Session manager for database connections.
             scope_fields: List of user scope field names.
         """
         super().__init__(
-            state=state,
             sqla_models=sqla_models,
             sessions=sessions,
             scope_fields=scope_fields,
         )
         self._memory_category_model = memory_category_model
-        self.categories = self._state.categories
 
     def _to_category(self, row: Any) -> MemoryCategory:
         return MemoryCategory(
@@ -102,8 +97,6 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
         for row in rows:
             cat = self._to_category(row)
             result[row.id] = cat
-            if session is None:
-                self.categories[row.id] = cat
 
         return result
 
@@ -203,9 +196,6 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
             session.exec(del_stmt)
             session.commit()
 
-            for cat_id in deleted:
-                self.categories.pop(cat_id, None)
-
         return deleted
 
     def get_or_create_category(
@@ -263,7 +253,6 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
 
             if existing:
                 cat = self._to_category(existing)
-                self.categories[existing.id] = cat
                 return cat
 
             # Create new category
@@ -294,11 +283,9 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
                 if existing is None:
                     raise
                 cat = self._to_category(existing)
-                self.categories[existing.id] = cat
                 return cat
 
         cat = self._to_category(row)
-        self.categories[row.id] = cat
         return cat
 
     def approve_category_summary(
@@ -312,7 +299,6 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
             with self._sessions.session() as managed_session:
                 category = self.approve_category_summary(category_id, where, session=managed_session)
                 managed_session.commit()
-            self.categories[category.id] = category
             return category
         filters = [self._memory_category_model.id == category_id, *self._build_filters(self._memory_category_model, where)]
         row = session.exec(select(self._memory_category_model).where(*filters)).first()
@@ -380,7 +366,6 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
                     session=managed_session,
                 )
                 managed_session.commit()
-            self.categories[category.id] = category
             return category
 
         filters = [

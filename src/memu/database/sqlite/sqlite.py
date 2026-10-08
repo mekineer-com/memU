@@ -9,7 +9,6 @@ from pydantic import BaseModel
 from sqlmodel import SQLModel
 
 from memu.database.interfaces import Database
-from memu.database.models import MemoryCategory, Resource
 from memu.database.repositories import (
     CategoryItemRepo,
     DossierCandidateRepo,
@@ -28,7 +27,6 @@ from memu.database.sqlite.repositories.resource_repo import SQLiteResourceRepo
 from memu.database.sqlite.repositories.triple_repo import SQLiteTripleRepo
 from memu.database.sqlite.schema import SQLiteSQLAModels, get_sqlite_sqlalchemy_models
 from memu.database.sqlite.session import SQLiteSessionManager
-from memu.database.state import DatabaseState
 
 logger = logging.getLogger(__name__)
 
@@ -44,8 +42,6 @@ class SQLiteStore(Database):
         memory_category_repo: Repository for memory categories.
         memory_item_repo: Repository for memory items.
         category_item_repo: Repository for category-item relations.
-        resources: Dict cache of resource records.
-        categories: Dict cache of memory category records.
     """
 
     resource_repo: ResourceRepo
@@ -55,8 +51,6 @@ class SQLiteStore(Database):
     dossier_candidate_repo: DossierCandidateRepo
     entity_repo: EntityRepo
     triple_repo: TripleRepo
-    resources: dict[str, Resource]
-    categories: dict[str, MemoryCategory]
 
     def __init__(
         self,
@@ -84,7 +78,6 @@ class SQLiteStore(Database):
         self.dsn = dsn
         self._scope_model: type[BaseModel] = scope_model or BaseModel
         self._scope_fields = list(getattr(self._scope_model, "model_fields", {}).keys())
-        self._state = DatabaseState()
         self._sessions = SQLiteSessionManager(dsn=self.dsn)
         self._sessions.embedding_profile = embedding_profile
         self._sqla_models: SQLiteSQLAModels = sqla_models or get_sqlite_sqlalchemy_models(scope_model=self._scope_model)
@@ -106,58 +99,47 @@ class SQLiteStore(Database):
 
         # Initialize repositories
         self.resource_repo = SQLiteResourceRepo(
-            state=self._state,
             resource_model=resource_model,
             sqla_models=self._sqla_models,
             sessions=self._sessions,
             scope_fields=self._scope_fields,
         )
         self.memory_category_repo = SQLiteMemoryCategoryRepo(
-            state=self._state,
             memory_category_model=memory_category_model,
             sqla_models=self._sqla_models,
             sessions=self._sessions,
             scope_fields=self._scope_fields,
         )
         self.memory_item_repo = SQLiteMemoryItemRepo(
-            state=self._state,
             memory_item_model=memory_item_model,
             sqla_models=self._sqla_models,
             sessions=self._sessions,
             scope_fields=self._scope_fields,
         )
         self.category_item_repo = SQLiteCategoryItemRepo(
-            state=self._state,
             category_item_model=category_item_model,
             sqla_models=self._sqla_models,
             sessions=self._sessions,
             scope_fields=self._scope_fields,
         )
         self.dossier_candidate_repo = SQLiteDossierCandidateRepo(
-            state=self._state,
             dossier_candidate_model=dossier_candidate_model,
             sqla_models=self._sqla_models,
             sessions=self._sessions,
             scope_fields=self._scope_fields,
         )
         self.entity_repo = SQLiteEntityRepo(
-            state=self._state,
             entity_model=entity_model,
             sqla_models=self._sqla_models,
             sessions=self._sessions,
             scope_fields=self._scope_fields,
         )
         self.triple_repo = SQLiteTripleRepo(
-            state=self._state,
             triple_model=triple_model,
             sqla_models=self._sqla_models,
             sessions=self._sessions,
             scope_fields=self._scope_fields,
         )
-
-        # Set up cache references
-        self.resources = self._state.resources
-        self.categories = self._state.categories
 
     def _assert_canonical_embeddings(self) -> None:
         invalid: list[str] = []

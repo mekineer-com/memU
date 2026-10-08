@@ -19,7 +19,6 @@ from memu.database.repositories.memory_item import MemoryItemRepo
 from memu.database.sqlite.repositories.base import SQLiteRepoBase
 from memu.database.sqlite.schema import SQLiteSQLAModels
 from memu.database.sqlite.session import SQLiteSessionManager
-from memu.database.state import DatabaseState
 from memu.database.vector import reciprocal_rank_fusion, rerank_by_salience
 
 logger = logging.getLogger(__name__)
@@ -34,7 +33,6 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
     def __init__(
         self,
         *,
-        state: DatabaseState,
         memory_item_model: type[Any],
         sqla_models: SQLiteSQLAModels,
         sessions: SQLiteSessionManager,
@@ -43,14 +41,12 @@ class SQLiteMemoryItemRepo(SQLiteRepoBase, MemoryItemRepo):
         """Initialize memory item repository.
 
         Args:
-            state: Shared database state for caching.
             memory_item_model: SQLModel class for memory items.
             sqla_models: SQLAlchemy model container.
             sessions: Session manager for database connections.
             scope_fields: List of user scope field names.
         """
         super().__init__(
-            state=state,
             sqla_models=sqla_models,
             sessions=sessions,
             scope_fields=scope_fields,

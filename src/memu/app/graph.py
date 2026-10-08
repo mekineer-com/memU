@@ -1450,8 +1450,6 @@ class GraphMixin:
         self, category: MemoryCategory, where: Mapping[str, Any], *,
         journal: dict[str, Any] | None = None, refresh_memberships: bool = False,
     ) -> dict[str, Any] | None:
-        store = self._get_database()
-        store.memory_category_repo.categories[category.id] = category
         if journal is not None:
             try:
                 append_category_summary_journal(**journal)

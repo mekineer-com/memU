@@ -15,7 +15,6 @@ from memu.database.repositories.entity import EntityRepo
 from memu.database.sqlite.repositories.base import SQLiteRepoBase
 from memu.database.sqlite.schema import SQLiteSQLAModels
 from memu.database.sqlite.session import SQLiteSessionManager
-from memu.database.state import DatabaseState
 
 
 def _clean_aliases(values: list[str], primary_name: str) -> list[str]:
@@ -36,14 +35,12 @@ class SQLiteEntityRepo(SQLiteRepoBase, EntityRepo):
     def __init__(
         self,
         *,
-        state: DatabaseState,
         entity_model: type[Any],
         sqla_models: SQLiteSQLAModels,
         sessions: SQLiteSessionManager,
         scope_fields: list[str],
     ) -> None:
         super().__init__(
-            state=state,
             sqla_models=sqla_models,
             sessions=sessions,
             scope_fields=scope_fields,

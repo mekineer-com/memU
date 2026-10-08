@@ -12,8 +12,6 @@ from memu.database.models import DossierKind, MemoryCategory
 class MemoryCategoryRepo(Protocol):
     """Repository contract for memory categories."""
 
-    categories: dict[str, MemoryCategory]
-
     def list_categories(
         self,
         where: Mapping[str, Any] | None = None,

@@ -14,7 +14,6 @@ from memu.database.repositories.triple import TripleRepo
 from memu.database.sqlite.repositories.base import SQLiteRepoBase
 from memu.database.sqlite.schema import SQLiteSQLAModels
 from memu.database.sqlite.session import SQLiteSessionManager
-from memu.database.state import DatabaseState
 
 # Predicates whose meaning is direction-independent: (A,p,B) == (B,p,A).
 # For these, endpoints are stored in sorted order so two writes from
@@ -36,14 +35,12 @@ class SQLiteTripleRepo(SQLiteRepoBase, TripleRepo):
     def __init__(
         self,
         *,
-        state: DatabaseState,
         triple_model: type[Any],
         sqla_models: SQLiteSQLAModels,
         sessions: SQLiteSessionManager,
         scope_fields: list[str],
     ) -> None:
         super().__init__(
-            state=state,
             sqla_models=sqla_models,
             sessions=sessions,
             scope_fields=scope_fields,

@@ -28,9 +28,6 @@ class Database(Protocol):
     entity_repo: EntityRepo
     triple_repo: TripleRepo
 
-    resources: dict[str, ResourceRecord]
-    categories: dict[str, MemoryCategoryRecord]
-
     def close(self) -> None: ...
 
 
