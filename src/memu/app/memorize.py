@@ -7,7 +7,6 @@ import math
 import pathlib
 import re
 from collections.abc import Awaitable, Callable, Mapping, Sequence
-from datetime import date
 from typing import TYPE_CHECKING, Any, NamedTuple, cast
 
 from pydantic import BaseModel
@@ -1040,7 +1039,6 @@ class MemorizeMixin:
         ):
             episode_local_path = str(pathlib.Path(self.fs.base) / f"{pathlib.Path(plan['resource_url']).stem}.txt")
         if existing_resource is None:
-            source_days = sorted(source_day_happened_at or {}) if modality == "conversation" else []
             prepared["resource_kwargs"] = await persistence._prepare_resource_with_caption(
                 resource_url=plan["resource_url"],
                 modality=modality,
@@ -1051,8 +1049,6 @@ class MemorizeMixin:
                 user=user_scope,
                 segment_id=str(plan.get("segment_id") or "").strip() or None,
                 conversation_id=conversation_id,
-                source_start_day=date.fromisoformat(source_days[0]) if source_days else None,
-                source_end_day=date.fromisoformat(source_days[-1]) if source_days else None,
                 memory_retrieve_history=plan.get("memory_retrieve_history"),
                 memory_prior_context=plan.get("memory_prior_context"),
             )

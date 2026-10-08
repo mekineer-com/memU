@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import date
 from typing import Any, Protocol, runtime_checkable
 
 from memu.database.models import Resource
@@ -28,8 +27,6 @@ class ResourceRepo(Protocol):
         user_data: dict[str, Any],
         segment_id: str | None = None,
         conversation_id: str | None = None,
-        source_start_day: date | None = None,
-        source_end_day: date | None = None,
         memory_retrieve_history: list[str] | None = None,
         memory_prior_context: list[str] | None = None,
         session: Any | None = None,

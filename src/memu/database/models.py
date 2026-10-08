@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 import secrets
-from datetime import date, datetime
+from datetime import datetime
 from typing import Any, Literal
 
 import pendulum
@@ -60,8 +60,6 @@ class Resource(BaseRecord):
     embedding: list[float] | None = None
     segment_id: str | None = None
     conversation_id: str | None = None
-    source_start_day: date | None = None
-    source_end_day: date | None = None
     memory_retrieve_history: list[str] | None = None
     memory_prior_context: list[str] | None = None
 
