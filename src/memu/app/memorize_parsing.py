@@ -98,6 +98,10 @@ def _find_xml_boundaries(raw: str) -> tuple[int, int, str] | None:
             end_idx = raw.rfind(closing)
             if end_idx != -1:
                 return (start_idx, end_idx, closing)
+            return None
+    empty_root = re.search(r"<item\s*/>", raw)
+    if empty_root is not None:
+        return (empty_root.start(), empty_root.start(), empty_root.group())
     return None
 
 
@@ -165,16 +169,17 @@ def _parse_memory_element(memory_elem: Element) -> dict[str, Any] | None:
         if entities:
             memory_dict["entities"] = entities
 
-    if memory_dict.get("content") and memory_dict.get("categories"):
+    if memory_dict.get("content"):
         return memory_dict
+    logger.warning("Skipping extracted memory with missing or blank content")
     return None
 
 
 def _parse_memory_type_response_xml(raw: str) -> list[dict[str, Any]]:
     """Parse XML extraction reply.  Returns [] for a valid reply with no items.
-    Raises ValueError for an unparseable reply (caller should retry once)."""
+    Raises ValueError for an unparseable or unusable reply."""
     if not raw or not raw.strip():
-        return []
+        raise ValueError("Extraction reply is blank")
     raw = raw.strip()
 
     try:
@@ -184,29 +189,24 @@ def _parse_memory_type_response_xml(raw: str) -> list[dict[str, Any]]:
 
         start_idx, end_idx, end_tag = boundaries
         xml_content = raw[start_idx : end_idx + len(end_tag)]
-        xml_content = xml_content.replace("&", "&amp;")
+        xml_content = re.sub(r"&(?!amp;|lt;|gt;|quot;|apos;|#\d+;|#x[0-9a-fA-F]+;)", "&amp;", xml_content)
 
         root = ET.fromstring(xml_content)
-        result: list[dict[str, Any]] = []
-
-        for memory_elem in root.findall("memory"):
-            parsed = _parse_memory_element(memory_elem)
-            if parsed:
-                result.append(parsed)
+        memory_elements = root.findall("memory")
 
     except ET.ParseError:
         logger.warning("Malformed extraction XML — attempting salvage with synthetic root")
         try:
             root = ET.fromstring(f"<root>{xml_content}</root>")
-            result = []
-            for memory_elem in root.iter("memory"):
-                parsed = _parse_memory_element(memory_elem)
-                if parsed:
-                    result.append(parsed)
-            if result:
-                logger.info("Salvaged %d memories from malformed XML", len(result))
-            return result
+            memory_elements = list(root.iter("memory"))
         except ET.ParseError:
             raise ValueError("Extraction XML salvage failed — reply is unparseable")
-    else:
-        return result
+
+    result: list[dict[str, Any]] = []
+    for memory_elem in memory_elements:
+        parsed = _parse_memory_element(memory_elem)
+        if parsed:
+            result.append(parsed)
+    if memory_elements and not result:
+        raise ValueError("Extraction reply contains no usable memory content")
+    return result

@@ -315,6 +315,8 @@ def parse_happened_at(raw: Any) -> datetime | None:
             return None
     if parsed is None:
         return None
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone()
     return parsed.replace(tzinfo=None)
 
 

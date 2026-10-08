@@ -188,14 +188,17 @@ def file_category_proposals(
 
     validated: list[tuple[MemoryItem, list[str], list[tuple[str, str]]]] = []
     for item, proposals in proposals_by_item.values():
+        distinct: dict[str, str] = {}
+        for proposal in proposals:
+            normalized = normalize_category_name(proposal)
+            if normalized:
+                distinct.setdefault(normalized, proposal)
         known, unknown = _partition_category_names(
-            proposals,
+            list(distinct.values())[:3],
             set(by_name),
             normalize_category_name,
             dedupe_unknown=True,
         )
-        if len(known) + len(unknown) > 3:
-            raise ValueError(f"Memory {item.id} has more than three category proposals")
         validated.append((item, known, unknown))
     item_ids = set(proposals_by_item)
     persisted = store.memory_item_repo.list_items_by_ids(

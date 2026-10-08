@@ -868,10 +868,46 @@ def test_parse_memory_type_response_xml_raises_on_unsalvageable_xml() -> None:
         parsing._parse_memory_type_response_xml(bad_xml)
 
 
-def test_parse_memory_type_response_xml_returns_empty_for_valid_xml_no_memories() -> None:
+@pytest.mark.parametrize("raw", ["<item></item>", "<item/>", "<item />"])
+def test_parse_memory_type_response_xml_returns_empty_for_valid_xml_no_memories(raw) -> None:
     # Valid XML with <item> root but no <memory> elements is a legitimate zero-item reply
-    result = parsing._parse_memory_type_response_xml("<item></item>")
+    result = parsing._parse_memory_type_response_xml(raw)
     assert result == []
+
+
+@pytest.mark.parametrize("roots", [1, 2])
+def test_parse_memory_type_response_xml_preserves_entities_and_bare_ampersands(roots) -> None:
+    raw = (
+        "<item><memory><content>R&amp;D & testing &lt;ok&gt; &quot;yes&quot; "
+        "&apos;x&apos; &#38; &#x26; &amp;amp; &unknown;</content>"
+        "<categories><category>R&amp;D</category></categories></memory></item>"
+    )
+    parsed = parsing._parse_memory_type_response_xml(raw * roots)
+    assert parsed == [{
+        "content": 'R&D & testing <ok> "yes" \'x\' & & &amp; &unknown;',
+        "categories": ["R&D"],
+    }] * roots
+
+
+@pytest.mark.parametrize("categories", ["", "<categories/>", "<categories><category> </category></categories>"])
+def test_parse_structured_entries_keeps_uncategorized_content(categories) -> None:
+    response = (
+        "<item><memory><content>A fictional discovery.</content><source_role>user</source_role>"
+        f"{categories}</memory><memory><content> </content></memory></item>"
+    )
+    entries = _service()._parse_structured_entries(["knowledge"], [response])
+    assert len(entries) == 1
+    assert entries[0].content == "A fictional discovery."
+    assert entries[0].source_role == "user"
+    assert entries[0].categories == []
+
+
+@pytest.mark.parametrize("content", ["", "<content/>", "<content> </content>"])
+@pytest.mark.parametrize("roots", [1, 2])
+def test_parse_memory_type_response_xml_reports_unusable_memory(content, roots, caplog) -> None:
+    with pytest.raises(ValueError, match="no usable memory content"):
+        parsing._parse_memory_type_response_xml(f"<item><memory>{content}</memory></item>" * roots)
+    assert "Skipping extracted memory with missing or blank content" in caplog.text
 
 
 @pytest.mark.asyncio

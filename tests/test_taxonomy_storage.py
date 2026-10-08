@@ -383,18 +383,26 @@ def test_category_proposal_filing_keeps_known_and_unknown_and_is_atomic(tmp_path
     assert [row.id for row in repeated[1]] == [row.id for row in candidates]
 
     with store._sessions.session() as session:
-        with pytest.raises(ValueError, match="more than three"):
-            memorize_categories.file_category_proposals(
-                store=store,
-                item_proposals=[(item, ["one", "two"]), (item, ["three", "four"])],
-                where=SCOPE,
-                session=session,
-            )
+        relations, candidates = memorize_categories.file_category_proposals(
+            store=store,
+            item_proposals=[(item, ["!!!", "one", "ONE!", "two"]), (item, ["Known", "four"])],
+            where=SCOPE,
+            session=session,
+        )
+        assert [relation.category_id for relation in relations] == [known.id]
+        assert [candidate.normalized_name for candidate in candidates] == ["one", "two"]
         session.rollback()
     assert [row.normalized_name for row in store.dossier_candidate_repo.list_candidates(SCOPE)] == [
         "new_domain",
         "identity",
     ]
+
+    with store._sessions.session() as session:
+        assert memorize_categories.file_category_proposals(
+            store=store, item_proposals=[(item, [])], where=SCOPE, session=session,
+        ) == ([], [])
+        session.commit()
+    assert item.id in store.memory_item_repo.list_items(SCOPE)
 
 
 @pytest.mark.asyncio

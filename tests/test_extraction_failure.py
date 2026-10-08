@@ -26,15 +26,16 @@ class _Stub:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("response", ["not xml", "", " \n\t", "<item><memory/><memory><content> </content></memory></item>"])
 async def test_extraction_failure_dumps_once_without_retry(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, response: str
 ) -> None:
     service = _service()
     monkeypatch.setattr(service, "_format_soul_context_for_prompt", lambda *_a, **_k: "")
     monkeypatch.setattr(service.fs, "base", tmp_path)
-    stub = _Stub("not xml")
+    stub = _Stub(response)
 
-    with pytest.raises(ValueError, match="Extraction reply invalid.*not xml"):
+    with pytest.raises(ValueError, match="Extraction reply invalid"):
         await service._generate_entries_from_text(
             resource_text="[0] [user]: A fictional event.",
             store=None,  # type: ignore[arg-type]
@@ -47,7 +48,7 @@ async def test_extraction_failure_dumps_once_without_retry(
     assert stub.calls == 1
     assert len(dumps) == 1
     assert "attempt1" in dumps[0].name
-    assert dumps[0].read_text() == "not xml"
+    assert dumps[0].read_text() == response
 
 
 @pytest.mark.asyncio

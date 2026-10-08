@@ -1125,13 +1125,13 @@ def test_revision_memory_records_are_one_line() -> None:
         memory_type="knowledge",
         summary="First line.\n  Second line.",
         memory_ref=12,
-        created_at=datetime(2026, 7, 18, tzinfo=UTC),
+        created_at=datetime(2026, 7, 18),
     )
     assert render_memory_records(
-        [item], now=datetime(2026, 8, 18, tzinfo=UTC)
+        [item], now=datetime(2026, 8, 18)
     ) == "[M12] [knowledge] (2026-07-18, 1 month ago) First line. Second line."
     assert render_memory_records(
-        [item], now=datetime(2026, 8, 18, tzinfo=UTC), include_relative=False
+        [item], now=datetime(2026, 8, 18), include_relative=False
     ) == "[M12] [knowledge] (2026-07-18) First line. Second line."
 
 
