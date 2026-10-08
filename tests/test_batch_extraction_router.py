@@ -174,7 +174,7 @@ async def test_route_segment_scales_episode_guidance_without_discarding_valid_ou
 async def test_route_segment_uses_excluded_types_model() -> None:
     service = _service()
     client = _RouterStub(
-        '{"excluded_types": ["knowledge", "social"], "episodes": [{"title": "Anchor", "episode_summary": "Full story.", "episode_item": "Compact story.", "categories": ["Existing", "New domain"], "day": "2026-01-02"}]}'
+        '{"excluded_types": ["knowledge", "social"], "episodes": [{"title": "Anchor", "episode_summary": "Full story.", "episode_item": "Compact story.", "categories": ["Existing", "existing", "Existing!", "New domain", "Learning", "Health"], "day": "2026-01-02"}]}'
     )
 
     routed, episodes = await service._route_segment(
@@ -190,7 +190,7 @@ async def test_route_segment_uses_excluded_types_model() -> None:
         "title": "Anchor",
         "summary": "Full story.",
         "item": "Compact story.",
-        "categories": ["Existing", "New domain"],
+        "categories": ["Existing", "New domain", "Learning"],
         "day": "2026-01-02",
     }]
     assert "- Existing: An existing dossier" in client.prompts[0]

@@ -1254,13 +1254,15 @@ class MemorizeMixin:
             return state
         store = state["store"]
         scope = state.get("user") or {}
+        cluster_size = int(getattr(self.memorize_config, "dynamic_category_cluster_size", 10) or 10)
         bundles = await self.prepare_dynamic_category_review(
             store=store,
             where=scope,
-            cluster_size=int(getattr(self.memorize_config, "dynamic_category_cluster_size", 10) or 10),
+            cluster_size=cluster_size,
         )
         category_ids = set(state.get("category_ids") or [])
-        for bundle in bundles:
+        while bundles:
+            bundle = bundles.pop(0)
             decision = await self.generate_dynamic_category_review(
                 bundle,
                 **({"input_budget": model_input_budget(self, self.memorize_config.category_update_llm_profile)}
@@ -1291,6 +1293,10 @@ class MemorizeMixin:
             if target is not None:
                 category_ids.add(target.id)
             state.setdefault("relations", []).extend(result.get("relations") or [])
+            if result["status"] == "created" and bundles:
+                bundles = await self.prepare_dynamic_category_review(
+                    store=store, where=scope, cluster_size=cluster_size,
+                )
         state["category_ids"] = sorted(category_ids)
         return state
 
@@ -1519,13 +1525,14 @@ class MemorizeMixin:
                 raw_categories = row.get("categories")
                 if not isinstance(raw_categories, list) or not raw_categories:
                     raise ValueError("router categories must be a non-empty string list")
-                episode_categories: list[str] = []
+                distinct_categories: dict[str, str] = {}
                 for category in raw_categories:
-                    normalized = category.strip() if isinstance(category, str) else ""
-                    if normalized and normalized not in episode_categories:
-                        episode_categories.append(normalized)
-                    if len(episode_categories) == 3:
+                    normalized = normalize_category_name(category)
+                    if normalized:
+                        distinct_categories.setdefault(normalized, category.strip())
+                    if len(distinct_categories) == 3:
                         break
+                episode_categories = list(distinct_categories.values())
                 if not episode_categories:
                     raise ValueError("router categories must contain a non-blank string")
                 day = row.get("day")

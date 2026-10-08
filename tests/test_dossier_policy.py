@@ -1508,6 +1508,61 @@ async def test_generate_dossier_revision_selects_existing_category_profile(
     assert "# Your character, your personality, your voice" not in str(client.calls[0][1])
 
 
+@pytest.mark.parametrize("later_action", ["existing", "create", "defer"])
+@pytest.mark.asyncio
+async def test_dynamic_review_refreshes_dossiers_after_creation(tmp_path, monkeypatch, later_action) -> None:
+    service = _service(tmp_path, dynamic_category_cluster_size=2)
+    store = service.database
+    for vector in ([1.0, 0.0], [0.0, 1.0]):
+        for index in range(2):
+            item = store.memory_item_repo.create_item(
+                memory_type="knowledge", summary=f"Evidence {vector} {index}",
+                embedding=vector, user_data=SCOPE,
+            )
+            store.dossier_candidate_repo.add_candidate(
+                proposed_name="Shared Topic", item_id=item.id, where=SCOPE,
+            )
+    calls = []
+
+    async def generate(bundle, **_kwargs):
+        calls.append(bundle)
+        targets = bundle["existing_dossiers"]
+        first = len(calls) == 1
+        if first:
+            assert targets == []
+        else:
+            assert [target.name for target in targets] == ["Shared Topic"]
+        action = "create" if first else later_action
+        ids = bundle["candidate_ids"]
+        accepted = ids[:1] if first else (ids if action != "defer" else [])
+        return {
+            "cluster_id": bundle["cluster_id"], "action": action,
+            "accepted_candidate_ids": accepted,
+            "rejected_candidate_ids": [candidate_id for candidate_id in ids if candidate_id not in accepted],
+            "existing_dossier_id": targets[0].id if action == "existing" else None,
+            "name": "Shared Topic" if action == "create" else None,
+            "description": "A shared topic dossier." if action == "create" else None,
+            "kind": "topic" if action == "create" else None,
+        }
+
+    monkeypatch.setattr(service, "generate_dynamic_category_review", generate)
+    embedding = FakeEmbedClient()
+    monkeypatch.setattr(service, "_select_embedding_client", lambda *_args: embedding)
+    state = await service._memorize_persist_and_index(
+        {"store": store, "user": SCOPE, "active_candidate_work_committed": True}, None,
+    )
+    assert len(calls) == 2
+    assert set(calls[0]["candidate_ids"]).isdisjoint(calls[1]["candidate_ids"])
+    categories = store.memory_category_repo.list_categories(SCOPE)
+    assert len(categories) == 1
+    assert state["category_ids"] == list(categories)
+    assert len(state["relations"]) == (3 if later_action == "existing" else 1)
+    remaining = store.dossier_candidate_repo.list_candidates(SCOPE)
+    assert len(remaining) == (1 if later_action == "existing" else 3)
+    assert all(candidate.last_considered_at is not None for candidate in remaining)
+    assert await service.prepare_dynamic_category_review(store=store, where=SCOPE, cluster_size=2) == []
+
+
 @pytest.mark.asyncio
 async def test_generate_dynamic_category_review_reuses_profile_and_preflights(
     tmp_path, monkeypatch
