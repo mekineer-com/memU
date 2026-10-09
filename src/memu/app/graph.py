@@ -1620,18 +1620,35 @@ class GraphMixin:
                 for item_id in expected_summaries
             ):
                 raise ValueError("summary_snapshot_stale")
-            categories = store.memory_category_repo.list_categories(where, session=session)
-            relations = store.category_item_repo.list_relations(where, session=session)
-            usages = self._dossier_usages_by_item(items.values(), categories, relations)
-            conflicts = [usage for item_id in raw_ids for usage in usages.get(item_id, []) if usage["cited"]]
+            # Root filters must not hide older versions or duplicate-merge dependents.
+            scope = {key: value for key, value in (where or {}).items() if key.split("__", 1)[0] in store._scope_fields}
+            all_items = store.memory_item_repo.list_items(
+                scope, include_superseded=True, include_merged=True, include_embeddings=False, session=session,
+            )
+            group_ids = set(items)
+            frontier = group_ids
+            while frontier:
+                predecessors = {
+                    edge.subject_id
+                    for edge in store.triple_repo.list_edges_for_memories(
+                        frontier, ["evolved_into"], scope, session=session,
+                    )
+                    if edge.subject_kind == edge.object_kind == "memory"
+                    and edge.object_id in frontier and edge.subject_id in all_items
+                }
+                frontier = predecessors - group_ids
+                group_ids.update(frontier)
+            if any(item.id not in group_ids and item.merged_into in group_ids for item in all_items.values()):
+                raise ValueError("This memory is still linked to older duplicates. Deleting it would break their history.")
+            categories = store.memory_category_repo.list_categories(scope, session=session)
+            relations = store.category_item_repo.list_relations(scope, session=session)
+            usages = self._dossier_usages_by_item((all_items[item_id] for item_id in group_ids), categories, relations)
+            conflicts = [usage for item_id in sorted(group_ids) for usage in usages.get(item_id, []) if usage["cited"]]
             if conflicts:
                 raise MemoryCitationConflictError(conflicts)
 
-            deleted = [
-                store.memory_item_repo.hard_delete_item(item_id, where=where, session=session)
-                for item_id in raw_ids
-                if item_id in items
-            ]
+            for item_id in sorted(group_ids):
+                store.memory_item_repo.hard_delete_item(item_id, where=scope, session=session)
             session.commit()
         return [
             self._memory_node(
@@ -1640,7 +1657,7 @@ class GraphMixin:
                 category_ids=[usage["id"].removeprefix("category:") for usage in usages.get(item.id, [])],
                 dossier_usages=usages.get(item.id, []),
             )
-            for item in deleted
+            for item in (items[item_id] for item_id in raw_ids if item_id in items)
         ]
 
     def graph_delete_memory(

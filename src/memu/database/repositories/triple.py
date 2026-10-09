@@ -43,6 +43,7 @@ class TripleRepo(Protocol):
         where: Mapping[str, Any] | None = None,
         *,
         current_only: bool = True,
+        session: Any | None = None,
     ) -> list[Triple]: ...
 
     def invalidate(

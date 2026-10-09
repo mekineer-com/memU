@@ -180,25 +180,30 @@ class SQLiteTripleRepo(SQLiteRepoBase, TripleRepo):
         where: Mapping[str, Any] | None = None,
         *,
         current_only: bool = True,
+        session: Any | None = None,
     ) -> list[Triple]:
         ids = set(memory_ids)
         predicate_set = set(predicates)
         if not ids or not predicate_set:
             return []
-        with self._sessions.session() as session:
-            stmt = select(self._triple_model).where(
-                or_(
-                    self._triple_model.subject_id.in_(ids),
-                    self._triple_model.object_id.in_(ids),
-                ),
-                self._triple_model.predicate.in_(predicate_set),
-            )
-            filters = self._build_filters(self._triple_model, where)
-            if filters:
-                stmt = stmt.where(*filters)
-            if current_only:
-                stmt = stmt.where(self._triple_model.valid_to.is_(None))
-            rows = session.exec(stmt).all()
+        if session is None:
+            with self._sessions.session() as managed_session:
+                return self.list_edges_for_memories(
+                    ids, predicate_set, where, current_only=current_only, session=managed_session,
+                )
+        stmt = select(self._triple_model).where(
+            or_(
+                self._triple_model.subject_id.in_(ids),
+                self._triple_model.object_id.in_(ids),
+            ),
+            self._triple_model.predicate.in_(predicate_set),
+        )
+        filters = self._build_filters(self._triple_model, where)
+        if filters:
+            stmt = stmt.where(*filters)
+        if current_only:
+            stmt = stmt.where(self._triple_model.valid_to.is_(None))
+        rows = session.exec(stmt).all()
         return [self._row_to_triple(row) for row in rows]
 
     def invalidate(
