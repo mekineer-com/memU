@@ -1546,7 +1546,22 @@ def test_graph_update_memory_summary_embeds_before_history_update(monkeypatch, t
         summary="old summary",
         embedding=[0.1],
         user_data=scope,
+        segment_id="old-segment",
     )
+    dossier = store.memory_category_repo.get_or_create_category(
+        name="Routine", description="A routine",
+        embedding=[0.1], user_data=scope, kind="topic",
+    )
+    dossier = store.memory_category_repo.update_category(
+        category_id=dossier.id, summary=f"## Routine\nOld fact [M{item.memory_ref}].",
+    )
+    relation = store.category_item_repo.link_item_category(item.id, dossier.id, scope)
+    with store._sessions.session() as session:
+        store.category_item_repo.mark_reviewed(
+            dossier.id, {item.id}, scope, reviewed_at=relation.updated_at, session=session,
+        )
+        session.commit()
+    assert service.list_due_dossiers(scope) == []
 
     class _Embedder:
         async def embed(self, texts):
@@ -1563,11 +1578,27 @@ def test_graph_update_memory_summary_embeds_before_history_update(monkeypatch, t
     assert updated["summary"] == "new summary"
     assert saved.summary == "new summary"
     assert saved.embedding == pytest.approx([0.9, 0.8])
+    assert [row.id for row in service.list_due_dossiers(scope)] == [dossier.id]
+    assert service.list_due_dossiers(scope, segment_ids=["current-segment"]) == []
+    assert [row.id for row in service.list_due_dossiers(
+        scope, segment_ids=["current-segment"], include_reviewed_changes=True,
+    )] == [dossier.id]
+    assert service.list_due_dossiers(
+        scope, segment_ids=["current-segment"], include_reviewed_changes=True,
+        excluded_segment_ids=["old-segment"],
+    ) == []
+    assert store.memory_category_repo.list_categories(scope)[dossier.id].summary == dossier.summary
+    corrected_relation = store.category_item_repo.list_relations({**scope, "item_id": item.id})[0]
+    assert corrected_relation.updated_at == saved.updated_at
+    assert corrected_relation.reviewed_at == relation.updated_at
     with store._sessions.engine.connect() as conn:
         row = conn.exec_driver_sql(
             "SELECT summary_before, summary_after, scope_json FROM memory_item_edit_history"
         ).fetchone()
     assert row == ("old summary", "new summary", '{"soul_id": "s", "user_id": "graph_edit"}')
+    service._select_embedding_client = lambda _ctx: pytest.fail("unchanged text must not embed")
+    asyncio.run(service.graph_update_memory_summary(item.id, summary="new summary", where=scope, approved=True))
+    assert store.category_item_repo.list_relations({**scope, "item_id": item.id})[0] == corrected_relation
     assert list(tmp_path.iterdir()) == []
 
 

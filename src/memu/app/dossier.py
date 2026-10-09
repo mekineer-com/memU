@@ -423,6 +423,7 @@ class DossierMixin:
         *,
         segment_ids: Sequence[str] | None = None,
         excluded_segment_ids: Sequence[str] = (),
+        include_reviewed_changes: bool = False,
     ) -> list[MemoryCategory]:
         scope = _scope(where)
         store = self._get_database()
@@ -430,7 +431,14 @@ class DossierMixin:
         relations = store.category_item_repo.list_relations(scope)
         if segment_ids is not None:
             evidence_ids = _selected_evidence_ids(store, scope, segment_ids)
-            relations = [relation for relation in relations if relation.item_id in evidence_ids]
+            relations = [
+                relation for relation in relations
+                if relation.item_id in evidence_ids or (
+                    include_reviewed_changes
+                    and relation.reviewed_at is not None
+                    and _membership_needs_review(relation)
+                )
+            ]
         if excluded_segment_ids:
             excluded_ids = _selected_evidence_ids(store, scope, excluded_segment_ids)
             relations = [relation for relation in relations if relation.item_id not in excluded_ids]

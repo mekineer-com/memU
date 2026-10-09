@@ -12,7 +12,7 @@ from typing import Any
 from sqlalchemy import case, func, or_, text
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import defer
-from sqlmodel import delete, select
+from sqlmodel import delete, select, update
 
 from memu.database.models import MemoryItem, MemoryType
 from memu.database.repositories.memory_item import MemoryItemRepo
@@ -975,6 +975,12 @@ VALUES (?, ?, ?, ?, ?, ?, ?)
             session.flush()
             session.refresh(row)
             self._fts_upsert(session, item_id, row.summary, row.memory_type)
+            memberships = self._sqla_models.CategoryItem
+            session.exec(
+                update(memberships)
+                .where(memberships.item_id == item_id)
+                .values(updated_at=row.updated_at)
+            )
             item = self._to_memory_item(row)
             session.commit()
             return item
