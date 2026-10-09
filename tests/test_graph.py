@@ -644,6 +644,11 @@ def test_ignored_entity_is_preserved_but_suppressed_until_restore():
 
     restored = service.graph_set_entity_ignored(entity.id, ignored=False, where=scope)
     assert restored["ignored"] is False
+    assert service._find_entity_matches("A noisy topic.", store, scope)[0].id == entity.id
+    assert service._find_entity_matches("A noisy topical example.", store, scope) == []
+    short_name = store.entity_repo.create("Zed", "person", scope)
+    assert service._find_entity_matches("The idea was analyzed.", store, scope) == []
+    assert service._find_entity_matches("ZED's idea.", store, scope)[0].id == short_name.id
     service.graph_attach_entity(fresh.id, entity.id, where=scope)
     assert service.graph_memory(f"memory:{fresh.id}", where=scope)["entity_ids"] == [f"entity:{entity.id}"]
 

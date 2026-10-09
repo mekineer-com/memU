@@ -430,7 +430,11 @@ class RetrieveMixin:
         if not all_entities:
             return []
         text_lower = text.lower()
-        return [e for e in all_entities if not entity_is_ignored(e) and e.name.lower() in text_lower]
+        return [
+            entity for entity in all_entities
+            if not entity_is_ignored(entity)
+            and re.search(rf"(?<!\w){re.escape(entity.name.lower())}(?!\w)", text_lower)
+        ]
 
     def _find_superseded_at(
         self,
