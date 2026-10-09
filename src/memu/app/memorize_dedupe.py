@@ -6,6 +6,7 @@ import re
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
+from memu.app.dossier import DossierMixin
 from memu.database.vector import cosine_similarity
 
 logger = logging.getLogger(__name__)
@@ -255,6 +256,14 @@ def _prefilter_dedupe_candidate_ids(
     return [candidate_id for candidate_id, _score in ordered[:64]]
 
 
+def _cited_memory_refs(store: Any, scope: Mapping[str, Any], *, session: Any | None = None) -> set[int]:
+    return {
+        ref
+        for category in store.memory_category_repo.list_categories(scope, session=session).values()
+        for ref in DossierMixin.extract_memory_refs(category.summary or "", strict=False)
+    }
+
+
 async def _prepare_dedupe_merges(
     state: dict[str, Any],
     _step_context: Any,
@@ -279,6 +288,7 @@ async def _prepare_dedupe_merges(
     active_pool = dict(store.memory_item_repo.list_items(dedupe_scope))
     if len(active_pool) < 2:
         return []
+    cited_refs = _cited_memory_refs(store, dedupe_scope)
 
     new_item_ids: list[str] = []
     seen_new: set[str] = set()
@@ -366,7 +376,14 @@ async def _prepare_dedupe_merges(
             if current_anchor is None or candidate is None:
                 continue
 
-            survivor, redundant = _choose_survivor_and_redundant(current_anchor, candidate)
+            anchor_cited = current_anchor.memory_ref in cited_refs
+            candidate_cited = candidate.memory_ref in cited_refs
+            if anchor_cited and candidate_cited:
+                continue
+            if anchor_cited != candidate_cited:
+                survivor, redundant = (current_anchor, candidate) if anchor_cited else (candidate, current_anchor)
+            else:
+                survivor, redundant = _choose_survivor_and_redundant(current_anchor, candidate)
             if survivor.id == redundant.id:
                 continue
 
@@ -408,9 +425,12 @@ async def _memorize_dedupe_merge(
             {item_id for pair in pairs for item_id in pair[:2]},
             where=state.get("user"), session=session,
         )
+        cited_refs = _cited_memory_refs(store, state.get("user") or {}, session=session)
         for redundant_id, survivor_id, redundant_version, survivor_version in pairs:
             redundant, survivor = fresh.get(redundant_id), fresh.get(survivor_id)
             if redundant is None or survivor is None:
+                continue
+            if redundant.memory_ref in cited_refs:
                 continue
             if redundant.updated_at != redundant_version or survivor.updated_at != survivor_version:
                 continue

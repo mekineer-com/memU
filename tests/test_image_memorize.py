@@ -26,7 +26,7 @@ def _service(tmp_path: Path) -> MemoryService:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("change", [None, "edit", "delete", "merge", "supersede", "conflict"])
+@pytest.mark.parametrize("change", [None, "edit", "delete", "merge", "supersede", "conflict", "citation"])
 async def test_dedupe_prepared_pairs_reject_concurrent_changes(tmp_path, monkeypatch, change):
     service = _service(tmp_path)
     store = service.database
@@ -71,6 +71,13 @@ async def test_dedupe_prepared_pairs_reject_concurrent_changes(tmp_path, monkeyp
                         (category.id, candidate.id),
                     )
                     session.commit()
+        elif change == "citation":
+            category = store.memory_category_repo.get_or_create_category(
+                name="Garden", description="Garden", embedding=[1.0, 0.0], user_data=scope,
+            )
+            store.memory_category_repo.update_category(
+                category_id=category.id, summary=f"Garden [M{old.memory_ref}].",
+            )
         return pairs
     monkeypatch.setattr(memorize_dedupe, "_prepare_dedupe_merges", interleave)
     await service._memorize_dedupe_merge(state, None)
@@ -82,7 +89,34 @@ async def test_dedupe_prepared_pairs_reject_concurrent_changes(tmp_path, monkeyp
 
 
 @pytest.mark.asyncio
-async def test_dedupe_chain_rechecks_candidates_after_preceding_merge(tmp_path, monkeypatch):
+@pytest.mark.parametrize("cited", ["old", "new", "both", "other_scope"])
+async def test_dedupe_keeps_cited_memories(tmp_path, cited):
+    service = _service(tmp_path)
+    store = service.database
+    scope = {"user_id": "TestOwner", "soul_id": "TestSoul"}
+    old, new = [store.memory_item_repo.create_item(
+        memory_type="knowledge", summary="Fictional garden project", embedding=[1.0, 0.0],
+        happened_at=datetime(year, 1, 1, tzinfo=UTC), user_data=scope,
+    ) for year in (2020, 2021)]
+    refs = [old.memory_ref, new.memory_ref] if cited == "both" else [new.memory_ref if cited == "new" else old.memory_ref]
+    category = store.memory_category_repo.get_or_create_category(
+        name="Garden", description="Garden", embedding=[1.0, 0.0],
+        user_data={**scope, "soul_id": "OtherSoul"} if cited == "other_scope" else scope,
+    )
+    prose = "Garden " + " ".join(f"[M{ref}]" for ref in refs)
+    store.memory_category_repo.update_category(category_id=category.id, summary=prose)
+    state = {"items": [new], "relations": [], "store": store, "user": scope}
+    await service._memorize_dedupe_merge(state, None)
+    rows = store.memory_item_repo.list_items(scope, include_merged=True)
+    assert rows[old.id].merged_into == (new.id if cited in {"new", "other_scope"} else None)
+    assert rows[new.id].merged_into == (old.id if cited == "old" else None)
+    assert store.memory_category_repo.list_categories()[category.id].summary == prose
+    store.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("change", ["candidate", "citation"])
+async def test_dedupe_chain_rechecks_candidates_after_preceding_merge(tmp_path, monkeypatch, change):
     service = _service(tmp_path)
     store = service.database
     scope = {"user_id": "TestOwner", "soul_id": "TestSoul"}
@@ -93,7 +127,8 @@ async def test_dedupe_chain_rechecks_candidates_after_preceding_merge(tmp_path, 
             memory_type="knowledge", summary="Fictional garden project", embedding=[1.0, 0.0],
             happened_at=datetime(year, 1, 1, tzinfo=UTC), user_data=scope,
         ) for year in (2020, 2021, 2022)]
-    for item, name in zip(items, ["First", None, "Second"], strict=True):
+    assignments = zip(items, ["First", None, "Second"], strict=True) if change == "candidate" else []
+    for item, name in assignments:
         candidate = store.dossier_candidate_repo.add_candidate(proposed_name="Garden", item_id=item.id, where=scope)
         if name:
             category = store.memory_category_repo.get_or_create_category(
@@ -103,12 +138,30 @@ async def test_dedupe_chain_rechecks_candidates_after_preceding_merge(tmp_path, 
                 session.connection().exec_driver_sql(
                     "UPDATE dossier_candidates SET resolved_category_id = ? WHERE id = ?", (category.id, candidate.id))
                 session.commit()
-    state = {"items": items[:2], "relations": [], "store": store, "user": scope}
+    completed = []
+    if change == "citation":
+        prepare = memorize_dedupe._prepare_dedupe_merges
+        async def interleave(*args, **kwargs):
+            pairs = await prepare(*args, **kwargs)
+            assert [(loser, winner) for loser, winner, *_ in pairs] == [
+                (items[0].id, items[1].id), (items[1].id, items[2].id),
+            ]
+            category = store.memory_category_repo.get_or_create_category(
+                name="Garden", description="Garden", embedding=[1.0, 0.0], user_data=scope,
+            )
+            store.memory_category_repo.update_category(
+                category_id=category.id, summary=f"Garden [M{items[1].memory_ref}].",
+            )
+            return pairs
+        monkeypatch.setattr(memorize_dedupe, "_prepare_dedupe_merges", interleave)
+    state = {"items": items[:2], "relations": [], "store": store, "user": scope,
+             "on_dedupe_complete": lambda _session: completed.append(True)}
     await service._memorize_dedupe_merge(state, None)
     rows = store.memory_item_repo.list_items(scope, include_merged=True)
     assert rows[items[0].id].merged_into == items[1].id
     assert rows[items[1].id].merged_into is None
     assert [item.id for item in state["items"]] == [items[1].id]
+    assert completed == [True]
     store.close()
 
 
