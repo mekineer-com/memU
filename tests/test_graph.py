@@ -1594,7 +1594,7 @@ def test_graph_update_memory_summary_embeds_before_history_update(monkeypatch, t
     ) == []
     assert store.memory_category_repo.list_categories(scope)[dossier.id].summary == dossier.summary
     corrected_relation = store.category_item_repo.list_relations({**scope, "item_id": item.id})[0]
-    assert corrected_relation.updated_at == saved.updated_at
+    assert corrected_relation.updated_at.replace(tzinfo=UTC) == saved.updated_at
     assert corrected_relation.reviewed_at == relation.updated_at
     with store._sessions.engine.connect() as conn:
         row = conn.exec_driver_sql(
@@ -1993,7 +1993,7 @@ def test_category_graph_projection_exposes_canonical_dossier_state():
     assert active_node["category_kind"] == "topic"
     assert active_node["active"] is True
     assert active_node["description"] == active.description
-    assert active_node["last_evidence_at"] == item.created_at.isoformat()
+    assert datetime.fromisoformat(active_node["last_evidence_at"]).replace(tzinfo=UTC) == item.created_at
     assert active_node["citations"] == [{
         "ref": service.format_memory_ref(item),
         "memory_id": item.id,
@@ -2103,7 +2103,7 @@ def test_graph_category_membership_is_atomic_idempotent_and_citation_guarded():
     relation = next(member for member in attached["members"] if member["memory_id"] == target.id)
     assert relation["status"] == "Active"
     saved = store.memory_category_repo.list_categories(scope)[category.id]
-    assert saved.last_evidence_at == target.happened_at
+    assert saved.last_evidence_at.replace(tzinfo=UTC) == target.happened_at
     assert saved.last_revised_at == category.last_revised_at
     updated_at = saved.updated_at
 

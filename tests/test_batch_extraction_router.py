@@ -277,7 +277,7 @@ async def test_persist_plan_uses_short_episode_summary_as_item(
     assert item.extra["episode_summary"] == "Full short story."
     assert item.extra["episode_categories"] == ["Unmatched proposal"]
     assert item.extra["memory_date"] == "2026-01-02"
-    assert item.happened_at == happened_at.replace(tzinfo=None)
+    assert item.happened_at == happened_at
     assert item.source_message_ids == [2, 4]
     assert state["relations"] == []
     assert embed_client.payloads == [["Anchor: Full short story."]]
@@ -338,7 +338,7 @@ async def test_episode_items_use_their_own_embeddings(
         "A fuller account of a discovery.",
     ]
     assert [item.happened_at for item in created_items] == [
-        first_day.replace(tzinfo=None), second_day.replace(tzinfo=None),
+        first_day, second_day,
     ]
 
 

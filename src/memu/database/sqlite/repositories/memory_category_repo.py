@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping
-from datetime import datetime
+from datetime import UTC, datetime
 from types import EllipsisType
 from typing import Any, Literal
 
@@ -256,6 +256,10 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
                 return cat
 
             # Create new category
+            if last_evidence_at is not None and last_evidence_at.tzinfo is not None:
+                last_evidence_at = last_evidence_at.astimezone(UTC)
+            if last_revised_at is not None and last_revised_at.tzinfo is not None:
+                last_revised_at = last_revised_at.astimezone(UTC)
             now = self._now()
             row = self._memory_category_model(
                 name=name,
@@ -399,6 +403,8 @@ class SQLiteMemoryCategoryRepo(SQLiteRepoBase, MemoryCategoryRepo):
             ("last_revised_at", last_revised_at),
         ):
             if value is not ...:
+                if isinstance(value, datetime) and value.tzinfo is not None:
+                    value = value.astimezone(UTC)
                 setattr(row, field, value)
         row.updated_at = self._now()
 

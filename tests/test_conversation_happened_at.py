@@ -1,6 +1,6 @@
 import json
 import time
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -115,3 +115,56 @@ def test_calendar_dates_and_source_day_are_not_shifted(host_timezone) -> None:
     assert "--- 2025-02-01 (" in _render_grouped_chat_messages([row])
     assert row == original
     assert parse_happened_at("2026-02-30") is None
+
+
+@pytest.mark.parametrize("month", [1, 7])
+def test_item_timestamps_roundtrip_and_sort_on_the_same_clock(host_timezone, monkeypatch, month) -> None:
+    from memu.app.dossier import _item_sort_key
+    from memu.app.graph import _utc
+    from memu.app.memorize_dedupe import _choose_survivor_and_redundant
+
+    store = _service().database
+    repo = store.memory_item_repo
+    scope = {"user_id": "TestOwner", "soul_id": "TestSoul"}
+    instant = datetime(2026, month, 10, 3, 30, 0, 500000, tzinfo=UTC)
+    monkeypatch.setattr(repo, "_now", lambda: instant)
+    dated = repo.create_item(memory_type="knowledge", summary="Fictional dated event.",
+                             embedding=[1.0, 0.0], user_data=scope, happened_at=instant)
+    earlier = instant - timedelta(hours=1)
+    monkeypatch.setattr(repo, "_now", lambda: earlier)
+    undated = repo.create_item(memory_type="knowledge", summary="Fictional earlier event.",
+                               embedding=[1.0, 0.0], user_data=scope)
+    later = instant + timedelta(microseconds=1)
+    monkeypatch.setattr(repo, "_now", lambda: later)
+    latest = repo.create_item(memory_type="knowledge", summary="Fictional later event.",
+                              embedding=[1.0, 0.0], user_data=scope)
+    reread = repo.list_items(scope, include_embeddings=False)
+    assert reread[dated.id].happened_at == dated.happened_at == instant.astimezone()
+    assert reread[undated.id].created_at == undated.created_at == earlier
+    assert reread[latest.id].created_at == latest.created_at == later
+    assert list(repo.list_recent_items(scope, limit=3)) == [latest.id, dated.id, undated.id]
+    assert _item_sort_key(dated)[0] > _item_sort_key(undated)[0]
+    assert _utc(dated.happened_at) == instant
+    assert _choose_survivor_and_redundant(dated, undated)[0].id == dated.id
+    with repo._sessions.session() as session:
+        row = session.get(repo._memory_item_model, dated.id)
+        assert row.happened_at == instant.astimezone().replace(tzinfo=None)
+        assert row.created_at == instant.replace(tzinfo=None)
+    calendar = repo.create_item(memory_type="knowledge", summary="Fictional calendar day.",
+                               embedding=[1.0, 0.0], user_data=scope, happened_at=datetime(2020, 1, 2))
+    assert calendar.happened_at.date().isoformat() == "2020-01-02"
+    categories = store.memory_category_repo
+    category = categories.get_or_create_category(
+        name="Fictional Events", description="Fictional evidence.", embedding=[1.0, 0.0],
+        user_data=scope, last_evidence_at=dated.happened_at, last_revised_at=dated.happened_at,
+    )
+    assert category.last_evidence_at == category.last_revised_at == instant.replace(tzinfo=None)
+    categories.update_category(category_id=category.id, description="Changed description.")
+    assert categories.list_categories(scope)[category.id].last_evidence_at == instant.replace(tzinfo=None)
+    categories.update_category(category_id=category.id, last_evidence_at=later.astimezone(),
+                               last_revised_at=later.astimezone())
+    reread_category = categories.list_categories(scope)[category.id]
+    assert reread_category.last_evidence_at == reread_category.last_revised_at == later.replace(tzinfo=None)
+    categories.update_category(category_id=category.id, last_evidence_at=None, last_revised_at=None)
+    cleared = categories.list_categories(scope)[category.id]
+    assert cleared.last_evidence_at is None and cleared.last_revised_at is None

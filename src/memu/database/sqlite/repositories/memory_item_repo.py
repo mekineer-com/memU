@@ -6,7 +6,7 @@ import json
 import logging
 import uuid
 from collections.abc import Mapping
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import case, func, or_, text
@@ -20,6 +20,7 @@ from memu.database.sqlite.repositories.base import SQLiteRepoBase
 from memu.database.sqlite.schema import SQLiteSQLAModels
 from memu.database.sqlite.session import SQLiteSessionManager
 from memu.database.vector import reciprocal_rank_fusion, rerank_by_salience
+from memu.utils.conversation import parse_happened_at
 
 logger = logging.getLogger(__name__)
 
@@ -228,6 +229,7 @@ WHERE version = 1 AND model IN ({placeholders})
         *,
         embedding: list[float] | None = None,
     ) -> MemoryItem:
+        happened_at = getattr(row, "happened_at", None)
         return MemoryItem(
             id=row.id,
             memory_ref=getattr(row, "memory_ref", None),
@@ -235,7 +237,7 @@ WHERE version = 1 AND model IN ({placeholders})
             memory_type=row.memory_type,
             summary=row.summary,
             embedding=embedding if embedding is not None else self._normalize_embedding(self._get_row_embedding(row)),
-            happened_at=getattr(row, "happened_at", None),
+            happened_at=happened_at.astimezone() if happened_at is not None else None,
             source_role=getattr(row, "source_role", None),
             speaker_id=getattr(row, "speaker_id", None),
             speaker_label=getattr(row, "speaker_label", None),
@@ -249,8 +251,8 @@ WHERE version = 1 AND model IN ({placeholders})
             merged_into=getattr(row, "merged_into", None),
             approved_at=getattr(row, "approved_at", None),
             extra=getattr(row, "extra", {}) or {},
-            created_at=row.created_at,
-            updated_at=row.updated_at,
+            created_at=row.created_at.replace(tzinfo=UTC),
+            updated_at=row.updated_at.replace(tzinfo=UTC),
         )
 
     def allocate_memory_ref(self, where: Mapping[str, Any], session: Any | None = None) -> int:
@@ -454,7 +456,11 @@ WHERE version = 1 AND model IN ({placeholders})
         limit: int,
         include_superseded: bool = False,
     ) -> dict[str, MemoryItem]:
-        when = func.coalesce(self._memory_item_model.happened_at, self._memory_item_model.created_at)
+        created_at = self._memory_item_model.created_at
+        # SQLite stores event times locally and creation times in UTC.
+        # Keep the stored fractional seconds when converting the latter.
+        local_created = func.datetime(created_at, "localtime").concat(func.substr(created_at, 20))
+        when = func.coalesce(self._memory_item_model.happened_at, local_created)
         stmt = (
             select(self._memory_item_model)
             .order_by(when.desc(), self._memory_item_model.id.desc())
@@ -696,7 +702,7 @@ WHERE version = 1 AND model IN ({placeholders})
             speaker_label=speaker_label,
             confidence=confidence,
             source_message_ids=source_message_ids,
-            happened_at=happened_at,
+            happened_at=parse_happened_at(happened_at),
             reflection_salience=reflection_salience,
             emotional_intensity=emotional_intensity,
             conversation_id=conv_id,
