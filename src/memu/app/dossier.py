@@ -32,6 +32,7 @@ if TYPE_CHECKING:
     from memu.database.interfaces import Database
 
 DOSSIER_INDEX_LIMIT = 20
+RELEVANT_DOSSIERS_PER_EPISODE = 3
 # Marcos' reminder: a category is a dossier.
 MEMORY_REF_PATTERN = re.compile(r"^\[M([1-9][0-9]*)\]$")
 MEMORY_REF_SCAN_PATTERN = re.compile(r"\[M[0-9][^\]\r\n]*\]")
@@ -220,6 +221,31 @@ def _validate_anchors(
             or category.kind != "lore"
         ):
             raise ValueError(f"Invalid {role} dossier anchor for scope")
+
+
+def select_active_dossiers(categories: Sequence[MemoryCategory], limit_per_kind: int) -> list[MemoryCategory]:
+    active = [category for category in categories if category.anchor_role is not None]
+    limit = max(0, int(limit_per_kind))
+    selected: list[MemoryCategory] = []
+    overflow: list[MemoryCategory] = []
+    for kind in DOSSIER_KINDS:
+        evidenced = sorted(
+            (category for category in categories if category.kind == kind
+             and category.anchor_role is None and category.last_evidence_at is not None),
+            key=_activity_key,
+        )
+        selected.extend(evidenced[:limit])
+        overflow.extend(evidenced[limit:])
+    capacity = limit * len(DOSSIER_KINDS)
+    remaining = max(0, capacity - len(selected))
+    selected.extend(sorted(overflow, key=_activity_key)[:remaining])
+    active.extend(selected)
+    return sorted(active, key=_activity_key)
+
+
+def render_dossier_index(dossiers: Sequence[MemoryCategory]) -> str:
+    rows = [category for category in dossiers if category.anchor_role is None][:DOSSIER_INDEX_LIMIT]
+    return "\n".join(_render_dossier_index_line(category) for category in rows)
 
 
 class DossierMixin:
@@ -1075,27 +1101,11 @@ class DossierMixin:
         store = self._get_database()
         anchors = store.memory_category_repo.list_anchor_categories(scope)
         _validate_anchors(anchors, self._expected_anchor_names(scope))
-        active = list(anchors.values())
-
-        limit = max(0, int(self.memorize_config.active_dossiers_per_kind))
-        selected: list[MemoryCategory] = []
-        overflow: list[MemoryCategory] = []
-        for kind in DOSSIER_KINDS:
-            evidenced = sorted(
-                (
-                    category
-                    for category in store.memory_category_repo.list_categories_by_activity(scope, kind=kind)
-                    if category.last_evidence_at is not None
-                ),
-                key=_activity_key,
-            )
-            selected.extend(evidenced[:limit])
-            overflow.extend(evidenced[limit:])
-        capacity = limit * len(DOSSIER_KINDS)
-        remaining = max(0, capacity - len(selected))
-        selected.extend(sorted(overflow, key=_activity_key)[:remaining])
-        active.extend(selected)
-        return sorted(active, key=_activity_key)
+        categories = list(anchors.values()) + [
+            category for kind in DOSSIER_KINDS
+            for category in store.memory_category_repo.list_categories_by_activity(scope, kind=kind)
+        ]
+        return select_active_dossiers(categories, self.memorize_config.active_dossiers_per_kind)
 
     def list_inactive_dossiers(self, where: Mapping[str, Any]) -> list[MemoryCategory]:
         scope = _scope(where)
@@ -1161,12 +1171,7 @@ class DossierMixin:
         dossiers: Sequence[MemoryCategory] | None = None,
     ) -> str:
         rows = list(dossiers) if dossiers is not None else self.list_active_dossiers(where)
-        rows = [
-            category
-            for category in rows
-            if category.anchor_role is None
-        ][:DOSSIER_INDEX_LIMIT]
-        return "\n".join(_render_dossier_index_line(category) for category in rows)
+        return render_dossier_index(rows)
 
     def require_dossier_cutover_ready(self, where: Mapping[str, Any]) -> None:
         scope = _scope(where)
@@ -1265,7 +1270,7 @@ class DossierMixin:
                 where=scope,
                 view="identity",
                 activity="active",
-                limit=3,
+                limit=RELEVANT_DOSSIERS_PER_EPISODE,
                 min_score=-1.0,
                 categories=active_candidates,
             )
@@ -1274,7 +1279,7 @@ class DossierMixin:
                 where=scope,
                 view="content",
                 activity="active",
-                limit=3,
+                limit=RELEVANT_DOSSIERS_PER_EPISODE,
                 min_score=-1.0,
                 embedding_client=client,
                 categories=active_candidates,
@@ -1283,7 +1288,7 @@ class DossierMixin:
                 [(category.id, score) for category, score in identity],
                 [(category.id, score) for category, score in content],
             )
-            for category_id, _score in ranked[:3]:
+            for category_id, _score in ranked[:RELEVANT_DOSSIERS_PER_EPISODE]:
                 if category_id not in selected_ids:
                     relevant.append(active_by_id[category_id])
                     selected_ids.add(category_id)

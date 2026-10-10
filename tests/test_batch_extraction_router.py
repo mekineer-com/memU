@@ -56,6 +56,7 @@ def test_category_keys_preserve_meaningful_name_distinctions(raw, expected) -> N
 @pytest.mark.parametrize("cli", [False, True])
 async def test_import_batch_checks_rendered_prompts_on_selected_model(monkeypatch, stage, cli):
     service = _service()
+    service.llm_profiles.profiles["default"].context_window_tokens = 100_000
     service.memorize_config.memory_types = ["knowledge"]
     if stage == "late_type":
         service.memorize_config.memory_types = ["profile", "knowledge"]
@@ -98,7 +99,7 @@ async def test_import_batch_checks_rendered_prompts_on_selected_model(monkeypatc
     monkeypatch.setattr(service, "ensure_dossier_anchors", anchors)
     monkeypatch.setattr(service, "select_memorize_dossier_context", dossier_context)
     monkeypatch.setattr(service, "_memorize_categorize_items", unexpected_save)
-    with pytest.raises(ValueError, match=f"Import {'knowledge' if stage in {'late_type', 'late_segment'} else stage} prompt exceeds model input budget"):
+    with pytest.raises(ValueError, match=f"Memorize {'knowledge' if stage in {'late_type', 'late_segment'} else stage} prompt exceeds model input budget"):
         await service.memorize_segments_batch(
             modality="conversation",
             segments=[{
@@ -559,6 +560,7 @@ async def test_persist_index_processes_committed_candidate_work_without_new_item
 @pytest.mark.parametrize("phase", ["dedupe", "review"])
 async def test_resume_segment_reads_original_rows_and_skips_completed_dedupe(monkeypatch, phase):
     service = _service()
+    service.llm_profiles.profiles["default"].context_window_tokens = 100_000
     store = service.database
     scope = {"user_id": "TestOwner", "soul_id": "TestSoul"}
     items = [store.memory_item_repo.create_item(

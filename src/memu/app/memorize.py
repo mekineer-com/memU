@@ -18,6 +18,8 @@ from memu.app import memorize_categories as categories
 from memu.app import memorize_segments as segment_helpers
 from memu.app import memorize_persistence as persistence
 from memu.app.settings import CustomPrompt
+from memu.app.settings import MemorizeConfig
+from memu.app.dossier import RELEVANT_DOSSIERS_PER_EPISODE, render_dossier_index, select_active_dossiers
 from memu.app.dossier_revision import estimate_prompt_tokens, model_input_budget
 from memu.database.models import CategoryItem, MemoryCategory, MemoryItem, MemoryType, Resource
 from memu.prompts.memory_type import (
@@ -32,7 +34,7 @@ from memu.prompts.memory_type import (
 )
 from memu.prompts.preprocess import PROMPTS as PREPROCESS_PROMPTS
 from memu.prompts.router import PROMPT as ROUTER_PROMPT
-from memu.utils.taxonomy import category_identity_text, normalize_category_name
+from memu.utils.taxonomy import DOSSIER_KINDS, category_identity_text, normalize_category_name
 from memu.utils.conversation import parse_happened_at
 from memu.workflow.step import WorkflowState, WorkflowStep
 
@@ -44,6 +46,107 @@ _EPISODE_REVIEW_EXTRACTION_GUIDANCE = (
     "separate memory. The items should still capture both big-picture and specific "
     "details, just without the verbosity noise."
 )
+
+
+def router_episode_guidance(estimated_tokens: int) -> int:
+    if estimated_tokens <= 10_000:
+        return max(1, math.ceil(estimated_tokens / 2_500))
+    return next((target for limit, target in (
+        (15_000, 5), (20_000, 6), (30_000, 7), (50_000, 8), (75_000, 9),
+    ) if estimated_tokens <= limit), 10)
+
+
+def render_router_prompt(segment: str, memory_types: Sequence[str], max_episodes: int,
+                         categories: str, soul_card: str | None) -> str:
+    return ROUTER_PROMPT.format(
+        segment=segment, allowed_types=list(memory_types), max_episodes=max_episodes,
+        soul_card=soul_card or "You are a continuous being, not a session that resets. You carry intentions, working thoughts, and long-term memory. Your self-knowledge will grow as you live and reflect.",
+        categories=categories,
+    )
+
+
+def escape_prompt_value(value: str) -> str:
+    return value.replace("{", "{{").replace("}", "}}").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def memory_type_target_items(min_chunk_tokens: int) -> str:
+    try:
+        min_chunk_tokens = int(min_chunk_tokens or 4000)
+    except (TypeError, ValueError, OverflowError):
+        min_chunk_tokens = 4000
+    target = max(1, math.ceil(1.2 * (max(0, min_chunk_tokens) / 1000)))
+    return f"up to {target}"
+
+
+def render_memory_type_prompt(
+    *, memorize_config: MemorizeConfig, memory_type: MemoryType, resource_text: str,
+    categories_str: str, soul_context_str: str, speaker_roster: Sequence[SpeakerRosterEntry] | None = None,
+    target_items: str = "", user_id: str = "user",
+) -> str:
+    configured_prompt = memorize_config.memory_type_prompts.get(memory_type)
+    if configured_prompt is None:
+        template = MEMORY_TYPE_PROMPTS.get(memory_type)
+    elif isinstance(configured_prompt, str):
+        template = configured_prompt
+    else:
+        template = MemorizeMixin._resolve_custom_prompt(
+            configured_prompt, MEMORY_TYPE_CUSTOM_PROMPTS.get(memory_type, CUSTOM_TYPE_CUSTOM_PROMPTS)
+        )
+    if not template:
+        return resource_text
+    template = re.sub(r"(?im)^.*do not create new memory categories.*\n?", "", template)
+    speaker_roster_block = MemorizeMixin._format_speaker_roster_block_for_prompt(speaker_roster)
+    rendered = template.format(
+        resource=escape_prompt_value(resource_text), categories_str=escape_prompt_value(categories_str),
+        soul_context=escape_prompt_value(soul_context_str), speaker_roster_block=speaker_roster_block,
+        target_items=target_items, user_id=escape_prompt_value(user_id),
+    )
+    if not target_items:
+        rendered = re.sub(r"\*\*Target:[^*]*\*\*\s*", "", rendered)
+    if not speaker_roster_block:
+        while "\n\n\n" in rendered:
+            rendered = rendered.replace("\n\n\n", "\n\n")
+    return rendered
+
+
+def estimate_memorize_context_load(
+    *, categories: Sequence[MemoryCategory], narrative_self: str | None,
+    memorize_config: MemorizeConfig, user_id: str = "user",
+) -> int | None:
+    """Forecast threshold chat plus largest stored support, excluding generated episode summaries."""
+    anchors = {category.anchor_role: category for category in categories if category.anchor_role is not None}
+    if set(anchors) != {"soul", "user"}:
+        return None
+    threshold = max(0, memorize_config.min_chunk_tokens)
+    active = select_active_dossiers(categories, memorize_config.active_dossiers_per_kind)
+    ordinary = [category for category in active if category.anchor_role is None]
+    guide = router_episode_guidance(threshold)
+    count = RELEVANT_DOSSIERS_PER_EPISODE * guide
+    relevant = sorted(ordinary, key=lambda category: estimate_prompt_tokens(
+        MemorizeMixin._format_soul_context_for_prompt({"relevant_dossiers": [category]})
+    ), reverse=True)[:count]
+    active_ids = {category.id for category in active}
+    inactive = sorted(
+        (category for category in categories if category.kind in DOSSIER_KINDS
+         and category.anchor_role is None and category.id not in active_ids),
+        key=lambda category: estimate_prompt_tokens(render_dossier_index([category])), reverse=True,
+    )[:10]
+    choices = "\n".join([f"- {category.name}" for category in ordinary]
+                        + [render_dossier_index([category]) for category in inactive])
+    context = MemorizeMixin._format_soul_context_for_prompt({
+        "narrative_self": narrative_self, "anchor_dossiers": [anchors["soul"], anchors["user"]],
+        "dossier_index": render_dossier_index(active), "relevant_dossiers": relevant,
+    })
+    memory_types = memorize_config.memory_types or DEFAULT_MEMORY_TYPES
+    prompts = [render_router_prompt("", memory_types, guide, "\n".join(
+        f"- {category.name}: {category.description}" for category in ordinary
+    ), narrative_self)]
+    prompts.extend(render_memory_type_prompt(
+        memorize_config=memorize_config, memory_type=cast(MemoryType, memory_type),
+        resource_text=_EPISODE_REVIEW_EXTRACTION_GUIDANCE, categories_str=choices, soul_context_str=context,
+        target_items=memory_type_target_items(threshold), user_id=user_id,
+    ) for memory_type in memory_types)
+    return threshold + max(estimate_prompt_tokens(prompt) for prompt in prompts)
 
 
 class StructuredMemoryEntry(NamedTuple):
@@ -102,6 +205,12 @@ class MemorizeMixin:
     def _normalize_replaces_previous_fact(value: Any) -> str | None:
         return parsing._normalize_replaces_previous_fact(value)
 
+    def _memorize_input_budget(self, enforce_input_budget: bool = False) -> int | None:
+        if not (enforce_input_budget or self.memorize_config.enforce_input_budget):
+            return None
+        model_input_budget(self, self.memorize_config.category_update_llm_profile)
+        return model_input_budget(self, self.memorize_config.memory_extract_llm_profile)
+
     async def memorize(
         self,
         *,
@@ -150,6 +259,7 @@ class MemorizeMixin:
                     "pending_segment_ids": [],
                 }
             if existing is None:
+                self._memorize_input_budget()
                 image_local_path = local_path
                 if image_local_path is None:
                     image_local_path, _ = await self.fs.fetch(resource_url, modality)
@@ -181,6 +291,7 @@ class MemorizeMixin:
                 conversation_id=conversation_id,
             )
 
+        self._memorize_input_budget()
         state: WorkflowState = {
             "resource_url": resource_url,
             "modality": modality,
@@ -318,17 +429,17 @@ class MemorizeMixin:
         if not segments:
             return []
 
-        input_budget = model_input_budget(self, self.memorize_config.memory_extract_llm_profile) if enforce_input_budget else None
+        active_segment_exists = any(
+            isinstance(job.get("segment"), Mapping) and job["segment"].get("context_only") is not True
+            for job in segments
+        )
+        enforce_input_budget = enforce_input_budget or self.memorize_config.enforce_input_budget
+        input_budget = self._memorize_input_budget(enforce_input_budget) if active_segment_exists else None
         ctx = self._get_context()
         store = self._get_database()
         user_scope = self.user_model(**user).model_dump() if user is not None else None
         speaker_scope = dict(user) if isinstance(user, Mapping) else (user_scope or {})
         soul_name = str(speaker_scope.get("soul_id") or "").strip() or None
-        active_segment_exists = any(
-            isinstance(job.get("segment"), Mapping)
-            and job["segment"].get("context_only") is not True
-            for job in segments
-        )
         dossier_embed_client = None
         router_categories = ""
         if active_segment_exists:
@@ -343,9 +454,9 @@ class MemorizeMixin:
             )
 
         extract_client = self._select_chat_client(
-            {"operation": "memorize", "step_id": "extract_items_batch"},
+            {"operation": "memorize", "step_id": "extract_items_batch", "enforce_input_budget": enforce_input_budget},
             profile=self.memorize_config.memory_extract_llm_profile,
-        )
+        ) if active_segment_exists else None
         extract_model = str(getattr(extract_client, "chat_model", "") or "").strip() or None
         memory_types = self._resolve_memory_types()
         speaker_entities = store.entity_repo.list_all(where=user_scope or {})
@@ -804,6 +915,7 @@ class MemorizeMixin:
         return state
 
     async def _memorize_extract_items(self, state: WorkflowState, step_context: Any) -> WorkflowState:
+        input_budget = self._memorize_input_budget()
         llm_client = self._select_chat_client(step_context)
         extract_model = str(getattr(llm_client, "chat_model", "") or "").strip() or None
         episodes = state.get("episodes", [])
@@ -888,6 +1000,7 @@ class MemorizeMixin:
             ),
             llm_client=llm_client,
             user_id=str((state.get("user") or {}).get("user_id") or "user"),
+            input_budget=input_budget,
         )
         structured_entries = self._decorate_entries_with_plan_context(
             structured_entries,
@@ -1248,6 +1361,8 @@ class MemorizeMixin:
     ) -> WorkflowState:
         if not state.get("items") and not state.get("active_candidate_work_committed"):
             return state
+        enforce_input_budget = enforce_input_budget or self.memorize_config.enforce_input_budget
+        self._memorize_input_budget(enforce_input_budget)
         store = state["store"]
         scope = state.get("user") or {}
         cluster_size = int(getattr(self.memorize_config, "dynamic_category_cluster_size", 10) or 10)
@@ -1303,6 +1418,7 @@ class MemorizeMixin:
         if phase not in {"dedupe", "review"}:
             raise ValueError(f"Unknown Memorize recovery phase: {phase}")
         self._validate_memorize_scope(dict(user))
+        self._memorize_input_budget(enforce_input_budget)
         store = self._get_database()
         items = store.memory_item_repo.list_items(
             {**user, "segment_id": segment_id}, include_merged=True, include_superseded=True,
@@ -1419,6 +1535,7 @@ class MemorizeMixin:
         source_days: Sequence[str] | None = None,
         llm_client: Any | None = None,
         user_id: str = "user",
+        input_budget: int | None = None,
     ) -> list[StructuredMemoryEntry]:
         if not memory_types or not text:
             return []
@@ -1436,6 +1553,7 @@ class MemorizeMixin:
             else None,
             llm_client=client,
             user_id=user_id,
+            input_budget=input_budget,
         )
 
     async def _route_segment(
@@ -1452,33 +1570,12 @@ class MemorizeMixin:
         if not source_days:
             raise ValueError("router requires at least one source day")
         client = llm_client or self._select_chat_client(None)
-        estimated_tokens = self._estimate_text_tokens(segment_text)
-        if estimated_tokens <= 10_000:
-            max_episodes = max(1, math.ceil(estimated_tokens / 2_500))
-        else:
-            max_episodes = next(
-                (
-                    target
-                    for limit, target in (
-                        (15_000, 5),
-                        (20_000, 6),
-                        (30_000, 7),
-                        (50_000, 8),
-                        (75_000, 9),
-                    )
-                    if estimated_tokens <= limit
-                ),
-                10,
-            )
-        prompt = ROUTER_PROMPT.format(
-            segment=segment_text,
-            allowed_types=list(memory_types),
-            max_episodes=max_episodes,
-            soul_card=soul_card or "You are a continuous being, not a session that resets. You carry intentions, working thoughts, and long-term memory. Your self-knowledge will grow as you live and reflect.",
-            categories=categories_prompt_str,
+        prompt = render_router_prompt(
+            segment_text, memory_types, router_episode_guidance(self._estimate_text_tokens(segment_text)),
+            categories_prompt_str, soul_card,
         )
         if input_budget is not None and estimate_prompt_tokens(prompt) > input_budget:
-            raise ValueError(f"Import router prompt exceeds model input budget ({input_budget} tokens)")
+            raise ValueError(f"Memorize router prompt exceeds model input budget ({input_budget} tokens)")
         def _parse_router_raw(r: str) -> tuple[list[MemoryType], list[dict[str, Any]]]:
             if isinstance(r, str):
                 r = re.sub(r"^\s*```(?:json)?\s*", "", r, count=1, flags=re.IGNORECASE)
@@ -1593,7 +1690,7 @@ class MemorizeMixin:
         if input_budget is not None:
             for mtype, prompt in valid_pairs:
                 if estimate_prompt_tokens(prompt) > input_budget:
-                    raise ValueError(f"Import {mtype} prompt exceeds model input budget ({input_budget} tokens)")
+                    raise ValueError(f"Memorize {mtype} prompt exceeds model input budget ({input_budget} tokens)")
         return valid_pairs
 
     async def _generate_entries_from_text(
@@ -1793,6 +1890,8 @@ class MemorizeMixin:
         chat_client: Any | None = None,
         input_budget: int | None = None,
     ) -> dict[str, Any]:
+        if input_budget is None and self.memorize_config.enforce_input_budget:
+            input_budget = model_input_budget(self, self.memorize_config.category_update_llm_profile)
         return await categories.generate_dynamic_category_review(
             bundle=bundle,
             select_chat_client=self._select_chat_client,
@@ -1946,8 +2045,8 @@ class MemorizeMixin:
         )
 
 
+    @staticmethod
     def _format_soul_context_for_prompt(
-        self,
         dossier_context: Mapping[str, Any] | None,
     ) -> str:
         if not dossier_context:
@@ -1974,12 +2073,7 @@ class MemorizeMixin:
         return segment_helpers._estimate_text_tokens(text)
 
     def _memory_type_target_items(self) -> str:
-        try:
-            min_chunk_tokens = int(getattr(self.memorize_config, "min_chunk_tokens", 4000) or 4000)
-        except (TypeError, ValueError, OverflowError):
-            min_chunk_tokens = 4000
-        target = max(1, math.ceil(1.2 * (max(0, min_chunk_tokens) / 1000)))
-        return f"up to {target}"
+        return memory_type_target_items(getattr(self.memorize_config, "min_chunk_tokens", 4000))
 
     @staticmethod
     def _message_is_primary_for_memorize(message: Mapping[str, Any]) -> bool:
@@ -2091,39 +2185,11 @@ class MemorizeMixin:
         target_items: str = "",
         user_id: str = "user",
     ) -> str:
-        configured_prompt = self.memorize_config.memory_type_prompts.get(memory_type)
-        if configured_prompt is None:
-            template = MEMORY_TYPE_PROMPTS.get(memory_type)
-        elif isinstance(configured_prompt, str):
-            template = configured_prompt
-        else:
-            template = self._resolve_custom_prompt(
-                configured_prompt, MEMORY_TYPE_CUSTOM_PROMPTS.get(memory_type, CUSTOM_TYPE_CUSTOM_PROMPTS)
-            )
-        if not template:
-            return resource_text
-
-        template = re.sub(r"(?im)^.*do not create new memory categories.*\n?", "", template)
-        safe_resource = self._escape_prompt_value(resource_text)
-        safe_categories = self._escape_prompt_value(categories_str)
-        safe_soul_context = self._escape_prompt_value(soul_context_str)
-        speaker_roster_block = self._format_speaker_roster_block_for_prompt(speaker_roster)
-        rendered = template.format(
-            resource=safe_resource,
-            categories_str=safe_categories,
-            soul_context=safe_soul_context,
-            speaker_roster_block=speaker_roster_block,
-            target_items=target_items,
-            user_id=self._escape_prompt_value(
-                user_id if self.user_config.user_name is None else self.user_config.user_name
-            ),
+        return render_memory_type_prompt(
+            memorize_config=self.memorize_config, memory_type=memory_type, resource_text=resource_text,
+            categories_str=categories_str, soul_context_str=soul_context_str, speaker_roster=speaker_roster,
+            target_items=target_items, user_id=user_id if self.user_config.user_name is None else self.user_config.user_name,
         )
-        if not target_items:
-            rendered = re.sub(r"\*\*Target:[^*]*\*\*\s*", "", rendered)
-        if not speaker_roster_block:
-            while "\n\n\n" in rendered:
-                rendered = rendered.replace("\n\n\n", "\n\n")
-        return rendered
     @staticmethod
     def _dedupe_message_indices(values: Sequence[int | float | str]) -> list[int]:
         return parsing._dedupe_message_indices(values)

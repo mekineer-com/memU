@@ -43,7 +43,7 @@
 | `_archive/database-tools/` | Historical embedding-BLOB and entity-speaker migration scripts with their tests; reference only, outside the active suite |
 | `database/postgres/` | Removed |
 | `database/repositories/` | Backend-agnostic Protocol contracts: memory_item, memory_category, resource, entity, triple, category_item, dossier_candidate |
-| `llm/wrapper.py` | LLM client factory — dispatches to backends |
+| `llm/wrapper.py` | LLM client factory and metadata/interceptor wrapper; optional native input budget checks prompt plus system text before provider dispatch, preserving the budget across step metadata changes |
 | `llm/http_client.py` | LLM HTTP client; chat uses one-attempt SSE streaming while vision and embeddings retain bounded transport retries |
 | `llm/backends/` | Provider impls: `openai.py` (OpenAI-compatible APIs; rejects output-limit cutoffs before returning chat/vision text) |
 | `llm/claude_cli.py` | `ClaudeCLIClient` — Claude Code CLI adapter. Uses soul workspace for session/resume calls, neutral workspace for no-session calls (prevents persona bleed). |

@@ -401,6 +401,7 @@ async def test_image_invalid_explicit_timestamp_fails_before_provider_work(tmp_p
 @pytest.mark.asyncio
 async def test_completed_image_resource_retry_creates_no_second_item(tmp_path: Path) -> None:
     service = _service(tmp_path)
+    service.memorize_config.enforce_input_budget = True
     scope = {"user_id": "u", "soul_id": "s"}
     store = service.database
     resource = store.resource_repo.create_resource(

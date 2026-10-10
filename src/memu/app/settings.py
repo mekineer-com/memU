@@ -154,6 +154,7 @@ class RetrieveConfig(BaseModel):
 
 
 class MemorizeConfig(BaseModel):
+    enforce_input_budget: bool = False
     multimodal_preprocess_prompts: dict[str, str | CustomPrompt] = Field(
         default_factory=dict,
         description="Optional mapping of modality -> preprocess system prompt.",

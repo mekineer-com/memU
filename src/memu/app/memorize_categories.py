@@ -607,7 +607,7 @@ async def generate_dynamic_category_review(
 ) -> dict[str, Any]:
     system_prompt, user_prompt = render_dynamic_category_review_prompts(bundle)
     if input_budget is not None and estimate_prompt_tokens(system_prompt + "\n" + user_prompt) > input_budget:
-        raise ValueError(f"Import dynamic dossier prompt exceeds model input budget ({input_budget} tokens)")
+        raise ValueError(f"Memorize dynamic dossier prompt exceeds model input budget ({input_budget} tokens)")
     if input_budget is None and len((system_prompt + "\n" + user_prompt).split()) / 0.75 > 100_000:
         raise ValueError("Dynamic dossier review prompt exceeds 100000 tokens")
     client = chat_client or select_chat_client(

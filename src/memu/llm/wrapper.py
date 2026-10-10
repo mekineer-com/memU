@@ -234,6 +234,8 @@ class LLMClientWrapper:
         provider: str | None = None,
         chat_model: str | None = None,
         embed_model: str | None = None,
+        input_budget: int | None = None,
+        context_window_tokens: int | None = None,
     ) -> None:
         self._client = client
         self._registry = registry
@@ -241,6 +243,8 @@ class LLMClientWrapper:
         self._provider = provider
         self._chat_model = chat_model or getattr(client, "chat_model", None)
         self._embed_model = embed_model or getattr(client, "embed_model", None)
+        self._input_budget = input_budget
+        self._context_window_tokens = context_window_tokens
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._client, name)
@@ -267,6 +271,8 @@ class LLMClientWrapper:
             provider=self._provider,
             chat_model=self._chat_model,
             embed_model=self._embed_model,
+            input_budget=self._input_budget,
+            context_window_tokens=self._context_window_tokens,
         )
 
     async def chat(
@@ -280,6 +286,16 @@ class LLMClientWrapper:
         session_id: str | None = None,
         resume_session_id: str | None = None,
     ) -> Any:
+        if self._input_budget is not None:
+            from memu.app.dossier_revision import estimate_prompt_tokens
+
+            budget = self._input_budget
+            if max_tokens is not None and self._context_window_tokens is not None:
+                if type(max_tokens) is not int or not 0 <= max_tokens < self._context_window_tokens:
+                    raise ValueError("max_tokens must be nonnegative and below model context_window_tokens")
+                budget = (self._context_window_tokens - max_tokens) * 4 // 5
+            if estimate_prompt_tokens((system_prompt or "") + "\n" + prompt) > budget:
+                raise ValueError(f"Memorize prompt exceeds model input budget ({budget} tokens)")
         metadata: dict[str, Any] = {
             "system_prompt": system_prompt or "",
         }

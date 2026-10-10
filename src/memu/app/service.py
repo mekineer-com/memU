@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 from memu.app.dossier import DossierMixin
 from memu.app.graph import GraphMixin
-from memu.app.memorize import MemorizeMixin
+from memu.app.memorize import MemorizeMixin, escape_prompt_value
 from memu.app.retrieve import RetrieveMixin
 from memu.app.settings import (
     BlobConfig,
@@ -164,10 +164,21 @@ class MemoryService(DossierMixin, GraphMixin, MemorizeMixin, RetrieveMixin):
         *,
         profile: str | None = None,
         step_context: Mapping[str, Any] | None = None,
+        enforce_input_budget: bool = True,
     ) -> Any:
         cfg: LLMConfig | None = self.llm_profiles.profiles.get(profile or "default")
         provider = cfg.provider if cfg is not None else getattr(client, "provider", None)
         metadata = self._llm_call_metadata(profile or "default", step_context)
+        input_budget = None
+        if enforce_input_budget and (
+            self.memorize_config.enforce_input_budget or (step_context or {}).get("enforce_input_budget")
+        ) and (
+            metadata.operation in {"memorize", "memorize_segment", "memorize_segments_batch"}
+            or (metadata.operation == "dossier" and metadata.step_id == "dynamic_review")
+        ):
+            from memu.app.dossier_revision import model_input_budget
+
+            input_budget = model_input_budget(self, profile)
         return LLMClientWrapper(
             client,
             registry=self._llm_interceptors,
@@ -175,6 +186,8 @@ class MemoryService(DossierMixin, GraphMixin, MemorizeMixin, RetrieveMixin):
             provider=provider,
             chat_model=getattr(client, "chat_model", None),
             embed_model=getattr(client, "embed_model", None),
+            input_budget=input_budget,
+            context_window_tokens=cfg.context_window_tokens if cfg is not None and not self._claude_code else None,
         )
 
     def _get_llm_client(self, profile: str | None = None, step_context: Mapping[str, Any] | None = None) -> Any:
@@ -283,7 +296,9 @@ class MemoryService(DossierMixin, GraphMixin, MemorizeMixin, RetrieveMixin):
         self, step_context: Mapping[str, Any] | None, *, profile: str | None = None
     ) -> Any:
         profile = self._llm_profile_from_context(step_context, task="embedding") or profile or "embedding"
-        return self._get_llm_client(profile, step_context=step_context)
+        return self._wrap_llm_client(
+            self._get_llm_base_client(profile), profile=profile, step_context=step_context, enforce_input_budget=False,
+        )
 
     def _get_claude_cli_client(self) -> ClaudeCLIClient:
         if self._claude_cli_client is None:
@@ -388,7 +403,7 @@ class MemoryService(DossierMixin, GraphMixin, MemorizeMixin, RetrieveMixin):
 
     @staticmethod
     def _escape_prompt_value(value: str) -> str:
-        return value.replace("{", "{{").replace("}", "}}").replace("<", "&lt;").replace(">", "&gt;")
+        return escape_prompt_value(value)
 
     def _model_dump_without_embeddings(self, obj: BaseModel) -> dict[str, Any]:
         data = obj.model_dump(exclude={"embedding"})
