@@ -193,7 +193,12 @@ def _parse_memory_type_response_xml(raw: str) -> list[dict[str, Any]]:
 
         start_idx, end_idx, end_tag = boundaries
         xml_content = raw[start_idx : end_idx + len(end_tag)]
-        xml_content = re.sub(r"&(?!amp;|lt;|gt;|quot;|apos;|#\d+;|#x[0-9a-fA-F]+;)", "&amp;", xml_content)
+        xml_content = re.sub(
+            r"<!\[CDATA\[.*?\]\]>|&(?!amp;|lt;|gt;|quot;|apos;|#\d+;|#x[0-9a-fA-F]+;)",
+            lambda match: match.group(0) if match.group(0).startswith("<![CDATA[") else "&amp;",
+            xml_content,
+            flags=re.DOTALL,
+        )
 
         root = ET.fromstring(xml_content)
         memory_elements = root.findall("memory")

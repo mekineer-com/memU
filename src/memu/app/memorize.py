@@ -1608,27 +1608,22 @@ class MemorizeMixin:
         client = llm_client or self._select_chat_client(None)
         tasks = [client.chat(prompt) for _, prompt in valid_pairs]
         responses = list(await asyncio.gather(*tasks))
+        entries: list[StructuredMemoryEntry] = []
         for (mtype, _prompt), response in zip(valid_pairs, responses, strict=True):
             try:
-                self._parse_structured_entries(
+                entries.extend(self._parse_structured_entries(
                     [mtype], [response],
                     default_source_message_ids=default_source_message_ids,
                     speaker_roster=speaker_roster,
                     source_days=source_days,
-                )
+                ))
             except ValueError as exc:
                 self._dump_unparseable_reply(response, mtype, attempt=1)
                 snippet = repr(response[:200])
                 raise ValueError(
                     f"Extraction reply invalid for memory_type={mtype}: {exc}; reply={snippet}"
                 ) from exc
-        return self._parse_structured_entries(
-            [mtype for mtype, _ in valid_pairs],
-            responses,
-            default_source_message_ids=default_source_message_ids,
-            speaker_roster=speaker_roster,
-            source_days=source_days,
-        )
+        return self._prune_extracted_entry_duplicates(entries)
 
     @staticmethod
     def _normalize_category_name(raw: str) -> str | None:

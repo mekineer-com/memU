@@ -905,6 +905,17 @@ def test_parse_memory_type_response_xml_does_not_extract_nested_quote(roots) -> 
 
 
 @pytest.mark.parametrize("roots", [1, 2])
+def test_parse_memory_type_response_xml_preserves_cdata_and_ordinary_text(roots) -> None:
+    raw = (
+        "<item><memory><content><![CDATA[R&D\nR&amp;D; 2 < 3; <memory>literal</memory>]]>"
+        " & outside &amp; encoded</content></memory></item>"
+    )
+    assert parsing._parse_memory_type_response_xml(raw * roots) == [{
+        "content": "R&D\nR&amp;D; 2 < 3; <memory>literal</memory> & outside & encoded",
+    }] * roots
+
+
+@pytest.mark.parametrize("roots", [1, 2])
 def test_parse_memory_type_response_xml_preserves_entities_and_bare_ampersands(roots) -> None:
     raw = (
         "<item><memory><content>R&amp;D & testing &lt;ok&gt; &quot;yes&quot; "
