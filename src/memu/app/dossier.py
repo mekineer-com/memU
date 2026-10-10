@@ -1306,7 +1306,7 @@ class DossierMixin:
             for category_id, _score in reciprocal_rank_fusion(*inactive_rankings)[:10]
         ]
 
-        category_lines = [f"- {_render_index_field(category.name)}" for category in active]
+        category_lines = [f"- {_render_index_field(category.name)}" for category in active_candidates]
         category_lines.extend(
             _render_dossier_index_line(inactive_by_id[category_id]) for category_id in inactive_ids
         )

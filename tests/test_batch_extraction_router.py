@@ -10,6 +10,7 @@ from memu.app import memorize_parsing as parsing
 from memu.app import memorize_segments
 from memu.app.memorize import SpeakerRosterEntry, StructuredMemoryEntry
 from memu.app.service import MemoryService
+from memu.utils.taxonomy import normalize_category_name
 
 
 def _service() -> MemoryService:
@@ -37,6 +38,17 @@ class _EmbedStub:
     async def embed(self, payloads: list[str]) -> list[list[float]]:
         self.payloads.append(list(payloads))
         return [[float(index), 1.0] for index, _payload in enumerate(payloads, start=1)]
+
+
+@pytest.mark.parametrize("raw, expected", [
+    ("C++", "c++"), ("C#", "c#"), ("Maria", "maria"), ("Mar\u00eda", "mar\u00eda"),
+    ("\u0416\u0438\u0437\u043d\u044c", "\u0436\u0438\u0437\u043d\u044c"),
+    ("\u4eba\u751f", "\u4eba\u751f"), ("CAF\u00c9 Plans", "caf\u00e9_plans"),
+    ("Cafe\u0301_Plans", "caf\u00e9_plans"), ("  HEALTH__ goals ", "health_goals"),
+    ("!!!", None), ("__  ", None),
+])
+def test_category_keys_preserve_meaningful_name_distinctions(raw, expected) -> None:
+    assert normalize_category_name(raw) == expected
 
 
 @pytest.mark.asyncio
@@ -182,7 +194,7 @@ async def test_route_segment_scales_episode_guidance_without_discarding_valid_ou
 async def test_route_segment_uses_excluded_types_model() -> None:
     service = _service()
     client = _RouterStub(
-        '{"excluded_types": ["knowledge", "social"], "episodes": [{"title": "Anchor", "episode_summary": "Full story.", "episode_item": "Compact story.", "categories": ["Existing", "existing", "Existing!", "New domain", "Learning", "Health"], "day": "2026-01-02"}]}'
+        '{"excluded_types": ["knowledge", "social"], "episodes": [{"title": "Anchor", "episode_summary": "Full story.", "episode_item": "Compact story.", "categories": ["Existing", "existing", "Existing_", "New domain", "Learning", "Health"], "day": "2026-01-02"}]}'
     )
 
     routed, episodes = await service._route_segment(

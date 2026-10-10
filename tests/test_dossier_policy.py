@@ -617,9 +617,10 @@ async def test_sparse_memorize_context_reuses_bounded_category_sets(tmp_path, mo
     ]
 
     choice_lines = result["categories_str"].splitlines()
-    assert choice_lines[: len(expected_active)] == [f"- {row.name}" for row in expected_active]
-    assert len(choice_lines) == len(expected_active) + 10
-    assert all(": Dormant " in line for line in choice_lines[len(expected_active) :])
+    filing_active = [row for row in expected_active if row.anchor_role is None]
+    assert choice_lines[: len(filing_active)] == [f"- {row.name}" for row in filing_active]
+    assert len(choice_lines) == len(filing_active) + 10
+    assert all(": Dormant " in line for line in choice_lines[len(filing_active) :])
     assert "private inactive prose" not in str(result)
     anchor_names = {row.name for row in anchors.values()}
     assert not anchor_names & {

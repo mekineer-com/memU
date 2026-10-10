@@ -339,6 +339,7 @@ class MemorizeMixin:
             router_categories = "\n".join(
                 f"- {category.name}: {category.description}"
                 for category in self.list_active_dossiers(user_scope or {})
+                if category.anchor_role is None
             )
 
         extract_client = self._select_chat_client(
@@ -827,7 +828,7 @@ class MemorizeMixin:
         anchors = await self.ensure_dossier_anchors(scope, embedding_client=dossier_embed_client)
         active = self.list_active_dossiers(scope)
         state["categories_prompt_str"] = "\n".join(
-            f"- {category.name}: {category.description}" for category in active
+            f"- {category.name}: {category.description}" for category in active if category.anchor_role is None
         )
         state["dossier_context"] = {
             "categories_str": state["categories_prompt_str"],
@@ -1285,7 +1286,7 @@ class MemorizeMixin:
                 )
                 session.commit()
             target = result.get("target_dossier")
-            if target is not None:
+            if target is not None and result["status"] in {"created", "existing"}:
                 category_ids.add(target.id)
             state.setdefault("relations", []).extend(result.get("relations") or [])
             if result["status"] == "created" and bundles:

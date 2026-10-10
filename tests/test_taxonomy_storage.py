@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 
 from memu.app import memorize_categories
+from memu.app.service import MemoryService
 from memu.database.sqlite.sqlite import SQLiteStore
 
 
@@ -250,7 +251,7 @@ def test_candidate_lifecycle_is_durable_idempotent_and_scope_safe(tmp_path) -> N
         memory_day="20260806",
     )
     duplicate = store.dossier_candidate_repo.add_candidate(
-        proposed_name="health-span!",
+        proposed_name="health_span",
         item_id=item.id,
         where=SCOPE,
         segment_id="later-segment",
@@ -346,6 +347,75 @@ def test_candidate_batch_resolution_is_atomic_and_idempotent(tmp_path) -> None:
     assert [row.id for row in store.dossier_candidate_repo.list_candidates(SCOPE)] == [three.id]
 
 
+@pytest.mark.parametrize("collision_kind", ["exact", "semantic"])
+@pytest.mark.asyncio
+async def test_dynamic_review_collision_response_preserves_initial_categories(
+    tmp_path, monkeypatch, collision_kind,
+) -> None:
+    service = MemoryService(
+        database_config={"metadata_store": {"provider": "sqlite", "dsn": f"sqlite:///{tmp_path / 'collision.db'}"}},
+        user_config={"model": TaxonomyScope},
+    )
+    store = service.database
+    existing = _category(store, SCOPE, "Existing Topic", kind="topic")
+    if collision_kind == "semantic":
+        store.memory_category_repo.update_category(category_id=existing.id, embedding=[1.0, 0.0])
+    legitimate = _category(store, SCOPE, "Legitimate Topic", kind="topic")
+    items = [_item(store, SCOPE, f"Fictional evidence {index}") for index in range(10)]
+    candidates = [
+        store.dossier_candidate_repo.add_candidate(proposed_name="Proposed Topic", item_id=item.id, where=SCOPE)
+        for item in items
+    ]
+    relation = store.category_item_repo.link_item_category(items[0].id, legitimate.id, SCOPE)
+
+    async def generate(bundle, **_kwargs):
+        return {
+            "cluster_id": bundle["cluster_id"], "action": "create",
+            "accepted_candidate_ids": bundle["candidate_ids"], "rejected_candidate_ids": [],
+            "name": existing.name if collision_kind == "exact" else "Distinct Title",
+            "description": "A fictional topic.", "kind": "topic",
+        }
+
+    class EmbedClient:
+        async def embed(self, texts):
+            return [[1.0, 0.0] for _ in texts]
+
+    monkeypatch.setattr(service, "generate_dynamic_category_review", generate)
+    monkeypatch.setattr(service, "_select_embedding_client", lambda *_args: EmbedClient())
+    state = await service._memorize_persist_and_index(
+        {"store": store, "user": SCOPE, "items": items,
+         "category_ids": [legitimate.id], "relations": [relation]}, None,
+    )
+    service._memorize_build_response(state, None)
+
+    assert [row.id for row in store.category_item_repo.list_relations(SCOPE)] == [relation.id]
+    assert state["relations"] == [relation]
+    assert state["response"]["relations"] == [relation.model_dump()]
+    remaining = store.dossier_candidate_repo.list_candidates(SCOPE)
+    assert {row.id for row in remaining} == {row.id for row in candidates}
+    assert all(row.last_considered_at is not None for row in remaining)
+    assert await service.prepare_dynamic_category_review(store=store, where=SCOPE, cluster_size=10) == []
+    assert state["category_ids"] == [legitimate.id]
+    assert [category["id"] for category in state["response"]["categories"]] == [legitimate.id]
+
+
+@pytest.mark.parametrize("names", [("C++", "C#"), ("Maria", "Mar\u00eda"),
+                                    ("\u0416\u0438\u0437\u043d\u044c", "\u4eba\u751f")])
+def test_filing_preserves_distinct_punctuation_and_unicode_titles(tmp_path, names) -> None:
+    store = _store(tmp_path)
+    _category(store, SCOPE, names[0], kind="topic")
+    chosen = _category(store, SCOPE, names[1], kind="topic")
+    item = _item(store, SCOPE)
+    with store._sessions.session() as session:
+        relations, candidates = memorize_categories.file_category_proposals(
+            store=store, item_proposals=[(item, [names[1]])], where=SCOPE, session=session,
+        )
+        session.commit()
+    assert [row.category_id for row in relations] == [chosen.id]
+    assert candidates == []
+    store.close()
+
+
 def test_new_taxonomy_methods_require_complete_scope(tmp_path) -> None:
     store = _store(tmp_path)
     with pytest.raises(ValueError, match="soul_id"):
@@ -374,7 +444,7 @@ def test_category_proposal_filing_keeps_known_and_unknown_and_is_atomic(tmp_path
     with store._sessions.session() as session:
         repeated = memorize_categories.file_category_proposals(
             store=store,
-            item_proposals=[(item, ["known"]), (item, ["new-domain!", "identity"])],
+            item_proposals=[(item, ["known"]), (item, ["new_domain", "identity"])],
             where=SCOPE,
             session=session,
         )
@@ -385,7 +455,7 @@ def test_category_proposal_filing_keeps_known_and_unknown_and_is_atomic(tmp_path
     with store._sessions.session() as session:
         relations, candidates = memorize_categories.file_category_proposals(
             store=store,
-            item_proposals=[(item, ["!!!", "one", "ONE!", "two"]), (item, ["Known", "four"])],
+            item_proposals=[(item, ["!!!", "one", "ONE_", "two"]), (item, ["Known", "four"])],
             where=SCOPE,
             session=session,
         )

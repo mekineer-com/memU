@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import math
+import unicodedata
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -40,11 +41,11 @@ def category_identity_text(name: Any, description: Any) -> str:
 def normalize_category_name(raw: str) -> str | None:
     if not isinstance(raw, str):
         return None
-    value = raw.strip().lower()
+    value = unicodedata.normalize("NFC", raw.strip()).casefold()
     if not value:
         return None
-    value = re.sub(r"[^a-z0-9]+", "_", value).strip("_")
-    return value or None
+    value = re.sub(r"[\s_]+", "_", value).strip("_")
+    return value if any(character.isalnum() for character in value) else None
 
 
 __all__ = [
