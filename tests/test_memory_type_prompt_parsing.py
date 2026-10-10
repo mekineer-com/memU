@@ -9,12 +9,17 @@ def _service() -> MemoryService:
 
 
 @pytest.mark.parametrize("memory_type", ["profile", "behavior", "knowledge", "social"])
-def test_extraction_role_names_the_scoped_owner(memory_type):
-    prompt = _service()._build_memory_type_prompt(
+@pytest.mark.parametrize("user_name", [None, "TestDisplay"])
+def test_extraction_role_names_the_scoped_owner(memory_type, user_name):
+    service = _service()
+    service.user_config.user_name = user_name
+    prompt = service._build_memory_type_prompt(
         memory_type=memory_type, resource_text="TestOwner and GuestSpeaker talked.",
         categories_str="", soul_context_str="", user_id="TestOwner",
     )
-    assert "- user — TestOwner" in prompt
+    assert f"- user — {user_name or 'TestOwner'}" in prompt
+    if user_name:
+        assert "- user — TestOwner" not in prompt
     assert "{user_id}" not in prompt and "- user — the human you're with" not in prompt
     assert "- peer — a significant conversation participant" in prompt
 

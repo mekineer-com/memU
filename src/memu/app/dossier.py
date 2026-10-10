@@ -28,7 +28,7 @@ from memu.utils.taxonomy import (
 )
 
 if TYPE_CHECKING:
-    from memu.app.settings import MemorizeConfig, RetrieveConfig
+    from memu.app.settings import MemorizeConfig, RetrieveConfig, UserConfig
     from memu.database.interfaces import Database
 
 DOSSIER_INDEX_LIMIT = 20
@@ -211,9 +211,8 @@ def _render_dossier_index_line(category: MemoryCategory) -> str:
 
 
 def _validate_anchors(
-    anchors: Mapping[str, MemoryCategory], scope: Mapping[str, str]
+    anchors: Mapping[str, MemoryCategory], expected: Mapping[str, str]
 ) -> None:
-    expected: dict[AnchorRole, str] = {"soul": scope["soul_id"], "user": scope["user_id"]}
     for role, category in anchors.items():
         if (
             role not in expected
@@ -225,6 +224,7 @@ def _validate_anchors(
 
 class DossierMixin:
     if TYPE_CHECKING:
+        user_config: UserConfig
         memorize_config: MemorizeConfig
         retrieve_config: RetrieveConfig
         _dossier_content_embedding_cache: dict[str, tuple[str, list[float]]]
@@ -233,6 +233,16 @@ class DossierMixin:
         _select_embedding_client: Callable[[Mapping[str, Any] | None], Any]
         _sqlite_write_session: Callable[[Database], Any | None]
 
+    def _expected_anchor_names(self, scope: Mapping[str, str]) -> dict[AnchorRole, str]:
+        user_name = self.user_config.user_name
+        expected: dict[AnchorRole, str] = {
+            "soul": scope["soul_id"],
+            "user": scope["user_id"] if user_name is None else user_name,
+        }
+        if any(name.casefold() == expected["soul"].casefold() for name in (scope["user_id"], expected["user"])):
+            raise ValueError("Dossier soul and user identities must differ")
+        return expected
+
     async def ensure_dossier_anchors(
         self,
         where: Mapping[str, Any],
@@ -240,8 +250,7 @@ class DossierMixin:
         embedding_client: Any | None = None,
     ) -> dict[str, MemoryCategory]:
         scope = _scope(where)
-        if scope["user_id"].casefold() == scope["soul_id"].casefold():
-            raise ValueError("Dossier soul and user identities must differ")
+        expected = self._expected_anchor_names(scope)
 
         store = self._get_database()
         categories = store.memory_category_repo.list_categories(scope)
@@ -250,8 +259,7 @@ class DossierMixin:
             for category in categories.values()
             if category.anchor_role is not None
         }
-        _validate_anchors(anchors, scope)
-        expected: dict[AnchorRole, str] = {"soul": scope["soul_id"], "user": scope["user_id"]}
+        _validate_anchors(anchors, expected)
 
         missing = [(role, name) for role, name in expected.items() if role not in anchors]
         for role, name in missing:
@@ -517,7 +525,7 @@ class DossierMixin:
             raise ValueError(f"Dossier {category_id} is not due for revision")
 
         anchors = store.memory_category_repo.list_anchor_categories(scope)
-        _validate_anchors(anchors, scope)
+        _validate_anchors(anchors, self._expected_anchor_names(scope))
         if set(anchors) != {"soul", "user"}:
             raise ValueError("Dossier revision requires seeded soul and user anchors")
 
@@ -634,7 +642,7 @@ class DossierMixin:
                 goal.strip() for goal in removed_life_goals if category.kind == "goal" and goal.strip()
             ],
             "soul_name": scope["soul_id"],
-            "user_name": scope["user_id"],
+            "user_name": anchors["user"].name,
             "narrative_self": narrative_self.strip() if narrative_self and narrative_self.strip() else None,
             "dossier_index": self.build_dossier_index(scope),
             "soul_presence": "\n\n".join(
@@ -671,7 +679,7 @@ class DossierMixin:
         scope = _scope(where)
         store = self._get_database()
         anchors = store.memory_category_repo.list_anchor_categories(scope)
-        _validate_anchors(anchors, scope)
+        _validate_anchors(anchors, self._expected_anchor_names(scope))
         if set(anchors) != {"soul", "user"}:
             raise ValueError("Anchor revision requires seeded soul and user anchors")
         anchor = anchors[role]
@@ -1066,7 +1074,7 @@ class DossierMixin:
         scope = _scope(where)
         store = self._get_database()
         anchors = store.memory_category_repo.list_anchor_categories(scope)
-        _validate_anchors(anchors, scope)
+        _validate_anchors(anchors, self._expected_anchor_names(scope))
         active = list(anchors.values())
 
         limit = max(0, int(self.memorize_config.active_dossiers_per_kind))
@@ -1182,7 +1190,7 @@ class DossierMixin:
         if sorted(category.anchor_role for category in anchor_rows) != ["soul", "user"]:
             raise ValueError("Dossier cutover requires exactly one soul anchor and one user anchor")
         anchors = {cast(str, category.anchor_role): category for category in anchor_rows}
-        _validate_anchors(anchors, scope)
+        _validate_anchors(anchors, self._expected_anchor_names(scope))
 
         links_by_category: dict[str, set[str]] = {}
         related_items = store.memory_item_repo.list_items_by_ids(

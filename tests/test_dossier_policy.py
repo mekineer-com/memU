@@ -6,7 +6,7 @@ import pytest
 from defusedxml import ElementTree
 from pydantic import BaseModel
 
-from memu.app.dossier import DossierRevisionStaleError
+from memu.app.dossier import DossierRevisionStaleError, render_dossier_revision_prompts
 from memu.app.dossier_revision import (
     label_sections,
     parse_anchor_revisions,
@@ -64,13 +64,14 @@ def _service(
     name: str = "dossier.db",
     *,
     retrieve_config=None,
+    user_name=None,
     **memorize_config,
 ) -> MemoryService:
     return MemoryService(
         database_config={"metadata_store": {"provider": "sqlite", "dsn": f"sqlite:///{tmp_path / name}"}},
         memorize_config=memorize_config,
         retrieve_config=retrieve_config,
-        user_config={"model": DossierScope},
+        user_config={"model": DossierScope, "user_name": user_name},
     )
 
 
@@ -172,8 +173,10 @@ def test_cutover_readiness_rejects_unmigrated_refs_but_not_stale_citations(tmp_p
 
 
 @pytest.mark.asyncio
-async def test_anchor_seeding_is_scoped_idempotent_and_immutable(tmp_path) -> None:
-    service = _service(tmp_path)
+@pytest.mark.parametrize("user_name", [None, "TestDisplay"])
+async def test_anchor_seeding_is_scoped_idempotent_and_immutable(tmp_path, user_name) -> None:
+    service = _service(tmp_path, user_name=user_name)
+    expected_name = SCOPE["user_id"] if user_name is None else user_name
     client = FakeEmbedClient()
 
     anchors = await service.ensure_dossier_anchors(SCOPE, embedding_client=client)
@@ -183,9 +186,11 @@ async def test_anchor_seeding_is_scoped_idempotent_and_immutable(tmp_path) -> No
     assert {role: row.id for role, row in anchors.items()} == {role: row.id for role, row in again.items()}
     assert client.calls == [[
         "test-soul: Identity, history, relationships, and lived experience of test-soul.",
-        "test-user: Identity, history, relationships, and lived experience of test-user.",
+        f"{expected_name}: Identity, history, relationships, and lived experience of {expected_name}.",
     ]]
     assert all(row.kind == "lore" and row.lore_subtype == "person" for row in anchors.values())
+    assert anchors["user"].name == expected_name
+    assert service.database.memory_category_repo.list_anchor_categories(SCOPE)["user"].id == anchors["user"].id
 
     other = await service.ensure_dossier_anchors(OTHER_SCOPE, embedding_client=client)
     assert {row.id for row in other.values()}.isdisjoint({row.id for row in anchors.values()})
@@ -197,6 +202,48 @@ async def test_anchor_seeding_is_scoped_idempotent_and_immutable(tmp_path) -> No
         await service.ensure_dossier_anchors(
             {"user_id": "same", "soul_id": "SAME"}, embedding_client=client
         )
+
+
+@pytest.mark.asyncio
+async def test_display_names_share_owner_scope_without_rebinding_anchors(tmp_path) -> None:
+    client = FakeEmbedClient()
+    for soul_id, user_name in (("TestSoulA", "TestDisplayA"), ("TestSoulB", "TestDisplayB")):
+        scope = {"soul_id": soul_id, "user_id": "TestOwnerID"}
+        service = _service(tmp_path, user_name=user_name)
+        anchors = await service.ensure_dossier_anchors(scope, embedding_client=client)
+        item = service.database.memory_item_repo.create_item(
+            memory_type="profile", summary="Enjoys fiction.", embedding=[1.0, 0.0], user_data=scope,
+            source_role="user", speaker_id=scope["user_id"],
+        )
+        service.database.category_item_repo.link_item_category(item.id, anchors["user"].id, scope)
+        service.require_dossier_cutover_ready(scope)
+        assert {row.name for row in service.list_active_dossiers(scope)} == {soul_id, user_name}
+        assert service.prepare_anchor_revision("user", scope, [item.id])["dossier"].name == user_name
+        bundle = service.prepare_dossier_revision(anchors["user"].id, scope)
+        assert bundle["user_name"] == user_name
+        assert user_name in render_dossier_revision_prompts(bundle)[0]
+        assert item.speaker_id == scope["user_id"]
+        assert "user_name" not in service.user_model.model_fields
+
+        wrong = _service(tmp_path, user_name="WrongDisplay")
+        with pytest.raises(ValueError, match="Invalid user dossier anchor"):
+            await wrong.ensure_dossier_anchors(scope, embedding_client=client)
+        for check in (
+            lambda: wrong.require_dossier_cutover_ready(scope),
+            lambda: wrong.list_active_dossiers(scope),
+            lambda: wrong.prepare_anchor_revision("user", scope, [item.id]),
+            lambda: wrong.prepare_dossier_revision(anchors["user"].id, scope),
+        ):
+            with pytest.raises(ValueError, match="Invalid user dossier anchor"):
+                check()
+        assert service.database.memory_category_repo.list_anchor_categories(scope)["user"].name == user_name
+    assert len(client.calls) == 2
+
+    collision = _service(tmp_path, name="collision.db", user_name="TEST-SOUL")
+    with pytest.raises(ValueError, match="must differ"):
+        await collision.ensure_dossier_anchors(SCOPE, embedding_client=client)
+    assert collision.database.memory_category_repo.list_categories(SCOPE) == {}
+    assert len(client.calls) == 2
 
 
 @pytest.mark.asyncio

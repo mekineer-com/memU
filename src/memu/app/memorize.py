@@ -71,13 +71,14 @@ class SpeakerRosterEntry(NamedTuple):
 
 if TYPE_CHECKING:
     from memu.app.service import Context
-    from memu.app.settings import MemorizeConfig
+    from memu.app.settings import MemorizeConfig, UserConfig
     from memu.blob.local_fs import LocalFS
     from memu.database.interfaces import Database
 
 
 class MemorizeMixin:
     if TYPE_CHECKING:
+        user_config: UserConfig
         memorize_config: MemorizeConfig
         fs: LocalFS
         _run_workflow: Callable[..., Awaitable[WorkflowState]]
@@ -2120,7 +2121,9 @@ class MemorizeMixin:
             soul_context=safe_soul_context,
             speaker_roster_block=speaker_roster_block,
             target_items=target_items,
-            user_id=self._escape_prompt_value(user_id),
+            user_id=self._escape_prompt_value(
+                user_id if self.user_config.user_name is None else self.user_config.user_name
+            ),
         )
         if not target_items:
             rendered = re.sub(r"\*\*Target:[^*]*\*\*\s*", "", rendered)

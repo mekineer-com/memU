@@ -230,6 +230,7 @@ class DefaultUserModel(BaseModel):
 
 class UserConfig(BaseModel):
     model: type[BaseModel] = Field(default=DefaultUserModel)
+    user_name: str | None = None
 
 
 Key = Annotated[str, StringConstraints(min_length=1)]
