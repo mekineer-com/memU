@@ -439,7 +439,7 @@ def format_grouped_chat_history(
             role = str(msg.get("role") or "").strip()
             speaker = str(msg.get("speaker") or msg.get("name") or "").strip()
             content = str(msg.get("content") or "")
-            if role == "user" and kind == "whatsapp_group":
+            if role == "user" and kind == "whatsapp_group" and not msg.get("source_owner_id"):
                 parsed = _parse_shared_group_sender_prefix(content)
                 if parsed is not None:
                     speaker, content = parsed
