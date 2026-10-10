@@ -103,6 +103,7 @@ def format_speaker_message(
     strip_content: bool = True,
 ) -> str:
     label = display_speaker_label(message, soul_name=soul_name, default_role=default_role)
+    label = _extract_text_content(label, collapse_newlines=True)
     content = _extract_text_content(message.get("content"), collapse_newlines=collapse_newlines, strip_content=strip_content)
     return f"[{label}]{separator}{content}"
 

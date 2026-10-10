@@ -101,16 +101,6 @@ class MemorizeMixin:
     def _normalize_replaces_previous_fact(value: Any) -> str | None:
         return parsing._normalize_replaces_previous_fact(value)
 
-    @staticmethod
-    def _hedge_summary_for_confidence(summary: str, confidence: float | None) -> str:
-        text = (summary or "").strip()
-        if not text or confidence is None or confidence >= 0.6:
-            return text
-        lowered = text[:1].lower() + text[1:] if text[:1].isupper() else text
-        if confidence < 0.35:
-            return f"I have a faint suspicion that {lowered}"
-        return f"I have an inkling that {lowered}"
-
     async def memorize(
         self,
         *,
@@ -1163,7 +1153,6 @@ class MemorizeMixin:
             extract_model=str(plan.get("extract_model") or "").strip() or None,
             source_day_happened_at=source_day_happened_at,
             session=session,
-            hedge_summary_for_confidence=self._hedge_summary_for_confidence,
         )
         items.extend(mem_items)
         item_proposals.extend(
@@ -2062,11 +2051,11 @@ class MemorizeMixin:
         compression_threshold: float = 0.08,
     ) -> list[StructuredMemoryEntry]:
         raw = [e.confidence for e in entries if e.confidence is not None]
-        if len(raw) < 6:
+        if len(raw) < 6 or min(raw) == max(raw):
             return entries
         mean = sum(raw) / len(raw)
         std = math.sqrt(sum((v - mean) ** 2 for v in raw) / len(raw))
-        if std >= compression_threshold or std == 0:
+        if std >= compression_threshold:
             return entries
         result: list[StructuredMemoryEntry] = []
         for entry in entries:

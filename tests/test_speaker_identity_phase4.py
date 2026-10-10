@@ -133,20 +133,35 @@ def test_parser_rejects_hallucinated_speaker_ref_and_leaves_speaker_null(service
     assert attributed.speaker_label is None
 
 
-def test_declared_entity_mention_triggers_segment_roster_without_role_ambiguity(service: MemoryService) -> None:
+@pytest.mark.parametrize(("label", "text", "mentioned"), [
+    ("Brother", "My brother said he'll call tomorrow.", True),
+    ("Ed", "Ed said hello.", True),
+    ("Ed", "[ED] said hello.", True),
+    ("Ed", "Ed's reply arrived.", True),
+    ("Ed", "I needed help.", False),
+    ("Ed", "red_ed replied.", False),
+    ("Guest+", "Guest+ replied.", True),
+    ("Guest+", "Guest replied.", False),
+])
+def test_declared_entity_mention_triggers_segment_roster_without_role_ambiguity(
+    service: MemoryService, label: str, text: str, mentioned: bool,
+) -> None:
     speaker_map = {
-        30: ("user:marcos", "Marcos"),
-        31: ("soul:siri", "Siri"),
+        30: ("user:fictional", "Fictional User"),
+        31: ("soul:fictional", "Fictional Soul"),
     }
     roster = service._build_speaker_roster_for_segment(
         speaker_map=speaker_map,
-        declared_entities=[SpeakerRosterEntry("entity:c3d4e5f6", "Brother", "entity")],
-        segment_text="[30] [Marcos] My brother said he'll call tomorrow.",
+        declared_entities=[SpeakerRosterEntry("entity:c3d4e5f6", label, "entity")],
+        segment_text=f"[30] [Fictional User] {text}",
     )
+    if not mentioned:
+        assert roster is None
+        return
     assert roster is not None
     ids = {entry.speaker_id for entry in roster}
     assert "entity:c3d4e5f6" in ids
-    assert "user:marcos" in ids
+    assert "user:fictional" in ids
 
 
 def test_attribute_memory_keeps_valid_parsed_speaker_ref_even_with_single_message_speaker(service: MemoryService) -> None:

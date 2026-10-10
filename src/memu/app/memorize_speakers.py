@@ -162,7 +162,7 @@ def _episode_mentions_roster_entry(episode_text: Any, entry: SpeakerLike) -> boo
     if not text:
         return False
     label = str(entry.speaker_label or "").strip().lower()
-    return bool(label and label in text)
+    return bool(label and re.search(rf"(?<!\w){re.escape(label)}(?!\w)", text))
 
 
 def _build_speaker_roster_for_segment(

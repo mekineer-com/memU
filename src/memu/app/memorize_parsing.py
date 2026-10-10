@@ -105,56 +105,60 @@ def _find_xml_boundaries(raw: str) -> tuple[int, int, str] | None:
     return None
 
 
+def _xml_text(element: Element | None) -> str:
+    return "" if element is None else "".join(element.itertext()).strip()
+
+
 def _parse_memory_element(memory_elem: Element) -> dict[str, Any] | None:
     memory_dict: dict[str, Any] = {}
 
     content_elem = memory_elem.find("content")
-    if content_elem is not None and content_elem.text:
-        memory_dict["content"] = content_elem.text.strip()
+    if content_elem is not None:
+        memory_dict["content"] = _xml_text(content_elem)
 
     day_elem = memory_elem.find("day")
-    if day_elem is not None and day_elem.text:
-        memory_dict["day"] = day_elem.text.strip()
+    if day_elem is not None and _xml_text(day_elem):
+        memory_dict["day"] = _xml_text(day_elem)
 
     categories_elem = memory_elem.find("categories")
     if categories_elem is not None:
-        categories = [cat_elem.text.strip() for cat_elem in categories_elem.findall("category") if cat_elem.text]
+        categories = [text for cat_elem in categories_elem.findall("category") if (text := _xml_text(cat_elem))]
         memory_dict["categories"] = categories
 
     source_role_elem = memory_elem.find("source_role")
-    if source_role_elem is not None and source_role_elem.text:
-        raw_role = source_role_elem.text.strip().lower()
+    if source_role_elem is not None:
+        raw_role = _xml_text(source_role_elem).lower()
         if raw_role in {"soul", "user", "peer", "entity", "environment"}:
             memory_dict["source_role"] = raw_role
 
     speaker_ref_elem = memory_elem.find("speaker_ref")
-    if speaker_ref_elem is not None and speaker_ref_elem.text:
-        memory_dict["speaker_ref"] = speaker_ref_elem.text.strip()
+    if speaker_ref_elem is not None and _xml_text(speaker_ref_elem):
+        memory_dict["speaker_ref"] = _xml_text(speaker_ref_elem)
 
     confidence_elem = memory_elem.find("confidence")
-    if confidence_elem is not None and confidence_elem.text:
+    if confidence_elem is not None:
         try:
-            confidence = float(confidence_elem.text.strip())
+            confidence = float(_xml_text(confidence_elem))
         except (TypeError, ValueError):
             confidence = None
         if confidence is not None and 0.0 <= confidence <= 1.0:
             memory_dict["confidence"] = confidence
 
     salience_elem = memory_elem.find("reflection_salience")
-    if salience_elem is not None and salience_elem.text:
-        reflection_salience = _normalize_reflection_salience(salience_elem.text)
+    if salience_elem is not None:
+        reflection_salience = _normalize_reflection_salience(_xml_text(salience_elem))
         if reflection_salience is not None:
             memory_dict["reflection_salience"] = reflection_salience
 
     ei_elem = memory_elem.find("emotional_intensity")
-    if ei_elem is not None and ei_elem.text:
-        emotional_intensity = _normalize_reflection_salience(ei_elem.text)
+    if ei_elem is not None:
+        emotional_intensity = _normalize_reflection_salience(_xml_text(ei_elem))
         if emotional_intensity is not None:
             memory_dict["emotional_intensity"] = emotional_intensity
 
     replaces_previous_fact_elem = memory_elem.find("replaces_previous_fact")
-    if replaces_previous_fact_elem is not None and replaces_previous_fact_elem.text:
-        replaces_previous_fact = _normalize_replaces_previous_fact(replaces_previous_fact_elem.text)
+    if replaces_previous_fact_elem is not None:
+        replaces_previous_fact = _normalize_replaces_previous_fact(_xml_text(replaces_previous_fact_elem))
         if replaces_previous_fact:
             memory_dict["replaces_previous_fact"] = replaces_previous_fact
 
@@ -162,8 +166,8 @@ def _parse_memory_element(memory_elem: Element) -> dict[str, Any] | None:
     if entities_elem is not None:
         entities = []
         for entity_el in entities_elem.findall("entity"):
-            name_text = (entity_el.findtext("name") or "").strip()
-            type_text = (entity_el.findtext("type") or "").strip()
+            name_text = _xml_text(entity_el.find("name"))
+            type_text = _xml_text(entity_el.find("type"))
             if name_text and type_text:
                 entities.append({"name": name_text, "type": type_text})
         if entities:
@@ -198,7 +202,7 @@ def _parse_memory_type_response_xml(raw: str) -> list[dict[str, Any]]:
         logger.warning("Malformed extraction XML — attempting salvage with synthetic root")
         try:
             root = ET.fromstring(f"<root>{xml_content}</root>")
-            memory_elements = list(root.iter("memory"))
+            memory_elements = root.findall("item/memory")
         except ET.ParseError:
             raise ValueError("Extraction XML salvage failed — reply is unparseable")
 

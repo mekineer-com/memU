@@ -120,18 +120,16 @@ def _persist_memory_items(
     extract_model: str | None,
     source_day_happened_at: Mapping[str, Any] | None,
     session: Any,
-    hedge_summary_for_confidence: Callable[[str, float | None], str],
 ) -> tuple[list[Any], int]:
     items: list[Any] = []
     superseded_targets: set[str] = set()
     homeless_count = sum(1 for entry in structured_entries if not entry.categories)
     normalized_extract_model = str(extract_model or "").strip() or None
     for idx, (entry, emb) in enumerate(zip(structured_entries, item_embeddings, strict=True)):
-        resolved_summary = hedge_summary_for_confidence(entry.content, entry.confidence)
         item_kwargs = {
             "resource_id": resource_id,
             "memory_type": entry.memory_type,
-            "summary": resolved_summary,
+            "summary": entry.content,
             "embedding": emb,
             "user_data": dict(user or {}),
             "source_role": entry.source_role,

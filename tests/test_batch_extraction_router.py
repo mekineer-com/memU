@@ -487,7 +487,7 @@ async def test_categorize_prepares_without_write_lock_and_publishes_atomically(
     if not failure:
         episode, first, second = state["items"]
         assert episode.memory_ref < first.memory_ref < second.memory_ref
-        assert first.summary == "I have a faint suspicion that new garden plan"
+        assert first.summary == "New garden plan"
         assert first.embedding == [1.0, 0.0] and first.extra["model"] == "fictional-model"
         assert payloads[-1] == ["Old garden plan", "Old garden plan"]
         edges = store.triple_repo.get_edges_from(old.id, "evolved_into", where=scope)
@@ -875,6 +875,33 @@ def test_parse_memory_type_response_xml_returns_empty_for_valid_xml_no_memories(
     # Valid XML with <item> root but no <memory> elements is a legitimate zero-item reply
     result = parsing._parse_memory_type_response_xml(raw)
     assert result == []
+
+
+@pytest.mark.parametrize("roots", [1, 2])
+def test_parse_memory_type_response_xml_preserves_child_text(roots) -> None:
+    raw = (
+        "<item><memory><content><b>I</b> do not <i>like</i> mushrooms.</content>"
+        "<day>2026-<b>10</b>-10</day><categories><category><b>Garden</b> Plans</category></categories>"
+        "<source_role><b>pe</b>er</source_role><speaker_ref>entity:<b>guest</b></speaker_ref>"
+        "<confidence><b>0.</b>85</confidence><reflection_salience><b>0.</b>7</reflection_salience>"
+        "<emotional_intensity><b>0.</b>6</emotional_intensity>"
+        "<replaces_previous_fact>I <b>liked</b> mushrooms.</replaces_previous_fact>"
+        "<entities><entity><name><b>Fictional</b> Garden</name><type>pl<b>ac</b>e</type>"
+        "</entity></entities></memory></item>"
+    )
+    assert parsing._parse_memory_type_response_xml(raw * roots) == [{
+        "content": "I do not like mushrooms.", "day": "2026-10-10", "categories": ["Garden Plans"],
+        "source_role": "peer", "speaker_ref": "entity:guest", "confidence": 0.85,
+        "reflection_salience": 0.7, "emotional_intensity": 0.6,
+        "replaces_previous_fact": "I liked mushrooms.",
+        "entities": [{"name": "Fictional Garden", "type": "place"}],
+    }] * roots
+
+
+@pytest.mark.parametrize("roots", [1, 2])
+def test_parse_memory_type_response_xml_does_not_extract_nested_quote(roots) -> None:
+    raw = "<item><memory><content>Quoted <memory><content>inner fact</content></memory> tail.</content></memory></item>"
+    assert parsing._parse_memory_type_response_xml(raw * roots) == [{"content": "Quoted inner fact tail."}] * roots
 
 
 @pytest.mark.parametrize("roots", [1, 2])

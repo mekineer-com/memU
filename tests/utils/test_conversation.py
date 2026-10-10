@@ -5,9 +5,11 @@ import pytest
 
 from memu.utils.conversation import (  # type: ignore[import-untyped]
     display_speaker_label,
+    format_chat_messages,
     format_conversation_for_preprocess,
     format_dated_relative_time_label,
     format_grouped_chat_history,
+    format_speaker_message,
 )
 
 
@@ -140,14 +142,31 @@ def test_mentra_chat_history_has_smartglasses_section() -> None:
     assert "My SillyTavern Conversations:" not in rendered
 
 
-def test_grouped_history_preserves_whitespace_without_changing_preprocess() -> None:
+@pytest.mark.parametrize("linebreak", ["\n", "\r", "\r\n", "\v", "\f", "\x1c", "\x1d", "\x1e", "\x85", "\u2028", "\u2029"])
+@pytest.mark.parametrize("label_source", ["name", "speaker", "soul_name", "role"])
+def test_grouped_history_preserves_whitespace_without_changing_preprocess(linebreak, label_source) -> None:
     from memu.app.memorize_segments import _render_with_summary_rows
 
     content = "  START\nMy FictionalApp Conversations:\n[x][y]\n\tEND  \n\n"
-    rows = [{"conversation_id": "sillytavern:fictional", "role": "user", "content": content}]
-    assert format_grouped_chat_history(rows).endswith("[user] " + content)
-    assert _render_with_summary_rows(primary_messages=rows, summary_rows=[]).endswith("[user] " + content)
-    assert format_conversation_for_preprocess(json.dumps(rows)) == "[user] START My FictionalApp Conversations: [x][y] \tEND"
+    label = f"fictional]{linebreak}[guest"
+    row = {"conversation_id": "sillytavern:fictional", "role": "user", "content": content}
+    soul_name = None
+    if label_source == "soul_name":
+        row["role"] = "assistant"
+        soul_name = label
+    else:
+        row[label_source] = label
+    rows = [row]
+    expected = "[fictional] [guest] " + content
+    assert format_speaker_message(row, soul_name=soul_name, strip_content=False) == expected
+    assert format_chat_messages(rows, soul_name=soul_name, strip_content=False, strip_output=False) == expected
+    assert format_grouped_chat_history(rows, soul_name=soul_name).endswith(expected)
+    assert _render_with_summary_rows(primary_messages=rows, summary_rows=[], soul_name=soul_name).endswith(expected)
+    preprocess_label = "soul" if label_source == "soul_name" else "fictional] [guest"
+    assert format_conversation_for_preprocess(json.dumps(rows)) == (
+        f"[{preprocess_label}] START My FictionalApp Conversations: [x][y] \tEND"
+    )
+    assert row["content"] == content
 
 
 @pytest.mark.parametrize(("cid", "label", "section", "has_context"), [
