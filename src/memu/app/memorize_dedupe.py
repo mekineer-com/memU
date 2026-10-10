@@ -500,6 +500,13 @@ async def _find_supersede_targets(
             where["source_role"] = entry.source_role
         hits = store.memory_item_repo.vector_search_items(query_vec=vector, top_k=3, where=where)
         for candidate_id, similarity in hits:
+            candidate = store.memory_item_repo.get_item(candidate_id)
+            if (
+                candidate is None
+                or _dedupe_source_role(candidate) != _dedupe_source_role(entry)
+                or _dedupe_speaker_id(candidate) != _dedupe_speaker_id(entry)
+            ):
+                continue
             if similarity >= threshold:
                 targets[idx] = candidate_id
                 break

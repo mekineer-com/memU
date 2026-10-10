@@ -82,7 +82,7 @@ def test_build_speaker_map_resolves_user_soul_entity_and_environment(service: Me
     assert speaker_map[2] == ("user:marcos", "MarcosDisplay")
     assert speaker_map[3] == ("entity:a1b2c3d4", "Brother")
     assert speaker_map[4] == ("environment:system", "system")
-    assert 5 not in speaker_map
+    assert speaker_map[5] == ("", "Group Member")
 
 
 def test_entity_speaker_lookup_uses_aliases_and_drops_ambiguous_names() -> None:
@@ -134,7 +134,7 @@ def test_source_ref_binding_is_atomic_and_survives_display_name_change(service: 
         scope,
         speakers._build_entity_speaker_ids(entities),
         source_ids,
-    ) == {}
+    ) == {0: ("", "Person One")}
 
     with pytest.raises(ValueError, match="already belongs"):
         repo.bind_source_refs(

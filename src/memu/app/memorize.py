@@ -59,6 +59,7 @@ class StructuredMemoryEntry(NamedTuple):
     speaker_id: str | None = None
     speaker_label: str | None = None
     memory_date: str | None = None
+    speaker_ref_invalid: bool = False
 
 
 class SpeakerRosterEntry(NamedTuple):
@@ -1724,6 +1725,7 @@ class MemorizeMixin:
                         parsed_speaker_id,
                         parsed_speaker_label,
                         memory_date,
+                        bool(str(entry.get("speaker_ref") or "").strip()) and parsed_speaker_id is None,
                     )
                 )
         return self._prune_extracted_entry_duplicates(entries)
@@ -1735,7 +1737,7 @@ class MemorizeMixin:
         if len(entries) < 2:
             return entries
 
-        seen_exact: set[tuple[str, str | None, str | None, str]] = set()
+        seen_exact: set[tuple[str, str | None, str | None, bool, str]] = set()
         kept: list[StructuredMemoryEntry] = []
         for entry in entries:
             normalized_summary = re.sub(r"\s+", " ", (entry.content or "").strip())
@@ -1743,6 +1745,7 @@ class MemorizeMixin:
                 entry.memory_type,
                 entry.source_role,
                 entry.speaker_id,
+                entry.speaker_ref_invalid,
                 normalized_summary.casefold(),
             )
             if exact_key in seen_exact:

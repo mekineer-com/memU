@@ -19,9 +19,11 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
 from pydantic import BaseModel
 
-from memu.app.memorize import StructuredMemoryEntry
+from memu.app.memorize import SpeakerRosterEntry, StructuredMemoryEntry
+from memu.app import memorize_dedupe as dedupe
 from memu.app.service import MemoryService
 
 
@@ -159,3 +161,86 @@ def test_unresolved_import_guest_is_not_attributed_to_the_soul():
     assert loaded[0].speaker_id is None and loaded[0].speaker_label is None
     assert loaded[1].speaker_id == "soul:testsoul" and loaded[1].speaker_label == "CompanionDisplay"
     assert all(item.source_message_ids == [0, 1] for item in loaded)
+
+
+@pytest.mark.parametrize("role,ref,indices,expected", [
+    ("peer", "", [0], "entity:guest-a"),
+    ("peer", "", [0, 1], None),
+    ("peer", "", [0, 4], None),
+    ("peer", "", [0, 3], None),
+    ("peer", "entity:guest-b", [0, 3], "entity:guest-b"),
+    ("peer", "entity:guest-a", [0, 1], "entity:guest-a"),
+    ("peer", "entity:missing", [0], None),
+    ("entity", "", [0], None),
+    ("entity", "entity:mentioned", [0], "entity:mentioned"),
+    ("", "", [0], None),
+    ("invalid", "", [0], None),
+    ("user", "", [0, 1, 2, 4], "user:testowner"),
+    ("soul", "", [0, 1, 5], "soul:testsoul"),
+])
+def test_guest_attribution_preserves_uncertainty_through_save(role, ref, indices, expected) -> None:
+    service = _service()
+    scope = {"user_id": "testowner", "soul_id": "testsoul"}
+    messages = [
+        {"role": "unknown", "name": "Same Label", "source_ref": "whatsapp:guest-a@lid"},
+        {"role": "unknown", "name": "Unlinked Guest", "source_ref": "whatsapp:unlinked@lid"},
+        {"role": "user", "name": "OwnerDisplay"},
+        {"role": "unknown", "name": "Same Label", "source_ref": "whatsapp:guest-b@lid"},
+        {"role": "user", "conversation_id": "import:dm:fictional"},
+        {"role": "assistant", "name": "TestSoul"},
+    ]
+    speaker_map = service._build_speaker_map(messages, scope, entity_source_speaker_ids={
+        "whatsapp:guest-a@lid": "entity:guest-a", "whatsapp:guest-b@lid": "entity:guest-b",
+    })
+    assert speaker_map[1] == ("", "Unlinked Guest") and speaker_map[4] == ("", "user")
+    unresolved_roster = service._build_speaker_roster_for_segment(
+        speaker_map={index: speaker_map[index] for index in (0, 1)}, declared_entities=[], segment_text="",
+    )
+    assert unresolved_roster == [SpeakerRosterEntry("entity:guest-a", "Same Label", "peer")]
+    roster = service._build_speaker_roster_for_segment(
+        speaker_map=speaker_map, declared_entities=[SpeakerRosterEntry("entity:mentioned", "Mentioned Guest", "entity")],
+        segment_text="Mentioned Guest grows orchids.",
+    )
+    assert {row.coarse_role for row in roster if row.speaker_id in {"entity:guest-a", "entity:guest-b"}} == {"peer"}
+    assert all(row.speaker_id for row in roster)
+    xml = (f"<item><memory><source_role>{role}</source_role><speaker_ref>{ref}</speaker_ref>"
+           "<content>A guest grows orchids.</content><categories><category>Gardens</category></categories>"
+           "</memory></item>")
+    entry = service._parse_structured_entries(["profile"], [xml], default_source_message_ids=indices, speaker_roster=roster)[0]
+    attributed = service._attribute_memory(entry, speaker_map)
+    assert attributed.speaker_id == expected
+    service._llm_clients["embedding"] = _EmbedClient()
+    state = asyncio.run(service._memorize_categorize_items({
+        "segment_plans": [{"resource_url": "memory://guest-attribution", "entries": [attributed]}],
+        "modality": "conversation", "local_path": None, "store": service.database, "user": scope,
+    }, {}))
+    item = service.database.memory_item_repo.get_item(state["items"][0].id)
+    assert item.speaker_id == expected and item.speaker_id != ""
+    assert item.source_message_ids == indices and item.source_role == entry.source_role
+
+
+def test_invalid_speaker_ref_stays_distinct_from_omitted_ref_before_attribution() -> None:
+    service = _service()
+    responses = [f"<item><memory><source_role>peer</source_role><speaker_ref>{ref}</speaker_ref>"
+                 "<content>A guest grows orchids.</content></memory></item>" for ref in ("", "entity:missing")]
+    entries = service._parse_structured_entries(["profile", "profile"], responses, default_source_message_ids=[0])
+    assert len(entries) == 2
+    attributed = [service._attribute_memory(entry, {0: ("entity:guest-a", "Known Guest")}) for entry in entries]
+    assert [entry.speaker_id for entry in attributed] == ["entity:guest-a", None]
+
+
+def test_replacement_selection_keeps_speaker_identity_barrier() -> None:
+    service = _service()
+    scope = {"user_id": "testowner", "soul_id": "testsoul"}
+    repo = service.database.memory_item_repo
+    old = [repo.create_item(memory_type="profile", summary="I grow roses", embedding=[0.1, 0.2, 0.3],
+                           user_data=scope, source_role="peer", speaker_id=identity)
+           for identity in ("entity:guest-b", "entity:guest-a", None)]
+    entry = StructuredMemoryEntry("profile", "I grow orchids", [], "peer", 0.8, [0], None,
+                                  replaces_previous_fact="I grow roses")
+    for identity, expected in (("entity:guest-a", old[1].id), (None, old[2].id), ("entity:missing", None)):
+        targets = asyncio.run(dedupe._find_supersede_targets(
+            structured_entries=[entry._replace(speaker_id=identity)], store=service.database,
+            embed_client=_EmbedClient(), user=scope, threshold=0.8,
+        ))
+        assert targets == ({0: expected} if expected else {})

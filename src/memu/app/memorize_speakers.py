@@ -31,7 +31,8 @@ def _speaker_role_from_id(speaker_id: str | None) -> str | None:
     if not value or ":" not in value:
         return None
     role, _sep, _rest = value.partition(":")
-    return role or None
+    # An entity ID in the source map belongs to a present participant.
+    return "peer" if role == "entity" else role or None
 
 
 def _normalize_coarse_role(role: str | None) -> str:
@@ -221,7 +222,8 @@ def _build_speaker_roster_for_segment(
         for entry in (declared_entities or [])
         if _episode_mentions_roster_entry(segment_text, entry)
     ]
-    if not map_has_ambiguity and not mentioned_declared:
+    unresolved_participants = any(not speaker_id for speaker_id, _ in (speaker_map or {}).values())
+    if not map_has_ambiguity and not unresolved_participants and not mentioned_declared:
         return None
 
     merged: list[TEntry] = []
@@ -319,14 +321,13 @@ def _build_speaker_map(
                 speaker_id = (entity_source_speaker_ids or {}).get(source_ref, "")
             else:
                 speaker_id = (entity_speaker_ids or {}).get(normalize_entity_name(normalized_name), "")
-            if not speaker_id:
-                continue
         elif imported_user:
-            continue
+            speaker_id, speaker_label = "", role
         else:
             speaker_label = role or "environment"
             speaker_id = _normalize_speaker_slug("environment", speaker_label)
 
+        # Empty IDs keep unresolved participants visible to ambiguity checks.
         speaker_map[message_index] = (speaker_id, speaker_label)
     return speaker_map
 
@@ -339,17 +340,20 @@ def _attribute_memory(
         return memory
     if not speaker_map:
         return memory
+    role = str(memory.source_role or "").strip().lower()
+    if memory.speaker_ref_invalid or role not in {"user", "soul", "peer", "environment"}:
+        return memory._replace(speaker_id=None, speaker_label=None)
     candidates: dict[str, tuple[str, str]] = {}
     for message_idx in memory.source_message_ids or []:
         candidate = speaker_map.get(int(message_idx))
         if candidate is None:
             continue
+        if not candidate[0] and role == "peer":
+            return memory._replace(speaker_id=None, speaker_label=None)
         candidates[candidate[0]] = candidate
     if not candidates:
         return memory
-    role = str(memory.source_role or "").strip().lower()
-    if role:
-        candidates = {key: candidate for key, candidate in candidates.items() if _speaker_role_from_id(key) == role}
+    candidates = {key: candidate for key, candidate in candidates.items() if _speaker_role_from_id(key) == role}
     if len(candidates) == 1:
         speaker_id, speaker_label = next(iter(candidates.values()))
         return memory._replace(speaker_id=speaker_id, speaker_label=speaker_label)
