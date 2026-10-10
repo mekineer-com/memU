@@ -40,7 +40,7 @@ class _EmbedStub:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("stage", ["router", "knowledge", "late_type"])
+@pytest.mark.parametrize("stage", ["router", "knowledge", "late_type", "late_segment"])
 @pytest.mark.parametrize("cli", [False, True])
 async def test_import_batch_checks_rendered_prompts_on_selected_model(monkeypatch, stage, cli):
     service = _service()
@@ -74,23 +74,31 @@ async def test_import_batch_checks_rendered_prompts_on_selected_model(monkeypatc
     monkeypatch.setattr(service, "list_active_dossiers", lambda *_: [])
     async def anchors(*_a, **_kw):
         return None
+    context_calls = 0
     async def dossier_context(*_a, **_kw):
-        return {"categories_str": "Gardens", "narrative_self": "" if stage == "late_type" else "x" * 100_000}
+        nonlocal context_calls
+        context_calls += 1
+        return {"categories_str": "Gardens", "narrative_self": "" if (
+            stage == "late_type" or (stage == "late_segment" and context_calls == 1)
+        ) else "x" * 100_000}
+    async def unexpected_save(*_a, **_kw):
+        pytest.fail("persistence must not start before all extraction prompts pass preflight")
     monkeypatch.setattr(service, "ensure_dossier_anchors", anchors)
     monkeypatch.setattr(service, "select_memorize_dossier_context", dossier_context)
-    with pytest.raises(ValueError, match=f"Import {'knowledge' if stage == 'late_type' else stage} prompt exceeds model input budget"):
+    monkeypatch.setattr(service, "_memorize_categorize_items", unexpected_save)
+    with pytest.raises(ValueError, match=f"Import {'knowledge' if stage in {'late_type', 'late_segment'} else stage} prompt exceeds model input budget"):
         await service.memorize_segments_batch(
             modality="conversation",
             segments=[{
-                "resource_url": "memory://import",
+                "resource_url": f"memory://import-{index}",
                 "raw_text": json.dumps([{"role": "user", "content": "A garden story.",
                                          "received_at": "2026-01-02T10:00:00+00:00"}]),
                 "segment": {"message_indices": [0]},
-            }],
+            } for index in range(2 if stage == "late_segment" else 1)],
             user={"user_id": "TestOwner", "soul_id": "TestSoul"},
             enforce_input_budget=True,
         )
-    assert len(client.prompts) == (0 if stage == "router" else 1)
+    assert len(client.prompts) == (0 if stage == "router" else 2 if stage == "late_segment" else 1)
     assert service.database.memory_item_repo.list_items() == {}
 
 

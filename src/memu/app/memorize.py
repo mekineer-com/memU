@@ -545,7 +545,6 @@ class MemorizeMixin:
                 for mtype in memory_types
                 if mtype in set(ep["applicable_types"])
             ]
-            prepared_extractions = []
             for ep, mtype in extraction_jobs:
                 segment_text = str(ep.get("text") or "").strip()
                 episode_review = "\n\n".join(
@@ -589,15 +588,17 @@ class MemorizeMixin:
                         step_id=f"extract_{mtype}",
                     ),
                 )
-                prepared_extractions.append((ep, kwargs))
-            for i, (ep, kwargs) in enumerate(prepared_extractions):
-                type_entries = await self._generate_entries_from_text(**kwargs)
-                ep["entries"].extend(type_entries)
-                if on_extraction_progress:
-                    on_extraction_progress(i + 1, len(extraction_jobs))
+                ep.setdefault("prepared_extractions", []).append(kwargs)
 
         responses: list[dict[str, Any]] = []
+        extraction_total = sum(len(ep.get("prepared_extractions", [])) for ep in prepared)
+        extraction_current = 0
         for ep in prepared:
+            for kwargs in ep.get("prepared_extractions", []):
+                ep["entries"].extend(await self._generate_entries_from_text(**kwargs))
+                extraction_current += 1
+                if on_extraction_progress:
+                    on_extraction_progress(extraction_current, extraction_total)
             segment_entries = self._decorate_entries_with_plan_context(
                 self._prune_extracted_entry_duplicates(
                     [self._attribute_memory(entry, ep["speaker_map"]) for entry in ep["entries"]],
