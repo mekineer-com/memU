@@ -224,33 +224,38 @@ def test_attribute_memory_leaves_null_when_role_stays_ambiguous(service: MemoryS
     assert attributed.speaker_label is None
 
 
-def test_prefilter_dedupe_candidates_respects_source_role_and_speaker_id(service: MemoryService) -> None:
+@pytest.mark.parametrize("tokens_overlap", [True, False])
+@pytest.mark.parametrize("identity", ["entity:guest-a", None, "", "   "])
+def test_prefilter_dedupe_candidates_respects_source_role_and_speaker_id(service: MemoryService, tokens_overlap, identity) -> None:
     anchor = _item(
         item_id="a",
-        summary="Marcos said we should pause before replying to avoid confusion",
+        summary="A guest pauses before replying to avoid confusion",
         source_role="user",
-        speaker_id="user:marcos",
+        speaker_id=identity,
     )
     same_speaker = _item(
         item_id="b",
-        summary="Marcos said we should pause before replying to avoid confusion",
+        summary="A guest pauses before replying to avoid confusion",
         source_role="user",
-        speaker_id="user:marcos",
+        speaker_id=identity,
     )
     other_speaker = _item(
         item_id="c",
-        summary="Marcos said we should pause before replying to avoid confusion",
+        summary="A guest pauses before replying to avoid confusion",
         source_role="user",
-        speaker_id="user:brother",
+        speaker_id="entity:guest-b",
     )
 
     active_pool = {
         "a": anchor,
         "b": same_speaker,
         "c": other_speaker,
+        "d": same_speaker.model_copy(update={"id": "d", "source_role": "peer"}),
+        "e": same_speaker.model_copy(update={"id": "e", "speaker_id": None}),
+        "f": same_speaker.model_copy(update={"id": "f", "speaker_id": "entity:guest-a"}),
     }
     summary_tokens = {
-        item_id: service._dedupe_summary_tokens(item.summary)
+        item_id: service._dedupe_summary_tokens(item.summary) if tokens_overlap else set()
         for item_id, item in active_pool.items()
     }
     token_index, token_freq = _build_token_index(summary_tokens)
@@ -264,8 +269,7 @@ def test_prefilter_dedupe_candidates_respects_source_role_and_speaker_id(service
         token_freq=token_freq,
     )
 
-    assert "b" in candidates
-    assert "c" not in candidates
+    assert set(candidates) == ({"b", "f"} if identity == "entity:guest-a" else set())
 
 
 def test_retrieve_materialized_item_includes_speaker_fields(service: MemoryService) -> None:

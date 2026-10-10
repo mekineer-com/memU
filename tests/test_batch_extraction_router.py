@@ -420,6 +420,7 @@ async def test_categorize_prepares_without_write_lock_and_publishes_atomically(
     scope = {"user_id": "TestOwner", "soul_id": "TestSoul"}
     old = store.memory_item_repo.create_item(
         memory_type="knowledge", summary="Old garden plan", embedding=[1.0, 0.0], user_data=scope,
+        speaker_id="entity:guest-a",
     )
     with store._sessions.session() as session:
         session.connection().exec_driver_sql("CREATE TABLE checkpoint (value INTEGER)")
@@ -429,6 +430,7 @@ async def test_categorize_prepares_without_write_lock_and_publishes_atomically(
         confidence=0.8, source_message_ids=[0], reflection_salience=0.7,
         replaces_previous_fact="Old garden plan", memory_date="2026-01-02",
         entities=[{"name": "Fictional Garden", "type": "place"}],
+        speaker_id="entity:guest-a",
     ) for text in ["New garden plan", "Another garden detail"]]
     payloads = []
 
@@ -913,9 +915,11 @@ def test_parse_memory_type_response_xml_reports_unusable_memory(content, roots, 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("path", ["extract_step", "batch"])
 @pytest.mark.parametrize("case", ["renamed", "unnamed", "unfamiliar"])
-async def test_memorize_preserves_source_identity_without_name_binding(monkeypatch, path, case):
+@pytest.mark.parametrize("copies", [1, 2])
+async def test_memorize_preserves_source_identity_without_name_binding(monkeypatch, path, case, copies):
     service = _service()
     service.memorize_config.memory_types = ["profile"]
+    service.memorize_config.semantic_dedupe_enabled = False
     scope = {"user_id": "TestOwner", "soul_id": "TestSoul"}
     repo = service.database.entity_repo
     known_ref = "whatsapp:known@lid"
@@ -938,12 +942,13 @@ async def test_memorize_preserves_source_identity_without_name_binding(monkeypat
     saved_states = []
     categorize = service._memorize_categorize_items
 
-    async def generate(**_kwargs):
-        return [StructuredMemoryEntry(
-            memory_type="profile", content="Enjoys fictional gardens", categories=[],
-            source_role="peer", confidence=0.8, source_message_ids=indices,
-            reflection_salience=None,
-        )]
+    xml = "<memory><content>Enjoys fictional gardens</content><source_role>peer</source_role><day>2026-01-02</day></memory>"
+    client = _RouterStub("<item>" + xml * copies + "</item>")
+    client.chat_model = "test"
+    parsed = service._parse_structured_entries(
+        ["profile"], [client.payload], default_source_message_ids=indices,
+    )
+    assert len(parsed) == copies and all(entry.speaker_id is None for entry in parsed)
 
     async def route(*_args, **_kwargs):
         return ["profile"], [{"title": "Garden", "summary": "A garden story.",
@@ -957,8 +962,7 @@ async def test_memorize_preserves_source_identity_without_name_binding(monkeypat
     async def noop(state, _context):
         return state
 
-    monkeypatch.setattr(service, "_select_chat_client", lambda *_a, **_kw: SimpleNamespace(chat_model="test"))
-    monkeypatch.setattr(service, "_generate_entries_from_text", generate)
+    monkeypatch.setattr(service, "_select_chat_client", lambda *_a, **_kw: client)
     monkeypatch.setattr(service, "_route_segment", route)
     monkeypatch.setattr(service, "_memorize_categorize_items", save)
     monkeypatch.setattr(service, "_memorize_dedupe_merge", noop)
@@ -979,14 +983,18 @@ async def test_memorize_preserves_source_identity_without_name_binding(monkeypat
         await service._memorize_categorize_items(state, {})
 
     state, = saved_states
-    item, = [item for item in state["items"] if item.memory_type == "profile"]
-    loaded = service.database.memory_item_repo.get_item(item.id)
-    assert loaded is not None
-    assert loaded.speaker_id == (None if case == "unfamiliar" else f"entity:{person.id}")
-    assert loaded.speaker_label == {
-        "renamed": "Renamed Later", "unnamed": known_ref, "unfamiliar": None,
-    }[case]
-    assert loaded.source_role == "peer" and loaded.source_message_ids == indices
+    items = [item for item in state["items"] if item.memory_type == "profile"]
+    assert len(items) == (copies if case == "unfamiliar" else 1)
+    persisted = service.database.memory_item_repo.list_items(scope)
+    assert len([item for item in persisted.values() if item.memory_type == "profile"]) == len(items)
+    for item in items:
+        loaded = service.database.memory_item_repo.get_item(item.id)
+        assert loaded is not None
+        assert loaded.speaker_id == (None if case == "unfamiliar" else f"entity:{person.id}")
+        assert loaded.speaker_label == {
+            "renamed": "Renamed Later", "unnamed": known_ref, "unfamiliar": None,
+        }[case]
+        assert loaded.source_role == "peer" and loaded.source_message_ids == indices
     assert [{key: value for key, value in message.items() if key != "_message_index"}
             for message in state["segment_plans"][0]["segment_messages"]] == messages
     assert {entity.id: entity.properties for entity in repo.list_all(where=scope)} == before

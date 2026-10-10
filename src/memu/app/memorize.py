@@ -609,7 +609,9 @@ class MemorizeMixin:
         responses: list[dict[str, Any]] = []
         for ep in prepared:
             segment_entries = self._decorate_entries_with_plan_context(
-                [self._attribute_memory(entry, ep["speaker_map"]) for entry in ep["entries"]],
+                self._prune_extracted_entry_duplicates(
+                    [self._attribute_memory(entry, ep["speaker_map"]) for entry in ep["entries"]],
+                ),
                 message_indices=ep["message_indices"],
             )
             plan = {
@@ -887,7 +889,9 @@ class MemorizeMixin:
             structured_entries,
             message_indices=message_indices,
         )
-        structured_entries = [self._attribute_memory(entry, speaker_map) for entry in structured_entries]
+        structured_entries = self._prune_extracted_entry_duplicates(
+            [self._attribute_memory(entry, speaker_map) for entry in structured_entries],
+        )
         plan_message_happened_at_map = {
             message_idx: message_happened_at_map[message_idx]
             for message_idx in message_indices
@@ -1733,9 +1737,10 @@ class MemorizeMixin:
                 entry.speaker_ref_invalid,
                 normalized_summary.casefold(),
             )
-            if exact_key in seen_exact:
-                continue
-            seen_exact.add(exact_key)
+            if dedupe._dedupe_speaker_id(entry) is not None:
+                if exact_key in seen_exact:
+                    continue
+                seen_exact.add(exact_key)
 
             kept.append(entry._replace(content=normalized_summary))
 

@@ -212,6 +212,8 @@ def _prefilter_dedupe_candidate_ids(
 ) -> list[str]:
     anchor_role = _dedupe_source_role(anchor)
     anchor_speaker_id = _dedupe_speaker_id(anchor)
+    if anchor_speaker_id is None:
+        return []
     anchor_tokens = summary_tokens.get(anchor_id) or set()
     candidate_scores: dict[str, int] = {}
 
@@ -478,6 +480,7 @@ async def _find_supersede_targets(
         (idx, entry)
         for idx, entry in enumerate(structured_entries)
         if isinstance(entry.replaces_previous_fact, str) and entry.replaces_previous_fact.strip()
+        and _dedupe_speaker_id(entry) is not None
     ]
     if not replace_requests:
         return {}

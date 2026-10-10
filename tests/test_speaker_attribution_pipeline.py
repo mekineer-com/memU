@@ -229,7 +229,8 @@ def test_invalid_speaker_ref_stays_distinct_from_omitted_ref_before_attribution(
     assert [entry.speaker_id for entry in attributed] == ["entity:guest-a", None]
 
 
-def test_replacement_selection_keeps_speaker_identity_barrier() -> None:
+@pytest.mark.parametrize("identity", ["entity:guest-a", "entity:missing", None, "", "   "])
+def test_replacement_selection_keeps_speaker_identity_barrier(identity) -> None:
     service = _service()
     scope = {"user_id": "testowner", "soul_id": "testsoul"}
     repo = service.database.memory_item_repo
@@ -238,9 +239,22 @@ def test_replacement_selection_keeps_speaker_identity_barrier() -> None:
            for identity in ("entity:guest-b", "entity:guest-a", None)]
     entry = StructuredMemoryEntry("profile", "I grow orchids", [], "peer", 0.8, [0], None,
                                   replaces_previous_fact="I grow roses")
-    for identity, expected in (("entity:guest-a", old[1].id), (None, old[2].id), ("entity:missing", None)):
-        targets = asyncio.run(dedupe._find_supersede_targets(
-            structured_entries=[entry._replace(speaker_id=identity)], store=service.database,
-            embed_client=_EmbedClient(), user=scope, threshold=0.8,
-        ))
-        assert targets == ({0: expected} if expected else {})
+    entry = entry._replace(speaker_id=identity)
+    targets = asyncio.run(dedupe._find_supersede_targets(
+        structured_entries=[entry], store=service.database,
+        embed_client=_EmbedClient(), user=scope, threshold=0.8,
+    ))
+    assert targets == ({0: old[1].id} if identity == "entity:guest-a" else {})
+    service._llm_clients["embedding"] = _EmbedClient()
+    state = asyncio.run(service._memorize_categorize_items({
+        "segment_plans": [{"resource_url": "memory://replacement", "entries": [entry]}],
+        "modality": "conversation", "local_path": None, "store": service.database, "user": scope,
+    }, {}))
+    new, = state["items"]
+    for previous in old:
+        edges = service.database.triple_repo.get_edges_from(previous.id, "evolved_into", where=scope)
+        assert [edge.object_id for edge in edges] == (
+            [new.id] if identity == "entity:guest-a" and previous.id == old[1].id else []
+        )
+    active = repo.list_items(scope)
+    assert old[2].id in active and new.id in active

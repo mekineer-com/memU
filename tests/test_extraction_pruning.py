@@ -1,3 +1,5 @@
+import pytest
+
 from memu.app.memorize import StructuredMemoryEntry
 from memu.app.service import MemoryService
 
@@ -28,7 +30,8 @@ def test_prune_keeps_profiles_and_non_speech_events() -> None:
     assert kept[1].memory_type == "knowledge"
 
 
-def test_prune_keeps_same_words_from_different_speakers() -> None:
+@pytest.mark.parametrize("identity", ["entity:speaker-a", None, "", "   "])
+def test_prune_keeps_same_words_from_different_speakers(identity) -> None:
     first = StructuredMemoryEntry(
         "social",
         "The shared plan feels right.",
@@ -37,11 +40,14 @@ def test_prune_keeps_same_words_from_different_speakers() -> None:
         0.8,
         [0],
         None,
-        speaker_id="entity:speaker-a",
+        speaker_id=identity,
     )
     second = first._replace(speaker_id="entity:speaker-b", source_message_ids=[1])
     duplicate = first._replace(source_message_ids=[2])
 
     kept = _service()._prune_extracted_entry_duplicates([first, second, duplicate])
 
-    assert [entry.speaker_id for entry in kept] == ["entity:speaker-a", "entity:speaker-b"]
+    assert [entry.speaker_id for entry in kept] == (
+        [identity, "entity:speaker-b"] if identity == "entity:speaker-a"
+        else [identity, "entity:speaker-b", identity]
+    )

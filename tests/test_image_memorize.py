@@ -34,7 +34,7 @@ async def test_dedupe_prepared_pairs_reject_concurrent_changes(tmp_path, monkeyp
     def add(year):
         return store.memory_item_repo.create_item(
             memory_type="knowledge", summary="Fictional garden project", embedding=[1.0, 0.0],
-            happened_at=datetime(year, 1, 1, tzinfo=UTC), user_data=scope,
+            happened_at=datetime(year, 1, 1, tzinfo=UTC), user_data=scope, speaker_id="entity:guest-a",
         )
     old, anchor = add(2020), add(2021)
     state = {"items": [old, anchor], "relations": [SimpleNamespace(item_id=old.id)],
@@ -96,7 +96,7 @@ async def test_dedupe_keeps_cited_memories(tmp_path, cited):
     scope = {"user_id": "TestOwner", "soul_id": "TestSoul"}
     old, new = [store.memory_item_repo.create_item(
         memory_type="knowledge", summary="Fictional garden project", embedding=[1.0, 0.0],
-        happened_at=datetime(year, 1, 1, tzinfo=UTC), user_data=scope,
+        happened_at=datetime(year, 1, 1, tzinfo=UTC), user_data=scope, speaker_id="entity:guest-a",
     ) for year in (2020, 2021)]
     refs = [old.memory_ref, new.memory_ref] if cited == "both" else [new.memory_ref if cited == "new" else old.memory_ref]
     category = store.memory_category_repo.get_or_create_category(
@@ -125,7 +125,7 @@ async def test_dedupe_chain_rechecks_candidates_after_preceding_merge(tmp_path, 
         fixed_ids.setattr("memu.database.sqlite.models.secrets.token_hex", lambda *_: f"{next(ids):08x}")
         items = [store.memory_item_repo.create_item(
             memory_type="knowledge", summary="Fictional garden project", embedding=[1.0, 0.0],
-            happened_at=datetime(year, 1, 1, tzinfo=UTC), user_data=scope,
+            happened_at=datetime(year, 1, 1, tzinfo=UTC), user_data=scope, speaker_id="entity:guest-a",
         ) for year in (2020, 2021, 2022)]
     assignments = zip(items, ["First", None, "Second"], strict=True) if change == "candidate" else []
     for item, name in assignments:
@@ -167,12 +167,14 @@ async def test_dedupe_chain_rechecks_candidates_after_preceding_merge(tmp_path, 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("mode", ["merge", "rollback", "disabled", "empty", "no_hook"])
-async def test_dedupe_phase_and_merges_share_transaction(tmp_path, monkeypatch, mode):
+@pytest.mark.parametrize("identity", ["entity:guest-a", None, "", "   "])
+async def test_dedupe_phase_and_merges_share_transaction(tmp_path, monkeypatch, mode, identity):
     service = _service(tmp_path)
     store = service.database
     scope = {"user_id": "TestOwner", "soul_id": "TestSoul"}
     items = [store.memory_item_repo.create_item(
         memory_type="knowledge", summary="Fictional garden project", embedding=[1.0, 0.0], user_data=scope,
+        speaker_id=identity,
     ) for _ in range(2)]
     with service._sqlite_write_session(store) as session:
         session.connection().exec_driver_sql("CREATE TABLE test_phase (phase TEXT)")
@@ -196,7 +198,10 @@ async def test_dedupe_phase_and_merges_share_transaction(tmp_path, monkeypatch, 
     else:
         await service._memorize_dedupe_merge(state, None)
     rows = store.memory_item_repo.list_items(scope, include_merged=True)
-    assert sum(bool(row.merged_into) for row in rows.values()) == (1 if mode == "merge" else 0)
+    assert sum(bool(row.merged_into) for row in rows.values()) == (
+        1 if mode == "merge" and identity == "entity:guest-a" else 0)
+    if identity != "entity:guest-a":
+        assert set(store.memory_item_repo.list_items(scope)) == {item.id for item in items}
     with service._sqlite_write_session(store) as session:
         assert session.connection().exec_driver_sql("SELECT phase FROM test_phase").scalar_one() == (
             "dedupe" if mode in {"rollback", "no_hook"} else "review")
