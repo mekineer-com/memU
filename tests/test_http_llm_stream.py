@@ -28,7 +28,8 @@ def _client(monkeypatch: pytest.MonkeyPatch, handler) -> HTTPLLMClient:
 
 
 @pytest.mark.asyncio
-async def test_chat_assembles_sse_and_preserves_usage(monkeypatch) -> None:
+@pytest.mark.parametrize("content", ["hello", "I cannot help with that."])
+async def test_chat_assembles_sse_and_preserves_usage(monkeypatch, content) -> None:
     captured: dict = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -38,7 +39,7 @@ async def test_chat_assembles_sse_and_preserves_usage(monkeypatch) -> None:
                 "event: message\nid: 1\nretry: 1000",
                 'data: {"choices":[{"delta":{"role":"assistant"},"finish_reason":null}]}',
                 'data: {"choices":[{"delta":{"reasoning":"ignored"},"finish_reason":null}]}',
-                'data: {"choices":[{"delta":{"content":"hello"},"finish_reason":null}]}',
+                f'data: {json.dumps({"choices": [{"delta": {"content": content}, "finish_reason": None}]})}',
                 'data: {"choices":[{"delta":{},"finish_reason":"stop"}],'
                 '"usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12},'
                 '"x_nanogpt_pricing":{"amount":0.1}}',
@@ -53,7 +54,7 @@ async def test_chat_assembles_sse_and_preserves_usage(monkeypatch) -> None:
         "prompt", response_format={"type": "json_object"}
     )
 
-    assert text == "hello"
+    assert text == content
     assert raw["choices"][0]["finish_reason"] == "stop"
     assert raw["usage"]["total_tokens"] == 12
     assert captured["stream"] is True
@@ -63,9 +64,9 @@ async def test_chat_assembles_sse_and_preserves_usage(monkeypatch) -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("method", ["chat", "vision"])
-@pytest.mark.parametrize("finish_reason", ["length", "stop", "tool_calls"])
-async def test_output_cutoff_fails_before_success_without_retry(
-    monkeypatch, tmp_path, method, finish_reason
+@pytest.mark.parametrize("finish_reason", ["length", "stop", "tool_calls", "content_filter", "refusal"])
+async def test_provider_failures_are_reported_before_success_without_retry(
+    monkeypatch, tmp_path, caplog, method, finish_reason
 ) -> None:
     calls = 0
     events = []
@@ -74,13 +75,20 @@ async def test_output_cutoff_fails_before_success_without_retry(
     def handler(_request: httpx.Request) -> httpx.Response:
         nonlocal calls
         calls += 1
-        choice = {"finish_reason": finish_reason}
+        choice = {"finish_reason": "stop" if finish_reason == "refusal" else finish_reason}
         if method == "chat":
             choice["delta"] = {"content": content}
+            frames = []
+            if finish_reason == "refusal":
+                frames.append({"choices": [{"delta": {"refusal": "No "}, "finish_reason": None}]})
+                choice["delta"]["refusal"] = "thanks."
+            frames.append({"choices": [choice]})
             return httpx.Response(
-                200, text=f'data: {json.dumps({"choices": [choice]})}\n\ndata: [DONE]\n\n'
+                200, text="".join(f"data: {json.dumps(frame)}\n\n" for frame in frames) + "data: [DONE]\n\n"
             )
         choice["message"] = {"content": content}
+        if finish_reason == "refusal":
+            choice["message"] = {"content": None, "refusal": "No thanks."}
         return httpx.Response(200, json={"choices": [choice]})
 
     async def after(*_args):
@@ -98,10 +106,18 @@ async def test_output_cutoff_fails_before_success_without_retry(
         image = tmp_path / "image.png"
         image.write_bytes(b"test image")
         args.append(str(image))
-    if finish_reason == "length":
-        with pytest.raises(RuntimeError, match="truncated at the output token limit"):
+    caplog.set_level("DEBUG", logger="memu.llm.http_client")
+    errors = {
+        "length": "truncated at the output token limit",
+        "content_filter": "blocked by provider content filter",
+        "refusal": "refused by provider",
+    }
+    if finish_reason in errors:
+        with pytest.raises(RuntimeError, match=errors[finish_reason]):
             await getattr(client, method)(*args)
         assert events == ["error"]
+        if method == "chat" and finish_reason == "refusal":
+            assert "'refusal': 'No thanks.'" in caplog.text
     else:
         assert await getattr(client, method)(*args) == content
         assert events == ["success"]

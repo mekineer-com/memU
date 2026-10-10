@@ -120,6 +120,7 @@ class HTTPLLMClient:
         frame_count = 0
         byte_count = 0
         content: list[str] = []
+        refusal: list[str] = []
         finish_reason: str | None = None
         usage: dict[str, Any] | None = None
         done = False
@@ -190,6 +191,9 @@ class HTTPLLMClient:
                             chunk = delta.get("content")
                             if isinstance(chunk, str):
                                 content.append(chunk)
+                            refusal_chunk = delta.get("refusal")
+                            if isinstance(refusal_chunk, str):
+                                refusal.append(refusal_chunk)
                         if choice.get("finish_reason") is not None:
                             finish_reason = str(choice["finish_reason"])
         except httpx.TransportError as exc:
@@ -224,6 +228,8 @@ class HTTPLLMClient:
                 }
             ]
         }
+        if refusal:
+            result["choices"][0]["message"]["refusal"] = "".join(refusal)
         if usage is not None:
             result["usage"] = usage
         return result

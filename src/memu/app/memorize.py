@@ -33,6 +33,7 @@ from memu.prompts.memory_type import (
 from memu.prompts.preprocess import PROMPTS as PREPROCESS_PROMPTS
 from memu.prompts.router import PROMPT as ROUTER_PROMPT
 from memu.utils.taxonomy import category_identity_text, normalize_category_name
+from memu.utils.conversation import parse_happened_at
 from memu.workflow.step import WorkflowState, WorkflowStep
 
 logger = logging.getLogger(__name__)
@@ -110,6 +111,7 @@ class MemorizeMixin:
         raw_text: str | None = None,
         local_path: str | None = None,
         caption: str | None = None,
+        source_timestamp: str | None = None,
         soul_card: str | None = None,
         memory_retrieve_history: list[str] | None = None,
         memory_prior_context: list[str] | None = None,
@@ -130,6 +132,11 @@ class MemorizeMixin:
         supplied_caption = (caption or "").strip() or None
         if modality == "image" and supplied_caption is None:
             raise ValueError("image memorize requires a supplied caption")
+        image_happened_at = None
+        if modality == "image" and source_timestamp is not None:
+            image_happened_at = parse_happened_at(source_timestamp)
+            if image_happened_at is None:
+                raise ValueError("image source_timestamp is invalid")
         if modality == "image":
             existing, linked = self._image_retry_state(
                 store, user_scope or {}, resource_url, supplied_caption
@@ -188,6 +195,7 @@ class MemorizeMixin:
             "memory_prior_context": memory_prior_context,
             "soul_card": normalized_soul_card,
             "supplied_caption": supplied_caption,
+            "image_happened_at": image_happened_at,
         }
         if raw_text is not None:
             state["raw_text"] = raw_text
@@ -858,6 +866,10 @@ class MemorizeMixin:
             segment_text=text,
         )
 
+        image_happened_at = state.get("image_happened_at")
+        image_day = image_happened_at.date().isoformat() if image_happened_at is not None else None
+        if image_day:
+            text = f"--- {image_day} ---\n{text}"
         structured_entries = await self._generate_structured_entries(
             modality=state["modality"],
             store=state["store"],
@@ -866,7 +878,7 @@ class MemorizeMixin:
             categories_prompt_str=state["categories_prompt_str"],
             dossier_context=state.get("dossier_context"),
             speaker_roster=speaker_roster,
-            source_days=tuple(
+            source_days=(image_day,) if image_day else tuple(
                 dict.fromkeys(
                     happened_at.date().isoformat()
                     for message_idx in message_indices
@@ -888,7 +900,9 @@ class MemorizeMixin:
             for message_idx in message_indices
             if message_idx in message_happened_at_map
         }
-        source_day_happened_at: dict[str, Any] = {}
+        source_day_happened_at: dict[str, Any] = (
+            {image_day: image_happened_at} if image_day else {}
+        )
         for happened_at in plan_message_happened_at_map.values():
             source_day_happened_at.setdefault(happened_at.date().isoformat(), happened_at)
 

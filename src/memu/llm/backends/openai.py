@@ -15,9 +15,14 @@ class OpenAILLMBackend(LLMBackend):
     summary_endpoint = "/chat/completions"
 
     def parse_summary_response(self, data: dict[str, Any]) -> str:
-        if data["choices"][0].get("finish_reason") == "length":
+        choice = data["choices"][0]
+        if choice.get("finish_reason") == "length":
             raise RuntimeError("LLM response truncated at the output token limit")
-        text = cast(str, data["choices"][0]["message"]["content"])
+        if choice.get("finish_reason") == "content_filter":
+            raise RuntimeError("LLM response blocked by provider content filter")
+        if choice["message"].get("refusal"):
+            raise RuntimeError("LLM response refused by provider")
+        text = cast(str, choice["message"]["content"])
         return _LEADING_THOUGHT_RE.sub("", text)
 
     def build_vision_payload(

@@ -10,6 +10,7 @@ from memu.app import memorize_persistence
 from memu.app import memorize_dedupe
 from memu.database.models import Triple
 from memu.app.service import MemoryService
+from memu.utils.conversation import parse_happened_at
 
 
 class Scope(BaseModel):
@@ -290,6 +291,111 @@ async def test_image_resource_commits_before_extraction(tmp_path: Path) -> None:
     assert [(row.url, row.caption) for row in resources.values()] == [
         ("image.png", "A caption.")
     ]
+
+
+@pytest.mark.asyncio
+async def test_image_saved_chat_date_survives_failed_and_completed_retry(tmp_path: Path) -> None:
+    service = _service(tmp_path)
+    service.memorize_config.memory_types = ["knowledge"]
+    scope = {"user_id": "TestOwner", "soul_id": "TestSoul"}
+    image = tmp_path / "mentra_media/test/image.png"
+    image.parent.mkdir(parents=True)
+    image.write_bytes(b"pixels")
+    caption = "A fictional village festival photographed in 1984."
+    timestamp = "2026-06-17T14:23:45+00:00"
+    expected = parse_happened_at(timestamp)
+    assert expected is not None
+    saved_day = expected.date().isoformat()
+    prompts = []
+    media_calls = []
+    days = iter(["1984-06-17", saved_day])
+
+    class Client:
+        chat_model = "test-model"
+
+        async def chat(self, prompt: str, **_kwargs) -> str:
+            prompts.append(prompt)
+            return (
+                "<item><memory><source_role>environment</source_role>"
+                f"<content>{caption}</content><day>{next(days)}</day>"
+                "</memory></item>"
+            )
+
+        async def embed(self, texts: list[str]) -> list[list[float]]:
+            return [[1.0, 0.0] for _ in texts]
+
+        async def embed_media(self, data: bytes, mime_type: str) -> list[float]:
+            media_calls.append((data, mime_type))
+            return [0.0, 1.0]
+
+    client = Client()
+    service._llm_clients.update(default=client, embedding=client)
+    kwargs = dict(
+        resource_url="mentra_media/test/image.png", modality="image", user=scope,
+        local_path=str(image), caption=caption, source_timestamp=timestamp,
+    )
+    store = service.database
+    try:
+        with pytest.raises(ValueError, match="memory day must match a source day"):
+            await service.memorize(**kwargs)
+        resource, = store.resource_repo.list_resources(scope).values()
+        assert resource.caption == caption
+        assert resource.embedding == [0.0, 1.0]
+        assert store.memory_item_repo.list_items(scope) == {}
+
+        result = await service.memorize(**kwargs)
+        item, = store.memory_item_repo.list_items(scope).values()
+        assert result["resource"]["id"] == resource.id
+        assert [row["id"] for row in result["items"]] == [item.id]
+        assert item.resource_id == resource.id
+        assert parse_happened_at(item.happened_at) == expected
+        assert item.source_message_ids == []
+        assert item.summary == caption
+
+        repeated = await service.memorize(**kwargs)
+        assert repeated["resource"]["id"] == resource.id
+        assert [row["id"] for row in repeated["items"]] == [item.id]
+        persisted, = store.memory_item_repo.list_items(scope).values()
+        assert persisted.happened_at == item.happened_at
+        assert parse_happened_at(persisted.happened_at) == expected
+        assert persisted.source_message_ids == []
+        saved_resource, = store.resource_repo.list_resources(scope).values()
+        assert saved_resource.id == resource.id
+        assert saved_resource.caption == caption
+        assert saved_resource.embedding == [0.0, 1.0]
+        assert media_calls == [(b"pixels", "image/png")]
+        assert len(prompts) == 2
+        assert all(f"--- {saved_day} ---" in prompt and caption in prompt for prompt in prompts)
+    finally:
+        store.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("timestamp", ["", "not a timestamp", "2026-02-30T12:00:00"])
+async def test_image_invalid_explicit_timestamp_fails_before_provider_work(tmp_path: Path, timestamp: str) -> None:
+    service = _service(tmp_path)
+    scope = {"user_id": "TestOwner", "soul_id": "TestSoul"}
+
+    class FailClient:
+        async def embed_media(self, *_args):
+            raise AssertionError("invalid timestamp must fail before media embedding")
+
+        async def chat(self, *_args, **_kwargs):
+            raise AssertionError("invalid timestamp must fail before extraction")
+
+    client = FailClient()
+    service._llm_clients.update(default=client, embedding=client)
+    try:
+        with pytest.raises(ValueError, match="image source_timestamp is invalid"):
+            await service.memorize(
+                resource_url="mentra_media/test/image.png", modality="image", user=scope,
+                local_path=str(tmp_path / "image.png"), caption="A fictional photo.",
+                source_timestamp=timestamp,
+            )
+        assert service.database.resource_repo.list_resources(scope) == {}
+        assert service.database.memory_item_repo.list_items(scope) == {}
+    finally:
+        service.database.close()
 
 
 @pytest.mark.asyncio
