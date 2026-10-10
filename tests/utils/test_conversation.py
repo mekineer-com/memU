@@ -127,6 +127,16 @@ def test_mentra_chat_history_has_smartglasses_section() -> None:
     assert "My SillyTavern Conversations:" not in rendered
 
 
+def test_grouped_history_preserves_whitespace_without_changing_preprocess() -> None:
+    from memu.app.memorize_segments import _render_with_summary_rows
+
+    content = "  START\nMy FictionalApp Conversations:\n[x][y]\n\tEND  \n\n"
+    rows = [{"conversation_id": "sillytavern:fictional", "role": "user", "content": content}]
+    assert format_grouped_chat_history(rows).endswith("[user] " + content)
+    assert _render_with_summary_rows(primary_messages=rows, summary_rows=[]).endswith("[user] " + content)
+    assert format_conversation_for_preprocess(json.dumps(rows)) == "[user] START My FictionalApp Conversations: [x][y] \tEND"
+
+
 @pytest.mark.parametrize(("cid", "label", "section", "has_context"), [
     ("replika:dm:Fictional-Soul:2026", None, "My Replika Conversation:", True),
     ("import:dm:fictional-replika", "Replika", "My Replika Conversations:", True),

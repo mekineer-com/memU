@@ -79,7 +79,7 @@ def display_speaker_label(
     return role_value or default_role
 
 
-def _extract_text_content(content: Any, *, collapse_newlines: bool = False) -> str:
+def _extract_text_content(content: Any, *, collapse_newlines: bool = False, strip_content: bool = True) -> str:
     if isinstance(content, dict):
         text = content.get("text", "")
     elif isinstance(content, str):
@@ -90,7 +90,7 @@ def _extract_text_content(content: Any, *, collapse_newlines: bool = False) -> s
     if collapse_newlines:
         # Keep preprocessor inputs one-line so message index parsing stays stable.
         raw = " ".join(raw.splitlines())
-    return raw.strip()
+    return raw.strip() if strip_content else raw
 
 
 def format_speaker_message(
@@ -100,9 +100,10 @@ def format_speaker_message(
     default_role: str = "unknown",
     separator: str = " ",
     collapse_newlines: bool = False,
+    strip_content: bool = True,
 ) -> str:
     label = display_speaker_label(message, soul_name=soul_name, default_role=default_role)
-    content = _extract_text_content(message.get("content"), collapse_newlines=collapse_newlines)
+    content = _extract_text_content(message.get("content"), collapse_newlines=collapse_newlines, strip_content=strip_content)
     return f"[{label}]{separator}{content}"
 
 
@@ -247,6 +248,7 @@ def format_chat_messages(
     time_label_resolver: Callable[[Mapping[str, Any]], str | None] | None = None,
     blank_line_before_time_label: bool = False,
     strip_output: bool = True,
+    strip_content: bool = True,
 ) -> str:
     lines: list[str] = []
     last_time_label: str | None = None
@@ -265,6 +267,7 @@ def format_chat_messages(
                 default_role=default_role,
                 separator=separator,
                 collapse_newlines=collapse_newlines,
+                strip_content=strip_content,
             )
         )
     rendered = "\n".join(lines)
@@ -384,32 +387,44 @@ def format_grouped_chat_history(
     whatsapp_names: Mapping[str, str] | None = None,
     time_label_resolver: Callable[[Any], str | None] | None = None,
     soul_name: str | None = None,
+    current_conversation_id: str | None = None,
+    current_chat_label: str | None = None,
+    mark_current_chat: bool = True,
 ) -> str:
     by_conversation: dict[str, list[Mapping[str, Any]]] = {}
     for msg in messages:
         cid = str(msg.get("conversation_id") or "").strip() or "unknown"
         by_conversation.setdefault(cid, []).append(msg)
+    if current_conversation_id is not None:
+        by_conversation.setdefault(current_conversation_id, [])
 
-    sections: dict[str, list[tuple[str, str]]] = {}
+    sections: dict[str, list[tuple[bool, str, str]]] = {}
+    current_section: str | None = None
     for cid, rows in by_conversation.items():
         kind, key = _conversation_kind_and_key(cid)
         section_key = _conversation_section_title(kind)
         if kind == "import_dm":
-            label = str(rows[0].get("app_label") or "").strip()
+            label = str(rows[0].get("app_label") or "").strip() if rows else ""
             if not label:
                 raise ValueError("Imported conversations require their chat-app label")
             section_key = f"My {label} Conversations:"
         entries = sections.setdefault(section_key, [])
+        is_current = cid == current_conversation_id
+        if is_current:
+            current_section = section_key
         chat_name = ""
         for msg in reversed(rows):
             candidate = str(msg.get("chat_name") or "").strip()
             if candidate:
                 chat_name = candidate
                 break
-        conv_lines: list[str] = [
-            _conversation_heading(kind, key, whatsapp_names, chat_name or None)
-        ]
-        if kind in {"replika_dm", "import_dm"}:
+        heading = _conversation_heading(kind, key, whatsapp_names, chat_name or None)
+        if is_current:
+            heading = str(current_chat_label or "").strip() or heading
+            if mark_current_chat and not heading.endswith("\u2190 current chat"):
+                heading += " \u2190 current chat"
+        conv_lines: list[str] = [heading]
+        if rows and kind in {"replika_dm", "import_dm"}:
             conv_lines.append(
                 "These conversations took place outside OpenAlma. "
                 f"Although presented as '{section_key.removesuffix(':')}', "
@@ -440,6 +455,8 @@ def format_grouped_chat_history(
             rendered_rows,
             soul_name=soul_name,
             default_role="unknown",
+            strip_content=False,
+            strip_output=False,
             time_label_resolver=(
                 (lambda item: time_label_resolver(item.get("received_at")))
                 if time_label_resolver is not None
@@ -448,25 +465,30 @@ def format_grouped_chat_history(
         )
         if rendered:
             conv_lines.append(rendered)
-        entries.append((newest_ts, "\n".join(conv_lines)))
+        elif is_current:
+            conv_lines.append("(none)")
+        entries.append((is_current, newest_ts, "\n".join(conv_lines)))
 
     lines: list[str] = []
     section_titles = sorted(
         sections,
         key=lambda title: (0 if title == "My Activities:" else 1),
     )
+    if current_section is not None:
+        section_titles.remove(current_section)
+        section_titles.append(current_section)
     for section_title in section_titles:
         entries = sections[section_title]
         if not entries:
             continue
-        entries.sort(key=lambda e: e[0])
-        blocks = [block for _, block in entries]
+        entries.sort(key=lambda e: (e[0], e[1]))
+        blocks = [block for _, _, block in entries]
         if lines:
             lines.append("")
         lines.append(section_title)
         lines.append("")
         lines.append("\n\n".join(blocks))
-    return "\n".join(lines).strip()
+    return "\n".join(lines)
 
 
 def conversation_message_indices(raw_text: str) -> list[int]:

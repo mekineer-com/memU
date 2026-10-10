@@ -274,7 +274,7 @@ def _render_with_summary_rows(
         prefix_lines.extend(_summary_row_lines(row))
     primary_rendered = _render_grouped_chat_messages(primary_messages, soul_name=soul_name)
     parts = ["\n".join(prefix_lines).strip(), primary_rendered]
-    return "\n\n".join(part for part in parts if part).strip()
+    return "\n\n".join(part for part in parts if part)
 
 
 async def _summarize_background_rollup(
