@@ -876,7 +876,7 @@ def test_due_dossiers_cover_first_revision_and_membership_review(tmp_path) -> No
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("case", ["active", "inactive", "successor", "successor-chain", "successor-merged"])
+@pytest.mark.parametrize("case", ["active", "inactive", "successor", "successor-chain", "successor-merged", "successor-merge-predecessor", "successor-cited"])
 async def test_ordinary_revision_leaves_import_pending_members_unreviewed(tmp_path, monkeypatch, case) -> None:
     successor = case.startswith("successor")
     service = _service(tmp_path, retrieve_config={"item": {"top_k": 0 if successor else 1}})
@@ -889,7 +889,8 @@ async def test_ordinary_revision_leaves_import_pending_members_unreviewed(tmp_pa
             user_data=SCOPE, segment_id=segment_id,
         ) for text, segment_id in (
             ("current", "ordinary"), ("historical", "import-pending"),
-            ("historical candidate", "import-pending"), ("unsegmented", None),
+            ("historical candidate", "ordinary" if case == "successor-merge-predecessor" else "import-pending"),
+            ("unsegmented", None),
         )
     ]
     current, historical, candidate, unsegmented = items
@@ -921,14 +922,16 @@ async def test_ordinary_revision_leaves_import_pending_members_unreviewed(tmp_pa
             subject_id=inactive.id, subject_kind="memory", predicate="evolved_into",
             object_id=replacement.id, object_kind="memory", source_memory_id=replacement.id,
         ), user_data=SCOPE)
-        if case == "successor-merged":
+        if case in {"successor-merged", "successor-merge-predecessor"}:
             candidate = store.memory_item_repo.create_item(
                 memory_type="episode", summary="Surviving ordinary evidence", embedding=[1.0, 0.0],
-                user_data=SCOPE, segment_id="ordinary",
+                user_data=SCOPE, segment_id="import-pending" if case == "successor-merge-predecessor" else "ordinary",
             )
             store.memory_item_repo.update_item(item_id=replacement.id, merged_into=candidate.id)
     prose = (f"## Current\nA retained reference [M{historical.memory_ref}]."
-             if case == "active" else "## Current\nA steady account.")
+             if case == "active" else
+             f"## Current\nEarlier evidence [M{inactive.memory_ref}]." if case == "successor-cited" else
+             "## Current\nA steady account.")
     store.memory_category_repo.update_category(category_id=category.id, summary=prose)
     assert service.list_due_dossiers(SCOPE, excluded_segment_ids=["import-pending"])[0].id == category.id
     bundle = service.prepare_dossier_revision(category.id, SCOPE, excluded_segment_ids=["import-pending"])
@@ -938,6 +941,8 @@ async def test_ordinary_revision_leaves_import_pending_members_unreviewed(tmp_pa
     assert set(bundle["linked_inactive_item_ids"]) == ({inactive.id} if inactive is not None else set())
     cleanup_ids = []
     assert {item.id for item in bundle["cleanup_items"]} == set(cleanup_ids)
+    if case == "successor-cited":
+        assert inactive.id in {item.id for item in revision_status_items(bundle)["cited"]}
     decisions = "".join(
         f'<decision ref="[M{item.memory_ref}]" action="add" />'
         for item in bundle["pending_items"] if item.id not in cleanup_ids

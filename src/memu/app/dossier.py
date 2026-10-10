@@ -189,7 +189,7 @@ def _selected_evidence_ids(
             edge.subject_id for edge in store.triple_repo.list_edges_for_memories(lineage, ["evolved_into"], scope)
             if edge.object_id in lineage and edge.subject_kind == edge.object_kind == "memory"
             and edge.subject_id in items
-        }
+        } | {item.id for item in items.values() if item.merged_into in lineage}
         lineage = predecessors - evidence_ids
         evidence_ids.update(lineage)
     return evidence_ids
@@ -654,7 +654,8 @@ class DossierMixin:
             ),
             "cleanup_memberships": cleanup,
             "cleanup_items": sorted(
-                (all_shown_items[item_id] for item_id in shown_inactive_ids), key=_item_sort_key
+                (all_shown_items[item_id] for item_id in shown_inactive_ids - (excluded_evidence & set(linked_items))),
+                key=_item_sort_key,
             ),
             "candidate_items": sorted(candidate_items.values(), key=_item_sort_key),
             "untouched_item_ids": sorted(
