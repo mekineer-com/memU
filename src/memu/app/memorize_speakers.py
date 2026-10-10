@@ -157,49 +157,6 @@ def _build_entity_source_speaker_ids(entities: Sequence[Any]) -> dict[str, str]:
     return source_ids
 
 
-def _propose_entity_source_ref_bindings(
-    messages: Sequence[Mapping[str, Any]],
-    entities: Sequence[Any],
-) -> dict[str, str]:
-    owned = set(_build_entity_source_speaker_ids(entities))
-    owned.update(
-        source_ref
-        for entity in entities
-        if entity_is_ignored(entity)
-        for source_ref in _entity_source_refs(entity)
-    )
-    person_matches: dict[str, set[str]] = {}
-    for entity in entities:
-        if entity_is_ignored(entity):
-            continue
-        properties = getattr(entity, "properties", None)
-        if str(getattr(entity, "entity_type", "") or "").casefold() != "person":
-            continue
-        if isinstance(properties, Mapping) and properties.get("active") is False:
-            continue
-        aliases = properties.get("aliases", []) if isinstance(properties, Mapping) else []
-        for value in [getattr(entity, "name", ""), *(aliases if isinstance(aliases, list) else [])]:
-            normalized = normalize_entity_name(str(value or ""))
-            if normalized:
-                person_matches.setdefault(normalized, set()).add(str(entity.id))
-
-    proposals: dict[str, str] = {}
-    for message in messages:
-        source_ref = str(message.get("source_ref") or "").strip()
-        if not source_ref or source_ref in owned:
-            continue
-        label = str(message.get("name") or message.get("speaker") or "").strip()
-        matches = person_matches.get(normalize_entity_name(label), set())
-        if len(matches) != 1:
-            continue
-        entity_id = next(iter(matches))
-        previous = proposals.get(source_ref)
-        if previous and previous != entity_id:
-            raise ValueError(f"source reference {source_ref!r} matched multiple entities")
-        proposals[source_ref] = entity_id
-    return proposals
-
-
 def _episode_mentions_roster_entry(episode_text: Any, entry: SpeakerLike) -> bool:
     text = str(episode_text or "").strip().lower()
     if not text:
@@ -301,6 +258,7 @@ def _build_speaker_map(
         role = str(message.get("role") or "").strip().lower()
         name = str(message.get("name") or message.get("speaker") or "").strip()
         normalized_name = name or None
+        source_ref = str(message.get("source_ref") or "").strip()
         imported_user = role in {"user", "human", "participant"} and (
             message.get("source_label") == "import"
             or str(message.get("source_conversation_id") or message.get("conversation_id") or "").startswith("import:dm:")
@@ -314,13 +272,12 @@ def _build_speaker_map(
         elif role in {"user", "human", "participant"} and not imported_user:
             speaker_label = normalized_name or user_label_default
             speaker_id = user_id_default
+        elif source_ref:
+            speaker_label = normalized_name or source_ref
+            speaker_id = (entity_source_speaker_ids or {}).get(source_ref, "")
         elif normalized_name:
             speaker_label = normalized_name
-            source_ref = str(message.get("source_ref") or "").strip()
-            if source_ref:
-                speaker_id = (entity_source_speaker_ids or {}).get(source_ref, "")
-            else:
-                speaker_id = (entity_speaker_ids or {}).get(normalize_entity_name(normalized_name), "")
+            speaker_id = (entity_speaker_ids or {}).get(normalize_entity_name(normalized_name), "")
         elif imported_user:
             speaker_id, speaker_label = "", role
         else:

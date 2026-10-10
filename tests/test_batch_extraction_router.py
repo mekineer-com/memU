@@ -911,6 +911,88 @@ def test_parse_memory_type_response_xml_reports_unusable_memory(content, roots, 
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("path", ["extract_step", "batch"])
+@pytest.mark.parametrize("case", ["renamed", "unnamed", "unfamiliar"])
+async def test_memorize_preserves_source_identity_without_name_binding(monkeypatch, path, case):
+    service = _service()
+    service.memorize_config.memory_types = ["profile"]
+    scope = {"user_id": "TestOwner", "soul_id": "TestSoul"}
+    repo = service.database.entity_repo
+    known_ref = "whatsapp:known@lid"
+    person = repo.create("Person One", "person", scope, properties={"source_refs": [known_ref]})
+    before = {entity.id: entity.properties for entity in repo.list_all(where=scope)}
+    if case == "unfamiliar":
+        messages = [{"source_ref": ref, "name": "Person One"} for ref in [
+            "whatsapp:guest-a@lid", "whatsapp:guest-b@lid", "whatsapp:guest-a@lid",
+        ]]
+    else:
+        messages = [{"source_ref": known_ref}]
+        if case == "renamed":
+            messages[0]["name"] = "Renamed Later"
+    for message in messages:
+        message.update(role="unknown", content="A fictional garden story.",
+                       received_at="2026-01-02T10:00:00+00:00")
+    raw_text = json.dumps(messages)
+    indices = list(range(len(messages)))
+    segment = {"text": raw_text, "message_indices": indices}
+    saved_states = []
+    categorize = service._memorize_categorize_items
+
+    async def generate(**_kwargs):
+        return [StructuredMemoryEntry(
+            memory_type="profile", content="Enjoys fictional gardens", categories=[],
+            source_role="peer", confidence=0.8, source_message_ids=indices,
+            reflection_salience=None,
+        )]
+
+    async def route(*_args, **_kwargs):
+        return ["profile"], [{"title": "Garden", "summary": "A garden story.",
+            "item": "A garden story.", "categories": [], "day": "2026-01-02"}]
+
+    async def save(state, context):
+        state = await categorize(state, context)
+        saved_states.append(state)
+        return state
+
+    async def noop(state, _context):
+        return state
+
+    monkeypatch.setattr(service, "_select_chat_client", lambda *_a, **_kw: SimpleNamespace(chat_model="test"))
+    monkeypatch.setattr(service, "_generate_entries_from_text", generate)
+    monkeypatch.setattr(service, "_route_segment", route)
+    monkeypatch.setattr(service, "_memorize_categorize_items", save)
+    monkeypatch.setattr(service, "_memorize_dedupe_merge", noop)
+    monkeypatch.setattr(service, "_memorize_persist_and_index", noop)
+    if path == "batch":
+        await service.memorize_segments_batch(
+            modality="conversation", user=scope, conversation_id="fictional-chat",
+            segments=[{"resource_url": "memory://source-identity", "raw_text": raw_text,
+                       "segment": segment}],
+        )
+    else:
+        state = await service._memorize_extract_items({
+            "store": service.database, "user": scope, "modality": "conversation",
+            "memory_types": ["profile"], "raw_text": raw_text, "episodes": [segment],
+            "resource_url": "memory://source-identity", "local_path": None,
+            "conversation_id": "fictional-chat",
+        }, {})
+        await service._memorize_categorize_items(state, {})
+
+    state, = saved_states
+    item, = [item for item in state["items"] if item.memory_type == "profile"]
+    loaded = service.database.memory_item_repo.get_item(item.id)
+    assert loaded is not None
+    assert loaded.speaker_id == (None if case == "unfamiliar" else f"entity:{person.id}")
+    assert loaded.speaker_label == {
+        "renamed": "Renamed Later", "unnamed": known_ref, "unfamiliar": None,
+    }[case]
+    assert loaded.source_role == "peer" and loaded.source_message_ids == indices
+    assert [{key: value for key, value in message.items() if key != "_message_index"}
+            for message in state["segment_plans"][0]["segment_messages"]] == messages
+    assert {entity.id: entity.properties for entity in repo.list_all(where=scope)} == before
+
+
+@pytest.mark.asyncio
 async def test_memorize_segments_batch_passes_segment_speaker_rosters_without_segment_headings(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

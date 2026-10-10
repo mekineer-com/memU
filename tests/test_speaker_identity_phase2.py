@@ -115,14 +115,9 @@ def test_source_ref_binding_is_atomic_and_survives_display_name_change(service: 
     second = repo.get_or_create("Person Two", "person", scope)
     source_ref = "whatsapp:111111111111111@lid"
 
-    entities = repo.list_all(where=scope)
-    bindings = speakers._propose_entity_source_ref_bindings(
-        [{"speaker": "Person One", "source_ref": source_ref}], entities
-    )
-    entities = repo.bind_source_refs(bindings, where=scope)
+    entities = repo.bind_source_refs({source_ref: first.id}, where=scope)
     source_ids = speakers._build_entity_source_speaker_ids(entities)
 
-    assert bindings == {source_ref: first.id}
     assert speakers._build_speaker_map(
         [{"_message_index": 0, "speaker": "Renamed Later", "source_ref": source_ref}],
         scope,
@@ -135,6 +130,18 @@ def test_source_ref_binding_is_atomic_and_survives_display_name_change(service: 
         speakers._build_entity_speaker_ids(entities),
         source_ids,
     ) == {0: ("", "Person One")}
+    assert speakers._build_speaker_map(
+        [
+            {"_message_index": 0, "role": "unknown", "source_ref": source_ref},
+            {"_message_index": 1, "role": "unknown", "source_ref": "whatsapp:unowned@lid"},
+        ],
+        scope,
+        speakers._build_entity_speaker_ids(entities),
+        source_ids,
+    ) == {
+        0: (f"entity:{first.id}", source_ref),
+        1: ("", "whatsapp:unowned@lid"),
+    }
 
     with pytest.raises(ValueError, match="already belongs"):
         repo.bind_source_refs(
@@ -291,13 +298,3 @@ def test_ignored_entity_is_absent_from_speaker_and_source_identity_maps() -> Non
         entities=[ignored],
         roster_entry_factory=SpeakerRosterEntry,
     ) == []
-    active_same_name = SimpleNamespace(
-        id="active",
-        name="Ignored Person",
-        entity_type="person",
-        properties={},
-    )
-    assert speakers._propose_entity_source_ref_bindings(
-        [{"source_ref": "source:ignored", "name": "Ignored Person"}],
-        [ignored, active_same_name],
-    ) == {}

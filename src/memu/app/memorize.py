@@ -349,15 +349,7 @@ class MemorizeMixin:
         )
         extract_model = str(getattr(extract_client, "chat_model", "") or "").strip() or None
         memory_types = self._resolve_memory_types()
-        source_messages = [
-            message
-            for segment_job in segments
-            for _, message in self._extract_conversation_messages(segment_job.get("raw_text"))
-        ]
         speaker_entities = store.entity_repo.list_all(where=user_scope or {})
-        bindings = speakers._propose_entity_source_ref_bindings(source_messages, speaker_entities)
-        if bindings:
-            speaker_entities = store.entity_repo.bind_source_refs(bindings, where=user_scope or {})
         declared_entity_roster = self._list_declared_relationship_roster(entities=speaker_entities)
         entity_speaker_ids = speakers._build_entity_speaker_ids(speaker_entities)
         entity_source_speaker_ids = speakers._build_entity_source_speaker_ids(speaker_entities)
@@ -818,13 +810,6 @@ class MemorizeMixin:
         conversation_messages = self._extract_conversation_messages(state.get("raw_text"))
         messages_by_index = {idx: msg for idx, msg in conversation_messages}
         speaker_entities = state["store"].entity_repo.list_all(where=state.get("user") or {})
-        bindings = speakers._propose_entity_source_ref_bindings(
-            [message for _, message in conversation_messages], speaker_entities
-        )
-        if bindings:
-            speaker_entities = state["store"].entity_repo.bind_source_refs(
-                bindings, where=state.get("user") or {}
-            )
         declared_entity_roster = self._list_declared_relationship_roster(entities=speaker_entities)
         entity_speaker_ids = speakers._build_entity_speaker_ids(speaker_entities)
         entity_source_speaker_ids = speakers._build_entity_source_speaker_ids(speaker_entities)
