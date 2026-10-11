@@ -535,11 +535,12 @@ class MemorizeMixin:
                 for row in preprocessor_rows_raw:
                     if not isinstance(row, Mapping):
                         continue
-                    summary = str(row.get("summary") or "").strip()
-                    if not summary:
+                    summary = str(row.get("summary") or "")
+                    if not summary.strip():
                         continue
                     preprocessor_rows.append(
                         {
+                            **row,
                             "summary": summary,
                             "source_label": str(row.get("source_label") or "background"),
                         }
@@ -547,31 +548,12 @@ class MemorizeMixin:
 
             if context_only:
                 segment_background_context_rows = preprocessor_rows
+                supporting_block = ""
                 rendered_text = ""
-            elif preprocessor_rows:
-                seeded_rows = list(preprocessor_rows)
-                if background_messages:
-                    _rendered_with_tail, tail_rows = await self._render_episode_with_background_context(
-                        primary_messages=primary_messages,
-                        background_messages=background_messages,
-                        llm_client=self._with_llm_step(
-                            extract_client,
-                            operation="memorize",
-                            step_id="background_extra_messages",
-                        ),
-                        soul_name=soul_name,
-                    )
-                    seeded_rows.extend(tail_rows)
-                segment_background_context_rows = seeded_rows
-                rendered_text = self._render_episode_with_summary_rows(
-                    primary_messages=primary_messages,
-                    summary_rows=segment_background_context_rows,
-                    soul_name=soul_name,
-                )
             else:
-                rendered_text, segment_background_context_rows = await self._render_episode_with_background_context(
-                    primary_messages=primary_messages,
+                supporting_block, segment_background_context_rows = await self._render_episode_with_background_context(
                     background_messages=background_messages,
+                    prior_rows=preprocessor_rows,
                     llm_client=self._with_llm_step(
                         extract_client,
                         operation="memorize",
@@ -579,6 +561,10 @@ class MemorizeMixin:
                     ),
                     soul_name=soul_name,
                 )
+                rendered_text = "\n\n".join(part for part in (
+                    supporting_block,
+                    segment_helpers._render_grouped_chat_messages(primary_messages, soul_name=soul_name),
+                ) if part)
             segment_text = rendered_text or (str(text).strip() if isinstance(text, str) else "")
             episodes: list[dict[str, Any]] = []
             applicable_types: list[MemoryType] = memory_types
@@ -644,6 +630,7 @@ class MemorizeMixin:
                 "source_day_happened_at": source_day_happened_at,
                 "segment_messages": primary_messages,
                 "segment_background_context_rows": segment_background_context_rows,
+                "segment_background_context": supporting_block,
                 "context_only": context_only,
                 "speaker_map": speaker_map,
                 "applicable_types": applicable_types,
@@ -739,6 +726,8 @@ class MemorizeMixin:
                 "memory_retrieve_history": memory_retrieve_history,
                 "memory_prior_context": memory_prior_context,
                 "segment_messages": ep["segment_messages"],
+                "segment_raw_text": ep["segment_raw_text"],
+                "segment_background_context": ep["segment_background_context"],
                 "extract_model": ep.get("extract_model"),
             }
             state: WorkflowState = {
@@ -1218,6 +1207,22 @@ class MemorizeMixin:
 
         res = existing_resource
         if res is None:
+            if modality == "conversation" and "segment_raw_text" in plan:
+                source_file = pathlib.Path(prepared["resource_kwargs"]["local_path"])
+                if source_file.is_file():
+                    stored = json.loads(source_file.read_text(encoding="utf-8"))
+                    stored_rows = stored.get("content") if isinstance(stored, dict) else stored
+                    if isinstance(stored_rows, list):
+                        accepted = json.loads(plan["segment_raw_text"])
+                        accepted_rows = accepted.get("content") if isinstance(accepted, dict) else accepted
+                        if (not isinstance(accepted_rows, list)
+                                or any(not isinstance(row, dict) for row in accepted_rows)
+                                or len(accepted_rows) != len(stored_rows)):
+                            raise ValueError("Saved conversation requires its complete accepted message rows")
+                        source_file.write_text(json.dumps({
+                            "content": accepted_rows,
+                            "segment_background_context": plan["segment_background_context"],
+                        }, ensure_ascii=False), encoding="utf-8")
             res = store.resource_repo.create_resource(**prepared["resource_kwargs"], session=session)
 
         if raw_episodes:
@@ -2121,14 +2126,14 @@ class MemorizeMixin:
     async def _render_episode_with_background_context(
         self,
         *,
-        primary_messages: Sequence[Mapping[str, Any]],
         background_messages: Sequence[Mapping[str, Any]],
+        prior_rows: Sequence[Mapping[str, Any]] = (),
         llm_client: Any | None = None,
         soul_name: str | None = None,
     ) -> tuple[str, list[dict[str, Any]]]:
         return await segment_helpers._render_episode_with_background_context(
-            primary_messages=primary_messages,
             background_messages=background_messages,
+            prior_rows=prior_rows,
             llm_client=llm_client,
             summarize_background_groups_batched=self._summarize_background_groups_batched,
             memorize_config=self.memorize_config,

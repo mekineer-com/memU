@@ -213,16 +213,6 @@ def _message_index_for_sort(message: Mapping[str, Any]) -> int:
         return -1
 
 
-def _summary_row_lines(row: Mapping[str, Any]) -> list[str]:
-    summary = str(row.get("summary") or "").strip()
-    if not summary:
-        return []
-    if "\n" not in summary:
-        return [summary]
-    lines = [line.strip() for line in summary.splitlines() if line.strip()]
-    return lines
-
-
 def grouped_chat_happened_at(message: Mapping[str, Any]) -> Any:
     return parse_happened_at(_grouped_chat_timestamp(message))
 
@@ -269,12 +259,12 @@ def _render_with_summary_rows(
     summary_rows: Sequence[Mapping[str, Any]],
     soul_name: str | None = None,
 ) -> str:
-    prefix_lines: list[str] = []
-    for row in summary_rows:
-        prefix_lines.extend(_summary_row_lines(row))
-    primary_rendered = _render_grouped_chat_messages(primary_messages, soul_name=soul_name)
-    parts = ["\n".join(prefix_lines).strip(), primary_rendered]
-    return "\n\n".join(part for part in parts if part)
+    return format_grouped_chat_history(
+        _prepare_grouped_chat_messages(primary_messages),
+        background_context_rows=summary_rows,
+        time_label_resolver=format_dated_relative_time_label,
+        soul_name=soul_name,
+    )
 
 
 async def _summarize_background_rollup(
@@ -383,66 +373,63 @@ async def _summarize_background_groups_batched(
 
 async def _render_episode_with_background_context(
     *,
-    primary_messages: Sequence[Mapping[str, Any]],
     background_messages: Sequence[Mapping[str, Any]],
+    prior_rows: Sequence[Mapping[str, Any]] = (),
     llm_client: Any | None,
     summarize_background_groups_batched: Callable[..., Awaitable[dict[str, str]]],
     memorize_config: Any,
     soul_name: str | None = None,
 ) -> tuple[str, list[dict[str, Any]]]:
-    prim = sorted(primary_messages, key=_message_index_for_sort)
+    """Return the supporting block once rendered, and its summary/real-tail context rows."""
     bg = sorted(background_messages, key=_message_index_for_sort)
-    if not prim and not bg:
-        return "", []
-    if not bg:
-        return _render_grouped_chat_messages(prim, soul_name=soul_name), []
 
     grouped: dict[str, list[Mapping[str, Any]]] = {}
     group_order: list[str] = []
     for msg in bg:
-        source_key = str(msg.get("source_conversation_id") or msg.get("source_label") or "background").strip() or "background"
+        source_key = str(msg.get("source_conversation_id") or msg.get("conversation_id") or msg.get("source_label") or "background").strip() or "background"
         if source_key not in grouped:
             grouped[source_key] = []
             group_order.append(source_key)
         grouped[source_key].append(msg)
 
-    total_bg_tokens = sum(_estimate_text_tokens(str(msg.get("content") or "")) for msg in bg)
-    raw_floor = int(getattr(memorize_config, "background_extra_messages_tokens", 100) or 100)
-    summarize_extra_messages_tail = total_bg_tokens >= max(0, raw_floor)
+    raw_floor = max(0, int(getattr(memorize_config, "background_extra_messages_tokens", 100)))
+    qualifying = [
+        key for key in group_order
+        if sum(_estimate_text_tokens(str(msg.get("content") or "")) for msg in grouped[key]) >= raw_floor
+    ]
 
     batched_summaries: dict[str, str] = {}
-    if summarize_extra_messages_tail:
+    if qualifying:
         batched_summaries = await summarize_background_groups_batched(
-            grouped_messages=grouped,
-            group_order=group_order,
+            grouped_messages={key: grouped[key] for key in qualifying},
+            group_order=qualifying,
             llm_client=llm_client,
             soul_name=soul_name,
         )
 
-    summary_rows: list[dict[str, Any]] = []
+    summary_rows = [dict(row) for row in prior_rows]
     for source_key in group_order:
         group_msgs = grouped[source_key]
-        if summarize_extra_messages_tail:
+        if source_key in qualifying:
             summary = str(batched_summaries.get(source_key) or "").strip()
             if not summary:
                 msg = f"missing background summary for source '{source_key}'"
                 raise ValueError(msg)
-            summary_lines = [summary]
+            summary_rows.append({
+                "source_conversation_id": source_key,
+                "source_label": str(group_msgs[0].get("source_label") or source_key),
+                "chat_name": group_msgs[0].get("chat_name"),
+                "app_label": group_msgs[0].get("app_label"),
+                "summary": summary,
+            })
         else:
-            rendered_group = _render_grouped_chat_messages(group_msgs, soul_name=soul_name)
-            summary_lines = rendered_group.splitlines()
-            if not summary_lines:
-                continue
-        source_label = str(group_msgs[0].get("source_label") or source_key).strip() or source_key
-        summary_rows.append(
-            {
-                "summary": "\n".join(summary_lines),
-                "source_label": source_label,
-            }
-        )
+            summary_rows.extend(
+                {**row, "source_conversation_id": source_key, "raw": True}
+                for row in _prepare_grouped_chat_messages(group_msgs)
+            )
 
     return _render_with_summary_rows(
-        primary_messages=prim,
+        primary_messages=[],
         summary_rows=summary_rows,
         soul_name=soul_name,
     ), summary_rows

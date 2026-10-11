@@ -385,6 +385,7 @@ def format_dated_relative_time_label(happened_at: Any, *, now: datetime | None =
 def format_grouped_chat_history(
     messages: Sequence[Mapping[str, Any]],
     *,
+    background_context_rows: Sequence[Mapping[str, Any]] | None = None,
     whatsapp_names: Mapping[str, str] | None = None,
     time_label_resolver: Callable[[Any], str | None] | None = None,
     soul_name: str | None = None,
@@ -396,16 +397,27 @@ def format_grouped_chat_history(
     for msg in messages:
         cid = str(msg.get("conversation_id") or "").strip() or "unknown"
         by_conversation.setdefault(cid, []).append(msg)
+    summaries: dict[str, list[Mapping[str, Any]]] = {}
+    for row in background_context_rows or []:
+        if row.get("raw") is not True and not str(row.get("summary") or "").strip():
+            continue
+        cid = str(row.get("source_conversation_id") or row.get("conversation_id") or "").strip() or "unknown"
+        by_conversation.setdefault(cid, [])
+        if row.get("raw") is True:
+            by_conversation[cid].append(row)
+        else:
+            summaries.setdefault(cid, []).append(row)
     if current_conversation_id is not None:
         by_conversation.setdefault(current_conversation_id, [])
 
     sections: dict[str, list[tuple[bool, str, str]]] = {}
     current_section: str | None = None
     for cid, rows in by_conversation.items():
+        context_rows = summaries.get(cid, [])
         kind, key = _conversation_kind_and_key(cid)
         section_key = _conversation_section_title(kind)
         if kind == "import_dm":
-            label = str(rows[0].get("app_label") or "").strip() if rows else ""
+            label = str((rows or context_rows)[0].get("app_label") or "").strip() if rows or context_rows else ""
             if not label:
                 raise ValueError("Imported conversations require their chat-app label")
             section_key = f"My {label} Conversations:"
@@ -414,7 +426,7 @@ def format_grouped_chat_history(
         if is_current:
             current_section = section_key
         chat_name = ""
-        for msg in reversed(rows):
+        for msg in reversed([*context_rows, *rows]):
             candidate = str(msg.get("chat_name") or "").strip()
             if candidate:
                 chat_name = candidate
@@ -425,12 +437,13 @@ def format_grouped_chat_history(
             if mark_current_chat and not heading.endswith("\u2190 current chat"):
                 heading += " \u2190 current chat"
         conv_lines: list[str] = [heading]
-        if rows and kind in {"replika_dm", "import_dm"}:
+        if (rows or context_rows) and kind in {"replika_dm", "import_dm"}:
             conv_lines.append(
                 "These conversations took place outside OpenAlma. "
                 f"Although presented as '{section_key.removesuffix(':')}', "
                 "I was speaking there without access to my OpenAlma memories or conversations."
             )
+        conv_lines.extend(str(row["summary"]) for row in context_rows)
         rendered_rows: list[dict[str, Any]] = []
         newest_ts = ""
         for msg in rows:
@@ -466,7 +479,7 @@ def format_grouped_chat_history(
         )
         if rendered:
             conv_lines.append(rendered)
-        elif is_current:
+        elif is_current and not context_rows:
             conv_lines.append("(none)")
         entries.append((is_current, newest_ts, "\n".join(conv_lines)))
 

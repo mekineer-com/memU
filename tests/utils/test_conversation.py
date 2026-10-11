@@ -212,3 +212,25 @@ def test_dated_relative_time_label_includes_local_day() -> None:
         "2026-06-06T12:00:00+00:00",
         now=datetime(2026, 6, 27, 12, tzinfo=UTC),
     ) == "2026-06-06 (3 weeks ago)"
+
+
+def test_grouped_background_context_keeps_summary_and_actual_tail_under_one_heading():
+    cid = "whatsapp:group:fictional-workshop"
+    prior = "Prior prose.\n  Preserve this indentation."
+    context = [
+        {"source_conversation_id": cid, "chat_name": "Workshop", "summary": prior},
+        {"source_conversation_id": cid, "chat_name": "Workshop", "summary": "Follow-up prose."},
+        {"source_conversation_id": cid, "chat_name": "Workshop", "raw": True,
+         "role": "user", "speaker": "TestGuest", "content": "A short actual tail."},
+        {"source_conversation_id": "import:dm:fictional", "app_label": "ArchiveApp",
+         "chat_name": "Quiet archive", "summary": "An imported summary."},
+    ]
+    rendered = format_grouped_chat_history([], background_context_rows=context,
+                                         current_conversation_id=cid)
+    assert rendered.count("[group][Workshop]") == 1
+    assert prior in rendered and "Follow-up prose." in rendered
+    assert "[TestGuest] A short actual tail." in rendered
+    assert "My ArchiveApp Conversations:" in rendered
+    assert "[dm][Quiet archive]" in rendered
+    assert "(none)" not in rendered and "--- " not in rendered
+    assert "raw" not in rendered and "[user] Prior" not in rendered

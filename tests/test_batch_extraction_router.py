@@ -402,6 +402,121 @@ async def test_persist_plan_keeps_segment_local_path_without_flattened_copy(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("primary_words", [74, 75, 76])
+async def test_batch_saves_exact_supporting_block_and_complete_accepted_rows(monkeypatch, tmp_path, primary_words):
+    service = _service()
+    service.memorize_config.memory_types = ["knowledge"]
+    cid = "sillytavern:fictional-personal"
+    bg_cid = "whatsapp:group:fictional-workshop"
+    rows = [
+        {"conversation_id": cid, "source_conversation_id": cid, "memorize_chat": True,
+         "role": "user", "name": "TestOwner", "content": "personal " * primary_words,
+         "received_at": "2026-01-02T10:00:00+00:00", "source_conversation_index": 10},
+        {"conversation_id": bg_cid, "source_conversation_id": bg_cid, "memorize_chat": False,
+         "chat_name": "Workshop", "role": "user", "speaker": "TestGuest", "content": "short tail",
+         "received_at": "2026-01-01T10:00:00+00:00", "source_conversation_index": 20},
+        {"conversation_id": cid, "source_conversation_id": cid, "memorize_chat": True,
+         "role": "assistant", "content": "A personal reply.",
+         "received_at": "2026-01-02T10:01:00+00:00", "source_conversation_index": 11},
+    ]
+    raw_text = json.dumps(rows)
+    source_file = tmp_path / "segment.json"
+    source_file.write_text(raw_text, encoding="utf-8")
+    prior = {"source_conversation_id": bg_cid, "source_label": "whatsapp:group", "chat_name": "Workshop",
+             "summary": "Prior work.\n  Keep this exact paragraph.", "rolled_up": True}
+    routed = []
+    extracted = []
+    plans = []
+    saved = []
+
+    async def route(text, _types, **kwargs):
+        assert kwargs["source_days"] == ["2026-01-02"]
+        routed.append(text)
+        return ["knowledge"], [{"title": "Personal", "summary": "A personal story.",
+                               "item": "A personal story.", "categories": ["Personal life"],
+                               "day": "2026-01-02"}]
+
+    async def entries(**kwargs):
+        assert kwargs["source_days"] == ("2026-01-02",)
+        assert kwargs["default_source_message_ids"] == [0, 2]
+        extracted.append(kwargs["resource_text"])
+        return []
+
+    async def unexpected_summary(**_kwargs):
+        pytest.fail("short tails and primary messages must not call a summarizer")
+
+    categorize = service._memorize_categorize_items
+
+    async def save(state, context):
+        plans.extend(state["segment_plans"])
+        return await categorize(state, context)
+
+    async def noop(state, _context, **_kwargs):
+        return state
+
+    def on_saved(_session, _url, _ids):
+        saved.append(json.loads(source_file.read_text(encoding="utf-8")))
+
+    monkeypatch.setattr(service, "_select_chat_client", lambda *_a, **_kw: _RouterStub(""))
+    monkeypatch.setattr(service, "_route_segment", route)
+    monkeypatch.setattr(service, "_generate_entries_from_text", entries)
+    monkeypatch.setattr(service, "_summarize_background_groups_batched", unexpected_summary)
+    monkeypatch.setattr(service, "_memorize_categorize_items", save)
+    monkeypatch.setattr(service, "_memorize_dedupe_merge", noop)
+    monkeypatch.setattr(service, "_memorize_persist_and_index", noop)
+    await service.memorize_segments_batch(
+        modality="conversation", conversation_id=cid,
+        user={"user_id": "TestOwner", "soul_id": "TestSoul"},
+        segments=[{"resource_url": str(source_file), "local_path": str(source_file), "raw_text": raw_text,
+                   "segment": {"message_indices": [0, 1, 2], "segment_id": f"{cid}:0-2",
+                               "segment_background_context_rows": [prior]}}],
+        on_segment_saved=on_saved,
+    )
+    plan, = plans
+    envelope, = saved
+    block = plan["segment_background_context"]
+    assert block and routed[0].startswith(block + "\n\n")
+    assert block in extracted[0]
+    assert prior["summary"] in block and "[TestGuest] short tail" in block
+    assert block.count("[group][Workshop]") == 1
+    assert rows[0]["content"] in routed[0] and "A personal reply." in routed[0]
+    assert envelope == {"content": rows, "segment_background_context": block}
+    assert len(envelope["content"]) == 3 and len(plan["segment_messages"]) == 2
+    assert plan["message_indices"] == [0, 2]
+    assert list(plan["source_day_happened_at"]) == ["2026-01-02"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("existing", ["absent", "other_json", "wrong_count"])
+async def test_supporting_envelope_requires_existing_message_file_and_complete_count(monkeypatch, tmp_path, existing):
+    service = _service()
+    monkeypatch.setattr(service, "file_category_proposals", lambda **_kwargs: ([], []))
+    path = tmp_path / "source.json"
+    original = {"note": "not a conversation"} if existing == "other_json" else []
+    if existing != "absent":
+        path.write_text(json.dumps(original), encoding="utf-8")
+    accepted = [{"role": "user", "content": "A fictional primary row."}]
+    state = {
+        "segment_plans": [{"resource_url": str(path), "text": "primary text", "caption": None,
+                           "episodes": [], "entries": [], "segment_id": "fictional:0-0",
+                           "segment_messages": accepted, "segment_raw_text": json.dumps(accepted),
+                           "segment_background_context": "Captured support."}],
+        "modality": "conversation", "local_path": str(path), "store": service.database,
+        "user": {}, "conversation_id": "fictional",
+    }
+    if existing == "wrong_count":
+        with pytest.raises(ValueError, match="complete accepted message rows"):
+            await service._memorize_categorize_items(state, {})
+        assert service.database.resource_repo.list_resources() == {}
+    else:
+        await service._memorize_categorize_items(state, {})
+    if existing == "absent":
+        assert not path.exists()
+    else:
+        assert json.loads(path.read_text(encoding="utf-8")) == original
+
+
+@pytest.mark.asyncio
 async def test_context_only_plan_creates_nothing() -> None:
     service = _service()
     state = await service._memorize_categorize_items({
@@ -713,13 +828,13 @@ async def test_batch_rejects_active_segment_without_source_date(monkeypatch: pyt
 async def test_batch_excludes_image_marker_from_episode_text(monkeypatch: pytest.MonkeyPatch) -> None:
     service = _service()
 
-    async def _render(*, primary_messages, background_messages, **_kwargs):
-        assert [row["content"] for row in primary_messages] == ["A fictional caption."]
+    async def _render(*, background_messages, **_kwargs):
         assert background_messages == []
-        return "rendered caption", []
+        return "", []
 
     async def _stop_after_render(segment_text, *_args, **_kwargs):
-        assert segment_text == "rendered caption"
+        assert "A fictional caption." in segment_text
+        assert "Shared a photo." not in segment_text
         raise RuntimeError("render verified")
 
     monkeypatch.setattr(service, "_render_episode_with_background_context", _render)

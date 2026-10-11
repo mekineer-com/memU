@@ -176,8 +176,8 @@ class MemorizeConfig(BaseModel):
     background_extra_messages_tokens: int = Field(
         default=100,
         description=(
-            "During segment preprocessing, if the total token estimate across unsummarized background tails "
-            "is below this threshold, skip background-tail summarization and keep raw lines."
+            "During segment preprocessing, summarize each non-Memorize chat's unsummarized tail at or above "
+            "this token threshold in one batched call; keep shorter tails as actual message rows."
         ),
     )
     enable_confidence_normalization: bool = Field(
