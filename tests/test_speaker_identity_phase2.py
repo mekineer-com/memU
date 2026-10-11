@@ -253,6 +253,7 @@ def test_prefilter_dedupe_candidates_respects_source_role_and_speaker_id(service
         "d": same_speaker.model_copy(update={"id": "d", "source_role": "peer"}),
         "e": same_speaker.model_copy(update={"id": "e", "speaker_id": None}),
         "f": same_speaker.model_copy(update={"id": "f", "speaker_id": "entity:guest-a"}),
+        "g": same_speaker.model_copy(update={"id": "g", "memory_type": "episode"}),
     }
     summary_tokens = {
         item_id: service._dedupe_summary_tokens(item.summary) if tokens_overlap else set()

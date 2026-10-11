@@ -414,8 +414,11 @@ async def test_requested_memories_supplement_top_k_and_dedupe_overlap():
         ),
         graph=SimpleNamespace(enabled=False),
     )
-    exact = SimpleNamespace(id="exact")
-    inactive = SimpleNamespace(id="inactive")
+    exact = SimpleNamespace(id="exact", merged_into=None)
+    inactive = SimpleNamespace(id="inactive", merged_into=None)
+    merged = SimpleNamespace(id="merged", merged_into="middle")
+    middle = SimpleNamespace(id="middle", merged_into="exact")
+    other_scope = SimpleNamespace(id="other-scope", merged_into="foreign")
     ordinary_a = SimpleNamespace(id="ordinary-a", happened_at=datetime(2026, 6, 1, tzinfo=UTC))
     ordinary_b = SimpleNamespace(id="ordinary-b", happened_at=datetime(2026, 7, 10, tzinfo=UTC))
     pool = {item.id: item for item in (exact, ordinary_a, ordinary_b)}
@@ -427,7 +430,11 @@ async def test_requested_memories_supplement_top_k_and_dedupe_overlap():
 
     repo = SimpleNamespace(
         list_items=lambda *_args, **_kwargs: pool,
-        get_item_by_memory_ref=lambda ref, _where: {7: exact, 8: inactive}.get(ref),
+        get_item_by_memory_ref=lambda ref, _where: {7: exact, 8: inactive, 9: merged, 10: other_scope}.get(ref),
+        list_items_by_ids=lambda ids, where, **_kwargs: {
+            key: item for key, item in {"middle": middle, "exact": exact}.items()
+            if key in ids and where == {"user_id": "person", "soul_id": "soul"}
+        },
         vector_search_items=search,
     )
 
@@ -472,6 +479,12 @@ async def test_requested_memories_supplement_top_k_and_dedupe_overlap():
         raise AssertionError("NO_RETRIEVE must not run ordinary search")
 
     repo.vector_search_items = fail_search
+    out = await mixin._rag_recall_items(state, step_context=None)
+    assert out["item_hits"] == [("exact", 0.0)]
+    state["requested_memory_refs"] = [9, 10, 7]
+    out = await mixin._rag_recall_items(state, step_context=None)
+    assert out["item_hits"] == [("exact", 0.0)]
+    state["requested_memory_refs"] = [9]
     out = await mixin._rag_recall_items(state, step_context=None)
     assert out["item_hits"] == [("exact", 0.0)]
 

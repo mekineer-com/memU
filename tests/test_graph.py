@@ -10,6 +10,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 from pydantic import BaseModel
+from sqlmodel import select
 
 from memu.app import category_summary_journal
 from memu.app.dossier import DossierRevisionStaleError
@@ -758,6 +759,7 @@ def test_entity_delete_cleans_hidden_links_atomically(monkeypatch, fail_delete):
     other = store.entity_repo.create("Other entity", "topic", scope)
     items = [store.memory_item_repo.create_item(
         memory_type="knowledge", summary=f"Example {index}", embedding=[0.1], user_data=scope,
+        speaker_id=f"entity:{entity.id}" if index in (1, 2) else None,
     ) for index in range(4)]
     for index in (0, 1, 2):
         store.triple_repo.add(Triple(
@@ -770,6 +772,10 @@ def test_entity_delete_cleans_hidden_links_atomically(monkeypatch, fail_delete):
         object_id=items[3].id, object_kind="memory",
     ), user_data=scope)
     store.memory_item_repo.update_item(item_id=items[2].id, merged_into=items[3].id)
+    assert service.graph_memory(items[3].id, where=scope)["entity_ids"] == [f"entity:{entity.id}"]
+    with pytest.raises(EntityActionConflictError, match="Graph references"):
+        service.graph_delete_entity(entity.id, where=scope)
+    store.triple_repo.invalidate(items[3].id, "mentions", entity.id, scope)
     for subject, target in ((entity.id, other.id), (other.id, entity.id)):
         store.triple_repo.add(Triple(
             subject_id=subject, subject_kind="entity", predicate="evokes",
@@ -797,6 +803,92 @@ def test_entity_delete_cleans_hidden_links_atomically(monkeypatch, fail_delete):
         assert len(store.triple_repo.list_entity_references(entity.id, other_scope, session)) == 1
     assert store.entity_repo.list_by_ids({other.id}, scope)
     assert len(store.memory_item_repo.list_items(scope, include_superseded=True, include_merged=True)) == 4
+
+
+@pytest.mark.parametrize("source_status, target_status, fail_merge, caller_session", [
+    (source, target, False, False)
+    for source in ("reviewed", "pending", "changed")
+    for target in (None, "reviewed", "pending", "changed")
+] + [("reviewed", "reviewed", True, False), ("reviewed", "reviewed", False, True), ("changed", "reviewed", False, True)])
+def test_graph_merge_preserves_mentions_and_due_evidence(monkeypatch, source_status, target_status, fail_merge, caller_session):
+    service = MemoryService(
+        database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
+        user_config={"model": GraphScope},
+    )
+    store = service._get_database()
+    scope = {"user_id": "TestOwner", "soul_id": "TestSoul"}
+    other_scope = {**scope, "soul_id": "OtherSoul"}
+    source, target = [store.memory_item_repo.create_item(
+        memory_type="knowledge", summary="A fictional garden", embedding=[1.0], user_data=scope,
+    ) for _ in range(2)]
+    category = store.memory_category_repo.get_or_create_category(
+        name="Garden", description="", embedding=[1.0], user_data=scope, kind="topic",
+    )
+    reviewed_at = datetime.now(UTC)
+    for item, status in ((source, source_status), (target, target_status)):
+        if status is None:
+            continue
+        relation = store.category_item_repo.link_item_category(item.id, category.id, scope)
+        if status != "pending":
+            with store._sessions.session() as session:
+                store.category_item_repo.mark_reviewed(
+                    category.id, {item.id}, scope, reviewed_at=reviewed_at + timedelta(seconds=1), session=session,
+                )
+                if status == "changed":
+                    session.connection().exec_driver_sql(
+                        "UPDATE category_items SET updated_at = ? WHERE id = ?",
+                        ((reviewed_at + timedelta(seconds=2)).replace(tzinfo=None).isoformat(" "), relation.id),
+                    )
+                session.commit()
+    before = {relation.item_id: relation for relation in store.category_item_repo.list_relations(scope)}
+    entities = [store.entity_repo.create(name, "topic", scope) for name in ("Garden", "Meadow", "Past")]
+    for item, entity, historical, edge_scope in (
+        (source, entities[0], False, scope), (target, entities[0], False, scope),
+        (source, entities[1], False, scope), (source, entities[2], True, scope),
+        (source, entities[1], False, other_scope),
+    ):
+        store.triple_repo.add(Triple(
+            subject_id=item.id, subject_kind="memory", predicate="mentions", object_id=entity.id,
+            object_kind="entity", source_memory_id=item.id, valid_to=reviewed_at if historical else None,
+        ), user_data=edge_scope)
+    before_mentions = store.triple_repo.list_edges_for_memories({source.id, target.id}, ["mentions"], scope, current_only=False)
+    monkeypatch.setattr(store.memory_item_repo, "_now", lambda: (reviewed_at + timedelta(seconds=3)).replace(tzinfo=None))
+    if fail_merge:
+        def fail(*args):
+            raise RuntimeError("merge cleanup failed")
+        monkeypatch.setattr(store.memory_item_repo, "_fts_delete", fail)
+        with pytest.raises(RuntimeError, match="merge cleanup failed"):
+            store.memory_item_repo.update_item(item_id=source.id, merged_into=target.id)
+        assert store.memory_item_repo.get_item(source.id).merged_into is None
+        assert {relation.item_id: relation for relation in store.category_item_repo.list_relations(scope)} == before
+        assert store.triple_repo.list_edges_for_memories({source.id, target.id}, ["mentions"], scope, current_only=False) == before_mentions
+        return
+    if caller_session:
+        with store._sessions.session() as session:
+            model = store._sqla_models.CategoryItem
+            held = session.exec(select(model).where(model.item_id == source.id)).first()
+            store.category_item_repo.mark_reviewed(
+                category.id, {source.id, target.id}, scope,
+                reviewed_at=reviewed_at + timedelta(seconds=1), session=session,
+            )
+            assert held.updated_at.tzinfo is None and held.reviewed_at.tzinfo is UTC
+            store.memory_item_repo.update_item(item_id=source.id, merged_into=target.id, session=session)
+            session.commit()
+    else:
+        store.memory_item_repo.update_item(item_id=source.id, merged_into=target.id)
+
+    relations = store.category_item_repo.list_relations(scope)
+    assert [(relation.item_id, relation.category_id) for relation in relations] == [(target.id, category.id)]
+    assert bool(service.list_due_dossiers(scope)) == (source_status != "reviewed" or target_status != "reviewed")
+    if target_status is not None and source_status == "reviewed":
+        assert relations[0].updated_at == before[target.id].updated_at
+        assert relations[0].reviewed_at == before[target.id].reviewed_at
+    assert set(service.graph_memory(target.id, where=scope)["entity_ids"]) == {f"entity:{entity.id}" for entity in entities[:2]}
+    current = store.triple_repo.list_edges_for_memories({source.id, target.id}, ["mentions"], scope)
+    assert {(edge.subject_id, edge.object_id) for edge in current} == {(target.id, entity.id) for entity in entities[:2]}
+    assert len(current) == 2
+    assert store.triple_repo.get_edges_from(source.id, "mentions", current_only=False, where=scope)[0].object_id == entities[2].id
+    assert store.triple_repo.get_edges_from(source.id, "mentions", where=other_scope)[0].object_id == entities[1].id
 
 
 def test_graph_atomic_canvas_source_includes_embeddings_and_category_tags():
@@ -2508,7 +2600,7 @@ def test_graph_delete_replacement_group_removes_hidden_versions_and_preserves_so
     )
     versions = [store.memory_item_repo.create_item(
         memory_type=kind, summary=f"Version {index}", embedding=[1.0], user_data=scope, resource_id=resource.id,
-    ) for index, kind in enumerate(("profile", "episode", "knowledge", "knowledge"))]
+    ) for index, kind in enumerate(("profile", "episode", "knowledge", "knowledge", "episode", "profile", "episode"))]
     keep = store.memory_item_repo.create_item(
         memory_type="episode", summary="Unrelated memory", embedding=[1.0], user_data=scope,
     )
@@ -2524,7 +2616,9 @@ def test_graph_delete_replacement_group_removes_hidden_versions_and_preserves_so
     )
     store.category_item_repo.link_item_category(versions[0].id, category.id, scope)
     store.dossier_candidate_repo.add_candidate(proposed_name="Coastal sketches", item_id=versions[0].id, where=scope)
-    for before, after in ((0, 1), (1, 2), (0, 3)):
+    store.memory_item_repo.update_item(item_id=versions[4].id, merged_into=versions[6].id)
+    store.memory_item_repo.update_item(item_id=versions[6].id, merged_into=versions[0].id)
+    for before, after in ((0, 1), (1, 2), (0, 3), (5, 4)):
         store.triple_repo.add(Triple(
             subject_id=versions[before].id, subject_kind="memory", predicate="evolved_into",
             object_id=versions[after].id, object_kind="memory",
@@ -2550,7 +2644,8 @@ def test_graph_delete_replacement_group_removes_hidden_versions_and_preserves_so
 
 
 @pytest.mark.parametrize("anchor_role", [None, "soul"])
-def test_graph_delete_replacement_protects_cited_old_versions(anchor_role):
+@pytest.mark.parametrize("merged, delete_old", [(False, False), (True, False), (True, True)])
+def test_graph_delete_replacement_protects_cited_old_versions(anchor_role, merged, delete_old):
     service = MemoryService(
         database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
         user_config={"model": GraphScope},
@@ -2560,24 +2655,28 @@ def test_graph_delete_replacement_protects_cited_old_versions(anchor_role):
     old, new, unrelated = [store.memory_item_repo.create_item(
         memory_type="episode", summary=summary, embedding=[1.0], user_data=scope,
     ) for summary in ("Old fact", "New fact", "Unrelated")]
-    store.triple_repo.add(Triple(
-        subject_id=old.id, subject_kind="memory", predicate="evolved_into", object_id=new.id, object_kind="memory",
-    ), user_data=scope)
+    if merged:
+        store.memory_item_repo.update_item(item_id=old.id, merged_into=new.id)
+    else:
+        store.triple_repo.add(Triple(
+            subject_id=old.id, subject_kind="memory", predicate="evolved_into", object_id=new.id, object_kind="memory",
+        ), user_data=scope)
     category = store.memory_category_repo.get_or_create_category(
         name="TestSoul" if anchor_role else "Sketches", description="", embedding=[1.0],
         user_data=scope, kind="lore" if anchor_role else "topic", anchor_role=anchor_role,
     )
     store.memory_category_repo.update_category(category_id=category.id, summary=f"Old evidence [M{old.memory_ref}].", where=scope)
+    root = old if delete_old else new
     with pytest.raises(MemoryCitationConflictError) as failure:
-        service.graph_delete_memories([unrelated.id, new.id], where=scope)
+        service.graph_delete_memories([unrelated.id, root.id], where=scope)
     assert failure.value.usages[0]["ref"] == f"[M{old.memory_ref}]"
-    assert set(store.memory_item_repo.list_items(scope, include_superseded=True)) == {old.id, new.id, unrelated.id}
+    assert set(store.memory_item_repo.list_items(scope, include_superseded=True, include_merged=True)) == {old.id, new.id, unrelated.id}
     store.memory_category_repo.update_category(category_id=category.id, summary="Corrected prose.", where=scope)
-    assert service.graph_delete_memory(new.id, where=scope)["memory_id"] == new.id
-    assert set(store.memory_item_repo.list_items(scope, include_superseded=True)) == {unrelated.id}
+    assert service.graph_delete_memory(root.id, where=scope)["memory_id"] == root.id
+    assert set(store.memory_item_repo.list_items(scope, include_superseded=True)) == ({unrelated.id, new.id} if delete_old else {unrelated.id})
 
 
-@pytest.mark.parametrize("failure", ["merge", "cleanup", "snapshot"])
+@pytest.mark.parametrize("failure", ["cleanup", "snapshot"])
 def test_graph_delete_replacement_group_preflight_and_rollback(monkeypatch, failure):
     service = MemoryService(
         database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
@@ -2588,8 +2687,7 @@ def test_graph_delete_replacement_group_preflight_and_rollback(monkeypatch, fail
     old, new, duplicate = [store.memory_item_repo.create_item(
         memory_type="episode", summary=summary, embedding=[1.0], user_data=scope,
     ) for summary in ("Old fact", "New fact", "Duplicate")]
-    if failure == "merge":
-        store.memory_item_repo.update_item(item_id=duplicate.id, merged_into=old.id)
+    store.memory_item_repo.update_item(item_id=duplicate.id, merged_into=old.id)
     store.triple_repo.add(Triple(
         subject_id=old.id, subject_kind="memory", predicate="evolved_into", object_id=new.id, object_kind="memory",
     ), user_data=scope)

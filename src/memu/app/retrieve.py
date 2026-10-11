@@ -485,6 +485,12 @@ class RetrieveMixin:
         exact_ids: list[str] = []
         for memory_ref in requested_refs:
             item = store.memory_item_repo.get_item_by_memory_ref(memory_ref, where_filters)
+            while item is not None and item.merged_into:
+                target_id = item.merged_into
+                item = store.memory_item_repo.list_items_by_ids(
+                    {target_id}, where_filters, include_superseded=True, include_merged=True,
+                    include_embeddings=False,
+                ).get(target_id)
             if item is not None and item.id in items_pool and item.id not in exact_ids:
                 exact_ids.append(item.id)
         if not state.get("proceed_to_items"):

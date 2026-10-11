@@ -831,7 +831,11 @@ WHERE version = 1 AND model IN ({placeholders})
                     relation.updated_at = now
                     session.add(relation)
                 else:
-                    existing.updated_at = now
+                    if relation.reviewed_at is None or (
+                        (relation.updated_at if relation.updated_at.tzinfo is not None else relation.updated_at.replace(tzinfo=UTC))
+                        > (relation.reviewed_at if relation.reviewed_at.tzinfo is not None else relation.reviewed_at.replace(tzinfo=UTC))
+                    ):
+                        existing.updated_at = now
                     session.add(existing)
                     session.delete(relation)
 
@@ -864,6 +868,25 @@ WHERE version = 1 AND model IN ({placeholders})
                     existing.updated_at = now
                     session.add(existing)
                     session.delete(candidate)
+            triple_model = self._sqla_models.Triple
+            mention_filters = [
+                triple_model.subject_kind == "memory", triple_model.predicate == "mentions",
+                triple_model.object_kind == "entity", triple_model.valid_to.is_(None),
+                *self._build_filters(triple_model, scope),
+            ]
+            for mention in session.exec(
+                select(triple_model).where(triple_model.subject_id == item_id, *mention_filters)
+            ).all():
+                existing = session.exec(select(triple_model).where(
+                    triple_model.subject_id == merged_into, triple_model.object_id == mention.object_id,
+                    *mention_filters,
+                )).first()
+                if existing is None:
+                    mention.subject_id = merged_into
+                    mention.updated_at = now
+                    session.add(mention)
+                else:
+                    session.delete(mention)
             row.merged_into = merged_into
         if unresolved is not None:
             row.unresolved = unresolved
@@ -918,6 +941,7 @@ WHERE version = 1 AND model IN ({placeholders})
             select(self._memory_item_model).where(
                 self._memory_item_model.speaker_id == speaker_id,
                 *self._build_filters(self._memory_item_model, scope),
+                self._active_item_filter(self._memory_item_model),
             )
         ).all()
         return [self._to_memory_item(row, embedding=[]) for row in rows]

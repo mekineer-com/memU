@@ -6,6 +6,8 @@ import re
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
+from sqlalchemy import null
+
 from memu.app.dossier import DossierMixin
 from memu.database.vector import cosine_similarity
 
@@ -231,7 +233,7 @@ def _prefilter_dedupe_candidate_ids(
                 continue
             candidate_role = _dedupe_source_role(candidate)
             candidate_speaker_id = _dedupe_speaker_id(candidate)
-            if anchor_role != candidate_role:
+            if anchor_role != candidate_role or anchor.memory_type != candidate.memory_type:
                 continue
             if anchor_speaker_id != candidate_speaker_id:
                 continue
@@ -248,7 +250,7 @@ def _prefilter_dedupe_candidate_ids(
                 continue
             candidate_role = _dedupe_source_role(candidate)
             candidate_speaker_id = _dedupe_speaker_id(candidate)
-            if anchor_role != candidate_role:
+            if anchor_role != candidate_role or anchor.memory_type != candidate.memory_type:
                 continue
             if anchor_speaker_id != candidate_speaker_id:
                 continue
@@ -499,8 +501,9 @@ async def _find_supersede_targets(
             continue
         where = dict(user or {})
         where["memory_type"] = entry.memory_type
-        if entry.source_role:
-            where["source_role"] = entry.source_role
+        where["speaker_id"] = _dedupe_speaker_id(entry)
+        # Python None is ignored by repository filters; SQL NULL matches it explicitly.
+        where["source_role"] = _dedupe_source_role(entry) or null()
         hits = store.memory_item_repo.vector_search_items(query_vec=vector, top_k=3, where=where)
         for candidate_id, similarity in hits:
             candidate = store.memory_item_repo.get_item(candidate_id)

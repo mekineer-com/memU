@@ -1611,7 +1611,7 @@ class GraphMixin:
             raise RuntimeError("Memory deletion requires SQLite")
         with session_cm as session:
             session.execute(text("BEGIN IMMEDIATE"))
-            items = store.memory_item_repo.list_items_by_ids(set(raw_ids), where, session=session)
+            items = store.memory_item_repo.list_items_by_ids(set(raw_ids), where, include_merged=True, session=session)
             missing = set(raw_ids) - items.keys()
             if require_all and missing:
                 raise KeyError(f"Memory items not found in scope: {sorted(missing)}")
@@ -1635,11 +1635,9 @@ class GraphMixin:
                     )
                     if edge.subject_kind == edge.object_kind == "memory"
                     and edge.object_id in frontier and edge.subject_id in all_items
-                }
+                } | {item.id for item in all_items.values() if item.merged_into in frontier}
                 frontier = predecessors - group_ids
                 group_ids.update(frontier)
-            if any(item.id not in group_ids and item.merged_into in group_ids for item in all_items.values()):
-                raise ValueError("This memory is still linked to older duplicates. Deleting it would break their history.")
             categories = store.memory_category_repo.list_categories(scope, session=session)
             relations = store.category_item_repo.list_relations(scope, session=session)
             usages = self._dossier_usages_by_item((all_items[item_id] for item_id in group_ids), categories, relations)

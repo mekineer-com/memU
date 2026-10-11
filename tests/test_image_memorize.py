@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from memu.app import memorize_persistence
 from memu.app import memorize_dedupe
+from memu.app.memorize import StructuredMemoryEntry
 from memu.database.models import Triple
 from memu.app.service import MemoryService
 from memu.utils.conversation import parse_happened_at
@@ -24,6 +25,75 @@ def _service(tmp_path: Path) -> MemoryService:
         database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
         user_config={"model": Scope},
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("old_type", ["knowledge", "episode"])
+@pytest.mark.parametrize("tokens_overlap", [True, False])
+async def test_dedupe_preserves_memory_type_boundaries(tmp_path, old_type, tokens_overlap):
+    service = _service(tmp_path)
+    store = service.database
+    scope = {"user_id": "TestOwner", "soul_id": "TestSoul"}
+    old, new = [store.memory_item_repo.create_item(
+        memory_type=memory_type, summary=summary, embedding=[1.0, 0.0],
+        happened_at=datetime(year, 1, 1, tzinfo=UTC), user_data=scope, speaker_id="entity:guest-a",
+    ) for memory_type, summary, year in (
+        (old_type, "Fictional garden project" if tokens_overlap else "Orchids flourish", 2020),
+        ("knowledge", "Fictional garden project", 2021),
+    )]
+    state = {"items": [new], "store": store, "user": scope}
+    try:
+        await service._memorize_dedupe_merge(state, None)
+        rows = store.memory_item_repo.list_items(scope, include_merged=True)
+        assert rows[old.id].merged_into == (new.id if old_type == "knowledge" else None)
+        assert set(store.memory_item_repo.list_items(scope)) == (
+            {new.id} if old_type == "knowledge" else {old.id, new.id}
+        )
+        assert state["items"] == [new]
+    finally:
+        store.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("source_role", ["peer", None])
+async def test_supersede_filters_speaker_before_top_k(tmp_path, source_role):
+    service = _service(tmp_path)
+    store = service.database
+    scope = {"user_id": "TestOwner", "soul_id": "TestSoul"}
+    outsiders = [store.memory_item_repo.create_item(
+        memory_type="profile", summary="I grow roses", embedding=[1.0, 0.0],
+        user_data=scope, source_role=role, speaker_id=speaker_id,
+    ) for speaker_id, role in (
+        ("entity:guest-b", source_role),
+        ("entity:guest-a", "soul" if source_role is None else None),
+    ) for _ in range(3)]
+    old = store.memory_item_repo.create_item(
+        memory_type="profile", summary="I grow roses in pots", embedding=[1.0, 0.5],
+        user_data=scope, source_role=source_role, speaker_id="entity:guest-a",
+    )
+    entry = StructuredMemoryEntry("profile", "I grow orchids", [], source_role, 0.8, [0], None,
+                                  replaces_previous_fact="I grow roses", speaker_id="entity:guest-a")
+
+    class Client:
+        async def embed(self, texts):
+            return [[1.0, 0.0] for _ in texts]
+
+    client = Client()
+    service._llm_clients["embedding"] = client
+    try:
+        assert await service._find_supersede_targets(
+            structured_entries=[entry], store=store, embed_client=client, user=scope,
+        ) == {0: old.id}
+        state = await service._memorize_categorize_items({
+            "segment_plans": [{"resource_url": "memory://speaker-replacement", "entries": [entry]}],
+            "modality": "conversation", "local_path": None, "store": store, "user": scope,
+        }, {})
+        new, = state["items"]
+        edges = store.triple_repo.get_edges_from(old.id, "evolved_into", where=scope)
+        assert [edge.object_id for edge in edges] == [new.id]
+        assert set(store.memory_item_repo.list_items(scope)) == {new.id, *(item.id for item in outsiders)}
+    finally:
+        store.close()
 
 
 @pytest.mark.asyncio

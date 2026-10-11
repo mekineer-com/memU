@@ -5,6 +5,7 @@ from pathlib import Path
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
 
+from memu.app.memorize_dedupe import _dedupe_source_role, _dedupe_speaker_id
 from memu.database.models import Triple, entity_is_ignored
 
 
@@ -123,6 +124,29 @@ def _persist_memory_items(
 ) -> tuple[list[Any], int]:
     items: list[Any] = []
     superseded_targets: set[str] = set()
+    # Capture only existing copies before this batch creates any generalized items.
+    supersede_copies: dict[int, list[str]] = {}
+    for idx, target_item_id in supersede_targets.items():
+        entry = structured_entries[idx]
+        speaker_id = _dedupe_speaker_id(entry)
+        if speaker_id is None:
+            continue
+        role = _dedupe_source_role(entry)
+        where = {**dict(user or {}), "memory_type": entry.memory_type}
+        target = store.memory_item_repo.list_items_by_ids(
+            {target_item_id}, where, session=session,
+        ).get(target_item_id)
+        if target is None or _dedupe_speaker_id(target) != speaker_id or _dedupe_source_role(target) != role:
+            continue
+        copies = store.memory_item_repo.list_items(
+            {**where, "summary": target.summary,
+             "speaker_id": target.speaker_id, "source_role": target.source_role},
+            include_embeddings=False, session=session,
+        )
+        supersede_copies[idx] = [
+            copy.id for copy in copies.values()
+            if _dedupe_source_role(copy) == role
+        ]
     homeless_count = sum(1 for entry in structured_entries if not entry.categories)
     normalized_extract_model = str(extract_model or "").strip() or None
     for idx, (entry, emb) in enumerate(zip(structured_entries, item_embeddings, strict=True)):
@@ -173,8 +197,9 @@ def _persist_memory_items(
                     user_data=dict(user or {}),
                     session=session,
                 )
-        target_item_id = supersede_targets.get(idx)
-        if target_item_id and target_item_id != item.id and target_item_id not in superseded_targets:
+        for target_item_id in supersede_copies.get(idx, []):
+            if target_item_id in superseded_targets:
+                continue
             superseded_targets.add(target_item_id)
             store.triple_repo.add(
                 Triple(

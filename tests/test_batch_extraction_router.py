@@ -10,6 +10,7 @@ from memu.app import memorize_parsing as parsing
 from memu.app import memorize_segments
 from memu.app.memorize import SpeakerRosterEntry, StructuredMemoryEntry
 from memu.app.service import MemoryService
+from memu.database.models import Triple
 from memu.utils.taxonomy import normalize_category_name
 
 
@@ -439,10 +440,27 @@ async def test_categorize_prepares_without_write_lock_and_publishes_atomically(
     )
     store = service.database
     scope = {"user_id": "TestOwner", "soul_id": "TestSoul"}
-    old = store.memory_item_repo.create_item(
-        memory_type="knowledge", summary="Old garden plan", embedding=[1.0, 0.0], user_data=scope,
-        speaker_id="entity:guest-a",
-    )
+    old_kwargs = {
+        "memory_type": "knowledge", "summary": "Old garden plan", "embedding": [1.0, 0.0],
+        "user_data": scope, "speaker_id": "entity:guest-a",
+    }
+    copies = [store.memory_item_repo.create_item(**old_kwargs) for _ in range(5)]
+    old = copies[0]
+    preserved = [store.memory_item_repo.create_item(**{**old_kwargs, **changes}) for changes in [
+        {"summary": "Related garden plan", "embedding": [1.0, 0.1]},
+        {"memory_type": "profile"}, {"source_role": "user"},
+        {"speaker_id": "entity:guest-b"}, {"speaker_id": None}, {"speaker_id": ""},
+        {"user_data": {**scope, "user_id": "OtherTestOwner"}},
+        {"user_data": {**scope, "soul_id": "OtherTestSoul"}},
+    ]]
+    merged = store.memory_item_repo.create_item(**old_kwargs)
+    store.memory_item_repo.update_item(item_id=merged.id, merged_into=old.id)
+    superseded = store.memory_item_repo.create_item(**old_kwargs)
+    store.triple_repo.add(Triple(
+        subject_id=superseded.id, subject_kind="memory", predicate="evolved_into",
+        object_id=old.id, object_kind="memory", source_memory_id=old.id,
+    ), user_data=scope)
+    initial_rows = store.memory_item_repo.list_items(scope, include_superseded=True, include_merged=True)
     with store._sessions.session() as session:
         session.connection().exec_driver_sql("CREATE TABLE checkpoint (value INTEGER)")
         session.commit()
@@ -453,6 +471,7 @@ async def test_categorize_prepares_without_write_lock_and_publishes_atomically(
         entities=[{"name": "Fictional Garden", "type": "place"}],
         speaker_id="entity:guest-a",
     ) for text in ["New garden plan", "Another garden detail"]]
+    entries.insert(0, entries[0]._replace(content=old.summary, replaces_previous_fact=None))
     payloads = []
 
     class Embed:
@@ -477,6 +496,15 @@ async def test_categorize_prepares_without_write_lock_and_publishes_atomically(
         if failure == "publication":
             raise RuntimeError("publication failed")
 
+    copy_reads = []
+    list_items = store.memory_item_repo.list_items
+    def bounded_copies(where=None, **kwargs):
+        assert where == {**scope, "memory_type": "knowledge", "summary": old.summary,
+                         "speaker_id": old.speaker_id, "source_role": old.source_role}
+        assert kwargs["session"] is not None and kwargs["include_embeddings"] is False
+        copy_reads.append(where)
+        return list_items(where, **kwargs)
+
     state = {
         "segment_plans": [{"resource_url": "memory://prepared", "text": "A fictional conversation",
             "caption": "Segment caption", "segment_id": "chat:0-1", "entries": entries,
@@ -487,33 +515,48 @@ async def test_categorize_prepares_without_write_lock_and_publishes_atomically(
         "modality": "conversation", "local_path": None, "store": store,
         "user": scope, "conversation_id": "chat", "on_segment_saved": saved,
     }
-    if failure:
-        with pytest.raises(RuntimeError, match=f"{failure} failed"):
+    with monkeypatch.context() as reads:
+        reads.setattr(store.memory_item_repo, "list_items", bounded_copies)
+        if failure:
+            with pytest.raises(RuntimeError, match=f"{failure} failed"):
+                await service._memorize_categorize_items(state, {})
+        else:
             await service._memorize_categorize_items(state, {})
-    else:
-        await service._memorize_categorize_items(state, {})
-    rows = store.memory_item_repo.list_items(scope, include_superseded=True)
+    assert bool(copy_reads) == (failure != "preparation")
+    rows = store.memory_item_repo.list_items(scope, include_superseded=True, include_merged=True)
     resources = store.resource_repo.list_resources(scope)
     with store._sessions.session() as session:
         assert session.connection().exec_driver_sql(
             "SELECT count(*) FROM checkpoint WHERE value = 1",
         ).scalar_one() == (0 if failure else 1)
     assert len(resources) == (0 if failure else 1)
-    assert len(rows) == (1 if failure else 4)
+    assert len(rows) == len(initial_rows) + (0 if failure else 4)
     assert len({item.memory_ref for item in rows.values()}) == len(rows)
     assert payloads[:3] == [["Segment caption"], ["Garden: A garden plan"], [entry.content for entry in entries]]
     assert len(payloads) == (3 if failure == "preparation" else 4)
     if failure == "preparation":
         assert not (tmp_path / "resources" / "prepared.txt").exists()
+    active = store.memory_item_repo.list_items(scope)
     if not failure:
-        episode, first, second = state["items"]
-        assert episode.memory_ref < first.memory_ref < second.memory_ref
+        episode, restatement, first, second = state["items"]
+        assert episode.memory_ref < restatement.memory_ref < first.memory_ref < second.memory_ref
         assert first.summary == "New garden plan"
         assert first.embedding == [1.0, 0.0] and first.extra["model"] == "fictional-model"
         assert payloads[-1] == ["Old garden plan", "Old garden plan"]
-        edges = store.triple_repo.get_edges_from(old.id, "evolved_into", where=scope)
-        assert len(edges) == 1 and edges[0].object_id == first.id
+        assert restatement.summary == old.summary
+        assert {restatement.id, first.id, second.id} <= active.keys()
+        assert not store.triple_repo.get_edges_from(restatement.id, "evolved_into", where=scope)
         assert store.triple_repo.get_edges_from(first.id, "mentions", where=scope)
+    for copy in copies:
+        edges = store.triple_repo.get_edges_from(copy.id, "evolved_into", where=scope)
+        assert [edge.object_id for edge in edges] == ([] if failure else [first.id])
+        assert (copy.id in active) == bool(failure)
+    for item in preserved:
+        assert store.memory_item_repo.get_item(item.id) is not None
+        assert not store.triple_repo.get_edges_from(item.id, "evolved_into")
+    assert rows[merged.id].merged_into == old.id
+    edges = store.triple_repo.get_edges_from(superseded.id, "evolved_into", where=scope)
+    assert [edge.object_id for edge in edges] == [old.id]
     store.close()
 
 
