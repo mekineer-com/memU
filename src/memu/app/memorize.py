@@ -728,6 +728,7 @@ class MemorizeMixin:
                 "segment_messages": ep["segment_messages"],
                 "segment_raw_text": ep["segment_raw_text"],
                 "segment_background_context": ep["segment_background_context"],
+                "segment_background_context_rows": ep["segment_background_context_rows"],
                 "extract_model": ep.get("extract_model"),
             }
             state: WorkflowState = {
@@ -1222,6 +1223,10 @@ class MemorizeMixin:
                         source_file.write_text(json.dumps({
                             "content": accepted_rows,
                             "segment_background_context": plan["segment_background_context"],
+                            "segment_background_conversation_ids": list(dict.fromkeys(
+                                str(row.get("source_conversation_id") or row.get("conversation_id") or "")
+                                for row in plan["segment_background_context_rows"]
+                            )),
                         }, ensure_ascii=False), encoding="utf-8")
             res = store.resource_repo.create_resource(**prepared["resource_kwargs"], session=session)
 

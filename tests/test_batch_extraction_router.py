@@ -480,7 +480,10 @@ async def test_batch_saves_exact_supporting_block_and_complete_accepted_rows(mon
     assert prior["summary"] in block and "[TestGuest] short tail" in block
     assert block.count("[group][Workshop]") == 1
     assert rows[0]["content"] in routed[0] and "A personal reply." in routed[0]
-    assert envelope == {"content": rows, "segment_background_context": block}
+    assert envelope == {
+        "content": rows, "segment_background_context": block,
+        "segment_background_conversation_ids": [bg_cid],
+    }
     assert len(envelope["content"]) == 3 and len(plan["segment_messages"]) == 2
     assert plan["message_indices"] == [0, 2]
     assert list(plan["source_day_happened_at"]) == ["2026-01-02"]
