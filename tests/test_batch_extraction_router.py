@@ -402,19 +402,27 @@ async def test_persist_plan_keeps_segment_local_path_without_flattened_copy(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("primary_words", [74, 75, 76])
-async def test_batch_saves_exact_supporting_block_and_complete_accepted_rows(monkeypatch, tmp_path, primary_words):
+@pytest.mark.parametrize("background_tokens,primary_tokens", [
+    ((99,), 99), ((100,), 100), ((101,), 101), ((60, 60), 100), ((99, 100, 101), 101),
+])
+async def test_batch_saves_exact_supporting_block_and_complete_accepted_rows(
+    monkeypatch, tmp_path, background_tokens, primary_tokens,
+):
     service = _service()
     service.memorize_config.memory_types = ["knowledge"]
     cid = "sillytavern:fictional-personal"
-    bg_cid = "whatsapp:group:fictional-workshop"
+    background = [{
+        "conversation_id": f"whatsapp:group:fictional-workshop-{index}",
+        "source_conversation_id": f"whatsapp:group:fictional-workshop-{index}", "memorize_chat": False,
+        "source_label": "whatsapp:group", "chat_name": f"Workshop {index}",
+        "role": "user", "speaker": "TestGuest", "content": f"BACKGROUND-{index} " * tokens,
+        "received_at": "2026-01-01T10:00:00+00:00", "source_conversation_index": 20 + index,
+    } for index, tokens in enumerate(background_tokens)]
     rows = [
         {"conversation_id": cid, "source_conversation_id": cid, "memorize_chat": True,
-         "role": "user", "name": "TestOwner", "content": "personal " * primary_words,
+         "role": "user", "name": "TestOwner", "content": "PERSONAL " * primary_tokens,
          "received_at": "2026-01-02T10:00:00+00:00", "source_conversation_index": 10},
-        {"conversation_id": bg_cid, "source_conversation_id": bg_cid, "memorize_chat": False,
-         "chat_name": "Workshop", "role": "user", "speaker": "TestGuest", "content": "short tail",
-         "received_at": "2026-01-01T10:00:00+00:00", "source_conversation_index": 20},
+        *background,
         {"conversation_id": cid, "source_conversation_id": cid, "memorize_chat": True,
          "role": "assistant", "content": "A personal reply.",
          "received_at": "2026-01-02T10:01:00+00:00", "source_conversation_index": 11},
@@ -422,28 +430,39 @@ async def test_batch_saves_exact_supporting_block_and_complete_accepted_rows(mon
     raw_text = json.dumps(rows)
     source_file = tmp_path / "segment.json"
     source_file.write_text(raw_text, encoding="utf-8")
-    prior = {"source_conversation_id": bg_cid, "source_label": "whatsapp:group", "chat_name": "Workshop",
-             "summary": "Prior work.\n  Keep this exact paragraph.", "rolled_up": True}
+    prior = [{"source_conversation_id": row["source_conversation_id"], "source_label": "whatsapp:group",
+              "chat_name": row["chat_name"], "summary": f"Prior work {index}.\n  Keep this exact paragraph.",
+              "rolled_up": True} for index, row in enumerate(background)]
     routed = []
     extracted = []
     plans = []
     saved = []
+    summarized = []
+    client = _RouterStub(json.dumps({"excluded_types": [], "episodes": [{
+        "title": "Personal", "episode_summary": "A personal story.", "episode_item": "A personal story.",
+        "categories": ["Personal life"], "day": "2026-01-02",
+    }]}))
 
-    async def route(text, _types, **kwargs):
-        assert kwargs["source_days"] == ["2026-01-02"]
-        routed.append(text)
-        return ["knowledge"], [{"title": "Personal", "summary": "A personal story.",
-                               "item": "A personal story.", "categories": ["Personal life"],
-                               "day": "2026-01-02"}]
+    async def chat(prompt, system_prompt=None):
+        client.prompts.append(prompt)
+        if system_prompt is not None:
+            groups = json.loads(prompt)["groups"]
+            summarized.append(groups)
+            return json.dumps({"summaries": [{"source_key": group["source_key"],
+                                             "summary": f"Follow-up {group['source_key']}"} for group in groups]})
+        if "# Output\nJSON only." in prompt:
+            routed.append(prompt)
+            return client.payload
+        extracted.append(prompt)
+        return ("<item><memory><source_role>user</source_role><content>TestOwner keeps a personal note.</content>"
+                "<day>2026-01-02</day><confidence>0.80</confidence>"
+                "<categories><category>Personal life</category></categories></memory></item>")
 
-    async def entries(**kwargs):
-        assert kwargs["source_days"] == ("2026-01-02",)
-        assert kwargs["default_source_message_ids"] == [0, 2]
-        extracted.append(kwargs["resource_text"])
-        return []
-
-    async def unexpected_summary(**_kwargs):
-        pytest.fail("short tails and primary messages must not call a summarizer")
+    estimate = memorize_segments._estimate_text_tokens
+    sizes = {row["content"]: tokens for row, tokens in zip(background, background_tokens)}
+    sizes[rows[0]["content"]] = primary_tokens
+    monkeypatch.setattr(memorize_segments, "_estimate_text_tokens", lambda text: sizes.get(text, estimate(text)))
+    monkeypatch.setattr(client, "chat", chat)
 
     categorize = service._memorize_categorize_items
 
@@ -457,10 +476,7 @@ async def test_batch_saves_exact_supporting_block_and_complete_accepted_rows(mon
     def on_saved(_session, _url, _ids):
         saved.append(json.loads(source_file.read_text(encoding="utf-8")))
 
-    monkeypatch.setattr(service, "_select_chat_client", lambda *_a, **_kw: _RouterStub(""))
-    monkeypatch.setattr(service, "_route_segment", route)
-    monkeypatch.setattr(service, "_generate_entries_from_text", entries)
-    monkeypatch.setattr(service, "_summarize_background_groups_batched", unexpected_summary)
+    monkeypatch.setattr(service, "_select_chat_client", lambda *_a, **_kw: client)
     monkeypatch.setattr(service, "_memorize_categorize_items", save)
     monkeypatch.setattr(service, "_memorize_dedupe_merge", noop)
     monkeypatch.setattr(service, "_memorize_persist_and_index", noop)
@@ -468,25 +484,46 @@ async def test_batch_saves_exact_supporting_block_and_complete_accepted_rows(mon
         modality="conversation", conversation_id=cid,
         user={"user_id": "TestOwner", "soul_id": "TestSoul"},
         segments=[{"resource_url": str(source_file), "local_path": str(source_file), "raw_text": raw_text,
-                   "segment": {"message_indices": [0, 1, 2], "segment_id": f"{cid}:0-2",
-                               "segment_background_context_rows": [prior]}}],
+                   "segment": {"message_indices": list(range(len(rows))), "segment_id": f"{cid}:0-{len(rows)-1}",
+                               "segment_background_context_rows": prior}}],
         on_segment_saved=on_saved,
     )
     plan, = plans
     envelope, = saved
     block = plan["segment_background_context"]
-    assert block and routed[0].startswith(block + "\n\n")
-    assert block in extracted[0]
-    assert prior["summary"] in block and "[TestGuest] short tail" in block
-    assert block.count("[group][Workshop]") == 1
-    assert rows[0]["content"] in routed[0] and "A personal reply." in routed[0]
+    assert len(routed) == len(extracted) == 1
+    assert block and all(prompt.count(block) == 1 for prompt in (routed[0], extracted[0]))
+    qualifying = [row for row, tokens in zip(background, background_tokens) if tokens >= 100]
+    assert len(summarized) == bool(qualifying)
+    assert len(client.prompts) == 2 + bool(qualifying)
+    if qualifying:
+        assert [group["source_key"] for group in summarized[0]] == [row["source_conversation_id"] for row in qualifying]
+        for group, row in zip(summarized[0], qualifying):
+            assert row["content"].strip() in group["messages"]
+            assert "Prior work" not in group["messages"] and "PERSONAL" not in group["messages"]
+    for row, tokens, old in zip(background, background_tokens, prior):
+        assert block.count(f"[group][{row['chat_name']}]") == 1
+        for prompt in (block, routed[0], extracted[0]):
+            assert old["summary"] in prompt
+            if tokens < 100:
+                assert f"[TestGuest] {row['content']}" in prompt
+            else:
+                assert row["content"].split()[0] not in prompt
+                assert f"Follow-up {row['source_conversation_id']}" in prompt
+    for prompt in (routed[0], extracted[0]):
+        assert rows[0]["content"] in prompt and "A personal reply." in prompt
+    assert "PERSONAL" not in block and "A personal reply." not in block
     assert envelope == {
         "content": rows, "segment_background_context": block,
-        "segment_background_conversation_ids": [bg_cid],
+        "segment_background_conversation_ids": [row["source_conversation_id"] for row in background],
     }
-    assert len(envelope["content"]) == 3 and len(plan["segment_messages"]) == 2
-    assert plan["message_indices"] == [0, 2]
+    assert len(envelope["content"]) == len(rows) and len(plan["segment_messages"]) == 2
+    assert plan["message_indices"] == [0, len(rows)-1]
     assert list(plan["source_day_happened_at"]) == ["2026-01-02"]
+    assert plan["entries"][0].source_message_ids == [0, len(rows)-1]
+    item, = [item for item in service.database.memory_item_repo.list_items().values()
+             if item.memory_type == "knowledge"]
+    assert item.source_message_ids == [0, len(rows)-1] and item.happened_at.date().isoformat() == "2026-01-02"
 
 
 @pytest.mark.asyncio
