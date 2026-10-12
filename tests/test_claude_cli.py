@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import locale
 import subprocess
 import sys
@@ -11,6 +12,15 @@ import memu.llm.claude_cli as claude_cli
 import pytest
 from memu.llm.claude_cli import ClaudeCLIClient
 from memu.llm.wrapper import LLMClientWrapper, LLMInterceptorRegistry
+
+
+def _result_envelope(result="reply", **changes):
+    return {
+        "type": "result", "subtype": "success", "is_error": False,
+        "result": result, "stop_reason": "end_turn",
+        "usage": {"input_tokens": 1, "output_tokens": 2},
+        **changes,
+    }
 
 
 @pytest.fixture
@@ -48,7 +58,7 @@ async def test_claude_cli_uses_workspace_and_cleans_prompt_file(monkeypatch, tmp
         seen["prompt_file"] = prompt_file
         seen["system_prompt"] = prompt_file.read_text(encoding="utf-8")
         seen["input"] = input
-        return subprocess.CompletedProcess(cmd, 0, stdout="reply", stderr="")
+        return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(_result_envelope(stop_reason=None)), stderr="")
 
     mock_cli_spawn(fake_run)
     client = ClaudeCLIClient(model="claude-opus-4-7", workspace=tmp_path)
@@ -57,9 +67,12 @@ async def test_claude_cli_uses_workspace_and_cleans_prompt_file(monkeypatch, tmp
 
     assert text == "reply"
     assert raw["provider"] == "claude_code"
+    assert raw["stop_reason"] is None
+    assert raw["usage"] == {"input_tokens": 1, "output_tokens": 2}
     assert seen["cwd"] == tmp_path
     assert seen["input"] == "hello"
     assert "--safe-mode" in seen["cmd"]
+    assert seen["cmd"][seen["cmd"].index("--output-format") + 1] == "json"
     assert seen["system_prompt"] == "system"
     assert not seen["prompt_file"].exists()
     assert list((tmp_path / ".prompts").iterdir()) == []
@@ -72,7 +85,7 @@ async def test_claude_cli_payload_logging_is_request_local(monkeypatch, tmp_path
     async def fake_run(cmd, *, cwd, input):
         if input == "slow":
             await asyncio.sleep(0.05)
-        return subprocess.CompletedProcess(cmd, 0, stdout=f"reply:{input}", stderr="")
+        return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(_result_envelope(f"reply:{input}")), stderr="")
 
     mock_cli_spawn(fake_run)
     client = ClaudeCLIClient(model="claude-opus-4-7", workspace=tmp_path)
@@ -100,7 +113,7 @@ async def test_claude_cli_passes_permission_mode(monkeypatch, tmp_path: Path, mo
 
     async def fake_run(cmd, *, cwd, input):
         seen["cmd"] = cmd
-        return subprocess.CompletedProcess(cmd, 0, stdout="reply", stderr="")
+        return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(_result_envelope()), stderr="")
 
     mock_cli_spawn(fake_run)
     client = ClaudeCLIClient(
@@ -123,7 +136,7 @@ async def test_claude_cli_passes_settings(monkeypatch, tmp_path: Path, mock_cli_
 
     async def fake_run(cmd, *, cwd, input):
         seen["cmd"] = cmd
-        return subprocess.CompletedProcess(cmd, 0, stdout="reply", stderr="")
+        return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(_result_envelope()), stderr="")
 
     mock_cli_spawn(fake_run)
     client = ClaudeCLIClient(
@@ -146,7 +159,7 @@ async def test_claude_cli_passes_session_id(monkeypatch, tmp_path: Path, mock_cl
 
     async def fake_run(cmd, *, cwd, input):
         seen["cmd"] = cmd
-        return subprocess.CompletedProcess(cmd, 0, stdout="reply", stderr="")
+        return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(_result_envelope()), stderr="")
 
     mock_cli_spawn(fake_run)
     client = ClaudeCLIClient(model="claude-opus-4-7", workspace=tmp_path)
@@ -173,7 +186,7 @@ async def test_claude_cli_passes_resume_session_id(monkeypatch, tmp_path: Path, 
         prompt_file = Path(cmd[cmd.index("--system-prompt-file") + 1])
         seen["system_prompt"] = prompt_file.read_text(encoding="utf-8")
         seen["prompt_file"] = prompt_file
-        return subprocess.CompletedProcess(cmd, 0, stdout="reply", stderr="")
+        return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(_result_envelope()), stderr="")
 
     mock_cli_spawn(fake_run)
     client = ClaudeCLIClient(model="claude-opus-4-7", workspace=tmp_path)
@@ -206,15 +219,15 @@ async def test_claude_cli_passes_json_output_format(monkeypatch, tmp_path: Path,
         return subprocess.CompletedProcess(
             cmd,
             0,
-            stdout='{"type":"result","result":"{\\"response_target\\":\\"respond\\",\\"response\\":\\"hi\\"}","usage":{"input_tokens":1}}',
+            stdout=json.dumps(_result_envelope('{"response_target":"respond","response":"hi"}', usage={"input_tokens": 1})),
             stderr="",
         )
 
     mock_cli_spawn(fake_run)
     client = ClaudeCLIClient(model="claude-opus-4-7", workspace=tmp_path)
 
-    text, raw = await client._run_claude(
-        prompt="hello",
+    text, raw = await client.chat(
+        "hello",
         system_prompt="system",
         response_format={"type": "json_object"},
     )
@@ -230,17 +243,102 @@ async def test_claude_cli_json_output_requires_result_field(monkeypatch, tmp_pat
     monkeypatch.setattr(claude_cli.shutil, "which", lambda _binary: "/bin/claude")
 
     async def fake_run(cmd, *, cwd, input):
-        return subprocess.CompletedProcess(cmd, 0, stdout='{"type":"result","usage":{}}', stderr="")
+        envelope = _result_envelope()
+        del envelope["result"]
+        return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(envelope), stderr="")
 
     mock_cli_spawn(fake_run)
     client = ClaudeCLIClient(model="claude-opus-4-7", workspace=tmp_path)
 
     with pytest.raises(RuntimeError, match="missing string result"):
-        await client._run_claude(
-            prompt="hello",
+        await client.chat(
+            "hello",
             system_prompt="system",
             response_format={"type": "json_object"},
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("result,response_format,stop_reason", [
+    pytest.param(" \nordinary prose\n ", None, None, id="prose"),
+    pytest.param('<memories><memory>2 < 3 & caf\u00e9</memory></memories>\n', None, "end_turn", id="extraction-xml"),
+    pytest.param('{"response":"hi"}\n', {"type": "json_object"}, "end_turn", id="json-content"),
+])
+async def test_claude_cli_envelope_preserves_success(monkeypatch, tmp_path, mock_cli_spawn, result, response_format, stop_reason):
+    calls = []
+    after = []
+    errors = []
+    envelope = _result_envelope(result, stop_reason=stop_reason)
+
+    async def fake_run(cmd, *, cwd, input):
+        calls.append(cmd)
+        assert cmd[cmd.index("--output-format") + 1] == "json"
+        return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(envelope), stderr="")
+
+    mock_cli_spawn(fake_run)
+    client = ClaudeCLIClient(model="fictional", claude_binary=sys.executable, workspace=tmp_path)
+    registry = LLMInterceptorRegistry(strict=True)
+    registry.register_after(lambda ctx, request, response, usage: after.append((response, usage)))
+    registry.register_on_error(lambda *args: errors.append(args))
+    wrapper = LLMClientWrapper(client, registry=registry)
+    assert await wrapper.chat("fictional prompt", response_format=response_format) == result
+    assert len(calls) == len(after) == 1
+    assert errors == []
+    response, usage = after[0]
+    assert response.content == result
+    assert usage.status == "success"
+    assert list(client._prompt_dir.iterdir()) == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("output,message", [
+    *[pytest.param(json.dumps(_result_envelope(subtype=subtype, is_error=True, errors=["fictional failure"])),
+                   "fictional failure", id=subtype)
+      for subtype in ("error_during_execution", "error_max_turns", "error_max_budget_usd", "error_max_structured_output_retries")],
+    pytest.param(json.dumps({key: value for key, value in _result_envelope(
+        subtype="error_during_execution", is_error=True, errors=["fictional failure"]
+    ).items() if key != "result"}), "fictional failure", id="error-without-result"),
+    pytest.param(json.dumps(_result_envelope(is_error=True)), "Claude CLI failed", id="success-is-error"),
+    pytest.param(json.dumps(_result_envelope(subtype="error_max_turns")), "Claude CLI failed", id="error-subtype-false-flag"),
+    pytest.param(json.dumps(_result_envelope(stop_reason="refusal")), "refused by provider", id="refusal"),
+    pytest.param(json.dumps(_result_envelope(stop_reason="max_tokens")), "truncated at the output token limit", id="max-tokens"),
+    pytest.param(json.dumps(_result_envelope(" \n\t")), "returned empty result", id="blank-result"),
+    pytest.param(json.dumps(_result_envelope(None)), "missing string result field", id="nonstring-result"),
+    pytest.param("{", "not valid JSON", id="malformed-json"),
+    pytest.param("[]", "missing result envelope", id="nonobject-envelope"),
+    pytest.param(json.dumps(_result_envelope(type="assistant")), "missing result envelope", id="wrong-envelope-type"),
+    pytest.param(json.dumps({"result": "reply"}), "missing result envelope", id="missing-envelope-type"),
+    pytest.param(json.dumps({key: value for key, value in _result_envelope().items() if key != "subtype"}),
+                 "Claude CLI failed", id="missing-status"),
+    pytest.param(json.dumps({key: value for key, value in _result_envelope().items() if key != "is_error"}),
+                 "Claude CLI failed", id="missing-error-flag"),
+])
+async def test_claude_cli_envelope_fails_before_parser(monkeypatch, tmp_path, mock_cli_spawn, output, message):
+    calls = []
+    after = []
+    errors = []
+    parsed = []
+
+    async def fake_run(cmd, *, cwd, input):
+        calls.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, stdout=output, stderr="")
+
+    mock_cli_spawn(fake_run)
+    client = ClaudeCLIClient(model="fictional", claude_binary=sys.executable, workspace=tmp_path)
+    registry = LLMInterceptorRegistry(strict=True)
+    registry.register_after(lambda *args: after.append(args))
+    registry.register_on_error(lambda ctx, request, error, usage: errors.append((error, usage)))
+    wrapper = LLMClientWrapper(client, registry=registry)
+
+    with pytest.raises(RuntimeError, match=message) as raised:
+        reply = await wrapper.chat("fictional extraction prompt")
+        parsed.append(reply)
+    assert len(calls) == len(errors) == 1
+    assert errors[0][0] is raised.value
+    assert errors[0][1].status == "error"
+    assert after == parsed == []
+    assert client._last_call_monotonic == 0
+    assert list(client._prompt_dir.iterdir()) == []
 
 
 @pytest.mark.asyncio
@@ -255,8 +353,9 @@ async def test_claude_cli_stops_real_child_through_wrapper(monkeypatch, tmp_path
     real_spawn = asyncio.create_subprocess_exec
     process = None
 
-    async def spawn(*_cmd, **kwargs):
+    async def spawn(*cmd, **kwargs):
         nonlocal process
+        assert cmd[cmd.index("--output-format") + 1] == "json"
         process = await real_spawn(sys.executable, "-c", code, **kwargs)
         return process
 
@@ -304,8 +403,10 @@ async def test_claude_cli_stops_real_child_through_wrapper(monkeypatch, tmp_path
 @pytest.mark.parametrize("exit_code", [0, 7])
 async def test_claude_cli_real_child_preserves_text_semantics(monkeypatch, tmp_path: Path, exit_code) -> None:
     code = (
-        "import sys; data=sys.stdin.buffer.read(); "
-        "sys.stdout.buffer.write(data+b'\\r\\nlast\\rline\\n'); "
+        "import sys,json,locale; data=sys.stdin.buffer.read(); "
+        "result=(data+b'\\r\\nlast\\rline\\n').decode(locale.getpreferredencoding(False)); "
+        f"envelope={_result_envelope()!r}; envelope['result']=result; "
+        "sys.stdout.write(json.dumps(envelope)+'\\r\\n'); "
         "sys.stderr.buffer.write(b'error\\r\\ndetail\\rline\\n'); "
         f"sys.exit({exit_code})"
     )
@@ -316,7 +417,8 @@ async def test_claude_cli_real_child_preserves_text_semantics(monkeypatch, tmp_p
     )
     real_spawn = asyncio.create_subprocess_exec
 
-    async def spawn(*_cmd, **kwargs):
+    async def spawn(*cmd, **kwargs):
+        assert cmd[cmd.index("--output-format") + 1] == "json"
         return await real_spawn(sys.executable, "-c", code, **kwargs)
 
     monkeypatch.setattr(claude_cli.asyncio, "create_subprocess_exec", spawn)
@@ -329,6 +431,8 @@ async def test_claude_cli_real_child_preserves_text_semantics(monkeypatch, tmp_p
         assert str(error.value) == f"Claude CLI failed (exit {exit_code}) for model=fictional: {expected.stderr.strip()}"
     else:
         text, raw = await client.chat(prompt, system_prompt="fictional system")
-        assert text == expected.stdout
+        assert text == json.loads(expected.stdout)["result"]
         assert raw["exit_code"] == expected.returncode
+        assert raw["usage"] == {"input_tokens": 1, "output_tokens": 2}
+        assert raw["stop_reason"] == "end_turn"
     assert list(client._prompt_dir.iterdir()) == []

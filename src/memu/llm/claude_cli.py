@@ -104,7 +104,6 @@ class ClaudeCLIClient:
         text, raw = await self._run_claude(
             prompt=prompt,
             system_prompt=system_prompt or "",
-            response_format=response_format,
             session_id=session_id_clean,
             resume_session_id=resume_session_id_clean,
         )
@@ -116,7 +115,6 @@ class ClaudeCLIClient:
         *,
         prompt: str,
         system_prompt: str,
-        response_format: dict[str, Any] | None = None,
         session_id: str | None = None,
         resume_session_id: str | None = None,
     ) -> tuple[str, dict[str, Any]]:
@@ -131,14 +129,13 @@ class ClaudeCLIClient:
                 self.chat_model,
                 "--system-prompt-file",
                 str(system_prompt_file),
+                "--output-format",
+                "json",
             ]
             if session_id:
                 cmd.extend(["--session-id", session_id])
             if resume_session_id:
                 cmd.extend(["--resume", resume_session_id, "--system-prompt-snapshot", "off"])
-            json_output = isinstance(response_format, dict) and response_format.get("type") == "json_object"
-            if json_output:
-                cmd.extend(["--output-format", "json"])
             if self.effort:
                 cmd.extend(["--effort", self.effort])
             if self.permission_mode:
@@ -189,16 +186,27 @@ class ClaudeCLIClient:
         response_text = completed.stdout
         if not response_text or not response_text.strip():
             raise RuntimeError(f"Claude CLI returned empty output for model={self.chat_model}")
-        usage = None
-        if json_output:
-            try:
-                envelope = json.loads(response_text)
-            except json.JSONDecodeError as exc:
-                raise RuntimeError("Claude CLI JSON output was not valid JSON") from exc
-            if not isinstance(envelope, dict) or not isinstance(envelope.get("result"), str):
-                raise RuntimeError("Claude CLI JSON output missing string result field")
-            response_text = envelope["result"]
-            usage = envelope.get("usage")
+        try:
+            envelope = json.loads(response_text)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError("Claude CLI JSON output was not valid JSON") from exc
+        if not isinstance(envelope, dict) or envelope.get("type") != "result":
+            raise RuntimeError("Claude CLI JSON output missing result envelope")
+        if envelope.get("subtype") != "success" or envelope.get("is_error") is not False:
+            raise RuntimeError(
+                f"Claude CLI failed for model={self.chat_model} "
+                f"(subtype={envelope.get('subtype')!r}, is_error={envelope.get('is_error')!r}): "
+                f"{envelope.get('errors') or '(no error details)'}"
+            )
+        if envelope.get("stop_reason") == "max_tokens":
+            raise RuntimeError("Claude CLI response truncated at the output token limit")
+        if envelope.get("stop_reason") == "refusal":
+            raise RuntimeError("Claude CLI response refused by provider")
+        if not isinstance(envelope.get("result"), str):
+            raise RuntimeError("Claude CLI JSON output missing string result field")
+        response_text = envelope["result"]
+        if not response_text.strip():
+            raise RuntimeError(f"Claude CLI returned empty result for model={self.chat_model}")
 
         raw = {
             "provider": self.provider,
@@ -207,7 +215,8 @@ class ClaudeCLIClient:
             "exit_code": completed.returncode,
             "session_id": session_id,
             "resume_session_id": resume_session_id,
-            "usage": usage,
+            "usage": envelope.get("usage"),
+            "stop_reason": envelope.get("stop_reason"),
         }
         return response_text, raw
 
