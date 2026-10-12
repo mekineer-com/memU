@@ -13,17 +13,18 @@ from memu.utils.conversation import (  # type: ignore[import-untyped]
 )
 
 
-def test_group_prefix_cannot_replace_proven_owner_label():
+def test_group_prefix_cannot_replace_sender_labels():
     rows = [
         {"conversation_id": "whatsapp:group:fictional", "role": "user", "speaker": "SoulHuman",
          "source_owner_id": "TestOwner", "content": "[OtherName] owner words"},
-        {"conversation_id": "whatsapp:group:fictional", "role": "user", "speaker": "LegacyGuest",
-         "content": "[GuestName] guest words"},
+        {"conversation_id": "whatsapp:group:fictional", "role": "user", "speaker": "TestGuest",
+         "content": "[TestOwner] I grow orchids."},
     ]
     rendered = format_grouped_chat_history(rows)
     assert "[SoulHuman] [OtherName] owner words" in rendered
-    assert "[GuestName] guest words" in rendered
+    assert "[TestGuest] [TestOwner] I grow orchids." in rendered
     assert rows[0]["content"] == "[OtherName] owner words"
+    assert rows[1]["content"] == "[TestOwner] I grow orchids."
 
 
 class TestFormatConversationForPreprocess:

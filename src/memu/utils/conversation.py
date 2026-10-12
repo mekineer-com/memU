@@ -108,7 +108,6 @@ def format_speaker_message(
     return f"[{label}]{separator}{content}"
 
 
-_SHARED_GROUP_PREFIX_RE = re.compile(r"^\[([^\]]+)\]\s+(.+)$")
 _NUMERIC_LIKE_RE = re.compile(r"^[0-9+\-() .]+$")
 
 
@@ -125,17 +124,6 @@ def normalize_whatsapp_identifier(value: str) -> str:
     if normalized in {".", ".."}:
         return ""
     return normalized
-
-
-def _parse_shared_group_sender_prefix(content: str) -> tuple[str, str] | None:
-    match = _SHARED_GROUP_PREFIX_RE.match(content)
-    if not match:
-        return None
-    sender = str(match.group(1) or "").strip()
-    message = str(match.group(2) or "").strip()
-    if not sender or not message:
-        return None
-    return sender, message
 
 
 def _conversation_kind_and_key(conversation_id: str) -> tuple[str, str]:
@@ -453,10 +441,6 @@ def format_grouped_chat_history(
             role = str(msg.get("role") or "").strip()
             speaker = str(msg.get("speaker") or msg.get("name") or "").strip()
             content = str(msg.get("content") or "")
-            if role == "user" and kind == "whatsapp_group" and not msg.get("source_owner_id"):
-                parsed = _parse_shared_group_sender_prefix(content)
-                if parsed is not None:
-                    speaker, content = parsed
             rendered_rows.append(
                 {
                     "role": role,
