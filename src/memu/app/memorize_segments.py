@@ -222,7 +222,10 @@ def _grouped_chat_timestamp(message: Mapping[str, Any]) -> Any:
     )
 
 
-def _prepare_grouped_chat_messages(messages: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+def _prepare_grouped_chat_messages(
+    messages: Sequence[Mapping[str, Any]],
+    speaker_map: Mapping[int, tuple[str, str]] | None = None,
+) -> list[dict[str, Any]]:
     prepared: list[dict[str, Any]] = []
     for message in sorted(messages, key=_message_index_for_sort):
         row = dict(message)
@@ -232,6 +235,12 @@ def _prepare_grouped_chat_messages(messages: Sequence[Mapping[str, Any]]) -> lis
         timestamp = _grouped_chat_timestamp(row)
         if timestamp and "received_at" not in row:
             row["received_at"] = timestamp
+        if speaker_map is not None and (speaker := speaker_map.get(_message_index_for_sort(row))) is not None:
+            speaker_id, label = speaker
+            source_ref = str(row.get("source_ref") or "").strip()
+            evidence = (f"speaker_ref={speaker_id}" if speaker_id else
+                        f"unlinked sender={source_ref}" if source_ref else "unlinked")
+            row["speaker"] = f"{label}; {evidence}"
         prepared.append(row)
     return prepared
 
@@ -240,9 +249,10 @@ def _render_grouped_chat_messages(
     messages: Sequence[Mapping[str, Any]],
     *,
     soul_name: str | None = None,
+    speaker_map: Mapping[int, tuple[str, str]] | None = None,
 ) -> str:
     return format_grouped_chat_history(
-        _prepare_grouped_chat_messages(messages),
+        _prepare_grouped_chat_messages(messages, speaker_map),
         time_label_resolver=format_dated_relative_time_label,
         soul_name=soul_name,
     )

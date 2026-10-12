@@ -121,6 +121,14 @@ async def test_render_episode_with_background_context_groups_primary_cross_chats
     assert "[whatsapp:dm]" not in rendered
     assert "[whatsapp:group]" not in rendered
     assert "current chat" not in rendered
+    original = [dict(row) for row in primary_messages]
+    evidence = segment_helpers._render_grouped_chat_messages(
+        list(reversed(primary_messages)),
+        speaker_map={1: ("entity:known", "TestGuest"), 2: ("", "TestOwner")},
+    )
+    assert "[TestGuest; speaker_ref=entity:known] dm primary" in evidence
+    assert "[TestOwner; unlinked] group primary" in evidence
+    assert primary_messages == original
 
 
 def test_render_grouped_chat_messages_places_activities_before_chats() -> None:

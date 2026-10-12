@@ -1229,7 +1229,11 @@ def test_parse_memory_type_response_xml_reports_unusable_memory(content, roots, 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("path", ["extract_step", "batch"])
-@pytest.mark.parametrize("case", ["renamed", "unnamed", "unfamiliar", "name_only", "import_alias"])
+@pytest.mark.parametrize("case", [
+    "renamed", "unnamed", "unfamiliar", "name_only", "import_alias",
+    "owner_collision", "soul_collision", "explicit_owner", "explicit_soul",
+    "explicit_peer", "header_only", "body_mention",
+])
 @pytest.mark.parametrize("copies", [1, 2])
 async def test_memorize_preserves_source_identity_without_name_binding(monkeypatch, path, case, copies):
     service = _service()
@@ -1239,9 +1243,33 @@ async def test_memorize_preserves_source_identity_without_name_binding(monkeypat
     repo = service.database.entity_repo
     known_ref = "whatsapp:known@lid"
     person = repo.create("Person One", "person", scope,
-                         properties={"source_refs": [known_ref], "aliases": ["Garden Guest"]})
+                         properties={"source_refs": [known_ref], "aliases": ["Garden Guest"], "origin": "user_declared"})
     before = {entity.id: entity.properties for entity in repo.list_all(where=scope)}
-    if case == "unfamiliar":
+    collision = case in {"owner_collision", "soul_collision", "explicit_owner", "explicit_soul"}
+    role = "peer"
+    ref = ""
+    expected = f"entity:{person.id}"
+    if collision:
+        role = "soul" if "soul" in case else "user"
+        expected = f"{role}:{'testsoul' if role == 'soul' else 'testowner'}" if case.startswith("explicit_") else None
+        ref = expected or ""
+        messages = [
+            {"role": "assistant" if role == "soul" else "user", "name": "Shared Label"},
+            {"role": "unknown", "name": " shared LABEL ", "source_ref": "whatsapp:guest-a@lid"},
+            {"role": "unknown", "name": "Different Label", "source_ref": "whatsapp:guest-b@lid"},
+            {"role": "assistant" if role == "soul" else "user", "name": "Other Label"},
+        ]
+    elif case == "explicit_peer":
+        ref = expected
+        messages = [{"name": "Person One", "source_ref": known_ref},
+                    {"name": "Person One", "source_ref": "whatsapp:guest-a@lid"}]
+    elif case in {"header_only", "body_mention"}:
+        role, ref = "entity", expected
+        messages = [{"name": "Person One" if case == "header_only" else "Unlinked Guest",
+                     "source_ref": "whatsapp:guest-a@lid"}]
+        if case == "header_only":
+            expected = None
+    elif case == "unfamiliar":
         messages = [{"source_ref": ref, "name": "Person One"} for ref in [
             "whatsapp:guest-a@lid", "whatsapp:guest-b@lid", "whatsapp:guest-a@lid",
         ]]
@@ -1252,7 +1280,8 @@ async def test_memorize_preserves_source_identity_without_name_binding(monkeypat
         if case == "renamed":
             messages[0]["name"] = "Renamed Later"
     for message in messages:
-        message.update(role="unknown", content="A fictional garden story.",
+        message.setdefault("role", "unknown")
+        message.update(content="Person One grows orchids." if case == "body_mention" else "A fictional garden story.",
                        received_at="2026-01-02T10:00:00+00:00")
         if case == "import_alias":
             message.update(role="user", source_label="import")
@@ -1262,7 +1291,8 @@ async def test_memorize_preserves_source_identity_without_name_binding(monkeypat
     saved_states = []
     categorize = service._memorize_categorize_items
 
-    xml = "<memory><content>Enjoys fictional gardens</content><source_role>peer</source_role><day>2026-01-02</day></memory>"
+    xml = (f"<memory><content>Enjoys fictional gardens</content><source_role>{role}</source_role>"
+           f"<speaker_ref>{ref}</speaker_ref><day>2026-01-02</day></memory>")
     client = _RouterStub("<item>" + xml * copies + "</item>")
     client.chat_model = "test"
     parsed = service._parse_structured_entries(
@@ -1304,19 +1334,37 @@ async def test_memorize_preserves_source_identity_without_name_binding(monkeypat
 
     state, = saved_states
     items = [item for item in state["items"] if item.memory_type == "profile"]
-    unidentified = case in {"unfamiliar", "name_only", "import_alias"}
+    unidentified = case in {"unfamiliar", "name_only", "import_alias", "owner_collision", "soul_collision", "header_only"}
+    if case in {"unfamiliar", "name_only", "import_alias"}:
+        expected = None
     assert len(items) == (copies if unidentified else 1)
     persisted = service.database.memory_item_repo.list_items(scope)
     assert len([item for item in persisted.values() if item.memory_type == "profile"]) == len(items)
     for item in items:
         loaded = service.database.memory_item_repo.get_item(item.id)
         assert loaded is not None
-        assert loaded.speaker_id == (None if unidentified else f"entity:{person.id}")
-        assert loaded.speaker_label == {
+        assert loaded.speaker_id == expected
+        expected_label = {
             "renamed": "Renamed Later", "unnamed": known_ref, "unfamiliar": None,
             "name_only": None, "import_alias": None,
+            "owner_collision": None, "soul_collision": None, "header_only": None,
+            "explicit_owner": "Shared Label", "explicit_soul": "Shared Label",
+            "explicit_peer": "Person One", "body_mention": "Person One",
         }[case]
-        assert loaded.source_role == "peer" and loaded.source_message_ids == indices
+        assert loaded.speaker_label == expected_label
+        assert loaded.source_role == role and loaded.source_message_ids == indices
+    prompt = client.prompts[-1]
+    if collision:
+        canonical = f"{role}:{'testsoul' if role == 'soul' else 'testowner'}"
+        assert f"Shared Label; speaker_ref={canonical}" in prompt
+        assert "shared LABEL; unlinked sender=whatsapp:guest-a@lid" in prompt
+        assert "Different Label; unlinked sender=whatsapp:guest-b@lid" in prompt
+    elif case in {"header_only", "body_mention"}:
+        assert "unlinked sender=whatsapp:guest-a@lid" in prompt
+        assert (f"- entity:{person.id} | label=Person One" in prompt) == (case == "body_mention")
+    elif case == "explicit_peer":
+        assert f"Person One; speaker_ref=entity:{person.id}" in prompt
+        assert "Person One; unlinked sender=whatsapp:guest-a@lid" in prompt
     assert [{key: value for key, value in message.items() if key != "_message_index"}
             for message in state["segment_plans"][0]["segment_messages"]] == messages
     assert {entity.id: entity.properties for entity in repo.list_all(where=scope)} == before

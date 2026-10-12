@@ -532,6 +532,16 @@ class MemorizeMixin:
                 if msg.get("event_kind") != "image"
                 and not self._message_is_primary_for_memorize(msg)
             ]
+            speaker_map = self._build_speaker_map(
+                primary_messages or segment_messages_all,
+                speaker_scope,
+                entity_source_speaker_ids,
+            )
+            speaker_roster = self._build_speaker_roster_for_segment(
+                speaker_map=speaker_map, declared_entities=declared_entity_roster,
+                segment_text="\n".join(str(message.get("content") or "") for message in primary_messages),
+            )
+            display_map = speaker_map if speaker_roster or any(not sid for sid, _ in speaker_map.values()) else None
             context_only = segment_payload.get("context_only") is True
             primary_indices = [
                 self._message_index_for_sort(msg)
@@ -586,7 +596,9 @@ class MemorizeMixin:
                 )
                 rendered_text = "\n\n".join(part for part in (
                     supporting_block,
-                    segment_helpers._render_grouped_chat_messages(primary_messages, soul_name=soul_name),
+                    segment_helpers._render_grouped_chat_messages(
+                        primary_messages, soul_name=soul_name, speaker_map=display_map,
+                    ),
                 ) if part)
             segment_text = rendered_text or (str(text).strip() if isinstance(text, str) else "")
             episodes: list[dict[str, Any]] = []
@@ -611,11 +623,6 @@ class MemorizeMixin:
                 msg = f"batch segment {segment_number} rendered empty conversation text"
                 raise ValueError(msg)
 
-            speaker_map = self._build_speaker_map(
-                primary_messages or segment_messages_all,
-                speaker_scope,
-                entity_source_speaker_ids,
-            )
             dossier_context = None
             if not context_only:
                 if dossier_embed_client is None:
@@ -655,6 +662,7 @@ class MemorizeMixin:
                 "segment_background_context": supporting_block,
                 "context_only": context_only,
                 "speaker_map": speaker_map,
+                "speaker_roster": speaker_roster,
                 "applicable_types": applicable_types,
                 "entries": [],
                 "segment_id": segment_id,
@@ -684,12 +692,6 @@ class MemorizeMixin:
                     f"{episode_review}\n\n{_EPISODE_REVIEW_EXTRACTION_GUIDANCE}\n\n"
                     f"---\n{segment_text}"
                 )
-                speaker_map = ep.get("speaker_map") if isinstance(ep.get("speaker_map"), dict) else {}
-                speaker_roster = self._build_speaker_roster_for_segment(
-                    speaker_map=speaker_map,
-                    declared_entities=declared_entity_roster,
-                    segment_text=segment_text,
-                )
                 estimated_tokens = self._estimate_text_tokens(extraction_text)
                 if estimated_tokens > 100000:
                     logger.warning(
@@ -701,7 +703,7 @@ class MemorizeMixin:
                     "memory_types": [mtype],
                     "categories_prompt_str": ep["dossier_context"]["categories_str"],
                     "dossier_context": ep["dossier_context"],
-                    "speaker_roster": speaker_roster,
+                    "speaker_roster": ep["speaker_roster"],
                     "target_items_by_type": {mtype: target_per_memory_type},
                     "input_budget": input_budget,
                     "user_id": str(speaker_scope.get("user_id") or "user"),
@@ -986,8 +988,15 @@ class MemorizeMixin:
         speaker_roster = self._build_speaker_roster_for_segment(
             speaker_map=speaker_map,
             declared_entities=declared_entity_roster,
-            segment_text=text,
+            segment_text=("\n".join(str(message.get("content") or "") for message in segment_messages)
+                          if state["modality"] == "conversation" and segment_messages else text),
         )
+        if state["modality"] == "conversation" and segment_messages:
+            display_map = speaker_map if speaker_roster or any(not sid for sid, _ in speaker_map.values()) else None
+            text = segment_helpers._render_grouped_chat_messages(
+                segment_messages, soul_name=str(scope.get("soul_id") or "").strip() or None,
+                speaker_map=display_map,
+            )
 
         image_happened_at = state.get("image_happened_at")
         image_day = image_happened_at.date().isoformat() if image_happened_at is not None else None
