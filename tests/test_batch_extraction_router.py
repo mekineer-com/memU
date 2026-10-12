@@ -1181,13 +1181,14 @@ def test_parse_memory_type_response_xml_preserves_entities_and_bare_ampersands(r
 @pytest.mark.parametrize("roots", [1, 2])
 def test_parse_memory_type_response_xml_preserves_literal_less_than_in_content(roots) -> None:
     raw = (
-        "<item><memory><content>I felt loved <3; 2 < 3; x < y; R&D; "
+        "<item><memory><content>I felt loved <3; 2 < 3; x < y; a<b; R&D; "
         "<![CDATA[literal </content> <3 &lt;]]> <b>still here</b> "
+        '<b title="x > y">double</b> <i title=\'x > y\'>single</i> '
         "<memory><content>quoted inner</content></memory> <\u00e9>then</\u00e9> <3 <"
         "</content></memory></item>"
     )
     assert parsing._parse_memory_type_response_xml(raw * roots) == [{
-        "content": "I felt loved <3; 2 < 3; x < y; R&D; literal </content> <3 &lt; still here quoted inner then <3 <",
+        "content": "I felt loved <3; 2 < 3; x < y; a<b; R&D; literal </content> <3 &lt; still here double single quoted inner then <3 <",
     }] * roots
 
 
@@ -1200,6 +1201,10 @@ def test_parse_memory_type_response_xml_preserves_literal_less_than_in_content(r
     "<item><memory><content>Valid.</content></memory><?note <content> ?><3</item>",
     "<item><memory><content>Broken <b>prose</content></memory></item>",
     "<item><memory><content>Broken <\u00e9>prose</content></memory></item>",
+    '<item><memory><content>Broken <b title="R&D">prose</b></content></memory></item>',
+    '<item><memory><content>Broken <b title="unfinished</content></memory></item>',
+    "<item><memory><content>Broken <b title=unquoted>prose</b></content></memory></item>",
+    "<item><memory><contentment>Not prose <3</contentment></memory></item>",
 ])
 def test_parse_memory_type_response_xml_keeps_malformed_structure_failing(raw) -> None:
     with pytest.raises(ValueError, match="unparseable"):

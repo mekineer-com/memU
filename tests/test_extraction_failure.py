@@ -34,7 +34,7 @@ async def test_extraction_parses_each_reply_once_and_keeps_batch_semantics(
     service = _service()
     monkeypatch.setattr(service.fs, "base", tmp_path)
     valid = (
-        "<item><memory><content>A fictional\n fact.</content>"
+        "<item><memory><content>A fictional\n fact: a<b & x < y.</content>"
         "<speaker_ref>entity:guest</speaker_ref></memory></item>"
     )
     replies = [valid, "not xml" if later_invalid else valid]
@@ -64,7 +64,7 @@ async def test_extraction_parses_each_reply_once_and_keeps_batch_semantics(
         assert len(list((tmp_path / "extraction_dumps").iterdir())) == 1
     else:
         entries = await service._generate_entries_from_text(**kwargs)
-        assert [entry.content for entry in entries] == ["A fictional fact."]
+        assert [entry.content for entry in entries] == ["A fictional fact: a<b & x < y."]
     assert parsed == replies
 
 

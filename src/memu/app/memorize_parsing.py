@@ -198,20 +198,25 @@ def _parse_memory_type_response_xml(raw: str) -> list[dict[str, Any]]:
         def escape_text(match: re.Match[str]) -> str:
             nonlocal content_depth
             token = match.group(0)
-            if token.startswith("<content") and not token.endswith("/>"):
+            if re.match(r"<content(?:\s|>)", token) and not token.endswith("/>"):
                 content_depth += 1
-            elif token.startswith("</content"):
+            elif re.fullmatch(r"</content\s*>", token):
                 content_depth -= 1
             elif token == "&":
                 return "&amp;"
-            elif token == "<" and content_depth > 0:
+            elif (token == "<" and content_depth > 0
+                  and xml_content[match.end():match.end() + 1] not in {"/", "!", "?"}):
                 return "&lt;"
             return token
 
-        # Track nested content without treating XML literals/comments as structure.
+        # Shield markup before escaping prose; ElementTree still validates tags.
+        name_start = r"(?:[A-Za-z_:]|[^\x00-\x7f])"
+        name = name_start + r"(?:[A-Za-z0-9_.:-]|[^\x00-\x7f])*"
         xml_content = re.sub(
-            r"<!\[CDATA\[.*?\]\]>|<!--.*?-->|<\?.*?\?>|<content(?:\s[^>]*)?>|</content\s*>|"
-            r"&(?!amp;|lt;|gt;|quot;|apos;|#\d+;|#x[0-9a-fA-F]+;)|<(?![/!?A-Za-z_:]|[^\x00-\x7f])",
+            r"<!\[CDATA\[.*?\]\]>|<!--.*?-->|<\?.*?\?>"
+            rf"""|</?{name_start}(?:[^<>"']|"[^"]*"|'[^']*')*>"""
+            rf"|</?{name}(?=\s+{name}\s*=|[/=>])[^<>]*"
+            r"|&(?!amp;|lt;|gt;|quot;|apos;|#\d+;|#x[0-9a-fA-F]+;)|<",
             escape_text,
             xml_content,
             flags=re.DOTALL,
