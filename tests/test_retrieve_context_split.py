@@ -697,7 +697,7 @@ async def test_query_only_retrieve_rejects_missing_active_query():
         )
 
 
-def test_retrieve_context_excludes_message_to_self_audit_memories():
+def test_retrieve_context_excludes_subconscious_insight_audit_memories():
     mixin = RetrieveMixin()
     mixin._model_dump_without_embeddings = lambda obj: dict(obj)
     mixin._find_superseded_at = lambda *_args, **_kwargs: None
@@ -719,7 +719,7 @@ def test_retrieve_context_excludes_message_to_self_audit_memories():
                 "id": "audit",
                 "memory_type": "subconscious",
                 "summary": "Notice the quiet signal before answering.",
-                "extra": {"apimw_message_to_self": True},
+                "extra": {"apimw_subconscious_insight": True},
             },
         },
         "category_hits": [],

@@ -701,7 +701,7 @@ class RetrieveMixin:
             response["items"] = [
                 it for it in response["items"]
                 if (it.get("memory_type") or "") != "narrative_self"
-                and not (it.get("extra") or {}).get("apimw_message_to_self")
+                and not (it.get("extra") or {}).get("apimw_subconscious_insight")
             ]
             graph_provenance = state.get("graph_provenance") or {}
             graph_edges = state.get("graph_edges") or {}
