@@ -876,7 +876,7 @@ def test_due_dossiers_cover_first_revision_and_membership_review(tmp_path) -> No
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("case", ["active", "inactive", "successor", "successor-chain", "successor-merged", "successor-merge-predecessor", "successor-cited"])
+@pytest.mark.parametrize("case", ["active", "inactive", "successor", "successor-chain", "successor-merged", "successor-merge-predecessor", "successor-cited", "successor-cited-unlinked"])
 async def test_ordinary_revision_leaves_import_pending_members_unreviewed(tmp_path, monkeypatch, case) -> None:
     successor = case.startswith("successor")
     service = _service(tmp_path, retrieve_config={"item": {"top_k": 0 if successor else 1}})
@@ -906,7 +906,8 @@ async def test_ordinary_revision_leaves_import_pending_members_unreviewed(tmp_pa
             memory_type="episode", summary="Earlier ordinary evidence", embedding=[1.0, 0.0],
             user_data=SCOPE, segment_id="ordinary",
         )
-        store.category_item_repo.link_item_category(inactive.id, category.id, SCOPE)
+        if case != "successor-cited-unlinked":
+            store.category_item_repo.link_item_category(inactive.id, category.id, SCOPE)
     if inactive is not None:
         replacement = candidate
         if case == "successor-chain":
@@ -930,7 +931,7 @@ async def test_ordinary_revision_leaves_import_pending_members_unreviewed(tmp_pa
             store.memory_item_repo.update_item(item_id=replacement.id, merged_into=candidate.id)
     prose = (f"## Current\nA retained reference [M{historical.memory_ref}]."
              if case == "active" else
-             f"## Current\nEarlier evidence [M{inactive.memory_ref}]." if case == "successor-cited" else
+             f"## Current\nEarlier evidence [M{inactive.memory_ref}]." if case.startswith("successor-cited") else
              "## Current\nA steady account.")
     store.memory_category_repo.update_category(category_id=category.id, summary=prose)
     assert service.list_due_dossiers(SCOPE, excluded_segment_ids=["import-pending"])[0].id == category.id
@@ -938,10 +939,12 @@ async def test_ordinary_revision_leaves_import_pending_members_unreviewed(tmp_pa
     expected_pending = {current.id, unsegmented.id}
     assert {item.id for item in bundle["pending_items"]} == expected_pending
     assert candidate.id not in {item.id for item in bundle["candidate_items"]}
-    assert set(bundle["linked_inactive_item_ids"]) == ({inactive.id} if inactive is not None else set())
+    assert set(bundle["linked_inactive_item_ids"]) == (
+        {inactive.id} if inactive is not None and case != "successor-cited-unlinked" else set()
+    )
     cleanup_ids = []
     assert {item.id for item in bundle["cleanup_items"]} == set(cleanup_ids)
-    if case == "successor-cited":
+    if case.startswith("successor-cited"):
         assert inactive.id in {item.id for item in revision_status_items(bundle)["cited"]}
     decisions = "".join(
         f'<decision ref="[M{item.memory_ref}]" action="add" />'
@@ -958,6 +961,10 @@ async def test_ordinary_revision_leaves_import_pending_members_unreviewed(tmp_pa
     if case == "active":
         assert historical.id in decision["add_item_ids"]
     monkeypatch.setattr("memu.app.dossier.append_category_summary_journal", lambda **_kw: None)
+    if case == "successor-cited-unlinked":
+        invalid = {**decision, "resulting_prose": "## Current\nA steady account.", "cited_item_ids": []}
+        with pytest.raises(ValueError, match="inactive or wrong-scope"):
+            await service.apply_dossier_revision(bundle, invalid, SCOPE, embedding_client=FakeEmbedClient())
     await service.apply_dossier_revision(bundle, decision, SCOPE, embedding_client=FakeEmbedClient())
     relations = {row.item_id: row for row in store.category_item_repo.list_relations(SCOPE)}
     assert relations[current.id].reviewed_at is not None
@@ -966,6 +973,8 @@ async def test_ordinary_revision_leaves_import_pending_members_unreviewed(tmp_pa
         assert relations[historical.id].reviewed_at is None
     else:
         assert inactive.id in relations and candidate.id not in relations
+        if case == "successor-cited-unlinked":
+            assert relations[inactive.id].reviewed_at is None
     assert service.list_due_dossiers(SCOPE, excluded_segment_ids=["import-pending"]) == []
     assert service.list_due_dossiers(SCOPE, segment_ids=["import-pending"])[0].id == category.id
     if successor:
@@ -1076,6 +1085,74 @@ def test_due_dossiers_include_linked_merge_and_supersession(tmp_path) -> None:
         merged_category.id,
         superseded_category.id,
     }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("linked", [False, True])
+@pytest.mark.parametrize("lineage", ["correction", "merge", "mixed"])
+async def test_deferred_citation_repair_includes_unsegmented_successors(tmp_path, monkeypatch, linked, lineage):
+    service = _service(tmp_path, retrieve_config={"item": {"top_k": 0}})
+    store = service.database
+    _seed_anchors(service)
+    category = _category(service, "Fictional account")
+    old, new = [store.memory_item_repo.create_item(
+        memory_type="knowledge", summary=text, embedding=[1.0, 0.0], user_data=SCOPE,
+        segment_id=segment,
+    ) for text, segment in (("Earlier account", "old-chat"), ("Current account", None))]
+    if linked:
+        relation = store.category_item_repo.link_item_category(old.id, category.id, SCOPE)
+        _mark_reviewed(store, category.id, [old.id], relation.updated_at + timedelta(microseconds=1))
+    original_prose = f"## Account\nEarlier account [M{old.memory_ref}]."
+    store.memory_category_repo.update_category(category_id=category.id, summary=original_prose)
+    assert service.list_due_dossiers(SCOPE) == []
+    target = new
+    if lineage == "mixed":
+        target = store.memory_item_repo.create_item(
+            memory_type="knowledge", summary="Intermediate account", embedding=[1.0, 0.0], user_data=SCOPE,
+        )
+        store.memory_item_repo.update_item(item_id=target.id, merged_into=new.id)
+    if lineage == "merge":
+        store.memory_item_repo.update_item(item_id=old.id, merged_into=new.id)
+    else:
+        store.triple_repo.add(Triple(
+            subject_id=old.id, subject_kind="memory", predicate="evolved_into",
+            object_id=target.id, object_kind="memory", source_memory_id=target.id,
+        ), user_data=SCOPE)
+    assert [row.id for row in service.list_due_dossiers(
+        SCOPE, segment_ids=["next-chat"], include_reviewed_changes=True,
+    )] == [category.id]
+    assert service.list_due_dossiers(SCOPE, segment_ids=["next-chat"]) == []
+    bundle = service.prepare_dossier_revision(category.id, SCOPE)
+    statuses = revision_status_items(bundle)
+    assert old.id in {item.id for item in statuses["purged"]}
+    assert new.id in {item.id for item in statuses["search"] + statuses["pending"]}
+    keep = (
+        f'<dossier_revisions><dossier_revision dossier_id="{category.id}">'
+        f'<description>{category.description}</description><prose_action>keep</prose_action>'
+        '<prose_patches/><decisions>'
+        + "".join(f'<decision ref="[M{item.memory_ref}]" action="add" />' for item in statuses["pending"])
+        + '</decisions></dossier_revision></dossier_revisions>'
+    )
+    with pytest.raises(ValueError, match="purged memories"):
+        parse_dossier_revision_batch(keep, [bundle])
+    submitted = f"## Account\nCurrent account [M{new.memory_ref}]."
+    response = (
+        f'<dossier_revisions><dossier_revision dossier_id="{category.id}">'
+        f'<description>{category.description}</description><prose_action>patch</prose_action>'
+        f'<prose_patches><section ref="S1" action="replace"><body>{submitted}</body>'
+        '</section></prose_patches><decisions>'
+        f'<decision ref="[M{new.memory_ref}]" action="add" />'
+        '</decisions></dossier_revision></dossier_revisions>'
+    )
+    [decision] = parse_dossier_revision_batch(response, [bundle])
+    assert set(decision["cleanup_item_ids"]) <= set(bundle["linked_inactive_item_ids"])
+    monkeypatch.setattr("memu.app.dossier.append_category_summary_journal", lambda **_kw: None)
+    await service.apply_dossier_revision(bundle, decision, SCOPE, embedding_client=FakeEmbedClient())
+    assert store.memory_category_repo.list_categories(SCOPE)[category.id].summary == submitted
+    relations = store.category_item_repo.list_relations({**SCOPE, "category_id": category.id})
+    assert [row.item_id for row in relations] == [new.id]
+    assert relations[0].reviewed_at is not None
+    assert service.list_due_dossiers(SCOPE) == []
 
 
 def test_prepare_dossier_revision_bounds_actionable_evidence(tmp_path) -> None:
@@ -1928,7 +2005,8 @@ async def test_caller_owned_dossier_revision_rolls_back_all_writes(tmp_path, mon
 
 
 @pytest.mark.asyncio
-async def test_apply_dossier_revision_keeps_empty_dossier_text(tmp_path, monkeypatch) -> None:
+@pytest.mark.parametrize("submitted_prose", ["## Health\nMy revised understanding.", "", "## Health\nHistorical account."])
+async def test_apply_dossier_revision_keeps_submitted_empty_dossier_text(tmp_path, monkeypatch, submitted_prose) -> None:
     service, store, _anchors, category, pending, _candidate, refs, bundle = _revision_case(
         tmp_path,
         summary=None,
@@ -1945,7 +2023,7 @@ async def test_apply_dossier_revision_keeps_empty_dossier_text(tmp_path, monkeyp
     decision = {
         "dossier_id": category.id,
         "description": "Discarded rewrite.",
-        "resulting_prose": "",
+        "resulting_prose": submitted_prose,
         "add_item_ids": [],
         "remove_item_ids": [pending.id],
         "cleanup_item_ids": [],
@@ -1960,7 +2038,7 @@ async def test_apply_dossier_revision_keeps_empty_dossier_text(tmp_path, monkeyp
     )
 
     assert revised.description == "Health description"
-    assert revised.summary == "## Health\nHistorical account."
+    assert revised.summary == submitted_prose
     assert revised.last_evidence_at is None and revised.last_revised_at is not None
     assert store.category_item_repo.list_relations({"category_id": category.id}) == []
     assert client.calls == [] and journal[0]["summary_before"] == old_prose

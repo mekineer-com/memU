@@ -463,20 +463,32 @@ class DossierMixin:
         store = self._get_database()
         categories = store.memory_category_repo.list_categories(scope)
         relations = store.category_item_repo.list_relations(scope)
+        _linked_items, inactive_ids = _load_linked_items(store, relations, scope)
+        category_refs = {
+            category.id: set(self.extract_memory_refs(category.summary or "", strict=False))
+            for category in categories.values()
+            if category.kind in DOSSIER_KINDS and category.anchor_role is None
+        }
+        refs = {ref for values in category_refs.values() for ref in values}
+        cited_items = store.memory_item_repo.list_items(
+            {**scope, "memory_ref__in": refs}, include_superseded=True,
+            include_merged=True, include_embeddings=False,
+        ) if refs else {}
+        inactive_ids |= cited_items.keys() - store.memory_item_repo.list_items_by_ids(set(cited_items), scope).keys()
+        evidence_ids = _selected_evidence_ids(store, scope, segment_ids) if segment_ids is not None else None
+        excluded_ids = _selected_evidence_ids(store, scope, excluded_segment_ids)
         if segment_ids is not None:
-            evidence_ids = _selected_evidence_ids(store, scope, segment_ids)
             relations = [
                 relation for relation in relations
                 if relation.item_id in evidence_ids or (
                     include_reviewed_changes
-                    and relation.reviewed_at is not None
-                    and _membership_needs_review(relation)
+                    and (relation.item_id in inactive_ids or (
+                        relation.reviewed_at is not None and _membership_needs_review(relation)
+                    ))
                 )
             ]
         if excluded_segment_ids:
-            excluded_ids = _selected_evidence_ids(store, scope, excluded_segment_ids)
             relations = [relation for relation in relations if relation.item_id not in excluded_ids]
-        _linked_items, inactive_ids = _load_linked_items(store, relations, scope)
 
         actionable: list[tuple[float, MemoryCategory]] = []
         for category in categories.values():
@@ -485,15 +497,20 @@ class DossierMixin:
             category_relations = [
                 relation for relation in relations if relation.category_id == category.id
             ]
-            if not category_relations:
-                continue
             due_relations = [
                 relation for relation in category_relations
                 if _membership_needs_review(relation) or relation.item_id in inactive_ids
             ]
-            if due_relations:
+            due_citations = [
+                item for item in cited_items.values()
+                if item.memory_ref in category_refs[category.id]
+                and item.id in inactive_ids and item.id not in excluded_ids
+                and (evidence_ids is None or item.id in evidence_ids or include_reviewed_changes)
+            ]
+            if due_relations or due_citations:
                 actionable.append(
-                    (min(_timestamp(relation.updated_at) for relation in due_relations), category)
+                    (min([_timestamp(relation.updated_at) for relation in due_relations]
+                         + [_timestamp(item.updated_at) for item in due_citations]), category)
                 )
 
         actionable.sort(
@@ -547,8 +564,6 @@ class DossierMixin:
         excluded_evidence = _selected_evidence_ids(store, scope, excluded_segment_ids)
         pending_ids -= excluded_evidence
         cleanup_inactive_ids = linked_inactive_ids - excluded_evidence
-        if not pending_ids and not cleanup_inactive_ids:
-            raise ValueError(f"Dossier {category_id} is not due for revision")
 
         anchors = store.memory_category_repo.list_anchor_categories(scope)
         _validate_anchors(anchors, self._expected_anchor_names(scope))
@@ -561,6 +576,11 @@ class DossierMixin:
             if item is None:
                 raise KeyError(f"Memory reference [M{memory_ref}] not found in scope")
             cited_items[item.id] = item
+
+        cited_inactive_ids = cited_items.keys() - store.memory_item_repo.list_items_by_ids(set(cited_items), scope).keys()
+        repair_inactive_ids = cleanup_inactive_ids | (cited_inactive_ids - excluded_evidence)
+        if not pending_ids and not repair_inactive_ids:
+            raise ValueError(f"Dossier {category_id} is not due for revision")
 
         top_k = max(0, int(self.retrieve_config.item.top_k))
         candidate_items: dict[str, MemoryItem] = {}
@@ -582,7 +602,7 @@ class DossierMixin:
                 raise KeyError(f"Dossier candidate memories disappeared: {sorted(missing)}")
 
         evolved_ids: set[str] = set()
-        lineage = set(cleanup_inactive_ids)
+        lineage = set(repair_inactive_ids)
         while lineage:
             lineage_items = store.memory_item_repo.list_items_by_ids(
                 lineage, scope, include_superseded=True, include_merged=True,
@@ -654,7 +674,7 @@ class DossierMixin:
             ),
             "cleanup_memberships": cleanup,
             "cleanup_items": sorted(
-                (all_shown_items[item_id] for item_id in shown_inactive_ids - (excluded_evidence & set(linked_items))),
+                (all_shown_items[item_id] for item_id in shown_inactive_ids - excluded_evidence),
                 key=_item_sort_key,
             ),
             "candidate_items": sorted(candidate_items.values(), key=_item_sort_key),
@@ -864,8 +884,6 @@ class DossierMixin:
         cited_ids = decision_ids("cited_item_ids")
         snapshot_linked_ids = set(bundle["linked_item_ids"])
         provisional_members = (snapshot_linked_ids | add_ids) - remove_ids - cleanup_ids
-        if not provisional_members and not _allow_empty_text and not cited_ids:
-            prose = strip_memory_citations(str(dossier.summary or ""))
 
         embedding: list[float] | None = None
         if (provisional_members or _allow_empty_text) and description != dossier.description:
@@ -991,7 +1009,12 @@ class DossierMixin:
             scope,
             session=session,
         )
-        if set(active_members) != resulting_members - excluded_inactive_ids:
+        # Retained historical citations may attach, but stay unreviewed until import.
+        deferred_cited_ids = (
+            (shown_ids - active_shown_ids) & set(bundle.get("excluded_review_item_ids", ()))
+            & set(bundle["cited_unlinked_item_ids"]) & cited_ids
+        )
+        if set(active_members) != resulting_members - excluded_inactive_ids - deferred_cited_ids:
             raise ValueError("Dossier result contains an inactive or wrong-scope memory")
         if resulting_members and not prose.strip():
             raise ValueError("A dossier with members requires nonblank prose")
