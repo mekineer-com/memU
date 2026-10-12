@@ -112,15 +112,23 @@ def render_memory_type_prompt(
 def estimate_memorize_context_load(
     *, categories: Sequence[MemoryCategory], narrative_self: str | None,
     memorize_config: MemorizeConfig, user_id: str = "user",
+    primary_messages: Sequence[Mapping[str, Any]] = (), soul_name: str | None = None,
 ) -> int | None:
-    """Forecast threshold chat plus largest stored support, excluding generated episode summaries."""
+    """Project sampled chat at threshold; without a sample, report only known fixed load."""
     anchors = {category.anchor_role: category for category in categories if category.anchor_role is not None}
     if set(anchors) != {"soul", "user"}:
         return None
     threshold = max(0, memorize_config.min_chunk_tokens)
+    primary = [message for message in primary_messages
+               if message.get("event_kind") != "image"
+               and segment_helpers._message_is_primary_for_memorize(message)]
+    words = sum(len(str(message.get("content") or message.get("mes") or "").split())
+                for message in primary)
+    sample = segment_helpers._render_grouped_chat_messages(primary, soul_name=soul_name) if words else ""
+    numerator, denominator = (3 * threshold, 4 * words) if words else (0, 1)
     active = select_active_dossiers(categories, memorize_config.active_dossiers_per_kind)
     ordinary = [category for category in active if category.anchor_role is None]
-    guide = router_episode_guidance(threshold)
+    guide = router_episode_guidance(len(sample.split()) * numerator * 4 // (denominator * 3))
     count = RELEVANT_DOSSIERS_PER_EPISODE * guide
     relevant = sorted(ordinary, key=lambda category: estimate_prompt_tokens(
         MemorizeMixin._format_soul_context_for_prompt({"relevant_dossiers": [category]})
@@ -138,15 +146,31 @@ def estimate_memorize_context_load(
         "dossier_index": render_dossier_index(active), "relevant_dossiers": relevant,
     })
     memory_types = memorize_config.memory_types or DEFAULT_MEMORY_TYPES
-    prompts = [render_router_prompt("", memory_types, guide, "\n".join(
+    prompts = [(render_router_prompt("", memory_types, guide, "\n".join(
         f"- {category.name}: {category.description}" for category in ordinary
-    ), narrative_self)]
-    prompts.extend(render_memory_type_prompt(
-        memorize_config=memorize_config, memory_type=cast(MemoryType, memory_type),
-        resource_text=_EPISODE_REVIEW_EXTRACTION_GUIDANCE, categories_str=choices, soul_context_str=context,
-        target_items=memory_type_target_items(threshold), user_id=user_id,
-    ) for memory_type in memory_types)
-    return threshold + max(estimate_prompt_tokens(prompt) for prompt in prompts)
+    ), narrative_self), len(sample.split()), len(sample.encode("utf-8")))]
+    resource = f"\n\n{_EPISODE_REVIEW_EXTRACTION_GUIDANCE}\n\n---\n"
+    for memory_type in memory_types:
+        kwargs = dict(
+            memorize_config=memorize_config, memory_type=cast(MemoryType, memory_type),
+            categories_str=choices, soul_context_str=context,
+            target_items=memory_type_target_items(threshold), user_id=user_id,
+        )
+        prompt = render_memory_type_prompt(resource_text=resource, **kwargs)
+        sampled_prompt = render_memory_type_prompt(resource_text=resource + sample, **kwargs)
+        prompts.append((prompt, len(sampled_prompt.split()) - len(prompt.split()),
+                        len(sampled_prompt.encode("utf-8")) - len(prompt.encode("utf-8"))))
+    loads = []
+    for prompt, sample_words, sample_bytes in prompts:
+        # Project words and bytes independently before applying the request estimator.
+        projected_words = (sample_words * numerator + denominator - 1) // denominator
+        projected_bytes = (sample_bytes * numerator + denominator - 1) // denominator
+        loads.append(max(
+            (len(prompt.split()) + projected_words) * 4 // 3,
+            # LLMWrapper budgets the empty system text plus a newline before the prompt.
+            ((len(prompt.encode("utf-8")) + 1 + projected_bytes) * 2 + 4) // 5,
+        ))
+    return max(loads)
 
 
 class StructuredMemoryEntry(NamedTuple):
