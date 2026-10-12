@@ -193,9 +193,26 @@ def _parse_memory_type_response_xml(raw: str) -> list[dict[str, Any]]:
 
         start_idx, end_idx, end_tag = boundaries
         xml_content = raw[start_idx : end_idx + len(end_tag)]
+        content_depth = 0
+
+        def escape_text(match: re.Match[str]) -> str:
+            nonlocal content_depth
+            token = match.group(0)
+            if token.startswith("<content") and not token.endswith("/>"):
+                content_depth += 1
+            elif token.startswith("</content"):
+                content_depth -= 1
+            elif token == "&":
+                return "&amp;"
+            elif token == "<" and content_depth > 0:
+                return "&lt;"
+            return token
+
+        # Track nested content without treating XML literals/comments as structure.
         xml_content = re.sub(
-            r"<!\[CDATA\[.*?\]\]>|&(?!amp;|lt;|gt;|quot;|apos;|#\d+;|#x[0-9a-fA-F]+;)",
-            lambda match: match.group(0) if match.group(0).startswith("<![CDATA[") else "&amp;",
+            r"<!\[CDATA\[.*?\]\]>|<!--.*?-->|<\?.*?\?>|<content(?:\s[^>]*)?>|</content\s*>|"
+            r"&(?!amp;|lt;|gt;|quot;|apos;|#\d+;|#x[0-9a-fA-F]+;)|<(?![/!?A-Za-z_:]|[^\x00-\x7f])",
+            escape_text,
             xml_content,
             flags=re.DOTALL,
         )

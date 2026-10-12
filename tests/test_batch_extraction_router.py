@@ -1178,6 +1178,34 @@ def test_parse_memory_type_response_xml_preserves_entities_and_bare_ampersands(r
     }] * roots
 
 
+@pytest.mark.parametrize("roots", [1, 2])
+def test_parse_memory_type_response_xml_preserves_literal_less_than_in_content(roots) -> None:
+    raw = (
+        "<item><memory><content>I felt loved <3; 2 < 3; x < y; R&D; "
+        "<![CDATA[literal </content> <3 &lt;]]> <b>still here</b> "
+        "<memory><content>quoted inner</content></memory> <\u00e9>then</\u00e9> <3 <"
+        "</content></memory></item>"
+    )
+    assert parsing._parse_memory_type_response_xml(raw * roots) == [{
+        "content": "I felt loved <3; 2 < 3; x < y; R&D; literal </content> <3 &lt; still here quoted inner then <3 <",
+    }] * roots
+
+
+@pytest.mark.parametrize("raw", [
+    "<item><1memory/></item>",
+    "<item>< memory/></item>",
+    "<item><memory><content>Valid.</content></memory><3</item>",
+    '<item><memory><content kind="empty"/><3</memory></item>',
+    "<item><memory><content>Valid.</content></memory><!-- <content> --><3</item>",
+    "<item><memory><content>Valid.</content></memory><?note <content> ?><3</item>",
+    "<item><memory><content>Broken <b>prose</content></memory></item>",
+    "<item><memory><content>Broken <\u00e9>prose</content></memory></item>",
+])
+def test_parse_memory_type_response_xml_keeps_malformed_structure_failing(raw) -> None:
+    with pytest.raises(ValueError, match="unparseable"):
+        parsing._parse_memory_type_response_xml(raw)
+
+
 @pytest.mark.parametrize("categories", ["", "<categories/>", "<categories><category> </category></categories>"])
 def test_parse_structured_entries_keeps_uncategorized_content(categories) -> None:
     response = (
