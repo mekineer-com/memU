@@ -9,6 +9,7 @@ import logging
 import os
 import time
 from collections.abc import Callable
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any
 
@@ -90,9 +91,7 @@ class HTTPLLMClient:
         self._last_call_time = time.monotonic()
 
     async def _post_with_retry(self, endpoint: str, payload: dict[str, Any]) -> dict[str, Any]:
-        """POST with throttle and retry on transient failures."""
-        transient_statuses = {408, 429, 500, 502, 503, 504}
-        last_exc: Exception | None = None
+        """Retry only before sending, or after an explicit rate-limit response."""
         for attempt in range(1 + self._max_retries):
             await self._throttle()
             try:
@@ -100,17 +99,26 @@ class HTTPLLMClient:
                     resp = await client.post(endpoint, json=payload, headers=self._headers())
                     resp.raise_for_status()
                     return resp.json()
-            except (httpx.RemoteProtocolError, httpx.ReadTimeout, httpx.ConnectTimeout, httpx.HTTPStatusError) as exc:
+            except (httpx.ConnectError, httpx.ConnectTimeout, httpx.HTTPStatusError) as exc:
+                if attempt == self._max_retries:
+                    raise
+                wait = (attempt + 1) * 5
                 if isinstance(exc, httpx.HTTPStatusError):
-                    status = exc.response.status_code
-                    if status not in transient_statuses:
+                    retry_after = exc.response.headers.get("Retry-After", "").strip()
+                    if exc.response.status_code != 429 or not retry_after:
                         raise
-                last_exc = exc
-                if attempt < self._max_retries:
-                    wait = (attempt + 1) * 5
-                    logger.warning("LLM call failed (attempt %d/%d), retrying in %ds: %s", attempt + 1, 1 + self._max_retries, wait, exc)
-                    await asyncio.sleep(wait)
-        raise last_exc  # type: ignore[misc]
+                    try:
+                        if retry_after.isascii() and retry_after.isdecimal():
+                            wait = int(retry_after)
+                        else:
+                            wait = max(0, parsedate_to_datetime(retry_after).timestamp() - time.time())
+                    except (ValueError, TypeError, OverflowError):
+                        raise exc
+                logger.warning(
+                    "LLM call failed (attempt %d/%d), retrying in %.1fs: %s",
+                    attempt + 1, 1 + self._max_retries, wait, exc,
+                )
+                await asyncio.sleep(wait)
 
     async def _stream_chat(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Stream one paid chat request without hidden retries."""
@@ -262,7 +270,8 @@ class HTTPLLMClient:
         if isinstance(response_format, dict) and response_format:
             payload["response_format"] = response_format
 
-        data = await self._stream_chat(payload)
+        async with asyncio.timeout(self.timeout):
+            data = await self._stream_chat(payload)
         logger.debug("HTTP LLM chat response: %s", data)
         return self.backend.parse_summary_response(data), data
 
@@ -310,7 +319,8 @@ class HTTPLLMClient:
         )
 
         self._last_payload_var.set(copy.deepcopy(payload))
-        data = await self._post_with_retry(self.summary_endpoint, payload)
+        async with asyncio.timeout(self.timeout):
+            data = await self._post_with_retry(self.summary_endpoint, payload)
         logger.debug("HTTP LLM vision response: %s", data)
         return self.backend.parse_summary_response(data), data
 
@@ -318,7 +328,8 @@ class HTTPLLMClient:
         """Create text embeddings using the provider-specific embedding API."""
         payload = self.embedding_backend.build_embedding_payload(inputs=inputs, embed_model=self.embed_model)
         self._last_payload_var.set(copy.deepcopy(payload))
-        data = await self._post_with_retry(self.embedding_endpoint, payload)
+        async with asyncio.timeout(self.timeout):
+            data = await self._post_with_retry(self.embedding_endpoint, payload)
         logger.debug("HTTP embedding response: %s", data)
         return self.embedding_backend.parse_embedding_response(data), data
 
@@ -362,7 +373,7 @@ class HTTPLLMClient:
                 if language:
                     data["language"] = language
 
-                async with httpx.AsyncClient(
+                async with asyncio.timeout(self.timeout * 3), httpx.AsyncClient(
                     base_url=self.base_url, timeout=self.timeout * 3, proxy=self.proxy
                 ) as client:
                     resp = await client.post(

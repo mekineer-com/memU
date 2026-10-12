@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import time
+from datetime import datetime, timedelta, timezone
+from email.utils import format_datetime
 
 import httpx
 import pytest
 
 from memu.llm.http_client import HTTPLLMClient
+from memu.embedding.http_client import HTTPEmbeddingClient
 from memu.llm.wrapper import LLMClientWrapper, LLMInterceptorRegistry
 
 
@@ -64,7 +69,7 @@ async def test_chat_assembles_sse_and_preserves_usage(monkeypatch, content) -> N
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("method", ["chat", "vision"])
-@pytest.mark.parametrize("finish_reason", ["length", "stop", "tool_calls", "content_filter", "refusal"])
+@pytest.mark.parametrize("finish_reason", ["length", "stop", "tool_calls", "content_filter", "refusal", "unknown"])
 async def test_provider_failures_are_reported_before_success_without_retry(
     monkeypatch, tmp_path, caplog, method, finish_reason
 ) -> None:
@@ -111,6 +116,8 @@ async def test_provider_failures_are_reported_before_success_without_retry(
         "length": "truncated at the output token limit",
         "content_filter": "blocked by provider content filter",
         "refusal": "refused by provider",
+        "tool_calls": "unsupported finish reason",
+        "unknown": "unsupported finish reason",
     }
     if finish_reason in errors:
         with pytest.raises(RuntimeError, match=errors[finish_reason]):
@@ -197,3 +204,206 @@ async def test_chat_preserves_http_error_detail_without_retry(monkeypatch) -> No
     with pytest.raises(RuntimeError, match="402.*insufficient balance"):
         await client.chat("prompt")
     assert calls == 1
+
+
+class _DrippingStream(httpx.AsyncByteStream):
+    def __init__(self):
+        self.closed = False
+
+    async def __aiter__(self):
+        while True:
+            await asyncio.sleep(0.005)
+            yield b": keepalive\n\n"
+
+    async def aclose(self):
+        self.closed = True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("method", ["chat", "vision", "embed", "transcribe", "gemini_embed", "gemini_media"])
+async def test_paid_call_deadline_closes_dripping_response(monkeypatch, tmp_path, method):
+    calls = 0
+    stream = _DrippingStream()
+
+    def handler(_request):
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, stream=stream)
+
+    client = _client(monkeypatch, handler)
+    args = ["prompt"]
+    if method.startswith("gemini_"):
+        client = HTTPEmbeddingClient(base_url="https://example.test/", api_key="test", embed_model="test", provider="gemini")
+        if method == "gemini_media":
+            method, args = "embed_media", [b"image", "image/png"]
+        else:
+            method, args = "embed", [["prompt"]]
+    elif method == "embed":
+        args = [["prompt"]]
+    elif method in {"vision", "transcribe"}:
+        source = tmp_path / "source.png"
+        source.write_bytes(b"fictional media")
+        args = ["prompt", str(source)] if method == "vision" else [str(source)]
+    client.timeout = 0.03
+    events = []
+
+    async def error(*_args):
+        events.append("error")
+
+    registry = LLMInterceptorRegistry()
+    registry.register_on_error(error)
+    wrapped = LLMClientWrapper(client, registry=registry)
+    async with asyncio.timeout(0.5):
+        with pytest.raises(TimeoutError):
+            await getattr(wrapped, method)(*args)
+    assert calls == 1
+    assert stream.closed
+    assert events == ["error"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("method", ["chat", "vision", "embed"])
+async def test_total_deadline_includes_throttle(monkeypatch, tmp_path, method):
+    calls = 0
+
+    def handler(_request):
+        nonlocal calls
+        calls += 1
+        raise AssertionError("provider must not be reached")
+
+    client = _client(monkeypatch, handler)
+    client.timeout = 0.02
+    client._min_call_gap = 1
+    client._last_call_time = time.monotonic()
+    args = [["prompt"]] if method == "embed" else ["prompt"]
+    if method == "vision":
+        image = tmp_path / "image.png"
+        image.write_bytes(b"fictional image")
+        args.append(str(image))
+    async with asyncio.timeout(0.5):
+        with pytest.raises(TimeoutError):
+            await getattr(client, method)(*args)
+    assert calls == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", [httpx.ReadTimeout, httpx.RemoteProtocolError, httpx.WriteError, 408, 500, 502, 503, 504])
+async def test_vision_does_not_resend_ambiguous_paid_request(monkeypatch, tmp_path, failure):
+    calls = 0
+
+    def handler(_request):
+        nonlocal calls
+        calls += 1
+        if isinstance(failure, int):
+            return httpx.Response(failure)
+        raise failure("uncertain outcome")
+
+    client = _client(monkeypatch, handler)
+    image = tmp_path / "image.png"
+    image.write_bytes(b"fictional image")
+    client.timeout = 0.02
+    with pytest.raises((httpx.TransportError, httpx.HTTPStatusError)):
+        await client.vision("prompt", str(image))
+    assert calls == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", [httpx.ConnectError, httpx.ConnectTimeout, "0", "date"])
+async def test_safe_post_retry_obeys_provider_delay(monkeypatch, failure):
+    calls = 0
+    sleeps = []
+    delay = format_datetime(datetime.now(timezone.utc) + timedelta(seconds=30), usegmt=True) if failure == "date" else failure
+
+    def handler(_request):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            if isinstance(failure, type):
+                raise failure("not connected")
+            return httpx.Response(429, headers={"Retry-After": delay})
+        return httpx.Response(200, json={"data": [{"index": 0, "embedding": [1.0]}]})
+
+    async def sleep(seconds):
+        sleeps.append(seconds)
+
+    monkeypatch.setattr(asyncio, "sleep", sleep)
+    client = _client(monkeypatch, handler)
+    assert (await client.embed(["prompt"]))[0] == [[1.0]]
+    assert calls == 2
+    assert len(sleeps) == 1
+    if failure == "date":
+        assert 28 <= sleeps[0] <= 30
+    else:
+        assert sleeps == [5 if isinstance(failure, type) else 0]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("delay", [None, "bad", "-1", "nan"])
+async def test_rate_limit_without_usable_delay_does_not_retry(monkeypatch, delay):
+    calls = 0
+
+    def handler(_request):
+        nonlocal calls
+        calls += 1
+        return httpx.Response(429, headers={} if delay is None else {"Retry-After": delay})
+
+    client = _client(monkeypatch, handler)
+    with pytest.raises(httpx.HTTPStatusError):
+        await client.embed(["prompt"])
+    assert calls == 1
+
+
+@pytest.mark.asyncio
+async def test_total_deadline_includes_retry_after_wait(monkeypatch):
+    calls = 0
+
+    def handler(_request):
+        nonlocal calls
+        calls += 1
+        return httpx.Response(429, headers={"Retry-After": "30"})
+
+    client = _client(monkeypatch, handler)
+    client.timeout = 0.02
+    async with asyncio.timeout(0.5):
+        with pytest.raises(TimeoutError):
+            await client.embed(["prompt"])
+    assert calls == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("phase", ["stream", "retry_wait"])
+async def test_task_cancellation_closes_request_without_resending(monkeypatch, phase):
+    ready = asyncio.Event()
+    calls = 0
+    stream = _DrippingStream()
+
+    def handler(_request):
+        nonlocal calls
+        calls += 1
+        ready.set()
+        return httpx.Response(200, stream=stream) if phase == "stream" else httpx.Response(429, headers={"Retry-After": "30"})
+
+    client = _client(monkeypatch, handler)
+    wrapped = LLMClientWrapper(client, registry=LLMInterceptorRegistry())
+    task = asyncio.create_task(wrapped.chat("prompt") if phase == "stream" else wrapped.embed(["prompt"]))
+    try:
+        await asyncio.wait_for(ready.wait(), 0.5)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(task, 0.5)
+        assert calls == 1
+        if phase == "stream":
+            assert stream.closed
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("content", ["", "  ", None, "<thought>private</thought>"])
+async def test_empty_completion_is_an_error(monkeypatch, content):
+    def handler(_request):
+        return httpx.Response(200, text=f'data: {json.dumps({"choices": [{"delta": {"content": content}, "finish_reason": "stop"}]})}\n\ndata: [DONE]\n\n')
+
+    with pytest.raises(RuntimeError, match="empty content"):
+        await _client(monkeypatch, handler).chat("prompt")

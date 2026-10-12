@@ -48,9 +48,9 @@ This index locates engine code; MCP owns the single end-to-end map.
 | `database/postgres/` | Removed |
 | `database/repositories/` | Backend-agnostic Protocol contracts: memory_item, memory_category, resource, entity, triple, category_item, dossier_candidate |
 | `llm/wrapper.py` | LLM client factory and metadata/interceptor wrapper; optional native input budget checks prompt plus system text before provider dispatch, preserving the budget across step metadata changes |
-| `llm/http_client.py` | LLM HTTP client; chat uses one-attempt SSE streaming while vision and embeddings retain bounded transport retries |
+| `llm/http_client.py` | LLM HTTP client; whole-call deadlines include throttle/retry waits. Chat uses one-attempt SSE streaming; vision and embeddings retry only connection failures or explicit 429 `Retry-After`. |
 | `llm/backends/` | Provider impls: `openai.py` (OpenAI-compatible APIs; rejects output-limit cutoffs before returning chat/vision text) |
-| `llm/claude_cli.py` | `ClaudeCLIClient` — Claude Code CLI adapter. Uses soul workspace for session/resume calls, neutral workspace for no-session calls (prevents persona bleed). |
+| `llm/claude_cli.py` | `ClaudeCLIClient` — Claude Code CLI adapter; async subprocess killed/reaped on task cancellation or configured timeout. Uses soul workspace for session/resume calls, neutral workspace for no-session calls (prevents persona bleed). |
 | `embedding/` | Embedding client factory + backends (same pattern as llm/): `openai.py`, `doubao.py`, `gemini.py` (multimodal) |
 | `workflow/` | DAG runner: `step.py` (unit), `pipeline.py` (graph), `runner.py` (executor), `interceptor.py` (hook mechanism) |
 | `blob/local_fs.py` | Local filesystem media storage |

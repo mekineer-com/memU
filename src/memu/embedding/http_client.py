@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
 import os
@@ -69,7 +70,9 @@ class HTTPEmbeddingClient:
             List of embedding vectors
         """
         payload = self.backend.build_embedding_payload(inputs=inputs, embed_model=self.embed_model)
-        async with httpx.AsyncClient(base_url=self.base_url, timeout=self.timeout, proxy=self.proxy) as client:
+        async with asyncio.timeout(self.timeout), httpx.AsyncClient(
+            base_url=self.base_url, timeout=self.timeout, proxy=self.proxy
+        ) as client:
             resp = await client.post(self.embedding_endpoint, json=payload, headers=self._headers())
             resp.raise_for_status()
             data = resp.json()
@@ -88,7 +91,9 @@ class HTTPEmbeddingClient:
         if not callable(build) or not callable(parse) or not isinstance(endpoint, str):
             raise ValueError(f"Embedding provider '{self.provider}' does not support raw media")
         payload = build(data=data, mime_type=mime_type, embed_model=self.embed_model)
-        async with httpx.AsyncClient(base_url=self.base_url, timeout=self.timeout, proxy=self.proxy) as client:
+        async with asyncio.timeout(self.timeout), httpx.AsyncClient(
+            base_url=self.base_url, timeout=self.timeout, proxy=self.proxy
+        ) as client:
             resp = await client.post(
                 endpoint.format(embed_model=self.embed_model).lstrip("/"),
                 json=payload,

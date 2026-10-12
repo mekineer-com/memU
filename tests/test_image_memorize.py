@@ -1,9 +1,11 @@
+import asyncio
 from pathlib import Path
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from itertools import count
 
 import pytest
+import httpx
 from pydantic import BaseModel
 
 from memu.app import memorize_persistence
@@ -11,6 +13,8 @@ from memu.app import memorize_dedupe
 from memu.app.memorize import StructuredMemoryEntry
 from memu.database.models import Triple
 from memu.app.service import MemoryService
+from memu.llm.http_client import HTTPLLMClient
+from memu.utils.video import VideoFrameExtractor
 from memu.utils.conversation import parse_happened_at
 
 
@@ -25,6 +29,68 @@ def _service(tmp_path: Path) -> MemoryService:
         database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
         user_config={"model": Scope},
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("modality, outcome", [("audio", "timeout"), ("video", "timeout"), ("video", "empty"), ("video", "tool_calls")])
+async def test_media_provider_failure_stops_memorize_before_storage(tmp_path, monkeypatch, modality, outcome):
+    service = _service(tmp_path)
+    scope = {"user_id": "TestOwner", "soul_id": "TestSoul"}
+    source = tmp_path / ("source.wav" if modality == "audio" else "source.mp4")
+    source.write_bytes(b"fictional media")
+    frame = tmp_path / "frame.jpg"
+    frame.write_bytes(b"fictional frame")
+    monkeypatch.setattr(VideoFrameExtractor, "is_ffmpeg_available", lambda: True)
+    monkeypatch.setattr(VideoFrameExtractor, "extract_middle_frame", lambda _path: str(frame))
+    calls = 0
+
+    async def handler(_request):
+        nonlocal calls
+        calls += 1
+        if outcome == "timeout":
+            await asyncio.Event().wait()
+        return httpx.Response(200, json={"choices": [{
+            "finish_reason": "stop" if outcome == "empty" else outcome,
+            "message": {"content": "" if outcome == "empty" else "not a tool runner"},
+        }]})
+
+    async_client = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: async_client(transport=httpx.MockTransport(handler), **kwargs))
+    client = HTTPLLMClient(base_url="https://example.test/", api_key="test", chat_model="fictional", timeout=0.02)
+    client._min_call_gap = 0
+
+    class NoEmbedding:
+        async def embed(self, *_args):
+            raise AssertionError("failed media must not start embedding")
+
+    service._llm_clients.update(default=client, embedding=NoEmbedding())
+    try:
+        async with asyncio.timeout(0.5):
+            with pytest.raises(TimeoutError if outcome == "timeout" else RuntimeError):
+                await service.memorize(resource_url=str(source), modality=modality, user=scope)
+        assert calls == 1
+        assert service.database.resource_repo.list_resources(scope) == {}
+        assert service.database.memory_item_repo.list_items(scope) == {}
+        if modality == "video":
+            assert not frame.exists()
+    finally:
+        service.database.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("available", [False, True])
+async def test_video_local_failure_keeps_existing_fallback(tmp_path, monkeypatch, available):
+    service = _service(tmp_path)
+    monkeypatch.setattr(VideoFrameExtractor, "is_ffmpeg_available", lambda: available)
+
+    def fail_extraction(_path):
+        raise OSError("fictional local failure")
+
+    monkeypatch.setattr(VideoFrameExtractor, "extract_middle_frame", fail_extraction)
+    try:
+        assert await service._preprocess_video("missing.mp4", "template") == [{"text": None, "caption": None}]
+    finally:
+        service.database.close()
 
 
 @pytest.mark.asyncio

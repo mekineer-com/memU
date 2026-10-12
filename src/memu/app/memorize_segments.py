@@ -75,11 +75,7 @@ async def _prepare_audio_text(
     file_ext = pathlib.Path(local_path).suffix.lower()
 
     if file_ext in audio_extensions:
-        try:
-            transcribed = await llm_client.transcribe(local_path)
-        except Exception:
-            logger.exception("Audio transcription failed for %s", local_path)
-            return None
+        transcribed = await llm_client.transcribe(local_path)
         return str(transcribed)
 
     if file_ext in text_extensions:
@@ -135,20 +131,19 @@ async def _preprocess_video(
             return [{"text": None, "caption": None}]
 
         frame_path = VideoFrameExtractor.extract_middle_frame(local_path)
-
-        try:
-            processed = await llm_client.vision(prompt=template, image_path=frame_path, system_prompt=None)
-            description, caption = parse_multimodal_response(processed, "detailed_description", "caption")
-            return [{"text": description, "caption": caption}]
-        finally:
-            try:
-                pathlib.Path(frame_path).unlink(missing_ok=True)
-            except OSError as exc:
-                logger.warning("Failed to clean up frame %s: %s", frame_path, exc)
-
     except (OSError, RuntimeError) as exc:
         logger.error("Video preprocessing failed: %s", exc, exc_info=True)
         return [{"text": None, "caption": None}]
+
+    try:
+        processed = await llm_client.vision(prompt=template, image_path=frame_path, system_prompt=None)
+        description, caption = parse_multimodal_response(processed, "detailed_description", "caption")
+        return [{"text": description, "caption": caption}]
+    finally:
+        try:
+            pathlib.Path(frame_path).unlink(missing_ok=True)
+        except OSError as exc:
+            logger.warning("Failed to clean up frame %s: %s", frame_path, exc)
 
 
 async def _preprocess_image(

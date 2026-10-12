@@ -4,6 +4,8 @@ import asyncio
 import copy
 import contextvars
 import json
+import locale
+import os
 import shutil
 import subprocess
 import time
@@ -99,8 +101,7 @@ class ClaudeCLIClient:
         }
         self._last_payload_var.set(copy.deepcopy(payload))
 
-        text, raw = await asyncio.to_thread(
-            self._run_claude,
+        text, raw = await self._run_claude(
             prompt=prompt,
             system_prompt=system_prompt or "",
             response_format=response_format,
@@ -110,7 +111,7 @@ class ClaudeCLIClient:
         self._last_call_monotonic = time.monotonic()
         return text, raw
 
-    def _run_claude(
+    async def _run_claude(
         self,
         *,
         prompt: str,
@@ -144,20 +145,37 @@ class ClaudeCLIClient:
                 cmd.extend(["--permission-mode", self.permission_mode])
             if self.settings:
                 cmd.extend(["--settings", self.settings])
+            # Match subprocess.run(text=True): locale encoding and newline translation.
+            encoding = locale.getpreferredencoding(False)
+            input_bytes = prompt.replace("\n", os.linesep).encode(encoding)
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                cwd=self._workspace,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
             try:
-                completed = subprocess.run(
-                    cmd,
-                    cwd=self._workspace,
-                    input=prompt,
-                    text=True,
-                    capture_output=True,
-                    timeout=self.timeout_seconds,
-                    check=False,
+                stdout, stderr = await asyncio.wait_for(
+                    process.communicate(input_bytes), timeout=self.timeout_seconds,
                 )
-            except subprocess.TimeoutExpired as exc:
-                raise TimeoutError(
-                    f"Claude CLI timed out after {self.timeout_seconds}s for model={self.chat_model}"
-                ) from exc
+            except (asyncio.CancelledError, TimeoutError) as exc:
+                if process.returncode is None:
+                    try:
+                        process.kill()
+                    except ProcessLookupError:
+                        pass
+                await process.communicate()
+                if isinstance(exc, TimeoutError):
+                    raise TimeoutError(
+                        f"Claude CLI timed out after {self.timeout_seconds}s for model={self.chat_model}"
+                    ) from exc
+                raise
+            stdout, stderr = (
+                data.decode(encoding).replace("\r\n", "\n").replace("\r", "\n")
+                for data in (stdout, stderr)
+            )
+            completed = subprocess.CompletedProcess(cmd, process.returncode, stdout=stdout, stderr=stderr)
         finally:
             system_prompt_file.unlink(missing_ok=True)
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any, cast
+from typing import Any
 
 from memu.llm.backends.base import LLMBackend
 
@@ -22,8 +22,12 @@ class OpenAILLMBackend(LLMBackend):
             raise RuntimeError("LLM response blocked by provider content filter")
         if choice["message"].get("refusal"):
             raise RuntimeError("LLM response refused by provider")
-        text = cast(str, choice["message"]["content"])
-        return _LEADING_THOUGHT_RE.sub("", text)
+        if choice.get("finish_reason") != "stop":
+            raise RuntimeError(f"LLM response has unsupported finish reason: {choice.get('finish_reason')!r}")
+        text = choice["message"].get("content")
+        if not isinstance(text, str) or not (text := _LEADING_THOUGHT_RE.sub("", text)).strip():
+            raise RuntimeError("LLM response returned empty content")
+        return text
 
     def build_vision_payload(
         self,
