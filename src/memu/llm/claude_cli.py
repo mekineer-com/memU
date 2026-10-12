@@ -134,7 +134,7 @@ class ClaudeCLIClient:
             if session_id:
                 cmd.extend(["--session-id", session_id])
             if resume_session_id:
-                cmd.extend(["--resume", resume_session_id])
+                cmd.extend(["--resume", resume_session_id, "--system-prompt-snapshot", "off"])
             json_output = isinstance(response_format, dict) and response_format.get("type") == "json_object"
             if json_output:
                 cmd.extend(["--output-format", "json"])
