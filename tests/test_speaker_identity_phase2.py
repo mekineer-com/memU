@@ -59,33 +59,32 @@ def _build_token_index(summary_tokens: Mapping[str, set[str]]) -> tuple[dict[str
     return token_index, token_freq
 
 
-def test_build_speaker_map_resolves_user_soul_entity_and_environment(service: MemoryService) -> None:
+def test_build_speaker_map_keeps_names_as_labels_not_identity(service: MemoryService) -> None:
     # role=user is always the scope user; message.name is a display label, not a
     # different identity. Third-party speakers come through role=entity, a
     # roleless named source row, or the ambiguous-episode roster (Phase 4).
     episode_messages = [
-        {"_message_index": 0, "role": "user", "name": "Marcos"},
-        {"_message_index": 1, "role": "assistant", "name": "Siri"},
-        {"_message_index": 2, "role": "user", "name": "MarcosDisplay"},
-        {"_message_index": 3, "role": "entity", "name": "Brother"},
+        {"_message_index": 0, "role": "user", "name": "TestOwner"},
+        {"_message_index": 1, "role": "assistant", "name": "TestSoul"},
+        {"_message_index": 2, "role": "user", "name": "OwnerDisplay"},
+        {"_message_index": 3, "role": "entity", "name": "Garden Guest"},
         {"_message_index": 4, "role": "system"},
         {"_message_index": 5, "name": "Group Member"},
     ]
     speaker_map = service._build_speaker_map(
         episode_messages,
-        {"user_id": "Marcos", "soul_id": "Siri"},
-        {"brother": "entity:a1b2c3d4"},
+        {"user_id": "TestOwner", "soul_id": "TestSoul"},
     )
 
-    assert speaker_map[0] == ("user:marcos", "Marcos")
-    assert speaker_map[1] == ("soul:siri", "Siri")
-    assert speaker_map[2] == ("user:marcos", "MarcosDisplay")
-    assert speaker_map[3] == ("entity:a1b2c3d4", "Brother")
+    assert speaker_map[0] == ("user:testowner", "TestOwner")
+    assert speaker_map[1] == ("soul:testsoul", "TestSoul")
+    assert speaker_map[2] == ("user:testowner", "OwnerDisplay")
+    assert speaker_map[3] == ("", "Garden Guest")
     assert speaker_map[4] == ("environment:system", "system")
     assert speaker_map[5] == ("", "Group Member")
 
 
-def test_entity_speaker_lookup_uses_aliases_and_drops_ambiguous_names() -> None:
+def test_declared_relationship_roster_excludes_inactive_entities() -> None:
     entities = [
         SimpleNamespace(
             id="a1b2c3d4",
@@ -96,15 +95,11 @@ def test_entity_speaker_lookup_uses_aliases_and_drops_ambiguous_names() -> None:
         SimpleNamespace(id="c3d4e5f6", name="Taylor", properties={}),
         SimpleNamespace(id="d4e5f6a7", name="Morgan", properties={"active": False}),
     ]
-    lookup = speakers._build_entity_speaker_ids(entities)
     roster = speakers._list_declared_relationship_roster(
         entities=entities,
         roster_entry_factory=SpeakerRosterEntry,
     )
 
-    assert lookup["ro"] == "entity:a1b2c3d4"
-    assert "taylor" not in lookup
-    assert "morgan" not in lookup
     assert roster == [SpeakerRosterEntry("entity:a1b2c3d4", "Rowan", "entity")]
 
 
@@ -121,13 +116,11 @@ def test_source_ref_binding_is_atomic_and_survives_display_name_change(service: 
     assert speakers._build_speaker_map(
         [{"_message_index": 0, "speaker": "Renamed Later", "source_ref": source_ref}],
         scope,
-        speakers._build_entity_speaker_ids(entities),
         source_ids,
     )[0] == (f"entity:{first.id}", "Renamed Later")
     assert speakers._build_speaker_map(
         [{"_message_index": 0, "speaker": "Person One", "source_ref": "whatsapp:unowned@lid"}],
         scope,
-        speakers._build_entity_speaker_ids(entities),
         source_ids,
     ) == {0: ("", "Person One")}
     assert speakers._build_speaker_map(
@@ -136,7 +129,6 @@ def test_source_ref_binding_is_atomic_and_survives_display_name_change(service: 
             {"_message_index": 1, "role": "unknown", "source_ref": "whatsapp:unowned@lid"},
         ],
         scope,
-        speakers._build_entity_speaker_ids(entities),
         source_ids,
     ) == {
         0: (f"entity:{first.id}", source_ref),
@@ -170,7 +162,6 @@ def test_source_ref_binding_is_atomic_and_survives_display_name_change(service: 
             {"_message_index": 1, "speaker": "Same Label", "source_ref": "whatsapp:second@lid"},
         ],
         scope,
-        {},
         source_ids,
     ) == {
         0: ("entity:entity-one", "Same Label"),
@@ -194,7 +185,6 @@ def test_entity_type_casing_does_not_duplicate_or_break_speaker_binding(service:
     assert alias_match.id == first.id
     assert unicode_match.id == unicode_first.id
     assert len(entities) == 2
-    assert speakers._build_entity_speaker_ids(entities)["case_person"] == f"entity:{first.id}"
 
 
 def test_attribute_memory_fills_when_unambiguous(service: MemoryService) -> None:
@@ -297,7 +287,6 @@ def test_ignored_entity_is_absent_from_speaker_and_source_identity_maps() -> Non
         properties={"ignored": True, "source_refs": ["source:ignored"]},
     )
 
-    assert speakers._build_entity_speaker_ids([ignored]) == {}
     assert speakers._build_entity_source_speaker_ids([ignored]) == {}
     assert speakers._list_declared_relationship_roster(
         entities=[ignored],

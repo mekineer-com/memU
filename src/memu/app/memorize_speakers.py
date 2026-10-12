@@ -5,7 +5,7 @@ from collections.abc import Callable, Mapping, Sequence
 from typing import Any, Protocol, TypeVar
 
 from memu.app import memorize_parsing as parsing
-from memu.database.models import entity_is_ignored, normalize_entity_name
+from memu.database.models import entity_is_ignored
 
 TEntry = TypeVar("TEntry", bound="SpeakerLike")
 
@@ -103,30 +103,6 @@ def _list_declared_relationship_roster(
         label = str(getattr(entity, "name", "") or "").strip() or entity_id
         roster.append(roster_entry_factory(speaker_id, label, "entity"))
     return roster
-
-
-def _build_entity_speaker_ids(entities: Sequence[Any]) -> dict[str, str]:
-    matches: dict[str, set[str]] = {}
-    for entity in entities:
-        if entity_is_ignored(entity):
-            continue
-        entity_id = str(getattr(entity, "id", "") or "").strip()
-        if not entity_id:
-            continue
-        properties = getattr(entity, "properties", None)
-        if isinstance(properties, Mapping) and properties.get("active") is False:
-            continue
-        aliases = properties.get("aliases", []) if isinstance(properties, Mapping) else []
-        names = [getattr(entity, "name", ""), *(aliases if isinstance(aliases, list) else [])]
-        for name in names:
-            normalized = normalize_entity_name(str(name or ""))
-            if normalized:
-                matches.setdefault(normalized, set()).add(entity_id)
-    return {
-        name: f"entity:{next(iter(entity_ids))}"
-        for name, entity_ids in matches.items()
-        if len(entity_ids) == 1
-    }
 
 
 def _entity_source_refs(entity: Any) -> list[str]:
@@ -235,7 +211,6 @@ def _parse_speaker_ref(
 def _build_speaker_map(
     episode_messages: Sequence[Mapping[str, Any]],
     scope: Mapping[str, Any] | None,
-    entity_speaker_ids: Mapping[str, str] | None = None,
     entity_source_speaker_ids: Mapping[str, str] | None = None,
 ) -> dict[int, tuple[str, str]]:
     user_scope = dict(scope or {}) if isinstance(scope, Mapping) else {}
@@ -277,7 +252,7 @@ def _build_speaker_map(
             speaker_id = (entity_source_speaker_ids or {}).get(source_ref, "")
         elif normalized_name:
             speaker_label = normalized_name
-            speaker_id = (entity_speaker_ids or {}).get(normalize_entity_name(normalized_name), "")
+            speaker_id = ""
         elif imported_user:
             speaker_id, speaker_label = "", role
         else:

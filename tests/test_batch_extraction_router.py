@@ -1172,7 +1172,7 @@ def test_parse_memory_type_response_xml_reports_unusable_memory(content, roots, 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("path", ["extract_step", "batch"])
-@pytest.mark.parametrize("case", ["renamed", "unnamed", "unfamiliar"])
+@pytest.mark.parametrize("case", ["renamed", "unnamed", "unfamiliar", "name_only", "import_alias"])
 @pytest.mark.parametrize("copies", [1, 2])
 async def test_memorize_preserves_source_identity_without_name_binding(monkeypatch, path, case, copies):
     service = _service()
@@ -1181,12 +1181,15 @@ async def test_memorize_preserves_source_identity_without_name_binding(monkeypat
     scope = {"user_id": "TestOwner", "soul_id": "TestSoul"}
     repo = service.database.entity_repo
     known_ref = "whatsapp:known@lid"
-    person = repo.create("Person One", "person", scope, properties={"source_refs": [known_ref]})
+    person = repo.create("Person One", "person", scope,
+                         properties={"source_refs": [known_ref], "aliases": ["Garden Guest"]})
     before = {entity.id: entity.properties for entity in repo.list_all(where=scope)}
     if case == "unfamiliar":
         messages = [{"source_ref": ref, "name": "Person One"} for ref in [
             "whatsapp:guest-a@lid", "whatsapp:guest-b@lid", "whatsapp:guest-a@lid",
         ]]
+    elif case in {"name_only", "import_alias"}:
+        messages = [{"name": "Garden Guest" if case == "import_alias" else "Person One"}]
     else:
         messages = [{"source_ref": known_ref}]
         if case == "renamed":
@@ -1194,6 +1197,8 @@ async def test_memorize_preserves_source_identity_without_name_binding(monkeypat
     for message in messages:
         message.update(role="unknown", content="A fictional garden story.",
                        received_at="2026-01-02T10:00:00+00:00")
+        if case == "import_alias":
+            message.update(role="user", source_label="import")
     raw_text = json.dumps(messages)
     indices = list(range(len(messages)))
     segment = {"text": raw_text, "message_indices": indices}
@@ -1242,15 +1247,17 @@ async def test_memorize_preserves_source_identity_without_name_binding(monkeypat
 
     state, = saved_states
     items = [item for item in state["items"] if item.memory_type == "profile"]
-    assert len(items) == (copies if case == "unfamiliar" else 1)
+    unidentified = case in {"unfamiliar", "name_only", "import_alias"}
+    assert len(items) == (copies if unidentified else 1)
     persisted = service.database.memory_item_repo.list_items(scope)
     assert len([item for item in persisted.values() if item.memory_type == "profile"]) == len(items)
     for item in items:
         loaded = service.database.memory_item_repo.get_item(item.id)
         assert loaded is not None
-        assert loaded.speaker_id == (None if case == "unfamiliar" else f"entity:{person.id}")
+        assert loaded.speaker_id == (None if unidentified else f"entity:{person.id}")
         assert loaded.speaker_label == {
             "renamed": "Renamed Later", "unnamed": known_ref, "unfamiliar": None,
+            "name_only": None, "import_alias": None,
         }[case]
         assert loaded.source_role == "peer" and loaded.source_message_ids == indices
     assert [{key: value for key, value in message.items() if key != "_message_index"}
@@ -1263,7 +1270,7 @@ async def test_memorize_segments_batch_passes_segment_speaker_rosters_without_se
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     service = _service()
-    user_scope = {"user_id": "Marcos", "soul_id": "Echo"}
+    user_scope = {"user_id": "TestOwner", "soul_id": "TestSoul"}
 
     async def _route_profile_only(*_args, **_kwargs):
         return ["profile"], [{"title": "Anchor", "summary": "Full story.", "item": "Compact story."}]
@@ -1287,7 +1294,7 @@ async def test_memorize_segments_batch_passes_segment_speaker_rosters_without_se
         }
         return state
 
-    declared_roster = [SpeakerRosterEntry("entity:d4e5f6a7", "Nicholas", "entity")]
+    declared_roster = [SpeakerRosterEntry("entity:d4e5f6a7", "Declared Guest", "entity")]
     captured: list[dict[str, object]] = []
 
     async def _capture_generate_entries_from_text(**kwargs):
@@ -1304,18 +1311,18 @@ async def test_memorize_segments_batch_passes_segment_speaker_rosters_without_se
     monkeypatch.setattr(service, "_memorize_build_response", _stub_build_response)
     monkeypatch.setattr(service, "_list_declared_relationship_roster", lambda **_kwargs: declared_roster)
     monkeypatch.setattr(
-        "memu.app.memorize.speakers._build_entity_speaker_ids",
-        lambda _entities: {"alice": "entity:a1b2c3d4", "bob": "entity:b2c3d4e5"},
+        "memu.app.memorize.speakers._build_entity_source_speaker_ids",
+        lambda _entities: {"source:guest-a": "entity:a1b2c3d4", "source:guest-b": "entity:b2c3d4e5"},
     )
     monkeypatch.setattr(service, "_generate_entries_from_text", _capture_generate_entries_from_text)
 
     raw_text_segment_1 = json.dumps([
         {
-            "role": "user", "name": "Marcos", "content": "Starting a new thread with Nicholas.",
+            "role": "user", "name": "TestOwner", "content": "Starting a new thread with Declared Guest.",
             "received_at": "2026-01-02T10:00:00-05:00",
         },
         {
-            "role": "group_member", "name": "Alice", "content": "Alice joins this discussion.",
+            "role": "group_member", "name": "Guest A", "source_ref": "source:guest-a", "content": "Guest A joins this discussion.",
             "received_at": "2026-01-02T10:01:00-05:00",
         },
     ])
@@ -1323,11 +1330,11 @@ async def test_memorize_segments_batch_passes_segment_speaker_rosters_without_se
         {"role": "system", "name": "context", "content": "ignored prelude"},
         {"role": "system", "name": "context", "content": "ignored prelude 2"},
         {
-            "role": "assistant", "name": "Echo", "content": "Echo reflects on the day.",
+            "role": "assistant", "name": "TestSoul", "content": "TestSoul reflects on the day.",
             "received_at": "2026-01-03T10:00:00-05:00",
         },
         {
-            "role": "group_member", "name": "Bob", "content": "Bob asks about Nicholas too.",
+            "role": "group_member", "name": "Guest B", "source_ref": "source:guest-b", "content": "Guest B asks about Declared Guest too.",
             "received_at": "2026-01-03T10:01:00-05:00",
         },
     ])
@@ -1337,7 +1344,7 @@ async def test_memorize_segments_batch_passes_segment_speaker_rosters_without_se
             "resource_url": "mem://segment-1",
             "raw_text": raw_text_segment_1,
             "segment": {
-                "text": "[0] Marcos: I talked with Nicholas about focus.\n[1] Alice: That sounds healthy.",
+                "text": "[0] TestOwner: I talked with Declared Guest about focus.\n[1] Guest A: That sounds healthy.",
                 "caption": "Segment 1",
                 "message_indices": [0, 1],
             },
@@ -1346,7 +1353,7 @@ async def test_memorize_segments_batch_passes_segment_speaker_rosters_without_se
             "resource_url": "mem://segment-2",
             "raw_text": raw_text_segment_2,
             "segment": {
-                "text": "[2] Echo: Let's keep steady progress.\n[3] Bob: Nicholas inspired me too.",
+                "text": "[2] TestSoul: Let's keep steady progress.\n[3] Guest B: Declared Guest inspired me too.",
                 "caption": "Segment 2",
                 "message_indices": [2, 3],
             },
@@ -1367,8 +1374,8 @@ async def test_memorize_segments_batch_passes_segment_speaker_rosters_without_se
     assert second_roster is not None
     first_speaker_ids = {entry.speaker_id for entry in first_roster}
     second_speaker_ids = {entry.speaker_id for entry in second_roster}
-    assert {"entity:a1b2c3d4", "entity:d4e5f6a7", "user:marcos"} <= first_speaker_ids
-    assert {"entity:b2c3d4e5", "entity:d4e5f6a7", "soul:echo"} <= second_speaker_ids
+    assert {"entity:a1b2c3d4", "entity:d4e5f6a7", "user:testowner"} <= first_speaker_ids
+    assert {"entity:b2c3d4e5", "entity:d4e5f6a7", "soul:testsoul"} <= second_speaker_ids
     for call in captured:
         resource_text = str(call.get("resource_text") or "")
         assert "Segment 1" not in resource_text

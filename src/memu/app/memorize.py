@@ -461,7 +461,6 @@ class MemorizeMixin:
         memory_types = self._resolve_memory_types()
         speaker_entities = store.entity_repo.list_all(where=user_scope or {})
         declared_entity_roster = self._list_declared_relationship_roster(entities=speaker_entities)
-        entity_speaker_ids = speakers._build_entity_speaker_ids(speaker_entities)
         entity_source_speaker_ids = speakers._build_entity_source_speaker_ids(speaker_entities)
 
         prepared: list[dict[str, Any]] = []
@@ -591,7 +590,6 @@ class MemorizeMixin:
             speaker_map = self._build_speaker_map(
                 primary_messages or segment_messages_all,
                 speaker_scope,
-                entity_speaker_ids,
                 entity_source_speaker_ids,
             )
             dossier_context = None
@@ -915,7 +913,6 @@ class MemorizeMixin:
         messages_by_index = {idx: msg for idx, msg in conversation_messages}
         speaker_entities = state["store"].entity_repo.list_all(where=state.get("user") or {})
         declared_entity_roster = self._list_declared_relationship_roster(entities=speaker_entities)
-        entity_speaker_ids = speakers._build_entity_speaker_ids(speaker_entities)
         entity_source_speaker_ids = speakers._build_entity_source_speaker_ids(speaker_entities)
         if not episodes:
             state["segment_plans"] = []
@@ -960,7 +957,6 @@ class MemorizeMixin:
         speaker_map = self._build_speaker_map(
             segment_messages,
             state.get("user"),
-            entity_speaker_ids,
             entity_source_speaker_ids,
         )
         speaker_roster = self._build_speaker_roster_for_segment(
@@ -2263,11 +2259,10 @@ class MemorizeMixin:
         self,
         segment_messages: Sequence[Mapping[str, Any]],
         scope: Mapping[str, Any] | None,
-        entity_speaker_ids: Mapping[str, str] | None = None,
         entity_source_speaker_ids: Mapping[str, str] | None = None,
     ) -> dict[int, tuple[str, str]]:
         return speakers._build_speaker_map(
-            segment_messages, scope, entity_speaker_ids, entity_source_speaker_ids
+            segment_messages, scope, entity_source_speaker_ids
         )
 
     def _attribute_memory(
