@@ -67,14 +67,14 @@ class SQLiteSessionManager:
             raise ValueError(
                 f"embedding dimension mismatch for {profile}: expected {expected_dimensions}, got {dimensions}"
             )
+        session.connection().exec_driver_sql(
+            "INSERT INTO embedding_profile (id, profile) VALUES (1, ?) ON CONFLICT(id) DO NOTHING",
+            (profile,),
+        )
         row = session.connection().exec_driver_sql(
             "SELECT profile FROM embedding_profile WHERE id = 1"
-        ).first()
-        if row is None:
-            session.connection().exec_driver_sql(
-                "INSERT INTO embedding_profile (id, profile) VALUES (1, ?)", (profile,)
-            )
-        elif row[0] != profile:
+        ).one()
+        if row[0] != profile:
             raise RuntimeError(
                 f"embedding profile mismatch: database={row[0]} configured={profile}"
             )
@@ -112,20 +112,16 @@ class SQLiteSessionManager:
 
         Without this, sqlite often fails with "unable to open database file".
         """
-        try:
-            p = cls._sqlite_file_from_dsn(dsn)
-            if p is None:
-                return
-            p = p.expanduser()
-            if not p.is_absolute():
-                # Resolve relative paths against CWD (sqlite behavior).
-                p = (Path.cwd() / p).resolve()
-            p.parent.mkdir(parents=True, exist_ok=True)
-            # Touch ensures the file is visible immediately.
-            p.touch(exist_ok=True)
-        except Exception:
-            # Best-effort; memU will raise a clearer error later if open fails.
+        p = cls._sqlite_file_from_dsn(dsn)
+        if p is None:
             return
+        p = p.expanduser()
+        if not p.is_absolute():
+            # Resolve relative paths against CWD (sqlite behavior).
+            p = (Path.cwd() / p).resolve()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        # Touch ensures the file is visible immediately.
+        p.touch(exist_ok=True)
 
     def _apply_pragmas(self) -> None:
         """Apply PRAGMAs for better reliability under concurrent access."""

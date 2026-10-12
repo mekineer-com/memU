@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import sqlite3
 import struct
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
 
 import pytest
 from pydantic import BaseModel
+from sqlalchemy import event
 from sqlalchemy.schema import CreateTable
 
 from memu.app.service import MemoryService
@@ -229,6 +232,14 @@ def test_embedding_profile_stamps_first_write_and_rejects_wrong_database(tmp_pat
     )
     with store._sessions.engine.connect() as conn:
         assert conn.exec_driver_sql("SELECT profile FROM embedding_profile").first() is None
+    with store._sessions.session() as session:
+        store._sessions.guard_embedding_write(session, 3072)
+        store._sessions.guard_embedding_write(session, 3072)
+        with store._sessions.engine.connect() as observer:
+            assert observer.exec_driver_sql("SELECT profile FROM embedding_profile").first() is None
+        session.rollback()
+    with store._sessions.engine.connect() as conn:
+        assert conn.exec_driver_sql("SELECT profile FROM embedding_profile").first() is None
     with pytest.raises(ValueError, match="expected 3072, got 2"):
         store.resource_repo.create_resource(
             url="wrong-dimension",
@@ -253,6 +264,10 @@ def test_embedding_profile_stamps_first_write_and_rejects_wrong_database(tmp_pat
         scope_model=EmbeddingBlobScope,
         embedding_profile=profile,
     )
+    matching.resource_repo.create_resource(
+        url="same-profile", modality="conversation", local_path="same-profile", caption=None,
+        embedding=[0.0] * 3072, user_data={"user_id": "blob"},
+    )
     matching.close()
     with pytest.raises(RuntimeError, match="database=text-embedding-3-large:3072 configured=gemini"):
         SQLiteStore(
@@ -260,6 +275,69 @@ def test_embedding_profile_stamps_first_write_and_rejects_wrong_database(tmp_pat
             scope_model=EmbeddingBlobScope,
             embedding_profile="gemini-embedding-2:3072",
         )
+
+
+def test_embedding_profile_interleaved_first_writes(tmp_path) -> None:
+    profile = "text-embedding-3-large:3072"
+    store = SQLiteStore(
+        dsn=f"sqlite:///{tmp_path / 'interleaved.db'}",
+        scope_model=EmbeddingBlobScope,
+        embedding_profile=profile,
+    )
+    first_statements = []
+    barrier = Barrier(2, timeout=5)
+
+    def interleave(conn, _cursor, statement, _parameters, _context, _executemany):
+        if "embedding_profile" in statement and not conn.info.get("profile_check_started"):
+            conn.info["profile_check_started"] = True
+            first_statements.append(statement)
+            # Both sessions reach their first profile operation before either executes it.
+            barrier.wait()
+
+    def write():
+        with store._sessions.session() as session:
+            store._sessions.guard_embedding_write(session, 3072)
+            session.commit()
+
+    event.listen(store._sessions.engine, "before_cursor_execute", interleave)
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [pool.submit(write) for _ in range(2)]
+            for future in futures:
+                future.result(timeout=10)
+        assert len(first_statements) == 2
+        assert all(statement.startswith("INSERT INTO embedding_profile") for statement in first_statements)
+        with store._sessions.engine.connect() as conn:
+            assert conn.exec_driver_sql("SELECT id, profile FROM embedding_profile").all() == [(1, profile)]
+    finally:
+        event.remove(store._sessions.engine, "before_cursor_execute", interleave)
+        store.close()
+
+
+def test_embedding_profile_mismatch_rolls_back_caller_write(tmp_path) -> None:
+    profile = "text-embedding-3-large:3072"
+    dsn = f"sqlite:///{tmp_path / 'mismatch.db'}"
+    store = SQLiteStore(dsn=dsn, scope_model=EmbeddingBlobScope, embedding_profile=profile)
+    manager = SQLiteSessionManager(dsn=dsn)
+    manager.embedding_profile = "gemini-embedding-2:3072"
+    try:
+        with store._sessions.session() as session:
+            store._sessions.guard_embedding_write(session, 3072)
+            session.commit()
+        with manager.session() as session:
+            store.resource_repo.create_resource(
+                url="rolled-back", modality="conversation", local_path="rolled-back", caption=None,
+                embedding=None, user_data={"user_id": "blob"}, session=session,
+            )
+            with pytest.raises(RuntimeError, match="database=text-embedding-3-large:3072 configured=gemini"):
+                manager.guard_embedding_write(session, 3072)
+            session.rollback()
+        assert store.resource_repo.list_resources() == {}
+        with store._sessions.engine.connect() as conn:
+            assert conn.exec_driver_sql("SELECT profile FROM embedding_profile").one() == (profile,)
+    finally:
+        manager.close()
+        store.close()
 
 
 def test_populated_unstamped_database_refuses_profiled_open(tmp_path) -> None:

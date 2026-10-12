@@ -13,6 +13,19 @@ from memu.database.sqlite.session import SQLiteSessionManager
 from memu.database.sqlite.sqlite import SQLiteStore
 
 
+@pytest.mark.parametrize("operation", ["mkdir", "touch"])
+def test_sqlite_file_setup_preserves_filesystem_error(tmp_path, monkeypatch, operation) -> None:
+    failure = PermissionError("fictional storage is unavailable")
+
+    def fail(*_args, **_kwargs):
+        raise failure
+
+    monkeypatch.setattr(type(tmp_path), operation, fail)
+    with pytest.raises(PermissionError) as caught:
+        SQLiteSessionManager(dsn=f"sqlite:///{tmp_path / 'unavailable.db'}")
+    assert caught.value is failure
+
+
 def test_missing_sqlite_vec_fails_loudly(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     missing = tmp_path / session_module.SQLITE_VEC_EXTENSION_PATH.name
     monkeypatch.setattr(session_module, "SQLITE_VEC_EXTENSION_PATH", missing)

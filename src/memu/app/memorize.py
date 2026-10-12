@@ -1426,8 +1426,11 @@ class MemorizeMixin:
         self._validate_memorize_scope(dict(user))
         self._memorize_input_budget(enforce_input_budget)
         store = self._get_database()
+        where = {**user, "segment_id": segment_id}
+        if len(store.resource_repo.list_resources(where)) != 1:
+            raise RuntimeError(f"Memorize recovery requires exactly one scoped Resource for segment {segment_id}")
         items = store.memory_item_repo.list_items(
-            {**user, "segment_id": segment_id}, include_merged=True, include_superseded=True,
+            where, include_merged=True, include_superseded=True,
         )
         state: WorkflowState = {
             "store": store, "user": dict(user),

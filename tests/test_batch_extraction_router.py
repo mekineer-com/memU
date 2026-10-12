@@ -761,6 +761,16 @@ async def test_resume_segment_reads_original_rows_and_skips_completed_dedupe(mon
     service.llm_profiles.profiles["default"].context_window_tokens = 100_000
     store = service.database
     scope = {"user_id": "TestOwner", "soul_id": "TestSoul"}
+    for segment_id, resource_scope in (
+        ("segment", scope), ("empty", scope),
+        ("segment", {**scope, "soul_id": "OtherTestSoul"}),
+        ("foreign", {**scope, "soul_id": "OtherTestSoul"}),
+        ("foreign", {**scope, "user_id": "OtherTestOwner"}),
+    ):
+        store.resource_repo.create_resource(
+            url=segment_id, modality="conversation", local_path=segment_id,
+            caption=None, embedding=None, user_data=resource_scope, segment_id=segment_id,
+        )
     items = [store.memory_item_repo.create_item(
         memory_type="knowledge", summary=f"Fictional memory {i}", embedding=[1.0, 0.0],
         user_data=scope, segment_id="segment", source_role="user",
@@ -791,6 +801,13 @@ async def test_resume_segment_reads_original_rows_and_skips_completed_dedupe(mon
             segment_id="segment", phase=phase, user={"user_id": "TestOwner"},
             on_dedupe_complete=lambda _session: None,
         )
+    for segment_id in ("missing", "foreign"):
+        with pytest.raises(RuntimeError, match="exactly one scoped Resource"):
+            await service.resume_memorize_segment(
+                segment_id=segment_id, phase=phase, user=scope,
+                on_dedupe_complete=lambda _session: None,
+            )
+    assert not dedupes and not reviews
     await service.resume_memorize_segment(
         segment_id="segment", phase=phase, user=scope,
         on_dedupe_complete=lambda _session: None, enforce_input_budget=True,
@@ -798,10 +815,22 @@ async def test_resume_segment_reads_original_rows_and_skips_completed_dedupe(mon
     assert dedupes == ([[item.id for item in items]] if phase == "dedupe" else [])
     assert reviews == [([item.id for item in items], True)]
     await service.resume_memorize_segment(
-        segment_id="empty", phase="review", user=scope,
+        segment_id="empty", phase=phase, user=scope,
         on_dedupe_complete=lambda _session: None,
     )
     assert reviews[-1] == ([], False)
+    assert dedupes == ([[item.id for item in items], []] if phase == "dedupe" else [])
+    store.resource_repo.create_resource(
+        url="duplicate", modality="conversation", local_path="duplicate",
+        caption=None, embedding=None, user_data=scope, segment_id="segment",
+    )
+    with pytest.raises(RuntimeError, match="exactly one scoped Resource"):
+        await service.resume_memorize_segment(
+            segment_id="segment", phase=phase, user=scope,
+            on_dedupe_complete=lambda _session: None,
+        )
+    assert len(reviews) == 2
+    assert len(dedupes) == (2 if phase == "dedupe" else 0)
 
 
 @pytest.mark.asyncio
