@@ -697,12 +697,19 @@ async def test_query_only_retrieve_rejects_missing_active_query():
         )
 
 
-def test_retrieve_context_excludes_subconscious_insight_audit_memories():
+@pytest.mark.parametrize("seed_type", [None, "narrative_self", "knowledge"])
+def test_retrieve_context_excludes_subconscious_insight_audit_memories(seed_type):
     mixin = RetrieveMixin()
     mixin._model_dump_without_embeddings = lambda obj: dict(obj)
-    mixin._find_superseded_at = lambda *_args, **_kwargs: None
+    replaced_at = datetime(2026, 1, 3, tzinfo=UTC)
+    mixin._find_superseded_at = lambda _store, item_id, _where: replaced_at if item_id == "keep" else None
+    seed = None if seed_type is None else SimpleNamespace(
+        id="seed", memory_type=seed_type, summary="Fictional earlier discovery.",
+        happened_at=None, extra={},
+    )
     store = SimpleNamespace(
         resource_repo=SimpleNamespace(list_resources=lambda _where: {}),
+        memory_item_repo=SimpleNamespace(get_item=lambda *_args, **_kwargs: seed),
     )
     state = {
         "needs_retrieval": True,
@@ -712,7 +719,7 @@ def test_retrieve_context_excludes_subconscious_insight_audit_memories():
             "keep": {
                 "id": "keep",
                 "memory_type": "profile",
-                "summary": "Marcos likes continuity.",
+                "summary": "TestOwner likes continuity.",
                 "extra": {},
             },
             "audit": {
@@ -723,6 +730,7 @@ def test_retrieve_context_excludes_subconscious_insight_audit_memories():
             },
         },
         "category_hits": [],
+        "graph_edges": {"keep": ("evokes", "seed")},
         "category_pool": {"unused": object()},
         "resource_pool": {},
         "store": store,
@@ -732,3 +740,6 @@ def test_retrieve_context_excludes_subconscious_insight_audit_memories():
     out = mixin._rag_build_context(state, None)
 
     assert [item["id"] for item in out["response"]["items"]] == ["keep"]
+    item = out["response"]["items"][0]
+    assert item["superseded_at"] == replaced_at
+    assert ("shaped_by" in item) == (seed_type == "knowledge")

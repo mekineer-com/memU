@@ -709,6 +709,9 @@ class RetrieveMixin:
                 item_id = item_data.get("id")
                 if not item_id:
                     continue
+                evolved_at = self._find_superseded_at(store, item_id, where_filters)
+                if evolved_at is not None:
+                    item_data["superseded_at"] = evolved_at
                 if item_id in graph_provenance:
                     item_data["via_graph"] = graph_provenance[item_id]
                 if item_id in graph_edges:
@@ -725,9 +728,6 @@ class RetrieveMixin:
                         "extra": seed.extra,
                         "superseded_at": self._find_superseded_at(store, seed.id, where_filters),
                     }
-                evolved_at = self._find_superseded_at(store, item_id, where_filters)
-                if evolved_at is not None:
-                    item_data["superseded_at"] = evolved_at
             response["resource_candidates"] = self._materialize_resource_candidates(
                 state.get("resource_candidate_lanes"),
                 resources_pool,
