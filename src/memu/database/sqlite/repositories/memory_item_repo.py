@@ -627,7 +627,6 @@ WHERE version = 1 AND model IN ({placeholders})
                 or_(
                     (triple_model.subject_kind == "memory") & (triple_model.subject_id == item_id),
                     (triple_model.object_kind == "memory") & (triple_model.object_id == item_id),
-                    triple_model.source_memory_id == item_id,
                 ),
                 *triple_scope_filters,
             )

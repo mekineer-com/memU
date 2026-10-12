@@ -890,6 +890,22 @@ def test_graph_merge_preserves_mentions_and_due_evidence(monkeypatch, source_sta
     assert store.triple_repo.get_edges_from(source.id, "mentions", current_only=False, where=scope)[0].object_id == entities[2].id
     assert store.triple_repo.get_edges_from(source.id, "mentions", where=other_scope)[0].object_id == entities[1].id
 
+    # Deleting merge history must not erase evidence now attached to the survivor.
+    service.graph_delete_memory(source.id, where=scope)
+    assert store.memory_item_repo.get_item(source.id) is None
+    assert store.memory_item_repo.get_item(target.id) is not None
+    assert store.triple_repo.get_edges_from(target.id, "mentions", where=scope) == current
+    assert set(service.graph_memory(target.id, where=scope)["entity_ids"]) == {
+        f"entity:{entity.id}" for entity in entities[:2]
+    }
+    seeds, _ = service._get_entity_seed_memory_ids([entities[1]], store, where=scope)
+    assert seeds == [target.id]
+    with pytest.raises(EntityActionConflictError, match="Graph references"):
+        service.graph_delete_entity(entities[1].id, where=scope)
+    assert store.triple_repo.get_edges_from(source.id, "mentions", where=other_scope)[0].object_id == entities[1].id
+    service.graph_delete_memory(target.id, where=scope)
+    assert store.triple_repo.list_edges_for_memories({source.id, target.id}, ["mentions"], scope, current_only=False) == []
+
 
 def test_graph_atomic_canvas_source_includes_embeddings_and_category_tags():
     now = datetime(2026, 7, 1, tzinfo=UTC)

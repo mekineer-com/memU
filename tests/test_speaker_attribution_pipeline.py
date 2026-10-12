@@ -258,3 +258,40 @@ def test_replacement_selection_keeps_speaker_identity_barrier(identity) -> None:
         )
     active = repo.list_items(scope)
     assert old[2].id in active and new.id in active
+
+
+@pytest.mark.parametrize("bad_vector", [[], ["not-a-number"]])
+def test_invalid_replacement_embedding_saves_nothing_and_can_retry(bad_vector) -> None:
+    service = _service()
+    store = service.database
+    scope = {"user_id": "TestOwner", "soul_id": "TestSoul"}
+    old = store.memory_item_repo.create_item(
+        memory_type="profile", summary="I grow roses", embedding=[0.1, 0.2, 0.3],
+        user_data=scope, source_role="peer", speaker_id="entity:fictional-guest",
+    )
+    entry = StructuredMemoryEntry(
+        "profile", "I grow orchids", [], "peer", 0.8, [0], None,
+        replaces_previous_fact="I grow roses",
+    )._replace(speaker_id="entity:fictional-guest")
+
+    class BadReplacementEmbedder(_EmbedClient):
+        async def embed(self, inputs):
+            return [bad_vector] if inputs == ["I grow roses"] else await super().embed(inputs)
+
+    state = {
+        "segment_plans": [{"resource_url": "memory://fictional-correction", "entries": [entry]}],
+        "modality": "conversation", "local_path": None, "store": store, "user": scope,
+    }
+    service._llm_clients["embedding"] = BadReplacementEmbedder()
+    with pytest.raises(ValueError, match="replacement.*embedding"):
+        asyncio.run(service._memorize_categorize_items(state, {}))
+    assert set(store.memory_item_repo.list_items(scope, include_merged=True, include_superseded=True)) == {old.id}
+    assert set(store.memory_item_repo.list_items(scope)) == {old.id}
+    assert store.triple_repo.get_edges_from(old.id, "evolved_into", where=scope) == []
+    assert store.resource_repo.list_resources(scope) == {}
+
+    service._llm_clients["embedding"] = _EmbedClient()
+    result = asyncio.run(service._memorize_categorize_items(state, {}))
+    new, = result["items"]
+    assert set(store.memory_item_repo.list_items(scope)) == {new.id}
+    assert [edge.object_id for edge in store.triple_repo.get_edges_from(old.id, "evolved_into", where=scope)] == [new.id]

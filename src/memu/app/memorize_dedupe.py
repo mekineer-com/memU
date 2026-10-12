@@ -494,11 +494,7 @@ async def _find_supersede_targets(
     for (idx, entry), raw_vector in zip(replace_requests, replace_vectors, strict=True):
         vector = _normalize_embedding_vector(raw_vector)
         if vector is None:
-            logger.warning(
-                "supersede: embedding normalization failed for replacement text, skipping: %.80s",
-                entry.replaces_previous_fact,
-            )
-            continue
+            raise ValueError("Invalid replacement text embedding")
         where = dict(user or {})
         where["memory_type"] = entry.memory_type
         where["speaker_id"] = _dedupe_speaker_id(entry)
