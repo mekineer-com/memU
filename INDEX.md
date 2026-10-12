@@ -5,6 +5,10 @@
 
 `# Marcos' reminder: a category is a dossier.`
 
+For the cross-repo Memorize flow, source ownership, save boundaries and Retry,
+read [the maintained pipeline map](../mcp-memu-server/MEMORIZE_PIPELINE.md).
+This index locates engine code; MCP owns the single end-to-end map.
+
 ## Module Map (`src/memu/`)
 
 | Package | Purpose |
