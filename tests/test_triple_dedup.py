@@ -6,10 +6,13 @@ Memu's triple_repo now does both.
 """
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 from pydantic import BaseModel
 
 from memu.app.service import MemoryService
+from memu.app.retrieve import RetrieveMixin
 from memu.database.models import Triple
 
 
@@ -41,6 +44,50 @@ def _triple(subject_id: str, predicate: str, object_id: str) -> Triple:
         confidence=0.8,
         source_memory_id=subject_id,
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("predicate,inverse", [
+    ("caused_by", "causes"), ("shaped_by", "shapes"), ("evokes", "evoked_by"),
+    ("conflicts_with", "conflicts_with"), ("parallels", "parallels"),
+])
+@pytest.mark.parametrize("seed_subject", [True, False])
+async def test_connected_recall_relations_point_from_neighbor_to_seed(store, predicate, inverse, seed_subject):
+    scope = {"user_id": f"direction_{predicate}_{seed_subject}", "soul_id": "TestSoul"}
+    subject, obj = [store.memory_item_repo.create_item(
+        memory_type="knowledge", summary=summary, embedding=embedding, user_data=scope,
+    ) for summary, embedding in [("Fictional garden discovery", [1.0, 0.0]),
+                                  ("Fictional earlier observation", [0.0, 1.0])]]
+    edge = store.triple_repo.add(_triple(subject.id, predicate, obj.id), user_data=scope)
+    seed, neighbor = (subject, obj) if seed_subject else (obj, subject)
+    # Symmetric triples can be stored in either endpoint order.
+    expected = inverse if seed_subject else predicate
+    assert store.triple_repo.get_connected_memory_edges(
+        [seed.id], predicates=[predicate], where=scope,
+    ) == [(neighbor.id, expected, seed.id)]
+
+    mixin = RetrieveMixin()
+    mixin.retrieve_config = SimpleNamespace(
+        item=SimpleNamespace(top_k=1, ranking="similarity", recency_decay_days=30,
+                             fts_enabled=False, fts_top_k=20, rrf_k=60),
+        graph=SimpleNamespace(enabled=True, max_graph_results=3),
+    )
+    mixin._find_entity_matches = lambda *_args: []
+    mixin._model_dump_without_embeddings = lambda row: row.model_dump(exclude={"embedding"})
+    state = await mixin._rag_recall_items({
+        "needs_retrieval": True, "proceed_to_items": True, "new_message": "Fictional garden",
+        "active_query": "Fictional garden", "query_vector": seed.embedding,
+        "store": store, "where": scope,
+    }, None)
+    assert [mid for mid, _ in state["item_hits"]] == [seed.id, neighbor.id]
+    assert state["item_hits"][0][1] > 0
+    assert state["item_hits"][1][1] == 0
+    response = mixin._rag_build_context(state, None)["response"]
+    related = response["items"][1]["shaped_by"]
+    assert (related["predicate"], related["id"], related["summary"]) == (expected, seed.id, seed.summary)
+    assert [(row.subject_id, row.predicate, row.object_id) for row in
+            store.triple_repo.get_edges_from(edge.subject_id, where=scope)] == [
+                (edge.subject_id, predicate, edge.object_id)]
 
 
 def test_identical_triple_inserted_twice_dedups_to_one_row(store) -> None:

@@ -21,6 +21,7 @@ from memu.database.sqlite.session import SQLiteSessionManager
 # things p-related to X" must query both subject and object directions
 # (get_connected_memory_edges already does this).
 SYMMETRIC_PREDICATES = frozenset({"conflicts_with", "parallels"})
+INVERSE_PREDICATES = {"caused_by": "causes", "shaped_by": "shapes", "evokes": "evoked_by"}
 
 
 def _canonical_endpoints(predicate: str, subject_id: str, object_id: str) -> tuple[str, str]:
@@ -357,7 +358,9 @@ class SQLiteTripleRepo(SQLiteRepoBase, TripleRepo):
                 if predicates:
                     stmt_out = stmt_out.where(self._triple_model.predicate.in_(predicates))
                 stmt_out = stmt_out.limit(max_per_source)
-                out_edges = list(session.exec(stmt_out).all())
+                # Recall annotates the connected memory, pointing back to its seed.
+                out_edges = [(connected_id, INVERSE_PREDICATES.get(predicate, predicate))
+                             for connected_id, predicate in session.exec(stmt_out).all()]
 
                 # Incoming edges to this memory
                 stmt_in = select(self._triple_model.subject_id, self._triple_model.predicate).where(

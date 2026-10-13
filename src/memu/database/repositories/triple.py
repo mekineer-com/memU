@@ -85,5 +85,8 @@ class TripleRepo(Protocol):
         """Return ``(connected_id, predicate, seed_id)`` tuples for memories
         linked to any of ``memory_ids`` via one of ``predicates``.  seed_id
         is the source memory in ``memory_ids`` that this edge attaches to.
+        For the five semantic recall predicates, the returned predicate reads
+        connected-to-seed (outgoing asymmetric edges use inverse labels).
+        ``predicates`` filters stored labels, not the returned inverse labels.
         """
         ...
