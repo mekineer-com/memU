@@ -1238,6 +1238,11 @@ def test_parse_memory_type_response_xml_reports_unusable_memory(content, roots, 
     "renamed", "unnamed", "unfamiliar", "name_only", "import_alias",
     "owner_collision", "soul_collision", "explicit_owner", "explicit_soul",
     "explicit_peer", "header_only", "body_mention",
+    "linked_owner", "linked_owner_peer", "linked_soul", "linked_soul_peer",
+    "linked_explicit_owner", "linked_explicit_owner_peer",
+    "linked_explicit_soul", "linked_explicit_soul_peer",
+    "linked_owner_rename", "linked_soul_rename",
+    "same_id_owner_rename", "same_id_soul_rename",
 ])
 @pytest.mark.parametrize("copies", [1, 2])
 async def test_memorize_preserves_source_identity_without_name_binding(monkeypatch, path, case, copies):
@@ -1254,7 +1259,20 @@ async def test_memorize_preserves_source_identity_without_name_binding(monkeypat
     role = "peer"
     ref = ""
     expected = f"entity:{person.id}"
-    if collision:
+    linked = case.startswith("linked_")
+    same_id = case.startswith("same_id_")
+    if linked or same_id:
+        participant_role = "soul" if "soul" in case else "user"
+        canonical = f"{participant_role}:{'testsoul' if participant_role == 'soul' else 'testowner'}"
+        role = "peer" if case.endswith("_peer") else participant_role
+        expected = (f"entity:{person.id}" if role == "peer" else canonical) if "explicit" in case or same_id else None
+        ref = expected if "explicit" in case else ""
+        messages = [{"role": "assistant" if participant_role == "soul" else "user", "name": "Shared Label"}]
+        if linked:
+            messages.append({"role": "unknown", "name": " shared LABEL ", "source_ref": known_ref})
+        if case.endswith("_rename"):
+            messages.append({"role": messages[0]["role"], "name": "Other Label"})
+    elif collision:
         role = "soul" if "soul" in case else "user"
         expected = f"{role}:{'testsoul' if role == 'soul' else 'testowner'}" if case.startswith("explicit_") else None
         ref = expected or ""
@@ -1339,7 +1357,9 @@ async def test_memorize_preserves_source_identity_without_name_binding(monkeypat
 
     state, = saved_states
     items = [item for item in state["items"] if item.memory_type == "profile"]
-    unidentified = case in {"unfamiliar", "name_only", "import_alias", "owner_collision", "soul_collision", "header_only"}
+    unidentified = (linked and "explicit" not in case) or case in {
+        "unfamiliar", "name_only", "import_alias", "owner_collision", "soul_collision", "header_only",
+    }
     if case in {"unfamiliar", "name_only", "import_alias"}:
         expected = None
     assert len(items) == (copies if unidentified else 1)
@@ -1349,7 +1369,9 @@ async def test_memorize_preserves_source_identity_without_name_binding(monkeypat
         loaded = service.database.memory_item_repo.get_item(item.id)
         assert loaded is not None
         assert loaded.speaker_id == expected
-        expected_label = {
+        expected_label = (None if expected is None else
+                          "Other Label" if same_id else
+                          "shared LABEL" if role == "peer" else "Shared Label") if linked or same_id else {
             "renamed": "Renamed Later", "unnamed": known_ref, "unfamiliar": None,
             "name_only": None, "import_alias": None,
             "owner_collision": None, "soul_collision": None, "header_only": None,
@@ -1359,7 +1381,17 @@ async def test_memorize_preserves_source_identity_without_name_binding(monkeypat
         assert loaded.speaker_label == expected_label
         assert loaded.source_role == role and loaded.source_message_ids == indices
     prompt = client.prompts[-1]
-    if collision:
+    if linked:
+        assert f"Shared Label; speaker_ref={canonical}" in prompt
+        assert f"shared LABEL; speaker_ref=entity:{person.id}" in prompt
+        assert f"- {canonical} | label=Shared Label" in prompt
+        assert f"- entity:{person.id} | label=shared LABEL" in prompt
+        assert "unlinked sender=" not in prompt
+    elif same_id:
+        assert "Speaker Roster (ambiguous episode fallback)" not in prompt
+        assert "Shared Label; speaker_ref=" not in prompt
+        assert "Other Label; speaker_ref=" not in prompt
+    elif collision:
         canonical = f"{role}:{'testsoul' if role == 'soul' else 'testowner'}"
         assert f"Shared Label; speaker_ref={canonical}" in prompt
         assert "shared LABEL; unlinked sender=whatsapp:guest-a@lid" in prompt

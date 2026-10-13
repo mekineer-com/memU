@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import Any, Protocol, TypeVar
 
 from memu.app import memorize_parsing as parsing
@@ -69,6 +69,13 @@ def _has_ambiguous_speaker_role(roster: Sequence[SpeakerLike]) -> bool:
             continue
         role_counts[entry.coarse_role] = role_counts.get(entry.coarse_role, 0) + 1
     return any(count > 1 for count in role_counts.values())
+
+
+def _ambiguous_speaker_ids(rows: Iterable[tuple[str, str]]) -> set[str]:
+    label_ids: dict[str, set[str]] = {}
+    for speaker_id, label in rows:
+        label_ids.setdefault(str(label or "").strip().casefold(), set()).add(speaker_id)
+    return {speaker_id for ids in label_ids.values() if len(ids) > 1 for speaker_id in ids}
 
 
 def _is_user_declared_relationship_entity(entity: Any) -> bool:
@@ -149,7 +156,9 @@ def _build_speaker_roster_for_segment(
     roster_entry_factory: Callable[[str, str, str], TEntry],
 ) -> list[TEntry] | None:
     map_roster = _build_speaker_roster(speaker_map, roster_entry_factory=roster_entry_factory)
-    map_has_ambiguity = _has_ambiguous_speaker_role(map_roster)
+    map_has_ambiguity = _has_ambiguous_speaker_role(map_roster) or bool(
+        _ambiguous_speaker_ids((speaker_map or {}).values())
+    )
     mentioned_declared = [
         entry
         for entry in (declared_entities or [])
@@ -276,27 +285,21 @@ def _attribute_memory(
     if memory.speaker_ref_invalid or role not in {"user", "soul", "peer", "environment"}:
         return memory._replace(speaker_id=None, speaker_label=None)
     candidates: dict[str, tuple[str, str]] = {}
-    unresolved_labels = {
-        str(candidate[1] or "").strip().casefold()
-        for message_idx in memory.source_message_ids or []
-        if (candidate := speaker_map.get(int(message_idx))) is not None and not candidate[0]
-    }
-    ambiguous_ids: set[str] = set()
+    cited_speakers: list[tuple[str, str]] = []
     for message_idx in memory.source_message_ids or []:
         candidate = speaker_map.get(int(message_idx))
         if candidate is None:
             continue
         if not candidate[0] and role == "peer":
             return memory._replace(speaker_id=None, speaker_label=None)
-        if str(candidate[1] or "").strip().casefold() in unresolved_labels:
-            ambiguous_ids.add(candidate[0])
+        cited_speakers.append(candidate)
         candidates[candidate[0]] = candidate
     if not candidates:
         return memory
     candidates = {key: candidate for key, candidate in candidates.items() if _speaker_role_from_id(key) == role}
     if len(candidates) == 1:
         speaker_id, speaker_label = next(iter(candidates.values()))
-        if role in {"user", "soul"} and speaker_id in ambiguous_ids:
+        if speaker_id in _ambiguous_speaker_ids(cited_speakers):
             return memory._replace(speaker_id=None, speaker_label=None)
         return memory._replace(speaker_id=speaker_id, speaker_label=speaker_label)
 

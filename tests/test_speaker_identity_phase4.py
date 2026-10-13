@@ -28,17 +28,20 @@ def service() -> MemoryService:
     )
 
 
-def test_unambiguous_episode_skips_roster(service: MemoryService) -> None:
+@pytest.mark.parametrize("role", ["user", "soul"])
+@pytest.mark.parametrize("labels", [("Shared Label", "Shared Label"), ("Shared Label", "Other Label")])
+def test_unambiguous_episode_skips_roster(service: MemoryService, role: str, labels: tuple[str, str]) -> None:
     speaker_map = {
-        0: ("user:marcos", "Marcos"),
-        1: ("soul:siri", "Siri"),
+        0: (f"{role}:fictional", labels[0]),
+        1: (f"{role}:fictional", labels[1]),
+        2: ("soul:companion" if role == "user" else "user:owner", "Distinct Label"),
     }
     roster = _make_roster(service, speaker_map)
     assert roster is None
 
     prompt = service._build_memory_type_prompt(
         memory_type="behavior",
-        resource_text="[0] [Marcos] hi\n[1] [Siri] hello",
+        resource_text="[0] [Shared Label] hi\n[1] [Other Label] hello",
         categories_str="relationships",
         soul_context_str="## Relationships\nKnown context.",
         speaker_roster=roster,
@@ -46,6 +49,24 @@ def test_unambiguous_episode_skips_roster(service: MemoryService) -> None:
     assert "Speaker Roster (ambiguous segment fallback)" not in prompt
     assert "Allowed source_role schema for this segment" not in prompt
     assert "Only emit <speaker_ref>" not in prompt
+
+
+@pytest.mark.parametrize("role", ["user", "soul"])
+@pytest.mark.parametrize("labels", [
+    ("Shared Label",),
+    ("Shared Label", "Other Label"),
+    ("Other Label", "Shared Label"),
+])
+def test_cross_role_same_name_segment_attaches_roster(
+    service: MemoryService, role: str, labels: tuple[str, ...],
+) -> None:
+    speaker_id = f"{role}:fictional"
+    speaker_map = {index: (speaker_id, label) for index, label in enumerate(labels)}
+    speaker_map[len(labels)] = ("entity:guest", " shared LABEL ")
+    roster = _make_roster(service, speaker_map)
+    assert roster is not None
+    assert {entry.speaker_id for entry in roster} == {speaker_id, "entity:guest"}
+    assert len(roster) == 2
 
 
 def test_ambiguous_segment_attaches_roster_and_accepts_valid_speaker_ref(service: MemoryService) -> None:
