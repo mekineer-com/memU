@@ -215,7 +215,7 @@ def _parse_memory_type_response_xml(raw: str) -> list[dict[str, Any]]:
         xml_content = re.sub(
             r"<!\[CDATA\[.*?\]\]>|<!--.*?-->|<\?.*?\?>"
             rf"""|</?{name}(?=[\s/>])(?:[^<>"']|"[^"]*"|'[^']*')*>"""
-            rf"""|</?{name}(?=\s+{name}\s*=|[/=>!?"'])[^<>]*"""
+            rf"""|</?{name}(?=\s+{name}\s*=|[/=>]|[!?"'][^<>]*>)[^<>]*"""
             r"|&(?!amp;|lt;|gt;|quot;|apos;|#\d+;|#x[0-9a-fA-F]+;)|<",
             escape_text,
             xml_content,

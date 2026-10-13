@@ -1215,7 +1215,7 @@ def test_parse_memory_type_response_xml_preserves_entities_and_bare_ampersands(r
 
 @pytest.mark.parametrize("roots", [1, 2])
 def test_parse_memory_type_response_xml_preserves_literal_less_than_in_content(roots) -> None:
-    comparison = "tea<coffee; Fictional A's and Fictional B's view -> settled."
+    comparison = "tea<coffee; Fictional A's and Fictional B's view -> settled. a<b!; x<y? ok; Guest<Other's car; a<b\"yes\""
     raw = (
         "<item><memory><content>I felt loved <3; 2 < 3; x < y; a<b; R&D; "
         f"{comparison} "
@@ -1231,7 +1231,7 @@ def test_parse_memory_type_response_xml_preserves_literal_less_than_in_content(r
 
 @pytest.mark.parametrize("roots", [1, 2])
 def test_parse_memory_type_response_xml_preserves_literal_prose_fields(roots) -> None:
-    comparison = "tea<coffee; Fictional A's and Fictional B's view -> settled."
+    comparison = "tea<coffee; Fictional A's and Fictional B's view -> settled. a<b!; x<y? ok; Guest<Other's car; a<b\"yes\""
     raw = (
         "<item><memory><content>New fact.</content>"
         "<replaces_previous_fact>rent was <$900 &nbsp;</replaces_previous_fact>"

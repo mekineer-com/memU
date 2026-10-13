@@ -1351,7 +1351,7 @@ def _revision_case(tmp_path, *, summary: str = "", kind: str = "topic"):
 
 @pytest.mark.asyncio
 async def test_generate_dossier_revision_replaces_unstructured_prose_once(tmp_path) -> None:
-    comparison = "tea<coffee; Fictional A's and Fictional B's view -> settled."
+    comparison = "tea<coffee; Fictional A's and Fictional B's view -> settled. a<b!; x<y? ok; Guest<Other's car; a<b\"yes\""
     service, store, _anchors, category, pending, candidate, refs, bundle = _revision_case(
         tmp_path,
         summary="An earlier account.",
@@ -1753,7 +1753,7 @@ async def test_generate_dynamic_category_review_reuses_profile_and_preflights(
   <action>create</action>
   <accepted_candidate_ids><candidate_id>{candidate.id}</candidate_id></accepted_candidate_ids>
   <rejected_candidate_ids></rejected_candidate_ids>
-  <title>Garden Magic & R&D</title><description>A bright ritual: a<b; &amp; &lt; &amp;amp; <![CDATA[<care> &amp;]]>.</description><kind>lore</kind>
+  <title>Garden Magic & R&D</title><description>A bright ritual: a<b; &amp; &lt; &amp;amp; <![CDATA[<care> &amp;]]>. a<b!; x<y? ok; Guest<Other's car; a<b"yes"</description><kind>lore</kind>
 </dynamic_dossier_review>"""
     client = FakeChatClient(response)
     selected: list[tuple[object, object]] = []
@@ -1771,7 +1771,7 @@ async def test_generate_dynamic_category_review_reuses_profile_and_preflights(
     decision = await service.generate_dynamic_category_review(bundle)
 
     assert decision["name"] == "Garden Magic & R&D"
-    assert decision["description"] == "A bright ritual: a<b; & < &amp; <care> &amp;."
+    assert decision["description"] == "A bright ritual: a<b; & < &amp; <care> &amp;. a<b!; x<y? ok; Guest<Other's car; a<b\"yes\""
     assert selected == [
         (
             {"operation": "dossier", "step_id": "dynamic_review"},
