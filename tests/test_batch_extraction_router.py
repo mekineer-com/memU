@@ -22,6 +22,41 @@ def _service() -> MemoryService:
     return service
 
 
+@pytest.mark.parametrize("count", [0, 1, 2])
+@pytest.mark.parametrize("identity", ["known", "unknown", "invalid"])
+def test_extracted_summary_whitespace_does_not_depend_on_result_count(count, identity):
+    service = _service()
+    entry = StructuredMemoryEntry(
+        memory_type="knowledge", content="  A fictional\n\t garden   plan\u00a0works.  ",
+        categories=["Fictional Garden"], source_role="peer", confidence=0.8,
+        source_message_ids=[2, 5], reflection_salience=0.7, emotional_intensity=0.4,
+        replaces_previous_fact="Earlier fictional plan", entities=[{"name": "Fictional Garden", "type": "place"}],
+        speaker_id="entity:fictional" if identity == "known" else None,
+        speaker_label="Fictional Speaker", memory_date="2026-01-02", speaker_ref_invalid=identity == "invalid",
+    )
+    entries = [entry] if count == 1 else [entry, entry._replace(
+        content="A fictional garden plan works.", confidence=0.5, source_message_ids=[8])]
+    if count == 0:
+        entries = []
+    original = list(entries)
+    result = service._prune_extracted_entry_duplicates(entries)
+    expected = [item._replace(content="A fictional garden plan works.") for item in entries]
+    if identity == "known":
+        expected = expected[:1]
+    assert result == expected
+    assert entries == original
+    assert service._prune_extracted_entry_duplicates(result) == result
+
+
+@pytest.mark.parametrize("count", [1, 2])
+def test_xml_extraction_summary_whitespace_is_consistent_after_parsing(count):
+    service = _service()
+    raw = "<item><memory><content>A fictional\n\t garden   plan works.</content></memory></item>"
+    entries = service._parse_structured_entries(["knowledge"], [raw * count], default_source_message_ids=[2, 5])
+    assert [entry.content for entry in entries] == ["A fictional garden plan works."] * count
+    assert all(entry.source_message_ids == [2, 5] for entry in entries)
+
+
 class _RouterStub:
     def __init__(self, payload: str) -> None:
         self.payload = payload

@@ -1867,9 +1867,6 @@ class MemorizeMixin:
         self,
         entries: list[StructuredMemoryEntry],
     ) -> list[StructuredMemoryEntry]:
-        if len(entries) < 2:
-            return entries
-
         seen_exact: set[tuple[str, str | None, str | None, bool, str]] = set()
         kept: list[StructuredMemoryEntry] = []
         for entry in entries:
