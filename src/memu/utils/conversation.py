@@ -192,23 +192,23 @@ def _conversation_heading(
     names = names or {}
     if kind == "whatsapp_group":
         pretty = _lookup_whatsapp_name(key, names) or str(chat_name or "").strip() or key or "group"
-        return f"[group][{pretty}]"
+        return _extract_text_content(f"[group][{pretty}]", collapse_newlines=True)
     if kind == "whatsapp_dm":
         pretty = _lookup_whatsapp_name(key, names) or str(chat_name or "").strip() or key or "contact"
-        return f"[dm][{pretty}]"
+        return _extract_text_content(f"[dm][{pretty}]", collapse_newlines=True)
     if kind == "sillytavern_dm":
         pretty = (chat_name or "").strip() or key or "sillytavern"
-        return f"[dm][{pretty}]"
+        return _extract_text_content(f"[dm][{pretty}]", collapse_newlines=True)
     if kind == "atomic_dm":
         pretty = (chat_name or "").strip() or key or "Atomic"
-        return f"[dm][{pretty}]"
+        return _extract_text_content(f"[dm][{pretty}]", collapse_newlines=True)
     if kind == "mentra_dm":
-        return f"[dm][{(chat_name or '').strip() or 'Smartglasses'}]"
+        return _extract_text_content(f"[dm][{(chat_name or '').strip() or 'Smartglasses'}]", collapse_newlines=True)
     if kind == "replika_dm":
-        return f"[dm][{(chat_name or '').strip() or key or 'Replika'}]"
+        return _extract_text_content(f"[dm][{(chat_name or '').strip() or key or 'Replika'}]", collapse_newlines=True)
     if kind == "import_dm":
-        return f"[dm][{(chat_name or '').strip() or key}]"
-    return f"[dm][{key or 'sillytavern'}]"
+        return _extract_text_content(f"[dm][{(chat_name or '').strip() or key}]", collapse_newlines=True)
+    return _extract_text_content(f"[dm][{key or 'sillytavern'}]", collapse_newlines=True)
 
 
 def _conversation_section_title(kind: str) -> str:
@@ -406,6 +406,7 @@ def format_grouped_chat_history(
         section_key = _conversation_section_title(kind)
         if kind == "import_dm":
             label = str((rows or context_rows)[0].get("app_label") or "").strip() if rows or context_rows else ""
+            label = _extract_text_content(label, collapse_newlines=True)
             if not label:
                 raise ValueError("Imported conversations require their chat-app label")
             section_key = f"My {label} Conversations:"
@@ -421,7 +422,7 @@ def format_grouped_chat_history(
                 break
         heading = _conversation_heading(kind, key, whatsapp_names, chat_name or None)
         if is_current:
-            heading = str(current_chat_label or "").strip() or heading
+            heading = _extract_text_content(current_chat_label, collapse_newlines=True) or heading
             if mark_current_chat and not heading.endswith("\u2190 current chat"):
                 heading += " \u2190 current chat"
         conv_lines: list[str] = [heading]
