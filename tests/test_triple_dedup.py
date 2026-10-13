@@ -6,6 +6,7 @@ Memu's triple_repo now does both.
 """
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
@@ -88,6 +89,55 @@ async def test_connected_recall_relations_point_from_neighbor_to_seed(store, pre
     assert [(row.subject_id, row.predicate, row.object_id) for row in
             store.triple_repo.get_edges_from(edge.subject_id, where=scope)] == [
                 (edge.subject_id, predicate, edge.object_id)]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind,historical", [
+    ("narrative_self", False), ("subconscious", False), ("merged", False),
+    ("superseded", False), ("superseded", True), ("knowledge", False),
+])
+async def test_graph_limit_counts_only_visible_neighbors(store, kind, historical):
+    scope = {"user_id": f"quota_{kind}_{historical}", "soul_id": "TestSoul"}
+    seed, first, visible = [store.memory_item_repo.create_item(
+        memory_type=memory_type, summary=summary, embedding=embedding,
+        extra={"apimw_subconscious_insight": True} if memory_type == "subconscious" else {},
+        user_data=scope,
+    ) for memory_type, summary, embedding in [
+        ("knowledge", "Fictional garden discovery", [1.0, 0.0]),
+        (kind if kind in {"narrative_self", "subconscious"} else "knowledge",
+         "Fictional first neighbor", [0.0, 1.0]),
+        ("knowledge", "Fictional visible neighbor", [0.0, 1.0]),
+    ]]
+    for subject, obj in [(seed, first), (visible, seed)]:
+        edge = _triple(subject.id, "evokes", obj.id)
+        edge.valid_from = datetime(2026, 1, 1, tzinfo=UTC)
+        store.triple_repo.add(edge, user_data=scope)
+    if kind == "merged":
+        store.memory_item_repo.update_item(item_id=first.id, merged_into=visible.id)
+    elif kind == "superseded":
+        edge = _triple(first.id, "evolved_into", visible.id)
+        edge.valid_from = datetime(2026, 1, 2, tzinfo=UTC)
+        store.triple_repo.add(edge, user_data=scope)
+
+    mixin = RetrieveMixin()
+    mixin.retrieve_config = SimpleNamespace(
+        item=SimpleNamespace(top_k=1, ranking="similarity", recency_decay_days=30,
+                             fts_enabled=False, fts_top_k=20, rrf_k=60),
+        graph=SimpleNamespace(enabled=True, max_graph_results=1),
+    )
+    mixin._find_entity_matches = lambda *_args: []
+    mixin._model_dump_without_embeddings = lambda row: row.model_dump(exclude={"embedding"})
+    state = await mixin._rag_recall_items({
+        "needs_retrieval": True, "proceed_to_items": True, "new_message": "Fictional garden",
+        "active_query": "Fictional garden", "query_vector": seed.embedding,
+        "store": store, "where": scope,
+        "as_of": datetime(2026, 1, 1, 12, tzinfo=UTC) if historical else None,
+    }, None)
+    response = mixin._rag_build_context(state, None)["response"]
+    expected = first if historical or kind == "knowledge" else visible
+    assert [item["id"] for item in response["items"]] == [seed.id, expected.id]
+    assert response["items"][1]["score"] == 0
+    assert response["items"][1]["shaped_by"]["id"] == seed.id
 
 
 def test_identical_triple_inserted_twice_dedups_to_one_row(store) -> None:

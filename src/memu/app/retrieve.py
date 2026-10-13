@@ -598,6 +598,9 @@ class RetrieveMixin:
             graph_only = [
                 mid for mid in (entity_seed_ids + expanded_ids)
                 if mid not in vector_id_set
+                and mid in items_pool
+                and items_pool[mid].memory_type != "narrative_self"
+                and not (items_pool[mid].extra or {}).get("apimw_subconscious_insight")
             ]
             seen: set[str] = set()
             deduped: list[str] = []

@@ -503,10 +503,10 @@ async def test_entity_seed_memories_have_relevance_floor():
         ),
         graph=SimpleNamespace(enabled=True, max_graph_results=3, min_entity_similarity=0.3),
     )
-    relevant = SimpleNamespace(id="relevant", embedding=[0.8, 0.2])
-    irrelevant = SimpleNamespace(id="irrelevant", embedding=[0.0, 1.0])
+    relevant = SimpleNamespace(id="relevant", embedding=[0.8, 0.2], memory_type="knowledge", extra={})
+    irrelevant = SimpleNamespace(id="irrelevant", embedding=[0.0, 1.0], memory_type="knowledge", extra={})
     repo = SimpleNamespace(
-        list_items=lambda *_args, **_kwargs: {},
+        list_items=lambda *_args, **_kwargs: {relevant.id: relevant, irrelevant.id: irrelevant},
         get_item_by_memory_ref=lambda *_args, **_kwargs: None,
         vector_search_items=lambda *_args, **_kwargs: [],
         list_items_by_ids=lambda *_args, **_kwargs: {

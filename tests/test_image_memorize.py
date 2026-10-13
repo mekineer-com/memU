@@ -252,6 +252,39 @@ async def test_dedupe_keeps_cited_memories(tmp_path, cited):
 
 
 @pytest.mark.asyncio
+async def test_dedupe_response_retains_dossier_transferred_to_old_survivor(tmp_path):
+    service = _service(tmp_path)
+    store = service.database
+    scope = {"user_id": "TestOwner", "soul_id": "TestSoul"}
+    old, new = [store.memory_item_repo.create_item(
+        memory_type="knowledge", summary="Fictional garden project", embedding=[1.0, 0.0],
+        user_data=scope, speaker_id="entity:guest-a",
+    ) for _ in range(2)]
+    cited, touched = [store.memory_category_repo.get_or_create_category(
+        name=name, description=name, embedding=[1.0, 0.0], user_data=scope,
+    ) for name in ("Earlier garden", "New garden topic")]
+    store.memory_category_repo.update_category(
+        category_id=cited.id, summary=f"Garden [M{old.memory_ref}].",
+    )
+    store.category_item_repo.link_item_category(old.id, cited.id, scope)
+    relation = store.category_item_repo.link_item_category(new.id, touched.id, scope)
+    state = {"items": [new], "relations": [relation], "category_ids": [touched.id],
+             "store": store, "user": scope}
+    try:
+        await service._memorize_dedupe_merge(state, None)
+        await service._memorize_persist_and_index(state, None)
+        response = service._memorize_build_response(state, None)["response"]
+        assert response["items"] == response["relations"] == []
+        assert [category["id"] for category in response["categories"]] == [touched.id]
+        assert {(rel.item_id, rel.category_id) for rel in store.category_item_repo.list_relations(scope)} == {
+            (old.id, cited.id), (old.id, touched.id),
+        }
+        assert store.memory_item_repo.list_items(scope).keys() == {old.id}
+    finally:
+        store.close()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("change", ["candidate", "citation"])
 async def test_dedupe_chain_rechecks_candidates_after_preceding_merge(tmp_path, monkeypatch, change):
     service = _service(tmp_path)
