@@ -1180,15 +1180,33 @@ def test_parse_memory_type_response_xml_preserves_entities_and_bare_ampersands(r
 
 @pytest.mark.parametrize("roots", [1, 2])
 def test_parse_memory_type_response_xml_preserves_literal_less_than_in_content(roots) -> None:
+    comparison = "tea<coffee; Fictional A's and Fictional B's view -> settled."
     raw = (
         "<item><memory><content>I felt loved <3; 2 < 3; x < y; a<b; R&D; "
+        f"{comparison} "
         "<![CDATA[literal </content> <3 &lt;]]> <b>still here</b> "
         '<b title="x > y">double</b> <i title=\'x > y\'>single</i> '
         "<memory><content>quoted inner</content></memory> <\u00e9>then</\u00e9> <3 <"
         "</content></memory></item>"
     )
     assert parsing._parse_memory_type_response_xml(raw * roots) == [{
-        "content": "I felt loved <3; 2 < 3; x < y; a<b; R&D; literal </content> <3 &lt; still here double single quoted inner then <3 <",
+        "content": f"I felt loved <3; 2 < 3; x < y; a<b; R&D; {comparison} literal </content> <3 &lt; still here double single quoted inner then <3 <",
+    }] * roots
+
+
+@pytest.mark.parametrize("roots", [1, 2])
+def test_parse_memory_type_response_xml_preserves_literal_prose_fields(roots) -> None:
+    comparison = "tea<coffee; Fictional A's and Fictional B's view -> settled."
+    raw = (
+        "<item><memory><content>New fact.</content>"
+        "<replaces_previous_fact>rent was <$900 &nbsp;</replaces_previous_fact>"
+        f"<categories><category>{comparison}</category><category/></categories>"
+        "<entities><entity><name>price <$900</name><type>size <3</type></entity>"
+        "</entities></memory></item>"
+    )
+    assert parsing._parse_memory_type_response_xml(raw * roots) == [{
+        "content": "New fact.", "replaces_previous_fact": "rent was <$900 &nbsp;",
+        "categories": [comparison], "entities": [{"name": "price <$900", "type": "size <3"}],
     }] * roots
 
 
@@ -1205,6 +1223,13 @@ def test_parse_memory_type_response_xml_preserves_literal_less_than_in_content(r
     '<item><memory><content>Broken <b title="unfinished</content></memory></item>',
     "<item><memory><content>Broken <b title=unquoted>prose</b></content></memory></item>",
     "<item><memory><contentment>Not prose <3</contentment></memory></item>",
+    "<item><memory><content>Broken <b!>prose</content></memory></item>",
+    '<item><memory><content>Broken <b"oops">prose</content></memory></item>',
+    "<item><memory><content>Broken <b'oops'>prose</content></memory></item>",
+    "<item><memory><content>Valid.</content><name/><3</memory></item>",
+    "<item><memory><content>Valid.</content><categories><category/><3</categories></memory></item>",
+    "<item><memory><content>Valid.</content><replaces_previous_fact/><3</memory></item>",
+    "<item><memory><content>Valid.</content><entities><entity><name>Valid</name><type/><3</entity></entities></memory></item>",
 ])
 def test_parse_memory_type_response_xml_keeps_malformed_structure_failing(raw) -> None:
     with pytest.raises(ValueError, match="unparseable"):

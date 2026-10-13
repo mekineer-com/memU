@@ -1351,14 +1351,15 @@ def _revision_case(tmp_path, *, summary: str = "", kind: str = "topic"):
 
 @pytest.mark.asyncio
 async def test_generate_dossier_revision_replaces_unstructured_prose_once(tmp_path) -> None:
+    comparison = "tea<coffee; Fictional A's and Fictional B's view -> settled."
     service, store, _anchors, category, pending, candidate, refs, bundle = _revision_case(
         tmp_path,
         summary="An earlier account.",
     )
     response = f"""<dossier_revision dossier_id="{category.id}">
-  <description>R&D, a<b; &amp; &lt; &#60; &#x3c; &amp;amp;.</description>
+  <description>R&D, a<b; &amp; &lt; &#60; &#x3c; &amp;amp;. {comparison}</description>
   <prose_action>replace</prose_action>
-  <prose>## Health\nA living account [M{refs[pending.id]}] [M{refs[candidate.id]}]. R&D, a<b; <![CDATA[literal &amp; <care>]]></prose>
+  <prose>## Health\nA living account [M{refs[pending.id]}] [M{refs[candidate.id]}]. R&D, a<b; <![CDATA[literal &amp; <care>]]> {comparison}</prose>
   <prose_patches></prose_patches>
   <decisions>
     <decision ref="[M{refs[pending.id]}]" action="add" />
@@ -1387,8 +1388,8 @@ async def test_generate_dossier_revision_replaces_unstructured_prose_once(tmp_pa
     assert result["add_item_ids"] == sorted([pending.id, candidate.id])
     assert result["cited_item_ids"] == sorted([pending.id, candidate.id])
     assert store.category_item_repo.list_relations(SCOPE) == before
-    assert result["description"] == "R&D, a<b; & < < < &amp;."
-    expected = f"## Health\nA living account [M{refs[pending.id]}] [M{refs[candidate.id]}]. R&D, a<b; literal &amp; <care>"
+    assert result["description"] == f"R&D, a<b; & < < < &amp;. {comparison}"
+    expected = f"## Health\nA living account [M{refs[pending.id]}] [M{refs[candidate.id]}]. R&D, a<b; literal &amp; <care> {comparison}"
     assert result["resulting_prose"] == expected
     embed = FakeEmbedClient()
     revised = await service.apply_dossier_revision(bundle, result, SCOPE, embedding_client=embed)

@@ -9,8 +9,8 @@ _NAME = _START + r"(?:[A-Za-z0-9_.:-]|[^\x00-\x7f])*"
 # Shield opaque XML and tag candidates; the caller's parser validates grammar.
 XML_TOKEN = re.compile(
     r"(?P<opaque><!\[CDATA\[.*?\]\]>|<!--.*?-->|<\?.*?\?>)"
-    rf"""|(?P<tag></?{_START}(?:[^<>"']|"[^"]*"|'[^']*')*>)"""
-    rf"|(?P<damaged></?{_NAME}(?=\s+{_NAME}\s*=|[/=>])[^<>]*)"
+    rf"""|(?P<tag></?{_NAME}(?=[\s/>])(?:[^<>"']|"[^"]*"|'[^']*')*>)"""
+    rf"""|(?P<damaged></?{_NAME}(?=\s+{_NAME}\s*=|[/=>!?"'])[^<>]*)"""
     rf"|(?P<bare>&(?!{_NAME};|#[^;\s<&]*;)|<)",
     re.DOTALL,
 )

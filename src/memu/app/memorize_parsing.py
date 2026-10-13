@@ -193,18 +193,18 @@ def _parse_memory_type_response_xml(raw: str) -> list[dict[str, Any]]:
 
         start_idx, end_idx, end_tag = boundaries
         xml_content = raw[start_idx : end_idx + len(end_tag)]
-        content_depth = 0
+        prose_tags = {"content", "replaces_previous_fact", "name", "type", "category"}
+        prose_depth = 0
 
         def escape_text(match: re.Match[str]) -> str:
-            nonlocal content_depth
+            nonlocal prose_depth
             token = match.group(0)
-            if re.match(r"<content(?:\s|>)", token) and not token.endswith("/>"):
-                content_depth += 1
-            elif re.fullmatch(r"</content\s*>", token):
-                content_depth -= 1
+            tag_name = re.match(r"</?([A-Za-z_][A-Za-z0-9_.:-]*)(?=[\s/>])", token)
+            if tag_name and tag_name.group(1) in prose_tags:
+                prose_depth += -1 if token.startswith("</") else 0 if token.endswith("/>") else 1
             elif token == "&":
                 return "&amp;"
-            elif (token == "<" and content_depth > 0
+            elif (token == "<" and prose_depth > 0
                   and xml_content[match.end():match.end() + 1] not in {"/", "!", "?"}):
                 return "&lt;"
             return token
@@ -214,8 +214,8 @@ def _parse_memory_type_response_xml(raw: str) -> list[dict[str, Any]]:
         name = name_start + r"(?:[A-Za-z0-9_.:-]|[^\x00-\x7f])*"
         xml_content = re.sub(
             r"<!\[CDATA\[.*?\]\]>|<!--.*?-->|<\?.*?\?>"
-            rf"""|</?{name_start}(?:[^<>"']|"[^"]*"|'[^']*')*>"""
-            rf"|</?{name}(?=\s+{name}\s*=|[/=>])[^<>]*"
+            rf"""|</?{name}(?=[\s/>])(?:[^<>"']|"[^"]*"|'[^']*')*>"""
+            rf"""|</?{name}(?=\s+{name}\s*=|[/=>!?"'])[^<>]*"""
             r"|&(?!amp;|lt;|gt;|quot;|apos;|#\d+;|#x[0-9a-fA-F]+;)|<",
             escape_text,
             xml_content,
