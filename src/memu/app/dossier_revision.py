@@ -11,6 +11,7 @@ from defusedxml import ElementTree
 
 from memu.database.models import MemoryItem
 from memu.utils.conversation import format_relative_time_label, parse_happened_at
+from memu.utils.xml import escape_xml_prose
 
 _HEADING = re.compile(r"(?m)^## [^\r\n]+\r?$")
 # Model output is a trust boundary: these accept only exact [M#] tokens, unlike
@@ -18,6 +19,7 @@ _HEADING = re.compile(r"(?m)^## [^\r\n]+\r?$")
 _MEMORY_REF = re.compile(r"^\[M([1-9][0-9]*)\]$")
 _MEMORY_REFS = re.compile(r"\[M[1-9][0-9]*\]")
 _MEMORY_TOKEN = re.compile(r"\[M[^\]\r\n]*\]")
+_PROSE_TAGS = {"description", "prose", "section", "body"}
 
 
 def contains_memory_reference_token(text: str) -> bool:
@@ -146,7 +148,7 @@ def parse_dossier_revision(
     if "<!--" in text or "<?" in text:
         raise ValueError("Expected exact dossier_revision XML")
     try:
-        root = ElementTree.fromstring(text)
+        root = ElementTree.fromstring(escape_xml_prose(text, _PROSE_TAGS))
     except Exception as exc:
         raise ValueError("Invalid dossier revision XML") from exc
     if root.tag != "dossier_revision" or set(root.attrib) != {"dossier_id"}:
@@ -236,7 +238,7 @@ def parse_dossier_revision_batch(
     ):
         raise ValueError("Expected exact dossier_revisions XML")
     try:
-        root = ElementTree.fromstring(text)
+        root = ElementTree.fromstring(escape_xml_prose(text, _PROSE_TAGS))
     except Exception as exc:
         raise ValueError("Invalid dossier revisions XML") from exc
     if root.tag != "dossier_revisions" or root.attrib or (root.text or "").strip():

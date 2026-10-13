@@ -1356,9 +1356,9 @@ async def test_generate_dossier_revision_replaces_unstructured_prose_once(tmp_pa
         summary="An earlier account.",
     )
     response = f"""<dossier_revision dossier_id="{category.id}">
-  <description>A personal brief.</description>
+  <description>R&D, a<b; &amp; &lt; &#60; &#x3c; &amp;amp;.</description>
   <prose_action>replace</prose_action>
-  <prose>## Health\nA living account [M{refs[pending.id]}] [M{refs[candidate.id]}].</prose>
+  <prose>## Health\nA living account [M{refs[pending.id]}] [M{refs[candidate.id]}]. R&D, a<b; <![CDATA[literal &amp; <care>]]></prose>
   <prose_patches></prose_patches>
   <decisions>
     <decision ref="[M{refs[pending.id]}]" action="add" />
@@ -1387,6 +1387,13 @@ async def test_generate_dossier_revision_replaces_unstructured_prose_once(tmp_pa
     assert result["add_item_ids"] == sorted([pending.id, candidate.id])
     assert result["cited_item_ids"] == sorted([pending.id, candidate.id])
     assert store.category_item_repo.list_relations(SCOPE) == before
+    assert result["description"] == "R&D, a<b; & < < < &amp;."
+    expected = f"## Health\nA living account [M{refs[pending.id]}] [M{refs[candidate.id]}]. R&D, a<b; literal &amp; <care>"
+    assert result["resulting_prose"] == expected
+    embed = FakeEmbedClient()
+    revised = await service.apply_dossier_revision(bundle, result, SCOPE, embedding_client=embed)
+    assert revised.summary == expected and revised.description == result["description"]
+    assert embed.calls == [[f"Health: {result['description']}"]]
 
 
 @pytest.mark.asyncio
@@ -1420,7 +1427,7 @@ async def test_generate_dossier_revision_patches_sections_without_touching_other
   <prose></prose>
   <prose_patches>
     <section ref="S2" action="replace"><body>## Timeline
-- 2026-07-18: River started a daily record [M{refs[pending.id]}].</body></section>
+- 2026-07-18: River started a daily record [M{refs[pending.id]}]. R&D, a<b.</body></section>
     <section ref="S1" action="add_after"><body>## Current Practice
 River records each day with care [M{refs[pending.id]}].</body></section>
   </prose_patches>
@@ -1432,6 +1439,7 @@ River records each day with care [M{refs[pending.id]}].</body></section>
     assert result["resulting_prose"].startswith(original_first)
     assert "## Current Practice" in result["resulting_prose"]
     assert "## Timeline\n- 2026-07-18" in result["resulting_prose"]
+    assert "R&D, a<b." in result["resulting_prose"]
 
     alias_result = await service.generate_dossier_revision(
         bundle,
@@ -1478,10 +1486,10 @@ def test_parse_dossier_revision_batch_patches_blank_canonical_section(tmp_path) 
     )
     response = f"""<dossier_revisions>
   <dossier_revision dossier_id="{category.id}">
-    <description>A warm account of daily care.</description>
+    <description>R&D and x < y &amp; care.</description>
     <prose_action>patch</prose_action>
     <prose_patches><section ref="S1" action="replace"><body>## Daily Care
-River keeps a thoughtful daily record [M{refs[pending.id]}].</body></section></prose_patches>
+River keeps a thoughtful daily record [M{refs[pending.id]}]. a<b; R&D.</body></section></prose_patches>
     <decisions><decision ref="[M{refs[pending.id]}]" action="add" /></decisions>
   </dossier_revision>
 </dossier_revisions>"""
@@ -1490,6 +1498,8 @@ River keeps a thoughtful daily record [M{refs[pending.id]}].</body></section></p
 
     assert result["resulting_prose"].startswith("## Daily Care")
     assert result["add_item_ids"] == [pending.id]
+    assert result["description"] == "R&D and x < y & care."
+    assert result["resulting_prose"].endswith("a<b; R&D.")
 
     empty_bundle = dict(bundle)
     empty_bundle.update({
@@ -1587,6 +1597,19 @@ async def test_generate_dossier_revision_validates_decisions_and_xml(tmp_path) -
         f'<decisions><decision ref="[M{refs[pending.id]}]" action="add" /></decisions>',
     )
     valid = valid.replace("Account.</prose>", f"Account [M{refs[pending.id]}].</prose>")
+    for before, after, error in [
+        ("Brief.", "&unknown;", "Invalid dossier revision XML"),
+        ("Brief.", "&#x110000;", "Invalid dossier revision XML"),
+        ("Brief.", "<b>R&D</b>", "Expected plain text"),
+        ("Brief.", '<b title="unfinished', "Invalid dossier revision XML"),
+        ("Brief.", "<The Hobbit>", "Invalid dossier revision XML"),
+        (f'dossier_id="{category.id}"', 'dossier_id="R&D"', "Invalid dossier revision XML"),
+        (f' ref="[M{refs[pending.id]}]"', ' ref="[M999999]"', "Unknown memory decision"),
+        ("</description>", "</description><description>Duplicate & prose</description>", "Duplicate dossier revision element"),
+        ("<prose_action>replace", "<prose_action>replace & more", "Invalid dossier revision XML"),
+    ]:
+        with pytest.raises(ValueError, match=error):
+            await service.generate_dossier_revision(bundle, chat_client=FakeChatClient(valid.replace(before, after)))
     result = await service.generate_dossier_revision(bundle, chat_client=FakeChatClient(valid))
     assert result["add_item_ids"] == [pending.id]
 
@@ -1729,7 +1752,7 @@ async def test_generate_dynamic_category_review_reuses_profile_and_preflights(
   <action>create</action>
   <accepted_candidate_ids><candidate_id>{candidate.id}</candidate_id></accepted_candidate_ids>
   <rejected_candidate_ids></rejected_candidate_ids>
-  <title>Garden Magic</title><description>A bright ritual of growing things.</description><kind>lore</kind>
+  <title>Garden Magic & R&D</title><description>A bright ritual: a<b; &amp; &lt; &amp;amp; <![CDATA[<care> &amp;]]>.</description><kind>lore</kind>
 </dynamic_dossier_review>"""
     client = FakeChatClient(response)
     selected: list[tuple[object, object]] = []
@@ -1746,13 +1769,25 @@ async def test_generate_dynamic_category_review_reuses_profile_and_preflights(
     )
     decision = await service.generate_dynamic_category_review(bundle)
 
-    assert decision["name"] == "Garden Magic"
+    assert decision["name"] == "Garden Magic & R&D"
+    assert decision["description"] == "A bright ritual: a<b; & < &amp; <care> &amp;."
     assert selected == [
         (
             {"operation": "dossier", "step_id": "dynamic_review"},
             service.memorize_config.category_update_llm_profile,
         )
     ]
+    for before, after, error in [
+        ("Garden Magic & R&D", "<b>R&D</b>", "Expected plain text"),
+        ("Garden Magic & R&D", "&nbsp;", "Invalid dynamic dossier review XML"),
+        ("Garden Magic & R&D", "&#0;", "Invalid dynamic dossier review XML"),
+        (f"<candidate_id>{candidate.id}</candidate_id>", "<candidate_id>R&D</candidate_id>", "Invalid dynamic dossier review XML"),
+        (f"<candidate_id>{candidate.id}</candidate_id>", "<candidate_id>unknown</candidate_id>", "must partition"),
+        ('cluster_id="cluster_1"', 'cluster_id="other"', "does not match"),
+        ("<kind>lore</kind>", "<kind>lore & more</kind>", "Invalid dynamic dossier review XML"),
+    ]:
+        with pytest.raises(ValueError, match=error):
+            await service.generate_dynamic_category_review(bundle, chat_client=FakeChatClient(response.replace(before, after)))
 
     monkeypatch.setattr(
         service,
@@ -1773,7 +1808,7 @@ async def test_generate_dynamic_category_review_reuses_profile_and_preflights(
     service.memorize_config.enforce_input_budget = True
     service.llm_profiles.profiles["small_category"].context_window_tokens = 500_000
     monkeypatch.setattr(service, "_select_chat_client", select)
-    assert (await service.generate_dynamic_category_review(bundle))["name"] == "Garden Magic"
+    assert (await service.generate_dynamic_category_review(bundle))["name"] == "Garden Magic & R&D"
 
 
 @pytest.mark.asyncio

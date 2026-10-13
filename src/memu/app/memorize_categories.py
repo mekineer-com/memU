@@ -26,6 +26,7 @@ from memu.utils.taxonomy import (
     embedding_vector,
     normalize_category_name,
 )
+from memu.utils.xml import escape_xml_prose
 
 logger = logging.getLogger(__name__)
 
@@ -513,7 +514,7 @@ def parse_dynamic_category_review(raw: str, bundle: Mapping[str, Any]) -> dict[s
     ):
         raise ValueError("Expected exact dynamic_dossier_review XML")
     try:
-        root = ElementTree.fromstring(text)
+        root = ElementTree.fromstring(escape_xml_prose(text, {"title", "description"}))
     except Exception as exc:
         raise ValueError("Invalid dynamic dossier review XML") from exc
     if root.tag != "dynamic_dossier_review" or set(root.attrib) != {"cluster_id"}:
