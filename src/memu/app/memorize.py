@@ -271,10 +271,10 @@ class MemorizeMixin:
             if image_happened_at is None:
                 raise ValueError("image source_timestamp is invalid")
         if modality == "image":
-            existing, linked = self._image_retry_state(
+            existing, linked, extracted = self._image_retry_state(
                 store, user_scope or {}, resource_url, supplied_caption
             )
-            if existing is not None and linked:
+            if existing is not None and extracted:
                 return {
                     "resource": self._model_dump_without_embeddings(existing),
                     "items": [self._model_dump_without_embeddings(item) for item in linked.values()],
@@ -1107,7 +1107,7 @@ class MemorizeMixin:
         user_scope: dict[str, Any],
         resource_url: str,
         caption: str | None,
-    ) -> tuple[Resource | None, dict[str, MemoryItem]]:
+    ) -> tuple[Resource | None, dict[str, MemoryItem], bool]:
         existing = next(
             (
                 resource
@@ -1117,14 +1117,18 @@ class MemorizeMixin:
             None,
         )
         if existing is None:
-            return None, {}
+            return None, {}, False
         if str(existing.caption or "").strip() != str(caption or "").strip():
             raise ValueError("Completed Resource caption conflicts with retry")
         linked = store.memory_item_repo.list_items(
             {**user_scope, "resource_id": existing.id},
             include_embeddings=False,
         )
-        return existing, linked
+        extracted = bool(linked) or bool(store.memory_item_repo.list_items(
+            {**user_scope, "resource_id": existing.id},
+            include_embeddings=False, include_merged=True, include_superseded=True,
+        ))
+        return existing, linked, extracted
 
     async def _prepare_plan(
         self,
@@ -1151,12 +1155,13 @@ class MemorizeMixin:
 
         existing_resource: Resource | None = None
         linked: dict[str, MemoryItem] = {}
+        extracted = False
         if modality == "image":
-            existing_resource, linked = self._image_retry_state(
+            existing_resource, linked, extracted = self._image_retry_state(
                 store, user_scope, str(plan["resource_url"]), plan.get("caption"),
             )
-        prepared: dict[str, Any] = {"existing_resource": existing_resource, "linked": linked}
-        if existing_resource is not None and linked:
+        prepared: dict[str, Any] = {"existing_resource": existing_resource, "linked": linked, "extracted": extracted}
+        if existing_resource is not None and extracted:
             return prepared
 
         episode_local_path = local_path or str(plan["resource_url"])
@@ -1231,7 +1236,7 @@ class MemorizeMixin:
         item_proposals: list[tuple[MemoryItem, Sequence[str]]] = []
         existing_resource = prepared["existing_resource"]
         linked = prepared["linked"]
-        if existing_resource is not None and linked:
+        if existing_resource is not None and prepared["extracted"]:
             items.extend(linked.values())
             return [existing_resource], 0
 

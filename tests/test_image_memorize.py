@@ -535,7 +535,8 @@ async def test_image_invalid_explicit_timestamp_fails_before_provider_work(tmp_p
 
 
 @pytest.mark.asyncio
-async def test_completed_image_resource_retry_creates_no_second_item(tmp_path: Path) -> None:
+@pytest.mark.parametrize("retired", [None, "merged", "superseded", "mixed"])
+async def test_completed_image_resource_retry_creates_no_second_item(tmp_path: Path, retired) -> None:
     service = _service(tmp_path)
     service.memorize_config.enforce_input_budget = True
     scope = {"user_id": "u", "soul_id": "s"}
@@ -556,6 +557,20 @@ async def test_completed_image_resource_retry_creates_no_second_item(tmp_path: P
         user_data=scope,
     )
 
+    if retired:
+        successor = store.memory_item_repo.create_item(
+            memory_type="episode", summary="Surviving memory.", embedding=[1.0, 0.0], user_data=scope,
+            resource_id=resource.id if retired == "mixed" else None,
+        )
+        if retired in {"merged", "mixed"}:
+            store.memory_item_repo.update_item(item_id=item.id, merged_into=successor.id)
+        else:
+            store.triple_repo.add(Triple(
+                subject_id=item.id, subject_kind="memory", predicate="evolved_into",
+                object_id=successor.id, object_kind="memory",
+            ), user_data=scope)
+    expected_ids = [successor.id] if retired == "mixed" else [] if retired else [item.id]
+
     class FailClient:
         async def embed(self, _texts):
             raise AssertionError("retry must not embed or extract")
@@ -570,7 +585,7 @@ async def test_completed_image_resource_retry_creates_no_second_item(tmp_path: P
         user=scope,
         caption="A caption.",
     )
-    assert [row["id"] for row in public["items"]] == [item.id]
+    assert [row["id"] for row in public["items"]] == expected_ids
 
     service._llm_clients["embedding"] = FailClient()
     state = await service._memorize_categorize_items({
@@ -579,8 +594,13 @@ async def test_completed_image_resource_retry_creates_no_second_item(tmp_path: P
         "store": store, "user": scope, "conversation_id": "mentra:phone",
     }, {})
     assert state["resources"][0].id == resource.id
-    assert [row.id for row in state["items"]] == [item.id]
+    assert [row.id for row in state["items"]] == expected_ids
     assert state["homeless_item_count"] == 0
+    linked_scope = {**scope, "resource_id": resource.id}
+    assert list(store.memory_item_repo.list_items(linked_scope)) == expected_ids
+    assert set(store.memory_item_repo.list_items(
+        linked_scope, include_merged=True, include_superseded=True,
+    )) == ({item.id, successor.id} if retired == "mixed" else {item.id})
 
     with pytest.raises(ValueError, match="caption conflicts"):
         await service._memorize_categorize_items({
@@ -616,37 +636,3 @@ async def test_unlinked_image_resource_retry_reuses_resource(tmp_path: Path) -> 
     }, {})
     assert [row.id for row in state["resources"]] == [resource.id]
     assert list(store.resource_repo.list_resources(where=scope)) == [resource.id]
-
-
-def test_merged_only_image_lineage_is_not_complete(tmp_path: Path) -> None:
-    service = _service(tmp_path)
-    scope = {"user_id": "u", "soul_id": "s"}
-    store = service.database
-    resource = store.resource_repo.create_resource(
-        url="mentra_media/test/image.png",
-        modality="image",
-        local_path=str(tmp_path / "image.png"),
-        caption="A caption.",
-        embedding=[1.0, 0.0],
-        user_data=scope,
-    )
-    old = store.memory_item_repo.create_item(
-        resource_id=resource.id,
-        memory_type="episode",
-        summary="Old image memory.",
-        embedding=[1.0, 0.0],
-        user_data=scope,
-    )
-    survivor = store.memory_item_repo.create_item(
-        memory_type="episode",
-        summary="Surviving memory.",
-        embedding=[1.0, 0.0],
-        user_data=scope,
-    )
-    store.memory_item_repo.update_item(item_id=old.id, merged_into=survivor.id)
-
-    existing, linked = service._image_retry_state(
-        store, scope, resource.url, "A caption."
-    )
-    assert existing is not None and existing.id == resource.id
-    assert linked == {}
