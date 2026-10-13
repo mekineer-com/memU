@@ -1,12 +1,15 @@
 import json
 import time
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 import pytest
 
 from memu.app.service import MemoryService
+from memu.app.retrieve import RetrieveMixin
+from memu.database.models import Triple
 from memu.app.memorize_segments import grouped_chat_happened_at, _render_grouped_chat_messages
-from memu.utils.conversation import format_grouped_chat_history, parse_happened_at
+from memu.utils.conversation import format_grouped_chat_history, format_relative_time_label, parse_happened_at
 
 
 def _service() -> MemoryService:
@@ -78,6 +81,32 @@ def host_timezone(request, monkeypatch):
         finally:
             patch.undo()
             time.tzset()
+
+
+def test_supersession_sqlite_timestamp_keeps_utc_in_local_labels(host_timezone) -> None:
+    service = _service()
+    event = datetime(2026, 10, 13, 2, tzinfo=UTC)
+    now = datetime(2026, 10, 13, 18, tzinfo=UTC)
+    try:
+        service.database.triple_repo.add(Triple(
+            subject_id="fictional-old", subject_kind="memory", predicate="evolved_into",
+            object_id="fictional-new", object_kind="memory", valid_from=event,
+        ))
+        stored = service._find_superseded_at(service.database, "fictional-old")
+        assert stored == event and stored.tzinfo == UTC
+        assert format_relative_time_label(stored, now=now) == format_relative_time_label(event, now=now)
+        assert service._find_superseded_at(service.database, "fictional-missing") is None
+    finally:
+        service.database.close()
+
+
+@pytest.mark.parametrize("timestamp", [None, datetime(2026, 10, 13, 2, tzinfo=UTC),
+                                       datetime.fromisoformat("2026-10-12T21:00:00-05:00")])
+def test_supersession_reader_preserves_aware_and_missing_timestamps(timestamp) -> None:
+    store = SimpleNamespace(triple_repo=SimpleNamespace(
+        get_edges_from=lambda *_args, **_kwargs: [SimpleNamespace(valid_from=timestamp)],
+    ))
+    assert RetrieveMixin._find_superseded_at(None, store, "fictional-old") is timestamp
 
 
 @pytest.mark.parametrize("stamp", [

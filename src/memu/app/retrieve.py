@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import re
 from collections.abc import Awaitable, Callable, Mapping, Sequence
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING, Any, cast
 
 from pydantic import BaseModel
@@ -445,7 +445,9 @@ class RetrieveMixin:
         edges = store.triple_repo.get_edges_from(item_id, predicate="evolved_into", where=where)
         if not edges:
             return None
-        return edges[0].valid_from
+        # SQLite strips the timezone from UTC triple timestamps.
+        timestamp = edges[0].valid_from
+        return timestamp.replace(tzinfo=UTC) if timestamp is not None and timestamp.tzinfo is None else timestamp
 
     def _get_entity_seed_memory_ids(
         self,
