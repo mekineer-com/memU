@@ -5,6 +5,7 @@ import math
 import re
 from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime, timezone
+from itertools import groupby
 from typing import Any
 
 
@@ -137,7 +138,7 @@ def _conversation_kind_and_key(conversation_id: str) -> tuple[str, str]:
     if cid.startswith("chat:atomic-"):
         return ("atomic_dm", cid[len("chat:atomic-"):].strip() or "atomic")
     if cid.startswith("mentra:"):
-        return ("mentra_dm", cid[len("mentra:"):].strip() or "Smartglasses")
+        return ("mentra_dm", cid[len("mentra:"):].strip() or "Iris")
     if cid.startswith("replika:dm:"):
         return ("replika_dm", cid[len("replika:dm:"):].split(":", 1)[0].strip() or "Replika")
     if cid.startswith("import:dm:"):
@@ -203,7 +204,7 @@ def _conversation_heading(
         pretty = (chat_name or "").strip() or key or "Atomic"
         return _extract_text_content(f"[dm][{pretty}]", collapse_newlines=True)
     if kind == "mentra_dm":
-        return _extract_text_content(f"[dm][{(chat_name or '').strip() or 'Smartglasses'}]", collapse_newlines=True)
+        return "[dm][Iris]"
     if kind == "replika_dm":
         return _extract_text_content(f"[dm][{(chat_name or '').strip() or key or 'Replika'}]", collapse_newlines=True)
     if kind == "import_dm":
@@ -217,9 +218,9 @@ def _conversation_section_title(kind: str) -> str:
     if kind.startswith("sillytavern_"):
         return "My SillyTavern Conversations:"
     if kind.startswith("atomic_"):
-        return "My Atomic Conversations:"
+        return "My Memory Map Conversations:"
     if kind.startswith("mentra_"):
-        return "My Smartglasses Conversations:"
+        return "My Video Conversations:"
     if kind.startswith("replika_"):
         return "My Replika Conversation:"
     if kind.startswith("whatsapp_"):
@@ -370,6 +371,14 @@ def format_dated_relative_time_label(happened_at: Any, *, now: datetime | None =
     return f"{happened.date().isoformat()} ({relative})" if happened is not None and relative else None
 
 
+def _mentra_user_source_label(message: Mapping[str, Any]) -> str | None:
+    if message.get("role") != "user" or message.get("event_kind", "transcript") != "transcript":
+        return None
+    return {"glasses": "Smartglasses", "phone": "Phone", "bluetooth": "Phone", "bluetoothClassic": "Phone"}.get(
+        message.get("mic_source")
+    )
+
+
 def format_grouped_chat_history(
     messages: Sequence[Mapping[str, Any]],
     *,
@@ -420,53 +429,74 @@ def format_grouped_chat_history(
             if candidate:
                 chat_name = candidate
                 break
-        heading = _conversation_heading(kind, key, whatsapp_names, chat_name or None)
-        if is_current:
-            heading = _extract_text_content(current_chat_label, collapse_newlines=True) or heading
-            if mark_current_chat and not heading.endswith("\u2190 current chat"):
-                heading += " \u2190 current chat"
-        conv_lines: list[str] = [heading]
-        if (rows or context_rows) and kind in {"replika_dm", "import_dm"}:
-            conv_lines.append(
-                "These conversations took place outside OpenAlma. "
-                f"Although presented as '{section_key.removesuffix(':')}', "
-                "I was speaking there without access to my OpenAlma memories or conversations."
-            )
-        conv_lines.extend(str(row["summary"]) for row in context_rows)
-        rendered_rows: list[dict[str, Any]] = []
+        display_blocks = [(rows, context_rows)]
+        if kind == "mentra_dm":
+            display_blocks = [(list(group), []) for _, group in groupby(
+                rows, key=lambda msg: str(msg.get("event_id") or "").rsplit(":", 1)[0],
+            )]
+            if context_rows:
+                # Aggregate summaries have no recoverable sitting/source identity.
+                display_blocks.insert(0, ([], context_rows))
+            if not display_blocks:
+                display_blocks = [([], [])]
+        blocks: list[str] = []
         newest_ts = ""
-        for msg in rows:
-            ts = str(msg.get("received_at") or "")
-            if ts > newest_ts:
-                newest_ts = ts
-            role = str(msg.get("role") or "").strip()
-            speaker = str(msg.get("speaker") or msg.get("name") or "").strip()
-            content = str(msg.get("content") or "")
-            rendered_rows.append(
-                {
-                    "role": role,
-                    "speaker": speaker,
-                    "content": content,
-                    "received_at": msg.get("source_day") or msg.get("received_at"),
-                }
+        for block_index, (block_rows, block_context) in enumerate(display_blocks):
+            heading = _conversation_heading(kind, key, whatsapp_names, chat_name or None)
+            if kind == "mentra_dm":
+                first_user = next((msg for msg in block_rows if msg.get("role") == "user"
+                                   and msg.get("event_kind", "transcript") == "transcript"), {})
+                if first_user.get("event_id") and (source_label := _mentra_user_source_label(first_user)):
+                    heading = f"[dm][{source_label}]"
+            elif is_current:
+                heading = _extract_text_content(current_chat_label, collapse_newlines=True) or heading
+            block_is_current = is_current and block_index == len(display_blocks) - 1
+            if block_is_current and mark_current_chat and not heading.endswith("\u2190 current chat"):
+                heading += " \u2190 current chat"
+            conv_lines: list[str] = [heading]
+            if (block_rows or block_context) and kind in {"replika_dm", "import_dm"}:
+                conv_lines.append(
+                    "These conversations took place outside OpenAlma. "
+                    f"Although presented as '{section_key.removesuffix(':')}', "
+                    "I was speaking there without access to my OpenAlma memories or conversations."
+                )
+            conv_lines.extend(str(row["summary"]) for row in block_context)
+            rendered_rows: list[dict[str, Any]] = []
+            for msg in block_rows:
+                ts = str(msg.get("received_at") or "")
+                if ts > newest_ts:
+                    newest_ts = ts
+                role = str(msg.get("role") or "").strip()
+                speaker = str(msg.get("speaker") or msg.get("name") or "").strip()
+                content = str(msg.get("content") or "")
+                if kind == "mentra_dm" and (source_label := _mentra_user_source_label(msg)):
+                    content = f"[{source_label}] {content}"
+                rendered_rows.append(
+                    {
+                        "role": role,
+                        "speaker": speaker,
+                        "content": content,
+                        "received_at": msg.get("source_day") or msg.get("received_at"),
+                    }
+                )
+            rendered = format_chat_messages(
+                rendered_rows,
+                soul_name=soul_name,
+                default_role="unknown",
+                strip_content=False,
+                strip_output=False,
+                time_label_resolver=(
+                    (lambda item: time_label_resolver(item.get("received_at")))
+                    if time_label_resolver is not None
+                    else None
+                ),
             )
-        rendered = format_chat_messages(
-            rendered_rows,
-            soul_name=soul_name,
-            default_role="unknown",
-            strip_content=False,
-            strip_output=False,
-            time_label_resolver=(
-                (lambda item: time_label_resolver(item.get("received_at")))
-                if time_label_resolver is not None
-                else None
-            ),
-        )
-        if rendered:
-            conv_lines.append(rendered)
-        elif is_current and not context_rows:
-            conv_lines.append("(none)")
-        entries.append((is_current, newest_ts, "\n".join(conv_lines)))
+            if rendered:
+                conv_lines.append(rendered)
+            elif block_is_current and not block_context:
+                conv_lines.append("(none)")
+            blocks.append("\n".join(conv_lines))
+        entries.append((is_current, newest_ts, "\n\n".join(blocks)))
 
     lines: list[str] = []
     section_titles = sorted(

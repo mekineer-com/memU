@@ -54,7 +54,7 @@ This index locates engine code; MCP owns the single end-to-end map.
 | `embedding/` | Embedding client factory + backends (same pattern as llm/): `openai.py`, `doubao.py`, `gemini.py` (multimodal) |
 | `workflow/` | DAG runner: `step.py` (unit), `pipeline.py` (graph), `runner.py` (executor), `interceptor.py` (hook mechanism) |
 | `blob/local_fs.py` | Local filesystem media storage |
-| `utils/conversation.py` | Canonical source for all AI-facing chat display: `format_grouped_chat_history()`, ST/Atomic/WhatsApp/Smartglasses headings, imported `My {label} Conversations:`, source-calendar-day dividers, `My Activities:` always first. Used by turn_contract, consolidation, and memorize rendering. |
+| `utils/conversation.py` | Canonical source for all AI-facing chat display: `format_grouped_chat_history()`, ST/Memory Map/WhatsApp/Video headings, imported `My {label} Conversations:`, source-calendar-day dividers, `My Activities:` always first. Video rows use retained event-ID sitting blocks and inline user microphone labels; legacy/aggregate context stays Iris-neutral. Used by turn_contract, consolidation, and memorize rendering. |
 | `utils/taxonomy.py` | Shared dossier kinds, scope/embedding validation, category-name normalization, and title/description identity text |
 | `utils/xml.py` | Shared token shielding and bare-prose punctuation normalization for dossier parsers and MCP reflection; root, ID, citation and structure validation remain caller-owned |
 | `utils/video.py` | Video processing utilities for frame extraction |

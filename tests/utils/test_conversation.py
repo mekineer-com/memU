@@ -4,6 +4,8 @@ from datetime import UTC, datetime
 import pytest
 
 from memu.utils.conversation import (  # type: ignore[import-untyped]
+    _conversation_heading,
+    _conversation_kind_and_key,
     display_speaker_label,
     format_chat_messages,
     format_conversation_for_preprocess,
@@ -120,15 +122,16 @@ def test_display_speaker_label_uses_soul_name_for_assistant_role() -> None:
     assert display_speaker_label({"role": "user", "speaker": "Raquel"}) == "Raquel"
 
 
-def test_atomic_chat_history_has_atomic_section() -> None:
+def test_atomic_chat_history_has_memory_map_section() -> None:
     rendered = format_grouped_chat_history([
         {"conversation_id": "chat:atomic-abc", "role": "user", "content": "hello", "chat_name": "Atomic"},
     ])
-    assert "My Atomic Conversations:" in rendered
+    assert "My Memory Map Conversations:" in rendered
+    assert "[dm][Atomic]" in rendered
     assert "My SillyTavern Conversations:" not in rendered
 
 
-def test_mentra_chat_history_has_smartglasses_section() -> None:
+def test_mentra_chat_history_has_video_section_and_neutral_legacy_heading() -> None:
     rendered = format_grouped_chat_history([
         {
             "conversation_id": "mentra:test-device",
@@ -138,9 +141,121 @@ def test_mentra_chat_history_has_smartglasses_section() -> None:
             "chat_name": "Smartglasses",
         },
     ])
-    assert "My Smartglasses Conversations:" in rendered
-    assert "[dm][Smartglasses]" in rendered
+    assert "My Video Conversations:" in rendered
+    assert "[dm][Iris]" in rendered
+    assert "Smartglasses" not in rendered
     assert "My SillyTavern Conversations:" not in rendered
+
+
+@pytest.mark.parametrize(("source", "label"), [
+    ("glasses", "Smartglasses"), ("phone", "Phone"), ("bluetooth", "Phone"),
+    ("bluetoothClassic", "Phone"), (None, None), ("", None), ("unknown", None),
+])
+def test_mentra_source_labels_are_display_only(source, label) -> None:
+    rows = [{"conversation_id": "mentra:iris", "event_id": "fictional:sitting:8", "sequence": 8,
+             "event_kind": "transcript", "role": "user", "speaker": "TestOwner",
+             "content": "  Original\nwords [interrupted]  ", "mic_source": source}]
+    original = json.loads(json.dumps(rows))
+    rendered = format_grouped_chat_history(rows, current_conversation_id="mentra:iris",
+                                         current_chat_label="[dm][Stale source]")
+    assert f"[dm][{label or 'Iris'}] \u2190 current chat" in rendered
+    tag = f"[{label}] " if label else ""
+    assert f"[TestOwner] {tag}{rows[0]['content']}" in rendered
+    assert rows == original and "Stale source" not in rendered
+    other_app = format_grouped_chat_history([{**rows[0], "conversation_id": "chat:atomic-test"}])
+    assert f"[TestOwner] {rows[0]['content']}" in other_app
+    assert "[Phone]" not in other_app and "[Smartglasses]" not in other_app
+
+
+@pytest.mark.parametrize(("start", "headings"), [
+    (0, ["Iris", "Phone", "Iris", "Iris"]),
+    (2, ["Phone", "Iris", "Iris"]),
+    (4, ["Smartglasses", "Iris", "Iris"]),
+    (5, ["Iris", "Iris", "Iris"]),
+    (8, ["Phone", "Iris"]),
+    (9, ["Iris", "Iris"]),
+    (10, ["Iris"]),
+])
+@pytest.mark.parametrize("mode", ["direct", "primary", "raw"])
+def test_mentra_retained_sittings_keep_order_qualifiers_and_inline_tags(start, headings, mode) -> None:
+    from memu.app.memorize_segments import _render_grouped_chat_messages, _render_with_summary_rows
+
+    events = [
+        (None, "user", "transcript", None),
+        ("fictional:a:1", "user", "image", "glasses"),
+        ("fictional:a:2", "assistant", "transcript", "glasses"),
+        ("fictional:a:3", "user", "transcript", "phone"),
+        ("fictional:a:4", "user", "transcript", "glasses"),
+        ("fictional:a:5", "user", "transcript", None),
+        ("fictional:b:6", "user", "image", "phone"),
+        ("fictional:b:7", "user", "transcript", None),
+        ("fictional:b:8", "user", "transcript", "bluetoothClassic"),
+        ("fictional:b:9", "assistant", "sitting_summary", "phone"),
+        ("fictional:c:10", "assistant", "transcript", "glasses"),
+    ]
+    rows = [{"conversation_id": "mentra:iris", "event_id": eid, "sequence": i,
+             "_message_index": i, "event_kind": kind, "role": role, "mic_source": source,
+             "chat_name": "Smartglasses", "content": f"  Turn {i}.\nOriginal prose.  ",
+             "received_at": f"2026-10-{15 - i:02}T12:00:00Z"}
+            for i, (eid, role, kind, source) in enumerate(events)][start:]
+    original = json.loads(json.dumps(rows))
+    if mode == "direct":
+        rendered = format_grouped_chat_history(rows, time_label_resolver=lambda ts: ts[:10],
+                                             current_conversation_id="mentra:iris")
+    elif mode == "primary":
+        rendered = _render_grouped_chat_messages(rows)
+    else:
+        rendered = _render_with_summary_rows(primary_messages=[], summary_rows=[
+            {**row, "source_conversation_id": row["conversation_id"], "raw": True} for row in rows
+        ])
+    assert [line.split(" \u2190")[0] for line in rendered.splitlines() if line.startswith("[dm]")] == [
+        f"[dm][{label}]" for label in headings
+    ]
+    assert rendered.count("\u2190 current chat") == int(mode == "direct")
+    if mode == "direct":
+        assert "[dm][Iris] \u2190 current chat\n--- 2026-10-05 ---" in rendered
+    positions = []
+    for row in rows:
+        label = ("Phone" if row["mic_source"] in {"phone", "bluetoothClassic"} else "Smartglasses"
+                 if row["mic_source"] == "glasses" else None)
+        tag = f"[{label}] " if label and row["role"] == "user" and row["event_kind"] == "transcript" else ""
+        speaker = "soul" if row["role"] == "assistant" else "user"
+        assert f"[{speaker}] {tag}{row['content']}" in rendered
+        positions.append(rendered.index(row["content"]))
+    assert positions == sorted(positions) and rows == original
+
+
+@pytest.mark.parametrize("with_tail", [False, True])
+def test_mentra_aggregate_summaries_are_neutral_once(with_tail) -> None:
+    from memu.app.memorize_segments import _render_with_summary_rows
+
+    context = [{"source_conversation_id": "mentra:iris", "chat_name": "Smartglasses",
+                "summary": "Aggregate prose.\n  Preserve indentation."},
+               {"source_conversation_id": "mentra:iris", "chat_name": "Phone", "summary": "Follow-up."}]
+    tail = [{"conversation_id": "mentra:iris", "event_id": "fictional:sitting:3", "sequence": 3,
+             "event_kind": "transcript", "role": "user", "mic_source": "glasses", "content": "Actual tail."}]
+    original = json.loads(json.dumps(context))
+    rendered = format_grouped_chat_history(tail if with_tail else [], background_context_rows=context,
+                                         current_conversation_id="mentra:iris")
+    assert rendered.count("Aggregate prose.") == 1 and rendered.count("Follow-up.") == 1
+    marker = "" if with_tail else " \u2190 current chat"
+    assert f"[dm][Iris]{marker}\n{context[0]['summary']}\nFollow-up." in rendered
+    assert rendered.count("\u2190 current chat") == 1
+    if with_tail:
+        assert "[dm][Smartglasses] \u2190 current chat\n[user] [Smartglasses] Actual tail." in rendered
+    memorized = _render_with_summary_rows(primary_messages=tail if with_tail else [], summary_rows=context)
+    assert f"[dm][Iris]\n{context[0]['summary']}\nFollow-up." in memorized
+    assert context == original
+
+
+def test_mentra_empty_heading_is_neutral_and_current_marker_is_optional() -> None:
+    assert _conversation_kind_and_key("mentra:") == ("mentra_dm", "Iris")
+    assert _conversation_heading("mentra_dm", "iris", chat_name="Smartglasses") == "[dm][Iris]"
+    for mark in (True, False):
+        rendered = format_grouped_chat_history([], current_conversation_id="mentra:iris",
+                                             current_chat_label="[dm][Smartglasses]", mark_current_chat=mark)
+        marker = " \u2190 current chat" if mark else ""
+        assert rendered == f"My Video Conversations:\n\n[dm][Iris]{marker}\n(none)"
 
 
 @pytest.mark.parametrize("linebreak", ["\n", "\r", "\r\n", "\v", "\f", "\x1c", "\x1d", "\x1e", "\x85", "\u2028", "\u2029"])
