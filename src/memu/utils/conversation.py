@@ -372,8 +372,6 @@ def format_dated_relative_time_label(happened_at: Any, *, now: datetime | None =
 
 
 def _mentra_user_source_label(message: Mapping[str, Any]) -> str | None:
-    if message.get("role") != "user" or message.get("event_kind", "transcript") != "transcript":
-        return None
     return {"glasses": "Smartglasses", "phone": "Phone", "bluetooth": "Phone", "bluetoothClassic": "Phone"}.get(
         message.get("mic_source")
     )
@@ -443,11 +441,13 @@ def format_grouped_chat_history(
         newest_ts = ""
         for block_index, (block_rows, block_context) in enumerate(display_blocks):
             heading = _conversation_heading(kind, key, whatsapp_names, chat_name or None)
+            previous_source = None
             if kind == "mentra_dm":
                 first_user = next((msg for msg in block_rows if msg.get("role") == "user"
                                    and msg.get("event_kind", "transcript") == "transcript"), {})
                 if first_user.get("event_id") and (source_label := _mentra_user_source_label(first_user)):
                     heading = f"[dm][{source_label}]"
+                    previous_source = source_label
             elif is_current:
                 heading = _extract_text_content(current_chat_label, collapse_newlines=True) or heading
             block_is_current = is_current and block_index == len(display_blocks) - 1
@@ -469,8 +469,11 @@ def format_grouped_chat_history(
                 role = str(msg.get("role") or "").strip()
                 speaker = str(msg.get("speaker") or msg.get("name") or "").strip()
                 content = str(msg.get("content") or "")
-                if kind == "mentra_dm" and (source_label := _mentra_user_source_label(msg)):
-                    content = f"[{source_label}] {content}"
+                if kind == "mentra_dm" and role == "user" and msg.get("event_kind", "transcript") == "transcript":
+                    source_label = _mentra_user_source_label(msg)
+                    if source_label and source_label != previous_source:
+                        content = f"[{source_label}] {content}"
+                    previous_source = source_label
                 rendered_rows.append(
                     {
                         "role": role,

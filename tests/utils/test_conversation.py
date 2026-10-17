@@ -159,25 +159,24 @@ def test_mentra_source_labels_are_display_only(source, label) -> None:
     rendered = format_grouped_chat_history(rows, current_conversation_id="mentra:iris",
                                          current_chat_label="[dm][Stale source]")
     assert f"[dm][{label or 'Iris'}] \u2190 current chat" in rendered
-    tag = f"[{label}] " if label else ""
-    assert f"[TestOwner] {tag}{rows[0]['content']}" in rendered
+    assert f"[TestOwner] {rows[0]['content']}" in rendered
     assert rows == original and "Stale source" not in rendered
     other_app = format_grouped_chat_history([{**rows[0], "conversation_id": "chat:atomic-test"}])
     assert f"[TestOwner] {rows[0]['content']}" in other_app
     assert "[Phone]" not in other_app and "[Smartglasses]" not in other_app
 
 
-@pytest.mark.parametrize(("start", "headings"), [
-    (0, ["Iris", "Phone", "Iris", "Iris"]),
-    (2, ["Phone", "Iris", "Iris"]),
-    (4, ["Smartglasses", "Iris", "Iris"]),
-    (5, ["Iris", "Iris", "Iris"]),
-    (8, ["Phone", "Iris"]),
-    (9, ["Iris", "Iris"]),
-    (10, ["Iris"]),
+@pytest.mark.parametrize(("start", "headings", "tags"), [
+    (0, ["Iris", "Phone", "Iris", "Iris"], {4: "Smartglasses", 8: "Phone"}),
+    (2, ["Phone", "Iris", "Iris"], {4: "Smartglasses", 8: "Phone"}),
+    (4, ["Smartglasses", "Iris", "Iris"], {8: "Phone"}),
+    (5, ["Iris", "Iris", "Iris"], {8: "Phone"}),
+    (8, ["Phone", "Iris"], {}),
+    (9, ["Iris", "Iris"], {}),
+    (10, ["Iris"], {}),
 ])
 @pytest.mark.parametrize("mode", ["direct", "primary", "raw"])
-def test_mentra_retained_sittings_keep_order_qualifiers_and_inline_tags(start, headings, mode) -> None:
+def test_mentra_retained_sittings_keep_order_qualifiers_and_inline_tags(start, headings, tags, mode) -> None:
     from memu.app.memorize_segments import _render_grouped_chat_messages, _render_with_summary_rows
 
     events = [
@@ -216,13 +215,41 @@ def test_mentra_retained_sittings_keep_order_qualifiers_and_inline_tags(start, h
         assert "[dm][Iris] \u2190 current chat\n--- 2026-10-05 ---" in rendered
     positions = []
     for row in rows:
-        label = ("Phone" if row["mic_source"] in {"phone", "bluetoothClassic"} else "Smartglasses"
-                 if row["mic_source"] == "glasses" else None)
-        tag = f"[{label}] " if label and row["role"] == "user" and row["event_kind"] == "transcript" else ""
+        tag = f"[{tags[row['sequence']]}] " if row["sequence"] in tags else ""
         speaker = "soul" if row["role"] == "assistant" else "user"
         assert f"[{speaker}] {tag}{row['content']}" in rendered
         positions.append(rendered.index(row["content"]))
     assert positions == sorted(positions) and rows == original
+
+
+def test_mentra_tags_only_perspective_changes_in_the_retained_window() -> None:
+    events = [
+        ("user", "transcript", "phone", "First."),
+        ("assistant", "transcript", None, "Reply."),
+        ("user", "transcript", "bluetooth", "Same perspective."),
+        ("user", "image", None, "Photo."),
+        ("user", "transcript", "glasses", "Switch."),
+        ("user", "transcript", "glasses", "Still glasses."),
+        ("user", "transcript", None, "Unknown."),
+        ("user", "transcript", "glasses", "Known again."),
+        ("user", "transcript", "phone", "Phone again."),
+        ("user", "transcript", "bluetoothClassic", "Still phone."),
+    ]
+    rows = [{"conversation_id": "mentra:iris", "event_id": f"fictional-sitting:{index + 1}",
+             "role": role, "event_kind": kind, "mic_source": source, "content": content}
+            for index, (role, kind, source, content) in enumerate(events)]
+    rendered = format_grouped_chat_history(rows)
+    assert rendered == (
+        "My Video Conversations:\n\n[dm][Phone]\n[user] First.\n[soul] Reply.\n"
+        "[user] Same perspective.\n[user] Photo.\n[user] [Smartglasses] Switch.\n"
+        "[user] Still glasses.\n[user] Unknown.\n[user] [Smartglasses] Known again.\n"
+        "[user] [Phone] Phone again.\n[user] Still phone."
+    )
+    clipped = format_grouped_chat_history(rows[4:])
+    assert "[dm][Smartglasses]\n[user] Switch." in clipped
+    assert clipped.count("[user] [Smartglasses]") == 1
+    unknown_first = format_grouped_chat_history(rows[6:])
+    assert "[dm][Iris]\n[user] Unknown.\n[user] [Smartglasses] Known again." in unknown_first
 
 
 @pytest.mark.parametrize("with_tail", [False, True])
@@ -242,7 +269,7 @@ def test_mentra_aggregate_summaries_are_neutral_once(with_tail) -> None:
     assert f"[dm][Iris]{marker}\n{context[0]['summary']}\nFollow-up." in rendered
     assert rendered.count("\u2190 current chat") == 1
     if with_tail:
-        assert "[dm][Smartglasses] \u2190 current chat\n[user] [Smartglasses] Actual tail." in rendered
+        assert "[dm][Smartglasses] \u2190 current chat\n[user] Actual tail." in rendered
     memorized = _render_with_summary_rows(primary_messages=tail if with_tail else [], summary_rows=context)
     assert f"[dm][Iris]\n{context[0]['summary']}\nFollow-up." in memorized
     assert context == original
