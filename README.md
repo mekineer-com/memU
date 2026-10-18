@@ -112,27 +112,10 @@ result = await svc.retrieve(queries=[{"role": "user", "content": {"text": "what 
 
 ---
 
-## Codebase orientation
+## Development
 
-See `INDEX.md` for the full module map, prompt inventory, and task→file guide.
-
-```
-src/memu/
-├── app/           # Public API: service.py, memorize.py, retrieve.py, settings.py
-├── database/      # Models, ORM schemas (SQLite), repositories
-├── llm/           # LLM client factory + backends (openai, openrouter, grok, doubao)
-├── embedding/     # Embedding client factory + backends
-├── prompts/       # All extraction, routing, retrieval, and consolidation prompts
-├── workflow/      # DAG runner: step, pipeline, runner
-└── utils/         # Format converters
-```
-
-**Key prompt locations:**
-- Extraction: `prompts/memory_type/{profile,knowledge,behavior,social}.py`
-- Router: `prompts/router/router.py`
-- Non-chat preprocessors: `prompts/preprocess/{document,image,audio,video}.py`
-- Retrieval query decision: `prompts/retrieve/pre_retrieval_decision.py` (ranking lives in `app/retrieve.py` + `RetrieveItemConfig`)
-- Consolidation: `prompts/consolidation/`
+See [AGENTS.md](AGENTS.md) for working guidance and [INDEX.md](INDEX.md) for
+the module map and prompt inventory.
 
 ---
 
