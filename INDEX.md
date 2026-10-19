@@ -61,7 +61,7 @@ This index locates engine code; MCP owns the single end-to-end map.
 
 ## Prompts (`src/memu/prompts/`)
 
-`dossier_revision.py`, `dynamic_dossier_review.py`, and `consolidation/` contain
+`dynamic_dossier_review.py` and `consolidation/` contain
 Marcos-reviewed dossier prompts.
 
 | Directory | Files | Purpose |

@@ -10,16 +10,13 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 
 from memu.app.category_summary_journal import append_category_summary_journal
 from memu.app.dossier_revision import (
-    estimate_prompt_tokens,
     label_sections,
-    parse_dossier_revision,
     render_memory_records,
     revision_status_items,
     strip_memory_citations,
 )
 from memu.database.models import CategoryItem, DossierKind, MemoryCategory, MemoryItem
 from memu.database.vector import cosine_topk, reciprocal_rank_fusion
-from memu.prompts.dossier_revision import NARRATIVE_SELF_BLOCK, SYSTEM_PROMPT, USER_PROMPT
 from memu.utils.taxonomy import (
     DOSSIER_KINDS,
     category_identity_text,
@@ -42,62 +39,6 @@ logger = logging.getLogger(__name__)
 
 class DossierRevisionStaleError(RuntimeError):
     pass
-
-
-def render_dossier_revision_prompts(
-    bundle: Mapping[str, Any], *, include_relative: bool = True
-) -> tuple[str, str]:
-    dossier = bundle["dossier"]
-    sectioned = label_sections(str(dossier.summary or ""))
-    current_prose = sectioned[0] if sectioned is not None else str(dossier.summary or "")
-    statuses = revision_status_items(bundle)
-    active_goals = list(bundle["active_life_goals"])
-    removed_goals = list(bundle["removed_life_goals"])
-    if active_goals or removed_goals:
-        goal_context = "\n".join(
-            [
-                "Active:",
-                *([f"- {goal}" for goal in active_goals] or ["(none)"]),
-                "Removed:",
-                *([f"- {goal}" for goal in removed_goals] or ["(none)"]),
-            ]
-        )
-    else:
-        goal_context = "(none)"
-
-    system_prompt = SYSTEM_PROMPT.format(
-        target_words=bundle["target_words"],
-        dossier_id=dossier.id,
-        soul_name=bundle["soul_name"],
-        user_name=bundle["user_name"],
-    )
-    if bundle["narrative_self"]:
-        system_prompt += "\n\n" + NARRATIVE_SELF_BLOCK.format(
-            narrative_self=bundle["narrative_self"]
-        )
-    user_prompt = USER_PROMPT.format(
-        soul_presence=bundle["soul_presence"],
-        dossier_index=bundle["dossier_index"] or "(none)",
-        goal_context_or_none=goal_context,
-        dossier_id=dossier.id,
-        dossier_kind=dossier.kind,
-        dossier_title=dossier.name,
-        dossier_description=dossier.description,
-        current_prose=current_prose or "(none)",
-        cited_memory_records=render_memory_records(
-            statuses["cited"], include_relative=include_relative
-        ),
-        candidate_memory_records=render_memory_records(
-            statuses["search"], include_relative=include_relative
-        ),
-        cleanup_memberships=render_memory_records(
-            statuses["purged"], include_relative=include_relative
-        ),
-        required_memory_records=render_memory_records(
-            statuses["pending"], include_relative=include_relative
-        ),
-    )
-    return system_prompt, user_prompt
 
 
 def _activity_key(category: MemoryCategory) -> tuple[int, float, str, str]:
@@ -437,34 +378,6 @@ class DossierMixin:
             **changes,
         )
         return updated, current
-
-    async def update_dossier(
-        self,
-        category_id: str,
-        where: Mapping[str, Any],
-        *,
-        name: str | None = None,
-        description: str | None = None,
-        summary: str | None = None,
-        kind: DossierKind | None | EllipsisType = ...,
-        lore_subtype: str | None | EllipsisType = ...,
-        entity_id: str | None | EllipsisType = ...,
-        last_evidence_at: datetime | None | EllipsisType = ...,
-        last_revised_at: datetime | None | EllipsisType = ...,
-        embedding_client: Any | None = None,
-    ) -> MemoryCategory:
-        prepared = await self.prepare_dossier_update(
-            category_id, where, name=name, description=description, summary=summary,
-            kind=kind, lore_subtype=lore_subtype, entity_id=entity_id,
-            last_evidence_at=last_evidence_at, last_revised_at=last_revised_at,
-            embedding_client=embedding_client,
-        )
-        store = self._get_database()
-        with store._sessions.session() as session:
-            session.connection().exec_driver_sql("BEGIN IMMEDIATE")
-            updated, _before = self.write_dossier_update(category_id, where, prepared, session=session)
-            session.commit()
-        return updated
 
     def list_due_dossiers(
         self,
@@ -825,23 +738,6 @@ class DossierMixin:
             raise ValueError(f"Anchor continuity episodes lack stable references: {missing_refs}")
         return {"dossiers": dossiers, "episodes": episodes}
 
-    async def generate_dossier_revision(
-        self,
-        bundle: Mapping[str, Any],
-        *,
-        chat_client: Any | None = None,
-    ) -> dict[str, Any]:
-        system_prompt, user_prompt = render_dossier_revision_prompts(bundle)
-        if estimate_prompt_tokens(system_prompt + "\n" + user_prompt) > 100_000:
-            raise ValueError("Dossier revision prompt exceeds 100000 tokens")
-
-        client = chat_client or self._select_chat_client(
-            {"operation": "dossier", "step_id": "revision"},
-            profile=self.memorize_config.category_update_llm_profile,
-        )
-        raw = await client.chat(user_prompt, system_prompt=system_prompt)
-        return parse_dossier_revision(str(raw or ""), bundle)
-
     async def apply_dossier_revision(
         self,
         bundle: Mapping[str, Any],
@@ -1156,52 +1052,6 @@ class DossierMixin:
             if category.kind in DOSSIER_KINDS and category.anchor_role is None and category.id not in active_ids
         ]
         return sorted(inactive, key=_activity_key)
-
-    def list_dossiers_for_segments(
-        self,
-        where: Mapping[str, Any],
-        *,
-        segment_ids: Sequence[str],
-    ) -> list[MemoryCategory]:
-        scope = _scope(where)
-        selected_ids = set(segment_ids)
-        if not selected_ids:
-            return []
-
-        store = self._get_database()
-        categories = store.memory_category_repo.list_categories(scope)
-        relations = store.category_item_repo.list_relations(scope)
-        evidence_ids = _selected_evidence_ids(store, scope, segment_ids)
-        items = store.memory_item_repo.list_items_by_ids(
-            {relation.item_id for relation in relations},
-            scope,
-            include_superseded=True,
-            include_merged=True,
-        )
-        newest_by_category: dict[str, float] = {}
-        for relation in relations:
-            item = items.get(relation.item_id)
-            if item is None or relation.item_id not in evidence_ids:
-                continue
-            newest_by_category[relation.category_id] = max(
-                newest_by_category.get(relation.category_id, float("-inf")),
-                _timestamp(item.created_at),
-            )
-
-        relevant = [
-            categories[category_id]
-            for category_id in newest_by_category
-            if category_id in categories and categories[category_id].anchor_role is None
-        ]
-        return sorted(
-            relevant,
-            key=lambda category: (
-                -newest_by_category[category.id],
-                str(category.kind),
-                category.name.casefold(),
-                category.id,
-            ),
-        )
 
     def build_dossier_index(
         self,

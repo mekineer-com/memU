@@ -130,9 +130,6 @@ def revision_status_items(bundle: Mapping[str, Any]) -> dict[str, list[MemoryIte
 def parse_dossier_revision(
     raw: str,
     bundle: Mapping[str, Any],
-    *,
-    batch: bool = False,
-    normalize_blank: bool = False,
 ) -> dict[str, Any]:
     text = str(raw or "").strip()
     start = text.find("<dossier_revision")
@@ -161,15 +158,15 @@ def parse_dossier_revision(
     children = _singletons(
         root,
         {"description", "prose_action", "decisions"},
-        optional={"prose_patches"} if batch else {"prose", "prose_patches"},
+        optional={"prose_patches"},
     )
     children.setdefault("prose_patches", Element("prose_patches"))
     description = _parse_description(children["description"])
     action, resulting_prose = parse_section_revision(
         children,
         str(dossier.summary or ""),
-        allow_replace=not batch,
-        normalize_blank=normalize_blank,
+        allow_replace=False,
+        normalize_blank=True,
     )
 
     statuses = revision_status_items(bundle)
@@ -260,8 +257,6 @@ def parse_dossier_revision_batch(
         parsed[dossier_id] = parse_dossier_revision(
             tostring(child, encoding="unicode"),
             by_id[dossier_id],
-            batch=True,
-            normalize_blank=True,
         )
 
     missing = by_id.keys() - parsed.keys()

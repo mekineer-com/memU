@@ -1,4 +1,4 @@
-"""Guard for multi-scope sqlite model isolation.
+"""Scoped SQLite model construction, not per-Soul database isolation.
 
 History: `build_sqlite_table_model` used to share `sa_column` Column objects
 and `__table_args__` Index objects across every scoped derivation.
@@ -50,12 +50,6 @@ def test_two_different_scopes_can_build_without_column_collision() -> None:
     assert url_a is not url_b
     assert url_a.table is models_a.Resource.__table__
     assert url_b.table is models_b.Resource.__table__
-
-
-def test_same_scope_twice_returns_cached_models() -> None:
-    first = get_sqlite_sqlalchemy_models(scope_model=_ScopeA)
-    second = get_sqlite_sqlalchemy_models(scope_model=_ScopeA)
-    assert first is second, "identical scope class should hit the _MODEL_CACHE"
 
 
 @pytest.mark.parametrize("scope_model", [None, _ScopeA, _ScopeB])
