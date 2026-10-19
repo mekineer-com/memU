@@ -236,7 +236,7 @@ class GraphMixin:
 
         cited_categories: dict[str, set[str]] = {}
         for category in categories.values():
-            for memory_ref in self.extract_memory_refs(category.summary or "", strict=False):
+            for memory_ref in self.extract_memory_refs(category.summary or ""):
                 item_id = item_by_ref.get(memory_ref)
                 if item_id is not None:
                     cited_categories.setdefault(item_id, set()).add(category.id)
@@ -269,7 +269,7 @@ class GraphMixin:
     ) -> dict[str, Any]:
         citations = []
         for memory_ref in memory_refs if memory_refs is not None else self.extract_memory_refs(
-            category.summary or "", strict=False
+            category.summary or ""
         ):
             if memory_items_by_ref is not None:
                 item = memory_items_by_ref.get(memory_ref)
@@ -299,7 +299,7 @@ class GraphMixin:
         active_category_ids: set[str],
     ) -> dict[str, Any]:
         store = self._get_database()
-        memory_refs = self.extract_memory_refs(category.summary or "", strict=False)
+        memory_refs = self.extract_memory_refs(category.summary or "")
         node = self._scoped_category_node(
             category,
             where=where,
@@ -971,7 +971,7 @@ class GraphMixin:
         )
         if attached != linked:
             if not attached and item.memory_ref in self.extract_memory_refs(
-                category.summary or "", strict=False
+                category.summary or ""
             ):
                 raise DossierMembershipConflictError(
                     f"remove {self.format_memory_ref(item.memory_ref)} from dossier text first"

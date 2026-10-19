@@ -351,7 +351,7 @@ class DossierMixin:
         ):
             raise DossierRevisionStaleError("summary_snapshot_stale")
         if prepared["summary"] is not None:
-            refs = set(self.extract_memory_refs(prepared["summary"], strict=False))
+            refs = set(self.extract_memory_refs(prepared["summary"]))
             cited = store.memory_item_repo.list_items(
                 {**scope, "memory_ref__in": refs}, include_superseded=True,
                 include_merged=True, include_embeddings=False, session=session,
@@ -393,7 +393,7 @@ class DossierMixin:
         relations = store.category_item_repo.list_relations(scope)
         _linked_items, inactive_ids = _load_linked_items(store, relations, scope)
         category_refs = {
-            category.id: set(self.extract_memory_refs(category.summary or "", strict=False))
+            category.id: set(self.extract_memory_refs(category.summary or ""))
             for category in categories.values()
             if category.kind in DOSSIER_KINDS and category.anchor_role is None
         }
@@ -452,10 +452,9 @@ class DossierMixin:
         return [category for _timestamp_value, category in actionable]
 
     @staticmethod
-    def extract_memory_refs(text: str, *, strict: bool = True) -> list[int]:
+    def extract_memory_refs(text: str) -> list[int]:
         tokens = MEMORY_REF_SCAN_PATTERN.findall(text or "")
-        if not strict:
-            tokens = [token for token in tokens if MEMORY_REF_PATTERN.fullmatch(token)]
+        tokens = [token for token in tokens if MEMORY_REF_PATTERN.fullmatch(token)]
         return list(dict.fromkeys(DossierMixin.parse_memory_ref(token) for token in tokens))
 
     def prepare_dossier_revision(
@@ -499,7 +498,7 @@ class DossierMixin:
             raise ValueError("Dossier revision requires seeded soul and user anchors")
 
         cited_items: dict[str, MemoryItem] = {}
-        for memory_ref in self.extract_memory_refs(category.summary or "", strict=False):
+        for memory_ref in self.extract_memory_refs(category.summary or ""):
             item = store.memory_item_repo.get_item_by_memory_ref(memory_ref, scope)
             if item is None:
                 raise KeyError(f"Memory reference [M{memory_ref}] not found in scope")
@@ -673,7 +672,7 @@ class DossierMixin:
             raise ValueError("Anchor revision evidence contains inactive or wrong-scope memories")
 
         cited_items: dict[str, MemoryItem] = {}
-        for memory_ref in self.extract_memory_refs(anchor.summary or "", strict=False):
+        for memory_ref in self.extract_memory_refs(anchor.summary or ""):
             item = store.memory_item_repo.get_item_by_memory_ref(memory_ref, scope)
             if item is None or item.id not in linked_items:
                 raise ValueError(f"Anchor citation [M{memory_ref}] is not an anchor membership")
@@ -907,7 +906,7 @@ class DossierMixin:
         }
         try:
             prose_cited_ids = {
-                shown_by_ref[memory_ref] for memory_ref in self.extract_memory_refs(prose, strict=False)
+                shown_by_ref[memory_ref] for memory_ref in self.extract_memory_refs(prose)
             }
         except KeyError as exc:
             raise ValueError("Dossier prose cites a memory outside review context") from exc

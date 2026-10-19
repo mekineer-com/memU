@@ -166,7 +166,6 @@ def parse_dossier_revision(
         children,
         str(dossier.summary or ""),
         allow_replace=False,
-        normalize_blank=True,
     )
 
     statuses = revision_status_items(bundle)
@@ -295,7 +294,6 @@ def parse_anchor_revisions(
         action, resulting_prose = parse_section_revision(
             children,
             str(bundles[role]["dossier"].summary or ""),
-            normalize_blank=True,
         )
         role_first_time = str(bundles[role]["dossier"].summary or "").strip() in {
             "", "## unlabeled"
@@ -347,8 +345,6 @@ def parse_section_revision(
     current_prose: str,
     *,
     allow_replace: bool = True,
-    require_patch: bool = False,
-    normalize_blank: bool = False,
 ) -> tuple[str, str]:
     action = _leaf_text(children["prose_action"]).strip()
     prose_element = children.get("prose")
@@ -357,10 +353,7 @@ def parse_section_revision(
         raise ValueError(f"Invalid dossier prose action: {action}")
     if not allow_replace and action == "replace":
         raise ValueError("Batch dossier revision does not allow replace")
-    if require_patch and action != "patch":
-        raise ValueError("First reflection requires an anchor patch")
-
-    normalized_prose = current_prose or ("## unlabeled" if normalize_blank else "")
+    normalized_prose = current_prose or "## unlabeled"
     inventory = label_sections(normalized_prose)
     patches = _parse_patches(children["prose_patches"])
     # Validate new model text, not untouched human-authored sections.

@@ -264,7 +264,7 @@ def _cited_memory_refs(store: Any, scope: Mapping[str, Any], *, session: Any | N
     return {
         ref
         for category in store.memory_category_repo.list_categories(scope, session=session).values()
-        for ref in DossierMixin.extract_memory_refs(category.summary or "", strict=False)
+        for ref in DossierMixin.extract_memory_refs(category.summary or "")
     }
 
 

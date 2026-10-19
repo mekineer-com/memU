@@ -406,7 +406,7 @@ class RetrieveMixin:
                 llm_client=llm_client,
             )
         state["requested_memory_refs"] = (
-            self.extract_memory_refs(raw_response, strict=False) if retrieved_content else []
+            self.extract_memory_refs(raw_response) if retrieved_content else []
         )
         if state.get("temporal_start") is None and state.get("temporal_end") is None:
             state["temporal_start"], state["temporal_end"] = self._extract_temporal_range(raw_response)
