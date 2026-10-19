@@ -185,10 +185,6 @@ def parse_dossier_revision(
     remove_ids = {by_ref[ref].id for ref, decision in decisions.items() if decision == "remove"}
     add_ids = {by_ref[ref].id for ref, decision in decisions.items() if decision == "add"}
 
-    tokens = set(_MEMORY_TOKEN.findall(resulting_prose))
-    invalid_tokens = {token for token in tokens if _MEMORY_REF.fullmatch(token) is None}
-    if invalid_tokens:
-        raise ValueError(f"Invalid memory citations: {sorted(invalid_tokens)}")
     resulting_refs = set(_MEMORY_REFS.findall(resulting_prose))
     unknown_refs = resulting_refs - by_ref.keys()
     if unknown_refs:
@@ -318,10 +314,6 @@ def parse_anchor_revisions(
             for item in (*bundle["cited_items"], *bundle["candidate_items"])
         }
         by_ref = {f"[M{item.memory_ref}]": item for item in evidence_items.values()}
-        tokens = set(_MEMORY_TOKEN.findall(resulting_prose))
-        invalid_tokens = {token for token in tokens if _MEMORY_REF.fullmatch(token) is None}
-        if invalid_tokens:
-            raise ValueError(f"Invalid memory citations: {sorted(invalid_tokens)}")
         resulting_refs = set(_MEMORY_REFS.findall(resulting_prose))
         unknown_refs = resulting_refs - by_ref.keys()
         if unknown_refs:
@@ -376,6 +368,13 @@ def parse_section_revision(
     normalized_prose = current_prose or ("## unlabeled" if normalize_blank else "")
     inventory = label_sections(normalized_prose)
     patches = _parse_patches(children["prose_patches"])
+    # Validate new model text, not untouched human-authored sections.
+    tokens = set(_MEMORY_TOKEN.findall(prose))
+    for _ref, _action, body in patches:
+        tokens.update(_MEMORY_TOKEN.findall(body))
+    invalid_tokens = {token for token in tokens if _MEMORY_REF.fullmatch(token) is None}
+    if invalid_tokens:
+        raise ValueError(f"Invalid memory citations: {sorted(invalid_tokens)}")
     if action == "keep":
         if prose or patches:
             raise ValueError("Keep requires empty prose and no patches")

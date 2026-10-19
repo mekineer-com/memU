@@ -1524,6 +1524,27 @@ River keeps a thoughtful daily record [M{refs[pending.id]}]. a<b; R&D.</body></s
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("action", ["keep", "patch"])
+async def test_batch_revision_preserves_malformed_human_text_but_rejects_new_tokens(tmp_path, action):
+    prose = "## Notes\nLiteral [M0] and [M12x].\n\n## Plans\nA quiet day."
+    service, _store, _anchors, category, pending, _candidate, refs, bundle = _revision_case(tmp_path, summary=prose)
+    patches = ('<section ref="S2" action="replace"><body>## Plans\nA brighter day.</body></section>'
+               if action == "patch" else "")
+    xml = f'''<dossier_revisions><dossier_revision dossier_id="{category.id}">
+<description>A personal record.</description><prose_action>{action}</prose_action>
+<prose_patches>{patches}</prose_patches><decisions>
+<decision ref="[M{refs[pending.id]}]" action="remove" /></decisions>
+</dossier_revision></dossier_revisions>'''
+    [decision] = parse_dossier_revision_batch(xml, [bundle])
+    saved = await service.apply_dossier_revision(bundle, decision, SCOPE, embedding_client=FakeEmbedClient())
+    assert saved.summary == (prose.replace("A quiet day.", "A brighter day.") if action == "patch" else prose)
+    if action == "patch":
+        for token in ("[M0]", "[M12x]", "[Mnope]"):
+            with pytest.raises(ValueError, match="Invalid memory citations"):
+                parse_dossier_revision_batch(xml.replace("A brighter day.", token), [bundle])
+
+
+@pytest.mark.asyncio
 async def test_generate_dossier_revision_keep_and_remove_section(tmp_path) -> None:
     current = "## Daily Care\nStable context.\n\n## Timeline\n- 2026-07-01: Earlier event."
     service, _store, _anchors, category, pending, _candidate, refs, bundle = _revision_case(
@@ -2259,7 +2280,7 @@ async def test_anchor_revisions_validate_both_then_apply_memberships(tmp_path) -
     anchors = _seed_anchors(service)
     for anchor in anchors.values():
         store.memory_category_repo.update_category(
-            category_id=anchor.id, summary="## Becoming\nEstablished."
+            category_id=anchor.id, summary="## Becoming\nEstablished.\n\n## Notes\nLiteral [M0] and [M12x]."
         )
     kept = store.memory_item_repo.create_item(
         memory_type="knowledge", summary="A continuing self memory.", embedding=[1.0, 0.0], user_data=SCOPE
@@ -2346,6 +2367,8 @@ My human is shaped by this lived moment [M{refs[period.id]}].</body></section></
         for role in ("soul", "user")
     }
     assert members == {"soul": {kept.id, prior.id}, "user": {period.id}}
+    for anchor in anchors.values():
+        assert store.memory_category_repo.list_categories(SCOPE)[anchor.id].summary.endswith("## Notes\nLiteral [M0] and [M12x].")
     assert store.memory_category_repo.list_categories(SCOPE)[anchors["soul"].id].summary.startswith(
         "## Becoming"
     )

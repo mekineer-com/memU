@@ -2735,7 +2735,8 @@ def test_graph_delete_replacement_group_preflight_and_rollback(monkeypatch, fail
         assert conn.exec_driver_sql("SELECT item_id FROM memory_items_fts ORDER BY item_id").all() == before_fts
 
 
-def test_graph_update_category_summary_commits_identity_and_prose_then_journals(monkeypatch, tmp_path):
+@pytest.mark.parametrize("summary", ["new category summary", "Literal [M0] and [M12x] remain text."])
+def test_graph_update_category_summary_commits_identity_and_prose_then_journals(monkeypatch, tmp_path, summary):
     monkeypatch.setattr(category_summary_journal, "JOURNAL_DIR", tmp_path)
     service = MemoryService(
         database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
@@ -2760,7 +2761,7 @@ def test_graph_update_category_summary_commits_identity_and_prose_then_journals(
     updated = asyncio.run(
         service.graph_update_category_summary(
             f"category:{category.id}",
-            summary=" new category summary ",
+            summary=f" {summary} ",
             title="Friends",
             description="People I care about",
             where=scope,
@@ -2771,9 +2772,9 @@ def test_graph_update_category_summary_commits_identity_and_prose_then_journals(
     saved = store.memory_category_repo.list_categories(scope)[category.id]
     journal = (tmp_path / "s.summary_journal.jsonl").read_text(encoding="utf-8").splitlines()
     entry = json.loads(journal[0])
-    assert updated["summary"] == "## unlabeled\nnew category summary"
+    assert updated["summary"] == f"## unlabeled\n{summary}"
     assert updated["previous_summary"] == "old category summary"
-    assert saved.summary == "## unlabeled\nnew category summary"
+    assert saved.summary == f"## unlabeled\n{summary}"
     assert saved.previous_summary == "old category summary"
     assert (saved.name, saved.description, saved.embedding) == (
         "Friends",
@@ -2781,9 +2782,55 @@ def test_graph_update_category_summary_commits_identity_and_prose_then_journals(
         pytest.approx([0.2]),
     )
     assert entry["summary_before"] == "old category summary"
-    assert entry["summary_after"] == "new category summary"
+    assert entry["summary_after"] == summary
     assert entry["edited_by"] == "surfer"
     assert entry["scope"] == scope
+
+
+@pytest.mark.parametrize("case", ["unlinked", "merged", "missing", "deleted", "transaction_deleted", "anchor_unlinked", "anchor_linked"])
+def test_graph_category_citations_resolve_in_the_write_transaction(tmp_path, monkeypatch, case):
+    monkeypatch.setattr(category_summary_journal, "JOURNAL_DIR", tmp_path)
+    service = MemoryService(
+        database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
+        user_config={"model": GraphScope},
+    )
+    store = service.database
+    scope = {"user_id": "TestOwner", "soul_id": "TestSoul"}
+    item = store.memory_item_repo.create_item(memory_type="knowledge", summary="A fictional fact.", embedding=[1.0], user_data=scope)
+    anchor = case.startswith("anchor_")
+    category = store.memory_category_repo.get_or_create_category(
+        name="TestSoul" if anchor else "Sketches", description="", embedding=[1.0],
+        user_data=scope, kind="lore" if anchor else "topic", anchor_role="soul" if anchor else None,
+    )
+    if case == "anchor_linked":
+        store.category_item_repo.link_item_category(item.id, category.id, scope)
+    if case == "merged":
+        survivor = store.memory_item_repo.create_item(memory_type="knowledge", summary="Current fact.", embedding=[1.0], user_data=scope)
+        store.memory_item_repo.update_item(item_id=item.id, merged_into=survivor.id)
+    ref = 99999 if case == "missing" else item.memory_ref
+    prepared = asyncio.run(service.prepare_graph_category_update(category.id, summary=f"## Facts\nEvidence [M{ref}].", where=scope))
+    before = store.memory_category_repo.list_categories(scope)[category.id]
+    if case == "deleted":
+        store.memory_item_repo.hard_delete_item(item.id, scope)
+    rejected = case in {"missing", "deleted", "transaction_deleted", "anchor_unlinked"}
+    with store._sessions.session() as session:
+        if case == "transaction_deleted":
+            store.memory_item_repo.hard_delete_item(item.id, scope, session=session)
+        if rejected:
+            with pytest.raises(ValueError, match="(not found in scope|anchor memberships)"):
+                service.write_graph_category_update(prepared, scope, session=session)
+            session.rollback()
+        else:
+            service.write_graph_category_update(prepared, scope, session=session)
+            session.commit()
+    saved = store.memory_category_repo.list_categories(scope)[category.id]
+    if rejected:
+        assert saved == before
+        assert not list(tmp_path.glob("*.summary_journal.jsonl"))
+    else:
+        assert saved.summary == f"## Facts\nEvidence [M{ref}]."
+    if case == "transaction_deleted":
+        assert store.memory_item_repo.get_item_by_memory_ref(ref, scope) is not None
 
 
 def test_graph_update_category_summary_approved_noop_blesses_without_journal(monkeypatch, tmp_path):

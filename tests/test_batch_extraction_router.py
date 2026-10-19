@@ -1468,23 +1468,19 @@ async def test_memorize_preserves_source_identity_without_name_binding(monkeypat
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("fail_second", [False, True])
 async def test_memorize_segments_batch_passes_segment_speaker_rosters_without_segment_headings(
     monkeypatch: pytest.MonkeyPatch,
+    fail_second: bool,
 ) -> None:
     service = _service()
     user_scope = {"user_id": "TestOwner", "soul_id": "TestSoul"}
 
     async def _route_profile_only(*_args, **_kwargs):
-        return ["profile"], [{"title": "Anchor", "summary": "Full story.", "item": "Compact story."}]
+        return ["profile"], [{"title": "Anchor", "summary": "Full story.", "item": "Compact story.",
+                              "day": _kwargs["source_days"][0], "categories": []}]
 
     async def _noop_step(state, _step_context):
-        return state
-
-    async def _noop_categorize(state, _step_context):
-        state.setdefault("resources", [])
-        state.setdefault("items", [])
-        state.setdefault("relations", [])
-        state.setdefault("pending_segment_ids", [])
         return state
 
     def _stub_build_response(state, _step_context):
@@ -1504,10 +1500,12 @@ async def test_memorize_segments_batch_passes_segment_speaker_rosters_without_se
             "speaker_roster": kwargs.get("speaker_roster"),
             "resource_text": kwargs.get("resource_text"),
         })
+        if fail_second and len(captured) == 2:
+            assert [row.url for row in service.database.resource_repo.list_resources(user_scope).values()] == ["mem://segment-1"]
+            raise RuntimeError("Second extraction failed")
         return []
 
     monkeypatch.setattr(service, "_route_segment", _route_profile_only)
-    monkeypatch.setattr(service, "_memorize_categorize_items", _noop_categorize)
     monkeypatch.setattr(service, "_memorize_dedupe_merge", _noop_step)
     monkeypatch.setattr(service, "_memorize_persist_and_index", _noop_step)
     monkeypatch.setattr(service, "_memorize_build_response", _stub_build_response)
@@ -1562,12 +1560,18 @@ async def test_memorize_segments_batch_passes_segment_speaker_rosters_without_se
         },
     ]
 
-    await service.memorize_segments_batch(
-        modality="conversation",
-        segments=segments,
-        user=user_scope,
-        conversation_id="conv-1",
-    )
+    async def run():
+        return await service.memorize_segments_batch(
+            modality="conversation", segments=segments, user=user_scope, conversation_id="conv-1",
+        )
+
+    if fail_second:
+        with pytest.raises(RuntimeError, match="Second extraction failed"):
+            await run()
+        assert [row.url for row in service.database.resource_repo.list_resources(user_scope).values()] == ["mem://segment-1"]
+    else:
+        await run()
+        assert {row.url for row in service.database.resource_repo.list_resources(user_scope).values()} == {"mem://segment-1", "mem://segment-2"}
 
     assert len(captured) == 2
     first_roster = captured[0]["speaker_roster"]
