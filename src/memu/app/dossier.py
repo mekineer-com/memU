@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 import math
-import re
 from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from types import EllipsisType
@@ -10,6 +9,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 
 from memu.app.category_summary_journal import append_category_summary_journal
 from memu.app.dossier_revision import (
+    MEMORY_REF_PATTERN,
     label_sections,
     render_memory_records,
     revision_status_items,
@@ -31,8 +31,6 @@ if TYPE_CHECKING:
 DOSSIER_INDEX_LIMIT = 20
 RELEVANT_DOSSIERS_PER_EPISODE = 3
 # Marcos' reminder: a category is a dossier.
-MEMORY_REF_PATTERN = re.compile(r"^\[M([1-9][0-9]*)\]$")
-MEMORY_REF_SCAN_PATTERN = re.compile(r"\[M[0-9][^\]\r\n]*\]")
 AnchorRole = Literal["soul", "user"]
 logger = logging.getLogger(__name__)
 
@@ -453,8 +451,7 @@ class DossierMixin:
 
     @staticmethod
     def extract_memory_refs(text: str) -> list[int]:
-        tokens = MEMORY_REF_SCAN_PATTERN.findall(text or "")
-        tokens = [token for token in tokens if MEMORY_REF_PATTERN.fullmatch(token)]
+        tokens = MEMORY_REF_PATTERN.findall(text or "")
         return list(dict.fromkeys(DossierMixin.parse_memory_ref(token) for token in tokens))
 
     def prepare_dossier_revision(
@@ -1328,7 +1325,7 @@ class DossierMixin:
         match = MEMORY_REF_PATTERN.fullmatch(value)
         if match is None:
             raise ValueError(f"Invalid memory reference: {value}")
-        return int(match.group(1))
+        return int(match.group(0)[2:-1])
 
     def resolve_memory_ref(self, value: int | str, where: Mapping[str, Any]) -> MemoryItem:
         if isinstance(value, str):

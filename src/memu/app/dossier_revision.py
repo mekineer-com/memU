@@ -15,14 +15,12 @@ from memu.utils.xml import escape_xml_prose
 
 _HEADING = re.compile(r"(?m)^## [^\r\n]+\r?$")
 # Only exact [M#] tokens are citations; malformed prose remains literal.
-_MEMORY_REF = re.compile(r"^\[M([1-9][0-9]*)\]$")
-_MEMORY_REFS = re.compile(r"\[M[1-9][0-9]*\]")
-_MEMORY_TOKEN = re.compile(r"\[M[^\]\r\n]*\]")
+MEMORY_REF_PATTERN = re.compile(r"\[M[1-9][0-9]*\]")
 _PROSE_TAGS = {"description", "prose", "section", "body"}
 
 
 def contains_memory_reference_token(text: str) -> bool:
-    return _MEMORY_TOKEN.search(text) is not None
+    return MEMORY_REF_PATTERN.search(text) is not None
 
 
 def estimate_prompt_tokens(text: str) -> int:
@@ -49,7 +47,7 @@ def model_input_budget(svc: Any, profile: str | None) -> int:
 
 
 def strip_memory_citations(text: str) -> str:
-    stripped = _MEMORY_REFS.sub("", text)
+    stripped = MEMORY_REF_PATTERN.sub("", text)
     stripped = re.sub(r"[ \t]+([.,;:!?])", r"\1", stripped)
     return re.sub(r"[ \t]{2,}", " ", stripped).strip()
 
@@ -180,7 +178,7 @@ def parse_dossier_revision(
     remove_ids = {by_ref[ref].id for ref, decision in decisions.items() if decision == "remove"}
     add_ids = {by_ref[ref].id for ref, decision in decisions.items() if decision == "add"}
 
-    resulting_refs = set(_MEMORY_REFS.findall(resulting_prose))
+    resulting_refs = set(MEMORY_REF_PATTERN.findall(resulting_prose))
     unknown_refs = resulting_refs - by_ref.keys()
     if unknown_refs:
         raise ValueError(f"Resulting prose cites memories outside review context: {sorted(unknown_refs)}")
@@ -306,7 +304,7 @@ def parse_anchor_revisions(
             for item in (*bundle["cited_items"], *bundle["candidate_items"])
         }
         by_ref = {f"[M{item.memory_ref}]": item for item in evidence_items.values()}
-        resulting_refs = set(_MEMORY_REFS.findall(resulting_prose))
+        resulting_refs = set(MEMORY_REF_PATTERN.findall(resulting_prose))
         unknown_refs = resulting_refs - by_ref.keys()
         if unknown_refs:
             raise ValueError(
@@ -473,7 +471,7 @@ def _parse_decisions(
         ):
             raise ValueError("Invalid memory decision")
         ref = element.attrib["ref"]
-        if _MEMORY_REF.fullmatch(ref) is None or ref not in by_ref:
+        if MEMORY_REF_PATTERN.fullmatch(ref) is None or ref not in by_ref:
             raise ValueError(f"Unknown memory decision reference: {ref}")
         if ref in decisions:
             raise ValueError(f"Duplicate memory decision: {ref}")

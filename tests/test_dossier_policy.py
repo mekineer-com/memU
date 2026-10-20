@@ -683,7 +683,7 @@ def test_memory_refs_are_strict_scoped_and_resolve_merged_rows(tmp_path) -> None
     assert service.resolve_memory_ref(other_refs[other.id], OTHER_SCOPE).id == other.id
     with pytest.raises(KeyError):
         service.resolve_memory_ref(merged_ref, OTHER_SCOPE)
-    for invalid in ("[m1]", "[M0]", "M1", " [M1]", "[M1] "):
+    for invalid in ("[m1]", "[M0]", "M1", " [M1]", "[M1] ", "[M12x [M4]", "[M1][M2]"):
         with pytest.raises(ValueError):
             service.parse_memory_ref(invalid)
     with pytest.raises(ValueError):
@@ -1165,6 +1165,7 @@ def test_prepare_dossier_revision_bounds_actionable_evidence(tmp_path) -> None:
     assert service.extract_memory_refs("[Speaker] [M] [M2] [M2]") == [2]
     assert service.extract_memory_refs("bad [M0]") == []
     assert service.extract_memory_refs("[M2] bad [M0] [M3]") == [2, 3]
+    assert service.extract_memory_refs("[M12x [M4] [M2] [M4]") == [4, 2]
     assert {item.id for item in bundle["cited_items"]} == {cited.id, cited_unlinked.id}
     assert bundle["cited_unlinked_item_ids"] == [cited_unlinked.id]
     assert [item.id for item in bundle["pending_items"]] == [pending.id]
@@ -1414,24 +1415,37 @@ River keeps a thoughtful daily record [M{refs[pending.id]}]. a<b; R&D.</body></s
 @pytest.mark.asyncio
 @pytest.mark.parametrize("action", ["keep", "patch"])
 async def test_batch_revision_preserves_malformed_literals_in_existing_and_rewritten_prose(tmp_path, action):
-    prose = "## Notes\nLiteral [M0] and [M12x].\n\n## Plans\nA quiet day."
-    service, _store, _anchors, category, pending, _candidate, refs, bundle = _revision_case(tmp_path, summary=prose)
-    patches = ('<section ref="S1" action="replace"><body>## Notes\nLiteral [M0] and [M12x]. New [Mnope].</body></section>'
+    description = "[Mom] [Monday] [M0] [M12x] [Mnope]"
+    service, store, _anchors, category, pending, candidate, refs, _bundle = _revision_case(tmp_path)
+    prose = f"## Notes\nLiteral [M0] and [M12x [M{refs[candidate.id]}].\n\n## Plans\nA quiet day."
+    store.memory_category_repo.update_category(category_id=category.id, summary=prose)
+    bundle = service.prepare_dossier_revision(category.id, SCOPE)
+    assert {item.id for item in bundle["cited_items"]} == {candidate.id}
+    rewritten = prose.replace("Literal [M0]", "New [Mnope]. Literal [M0]").replace("A quiet day.", "A brighter day.")
+    first_section = rewritten.split("\n\n")[0]
+    patches = (f'<section ref="S1" action="replace"><body>{first_section}</body></section>'
                '<section ref="S2" action="replace"><body>## Plans\nA brighter day.</body></section>'
                if action == "patch" else "")
     xml = f'''<dossier_revisions><dossier_revision dossier_id="{category.id}">
-<description>A personal record.</description><prose_action>{action}</prose_action>
+<description>{description}</description><prose_action>{action}</prose_action>
 <prose_patches>{patches}</prose_patches><decisions>
 <decision ref="[M{refs[pending.id]}]" action="remove" /></decisions>
 </dossier_revision></dossier_revisions>'''
     [decision] = parse_dossier_revision_batch(xml, [bundle])
+    assert decision["description"] == description
+    assert decision["cited_item_ids"] == [candidate.id]
+    assert decision["add_item_ids"] == [candidate.id]
+    assert decision["remove_item_ids"] == [pending.id]
+    with pytest.raises(ValueError, match="description cannot contain memory citations"):
+        parse_dossier_revision_batch(xml.replace(description, description + " [M4]", 1), [bundle])
     if action == "patch":
         with pytest.raises(ValueError, match="outside review context"):
             parse_dossier_revision_batch(xml.replace("New [Mnope].", "New [Mnope] [M999999]."), [bundle])
     saved = await service.apply_dossier_revision(bundle, decision, SCOPE, embedding_client=FakeEmbedClient())
-    assert saved.summary == (prose.replace("[M12x].", "[M12x]. New [Mnope].").replace(
-        "A quiet day.", "A brighter day."
-    ) if action == "patch" else prose)
+    assert saved.summary == (rewritten if action == "patch" else prose)
+    assert saved.description == description
+    assert {relation.item_id for relation in store.category_item_repo.list_relations(SCOPE)
+            if relation.category_id == category.id} == {candidate.id}
 
 
 def test_batch_dossier_revision_keeps_and_removes_sections(tmp_path) -> None:
@@ -1475,12 +1489,13 @@ def test_batch_dossier_revision_validates_decisions_and_xml(tmp_path) -> None:
     with pytest.raises(ValueError, match="Pending memories require decisions"):
         parse_dossier_revision_batch(missing_pending, [bundle])
 
-    malformed_ref = missing_pending.replace(
-        "<decisions></decisions>",
-        f'<decisions><decision ref="[M0]" action="add" /></decisions>',
-    )
-    with pytest.raises(ValueError, match="Unknown memory decision reference"):
-        parse_dossier_revision_batch(malformed_ref, [bundle])
+    for ref in ("[M0]", f"[M12x [M{refs[pending.id]}]", f"[M{refs[pending.id]}] junk"):
+        malformed_ref = missing_pending.replace(
+            "<decisions></decisions>",
+            f'<decisions><decision ref="{ref}" action="add" /></decisions>',
+        )
+        with pytest.raises(ValueError, match="Unknown memory decision reference"):
+            parse_dossier_revision_batch(malformed_ref, [bundle])
 
     wrapped = f"```xml\n{missing_pending}\n```"
     with pytest.raises(ValueError, match="Expected exact dossier_revisions XML"):
@@ -1622,6 +1637,16 @@ async def test_generate_dynamic_category_review_reuses_profile_and_preflights(
 
     assert decision["name"] == "Garden Magic & R&D"
     assert decision["description"] == "A bright ritual: a<b; & < &amp; <care> &amp;. a<b!; x<y? ok; Guest<Other's car; a<b\"yes\""
+    literals = "[Mom] [Monday] [M0] [M12x] [Mnope]"
+    literal_response = response.replace("Garden Magic & R&D", literals).replace("A bright ritual:", literals + " A bright ritual:")
+    literal_decision = await service.generate_dynamic_category_review(bundle, chat_client=FakeChatClient(literal_response))
+    assert literal_decision["name"] == literals
+    assert literal_decision["description"] == literals + " " + decision["description"]
+    for field in ("title", "description"):
+        with pytest.raises(ValueError, match="identity cannot contain memory citations"):
+            await service.generate_dynamic_category_review(bundle, chat_client=FakeChatClient(
+                literal_response.replace(f"<{field}>", f"<{field}>[M1] ", 1),
+            ))
     assert selected == [
         (
             {"operation": "dossier", "step_id": "dynamic_review"},
