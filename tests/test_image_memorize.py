@@ -569,7 +569,8 @@ async def test_image_invalid_explicit_timestamp_fails_before_provider_work(tmp_p
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("retired", [None, "merged", "superseded", "mixed"])
-async def test_completed_image_resource_retry_creates_no_second_item(tmp_path: Path, retired) -> None:
+@pytest.mark.parametrize("resume_filing", [False, True])
+async def test_completed_image_resource_retry_creates_no_second_item(tmp_path: Path, retired, resume_filing) -> None:
     service = _service(tmp_path)
     service.memorize_config.enforce_input_budget = True
     scope = {"user_id": "u", "soul_id": "s"}
@@ -612,12 +613,33 @@ async def test_completed_image_resource_retry_creates_no_second_item(tmp_path: P
         raise AssertionError("completed retry must stop before the workflow")
 
     service._run_workflow = fail_workflow
+    postprocessing = []
+
+    async def dedupe(state, _context):
+        postprocessing.append("dedupe")
+        assert item.id in {row.id for row in state["items"]}
+        return state
+
+    async def review(state, _context, **_kwargs):
+        postprocessing.append("review")
+        return state
+
+    service._memorize_dedupe_merge = dedupe
+    service._memorize_persist_and_index = review
+    if resume_filing:
+        with pytest.raises(ValueError, match="context_window_tokens is required"):
+            await service.memorize(resource_url=resource.url, modality="image", user=scope,
+                                   caption="A caption.", resume_image_filing=True)
+        assert postprocessing == []
+        service.llm_profiles.profiles["default"].context_window_tokens = 100_000
     public = await service.memorize(
         resource_url=resource.url,
         modality="image",
         user=scope,
         caption="A caption.",
+        resume_image_filing=resume_filing,
     )
+    assert postprocessing == (["dedupe", "review"] if resume_filing else [])
     assert [row["id"] for row in public["items"]] == expected_ids
 
     service._llm_clients["embedding"] = FailClient()

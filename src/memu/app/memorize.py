@@ -245,6 +245,7 @@ class MemorizeMixin:
         local_path: str | None = None,
         caption: str | None = None,
         source_timestamp: str | None = None,
+        resume_image_filing: bool = False,
         soul_card: str | None = None,
         memory_retrieve_history: list[str] | None = None,
         memory_prior_context: list[str] | None = None,
@@ -275,6 +276,15 @@ class MemorizeMixin:
                 store, user_scope or {}, resource_url, supplied_caption
             )
             if existing is not None and extracted:
+                if resume_image_filing:
+                    self._memorize_input_budget()
+                    await self._resume_memorize_postprocessing(
+                        where={**(user_scope or {}), "resource_id": existing.id},
+                        user=user_scope or {}, phase="dedupe",
+                    )
+                    _, linked, _ = self._image_retry_state(
+                        store, user_scope or {}, resource_url, supplied_caption,
+                    )
                 return {
                     "resource": self._model_dump_without_embeddings(existing),
                     "items": [self._model_dump_without_embeddings(item) for item in linked.values()],
@@ -1467,6 +1477,17 @@ class MemorizeMixin:
         where = {**user, "segment_id": segment_id}
         if len(store.resource_repo.list_resources(where)) != 1:
             raise RuntimeError(f"Memorize recovery requires exactly one scoped Resource for segment {segment_id}")
+        await self._resume_memorize_postprocessing(
+            where=where, user=user, phase=phase, on_dedupe_complete=on_dedupe_complete,
+            enforce_input_budget=enforce_input_budget,
+        )
+
+    async def _resume_memorize_postprocessing(
+        self, *, where: Mapping[str, Any], user: Mapping[str, Any], phase: str,
+        on_dedupe_complete: Callable[[Any], None] | None = None,
+        enforce_input_budget: bool = False,
+    ) -> None:
+        store = self._get_database()
         items = store.memory_item_repo.list_items(
             where, include_merged=True, include_superseded=True,
         )
