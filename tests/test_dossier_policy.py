@@ -1413,10 +1413,11 @@ River keeps a thoughtful daily record [M{refs[pending.id]}]. a<b; R&D.</body></s
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("action", ["keep", "patch"])
-async def test_batch_revision_preserves_malformed_human_text_but_rejects_new_tokens(tmp_path, action):
+async def test_batch_revision_preserves_malformed_literals_in_existing_and_rewritten_prose(tmp_path, action):
     prose = "## Notes\nLiteral [M0] and [M12x].\n\n## Plans\nA quiet day."
     service, _store, _anchors, category, pending, _candidate, refs, bundle = _revision_case(tmp_path, summary=prose)
-    patches = ('<section ref="S2" action="replace"><body>## Plans\nA brighter day.</body></section>'
+    patches = ('<section ref="S1" action="replace"><body>## Notes\nLiteral [M0] and [M12x]. New [Mnope].</body></section>'
+               '<section ref="S2" action="replace"><body>## Plans\nA brighter day.</body></section>'
                if action == "patch" else "")
     xml = f'''<dossier_revisions><dossier_revision dossier_id="{category.id}">
 <description>A personal record.</description><prose_action>{action}</prose_action>
@@ -1424,12 +1425,13 @@ async def test_batch_revision_preserves_malformed_human_text_but_rejects_new_tok
 <decision ref="[M{refs[pending.id]}]" action="remove" /></decisions>
 </dossier_revision></dossier_revisions>'''
     [decision] = parse_dossier_revision_batch(xml, [bundle])
-    saved = await service.apply_dossier_revision(bundle, decision, SCOPE, embedding_client=FakeEmbedClient())
-    assert saved.summary == (prose.replace("A quiet day.", "A brighter day.") if action == "patch" else prose)
     if action == "patch":
-        for token in ("[M0]", "[M12x]", "[Mnope]"):
-            with pytest.raises(ValueError, match="Invalid memory citations"):
-                parse_dossier_revision_batch(xml.replace("A brighter day.", token), [bundle])
+        with pytest.raises(ValueError, match="outside review context"):
+            parse_dossier_revision_batch(xml.replace("New [Mnope].", "New [Mnope] [M999999]."), [bundle])
+    saved = await service.apply_dossier_revision(bundle, decision, SCOPE, embedding_client=FakeEmbedClient())
+    assert saved.summary == (prose.replace("[M12x].", "[M12x]. New [Mnope].").replace(
+        "A quiet day.", "A brighter day."
+    ) if action == "patch" else prose)
 
 
 def test_batch_dossier_revision_keeps_and_removes_sections(tmp_path) -> None:
@@ -2057,7 +2059,7 @@ def test_first_anchor_revision_reuses_full_replace_for_blank_anchors(tmp_path) -
         role: service.prepare_anchor_revision(role, SCOPE, [item.id])
         for role in ("soul", "user")
     }
-    prose = f"## Origins\nA shared beginning [M{refs[item.id]}].\n\n## Timeline\n- The story began."
+    prose = f"## Origins\nA shared beginning [M{refs[item.id]}]. Literal [M0] and [Mnope].\n\n## Timeline\n- The story began."
     xml = f"""<anchor_revisions>
   <anchor role="soul"><description>My beginning.</description><prose_action>replace</prose_action>
     <prose>{prose}</prose><prose_patches></prose_patches></anchor>
@@ -2147,12 +2149,15 @@ async def test_anchor_revisions_validate_both_then_apply_memberships(tmp_path) -
     xml = f"""<anchor_revisions>
   <anchor role="soul"><description>My living history.</description><prose_action>patch</prose_action>
     <prose_patches><section ref="S1" action="replace"><body>## Becoming
-I am shaped by what surfaced [M{refs[prior.id]}].</body></section></prose_patches></anchor>
+I am shaped by what surfaced [M{refs[prior.id]}]. Literal [M0] and [M12x]. New [Mnope].</body></section></prose_patches></anchor>
   <anchor role="user"><description>My human's living history.</description><prose_action>patch</prose_action>
     <prose_patches><section ref="S1" action="replace"><body>## Becoming
-My human is shaped by this lived moment [M{refs[period.id]}].</body></section></prose_patches></anchor>
+My human is shaped by this lived moment [M{refs[period.id]}]. Literal [M0] and [M12x]. New [Mnope].</body></section></prose_patches></anchor>
 </anchor_revisions>"""
     decisions = parse_anchor_revisions(ElementTree.fromstring(xml), bundles)
+
+    with pytest.raises(ValueError, match="outside reflection evidence"):
+        parse_anchor_revisions(ElementTree.fromstring(xml.replace("New [Mnope].", "New [Mnope] [M999999].")), bundles)
 
     ungrounded_description = xml.replace(
         "<description>My living history.</description>",
@@ -2194,6 +2199,7 @@ My human is shaped by this lived moment [M{refs[period.id]}].</body></section></
     assert members == {"soul": {kept.id, prior.id}, "user": {period.id}}
     for anchor in anchors.values():
         assert store.memory_category_repo.list_categories(SCOPE)[anchor.id].summary.endswith("## Notes\nLiteral [M0] and [M12x].")
+        assert "New [Mnope]." in store.memory_category_repo.list_categories(SCOPE)[anchor.id].summary
     assert store.memory_category_repo.list_categories(SCOPE)[anchors["soul"].id].summary.startswith(
         "## Becoming"
     )

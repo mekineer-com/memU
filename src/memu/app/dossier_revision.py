@@ -14,8 +14,7 @@ from memu.utils.conversation import format_relative_time_label, parse_happened_a
 from memu.utils.xml import escape_xml_prose
 
 _HEADING = re.compile(r"(?m)^## [^\r\n]+\r?$")
-# Model output is a trust boundary: these accept only exact [M#] tokens, unlike
-# dossier.py's broader scanner that also discovers malformed prose references.
+# Only exact [M#] tokens are citations; malformed prose remains literal.
 _MEMORY_REF = re.compile(r"^\[M([1-9][0-9]*)\]$")
 _MEMORY_REFS = re.compile(r"\[M[1-9][0-9]*\]")
 _MEMORY_TOKEN = re.compile(r"\[M[^\]\r\n]*\]")
@@ -356,13 +355,6 @@ def parse_section_revision(
     normalized_prose = current_prose or "## unlabeled"
     inventory = label_sections(normalized_prose)
     patches = _parse_patches(children["prose_patches"])
-    # Validate new model text, not untouched human-authored sections.
-    tokens = set(_MEMORY_TOKEN.findall(prose))
-    for _ref, _action, body in patches:
-        tokens.update(_MEMORY_TOKEN.findall(body))
-    invalid_tokens = {token for token in tokens if _MEMORY_REF.fullmatch(token) is None}
-    if invalid_tokens:
-        raise ValueError(f"Invalid memory citations: {sorted(invalid_tokens)}")
     if action == "keep":
         if prose or patches:
             raise ValueError("Keep requires empty prose and no patches")
