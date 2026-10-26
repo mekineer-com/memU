@@ -236,7 +236,7 @@ class MemoryService(DossierMixin, GraphMixin, MemorizeMixin, RetrieveMixin):
         if self._claude_code:
             claude_client = (
                 self._get_claude_cli_client()
-                if (session_id_clean or resume_session_id_clean or cli_tools is not None)
+                if (session_id_clean or resume_session_id_clean)
                 else self._get_claude_cli_internal_client()
             )
             client = self._wrap_llm_client(

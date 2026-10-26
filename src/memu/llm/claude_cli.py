@@ -65,8 +65,6 @@ class ClaudeCLIClient:
             Path(workspace).expanduser() if workspace else (Path.home() / ".cache" / "memu-claude-workspace")
         )
         self._workspace.mkdir(parents=True, exist_ok=True)
-        self._prompt_dir = self._workspace / ".prompts"
-        self._prompt_dir.mkdir(parents=True, exist_ok=True)
         self._last_call_monotonic = 0.0
         self._last_payload_var: contextvars.ContextVar[dict[str, Any] | None] = contextvars.ContextVar(
             "memu_claude_cli_last_payload",
@@ -101,6 +99,8 @@ class ClaudeCLIClient:
         if on_event is not None and cli_tools is None:
             raise ValueError("CLI events require an explicit cli_tools policy")
         if cli_tools is not None:
+            if workspace is None or not Path(workspace).expanduser().is_absolute():
+                raise ValueError("Scoped CLI calls require an explicit absolute workspace")
             if not (session_id_clean or resume_session_id_clean):
                 raise ValueError("Scoped CLI calls require an explicit session")
             if session_id_clean and not system_prompt:
@@ -129,8 +129,9 @@ class ClaudeCLIClient:
         if cli_tools is not None:
             runner = self._run_claude_stream
             run_kwargs.update(on_event=on_event, cli_tools=cli_tools)
-        if workspace is not None:
             run_kwargs["workspace"] = workspace
+        elif workspace is not None:
+            raise ValueError("Per-call workspace requires cli_tools")
         text, raw = await runner(
             prompt=prompt,
             system_prompt=system_prompt or "",
@@ -148,9 +149,8 @@ class ClaudeCLIClient:
         system_prompt: str,
         session_id: str | None = None,
         resume_session_id: str | None = None,
-        workspace: str | Path | None = None,
     ) -> tuple[str, dict[str, Any]]:
-        cwd, prompt_dir = self._call_paths(workspace)
+        cwd, prompt_dir = self._call_paths(None)
         system_prompt_file = prompt_dir / f"system-prompt-{uuid.uuid4().hex}.txt"
         try:
             system_prompt_file.write_text(system_prompt, encoding="utf-8")
@@ -298,7 +298,6 @@ class ClaudeCLIClient:
         process = None
         tasks: list[asyncio.Task[Any]] = []
         terminal: dict[str, Any] | None = None
-        latest_usage: dict[str, Any] | None = None
         stderr_tail = bytearray()
         deadline = asyncio.get_running_loop().time() + self.timeout_seconds
         secrets = set()
@@ -323,10 +322,14 @@ class ClaudeCLIClient:
                 await on_event(event)
 
         async def write_input() -> None:
-            process.stdin.write(prompt.encode("utf-8"))
-            await process.stdin.drain()
-            process.stdin.close()
-            await process.stdin.wait_closed()
+            try:
+                process.stdin.write(prompt.encode("utf-8"))
+                await process.stdin.drain()
+                process.stdin.close()
+                await process.stdin.wait_closed()
+            except (BrokenPipeError, ConnectionResetError):
+                # Report the child's launch error, not the closed input pipe.
+                pass
 
         async def drain_stderr() -> None:
             while chunk := await process.stderr.read(65536):
@@ -334,7 +337,7 @@ class ClaudeCLIClient:
                 del stderr_tail[:-65536]
 
         async def read_events() -> None:
-            nonlocal terminal, latest_usage
+            nonlocal terminal
             message_id: str | None = None
             usage: dict[str, Any] = {}
             while True:
@@ -349,7 +352,10 @@ class ClaudeCLIClient:
                 try:
                     event = json.loads(line.decode("utf-8"))
                 except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-                    raise RuntimeError("Claude CLI stream output was not valid UTF-8 JSON") from exc
+                    details = redact(stderr_tail.decode("utf-8", errors="replace").strip())
+                    raise RuntimeError(
+                        "Claude CLI stream output was not valid UTF-8 JSON" + (f": {details}" if details else "")
+                    ) from exc
                 if not isinstance(event, dict) or not isinstance(event.get("type"), str):
                     raise RuntimeError("Claude CLI stream event missing type")
                 if event["type"] == "result":
@@ -368,7 +374,6 @@ class ClaudeCLIClient:
                 elif delta.get("type") == "message_delta" and message_id is not None:
                     usage.update(delta.get("usage") or {})
                 elif delta.get("type") == "message_stop" and message_id is not None:
-                    latest_usage = dict(usage)
                     await emit({"type": "context_usage", "message_id": message_id, "usage": dict(usage)})
                     message_id = None
 
@@ -388,6 +393,7 @@ class ClaudeCLIClient:
                 "--output-format", "stream-json", "--include-partial-messages", "--verbose",
                 "--max-turns", "10",
             ])
+            # Provisional API-loop parity; native round semantics remain a D check.
             process = await asyncio.create_subprocess_exec(
                 *cmd, cwd=cwd, env={**os.environ, "DISABLE_AUTO_COMPACT": "1"},
                 stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
@@ -402,12 +408,14 @@ class ClaudeCLIClient:
                     f"Claude CLI timed out after {self.timeout_seconds}s for model={self.chat_model}"
                 ) from exc
             if process.returncode != 0:
-                details = redact(stderr_tail.decode("utf-8", errors="replace").strip()) or "(no subprocess output)"
+                details = stderr_tail.decode("utf-8", errors="replace").strip()
+                if terminal is not None:
+                    details = f"{terminal.get('subtype')}: {terminal.get('errors') or terminal.get('result') or ''}\n{details}"
+                details = redact(details.strip()) or "(no subprocess output)"
                 raise RuntimeError(f"Claude CLI failed (exit {process.returncode}) for model={self.chat_model}: {details}")
             if terminal is None:
                 raise RuntimeError("Claude CLI stream missing result envelope")
             result, raw = self._result(redact(terminal), process.returncode, session_id, resume_session_id)
-            raw["context_usage"] = latest_usage
         finally:
             for task in tasks:
                 if not task.done():
@@ -421,14 +429,9 @@ class ClaudeCLIClient:
                 if prompt_file is not None:
                     prompt_file.unlink(missing_ok=True)
                 mcp_file.unlink(missing_ok=True)
-        try:
-            await asyncio.wait_for(
-                emit(redact(terminal)), max(0, deadline - asyncio.get_running_loop().time()),
-            )
-        except TimeoutError as exc:
-            raise TimeoutError(
-                f"Claude CLI timed out after {self.timeout_seconds}s for model={self.chat_model}"
-            ) from exc
+        # This in-process hook hands off a completed result, not another model
+        # operation. B2 queues delivery; do not relabel success as model timeout.
+        await emit(redact(terminal))
         return result, raw
 
     async def embed(self, inputs: list[str]) -> tuple[list[list[float]], dict[str, Any]]:

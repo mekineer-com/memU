@@ -289,7 +289,7 @@ async def test_claude_cli_envelope_preserves_success(monkeypatch, tmp_path, mock
     response, usage = after[0]
     assert response.content == result
     assert usage.status == "success"
-    assert list(client._prompt_dir.iterdir()) == []
+    assert list((client._workspace / ".prompts").iterdir()) == []
 
 
 @pytest.fixture
@@ -376,6 +376,11 @@ for e in events:
         assert cmd[cmd.index("--permission-mode")+1] == "default"
         assert cmd[cmd.index("--system-prompt-snapshot")+1] == "on"
         assert cmd[cmd.index("--tools")+1] == ""
+        assert "--restricted" in cmd
+        assert "--strict-mcp-config" in cmd
+        assert cmd[cmd.index("--setting-sources")+1] == ""
+        assert cmd[cmd.index("--max-turns")+1] == "10"
+        assert "--include-partial-messages" in cmd
         assert cmd[cmd.index("--allowedTools")+1] == "mcp__atomic__search_atoms"
         assert call["env"]["DISABLE_AUTO_COMPACT"] == "1"
         assert call["mode"] == 0o600
@@ -392,12 +397,17 @@ for e in events:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("failure", ["nonzero", "malformed", "missing", "callback", "timeout", "stdin_timeout", "refusal"])
+@pytest.mark.parametrize("failure", ["nonzero", "native_error", "malformed", "malformed_diagnostic", "missing", "callback", "timeout", "stdin_timeout", "refusal"])
 async def test_scoped_stream_failure_reaps_child_and_removes_files(tmp_path, stream_child, failure):
     terminal = _result_envelope(stop_reason="refusal") if failure == "refusal" else _result_envelope()
+    if failure == "native_error":
+        terminal = _result_envelope(subtype="error_max_turns", is_error=True, errors=["fictional-secret quota exhausted"])
     code = "import sys,json,time;sys.stdin.buffer.read();"
     if failure == "stdin_timeout":
         code = "import time;time.sleep(30)"
+    elif failure == "malformed_diagnostic":
+        code += "sys.stderr.write('fictional-secret parse detail');sys.stderr.flush();time.sleep(.02);"
+        code += "print('{broken',flush=True);time.sleep(30)"
     elif failure == "malformed":
         code += "print('{broken',flush=True);time.sleep(30)"
     elif failure in {"callback", "timeout"}:
@@ -405,7 +415,7 @@ async def test_scoped_stream_failure_reaps_child_and_removes_files(tmp_path, str
     elif failure == "missing":
         code += "print(json.dumps({'type':'system','subtype':'init'}))"
     else:
-        code += f"print(json.dumps({terminal!r}),flush=True);sys.exit({7 if failure == 'nonzero' else 0})"
+        code += f"print(json.dumps({terminal!r}),flush=True);sys.exit({7 if failure in {'nonzero', 'native_error'} else 0})"
     calls = stream_child(code)
     client = ClaudeCLIClient(model="fictional", claude_binary=sys.executable, workspace=tmp_path,
                              timeout_seconds=0.1 if failure in {"timeout", "stdin_timeout"} else 3)
@@ -420,14 +430,19 @@ async def test_scoped_stream_failure_reaps_child_and_removes_files(tmp_path, str
         events.append(event)
         if failure == "callback":
             raise RuntimeError("fictional callback failure")
-    with pytest.raises((RuntimeError, TimeoutError)):
+    with pytest.raises((RuntimeError, TimeoutError)) as error:
         await wrapped.chat("x" * 500000 if failure == "stdin_timeout" else "question",
                           session_id="fictional-session", system_prompt="fictional Presence",
-                          cli_tools=_scoped_tools(), on_event=capture)
+                          workspace=tmp_path, cli_tools=_scoped_tools(), on_event=capture)
+    if failure == "native_error":
+        assert "error_max_turns" in str(error.value) and "quota exhausted" in str(error.value)
+        assert "fictional-secret" not in str(error.value)
+    if failure == "malformed_diagnostic":
+        assert "parse detail" in str(error.value) and "fictional-secret" not in str(error.value)
     assert calls[0]["process"].returncode is not None
     assert hooks == ["before", "error"]
     assert not any(e["type"] == "result" for e in events)
-    assert list(client._prompt_dir.iterdir()) == []
+    assert list((client._workspace / ".prompts").iterdir()) == []
 
 
 @pytest.mark.asyncio
@@ -435,11 +450,11 @@ async def test_scoped_resume_is_tool_free_and_does_not_resend_presence(tmp_path,
     calls = stream_child(f"import sys,json;sys.stdin.buffer.read();print(json.dumps({_result_envelope()!r}))")
     client = ClaudeCLIClient(model="fictional", claude_binary=sys.executable, workspace=tmp_path)
     assert (await client.chat("recap", resume_session_id="fictional-session",
-                              cli_tools={"mcp_servers": {}, "allowed_tools": []}))[0] == "reply"
+                              workspace=tmp_path, cli_tools={"mcp_servers": {}, "allowed_tools": []}))[0] == "reply"
     assert calls[0]["prompt"] is None
     assert calls[0]["mcp"] == {"mcpServers": {}}
     assert calls[0]["cmd"][calls[0]["cmd"].index("--allowedTools")+1] == ""
-    assert list(client._prompt_dir.iterdir()) == []
+    assert list((client._workspace / ".prompts").iterdir()) == []
 
 
 @pytest.mark.asyncio
@@ -449,26 +464,34 @@ async def test_scoped_stream_spawn_failure_cleans_files(monkeypatch, tmp_path):
     monkeypatch.setattr(claude_cli.asyncio, "create_subprocess_exec", fail_spawn)
     client = ClaudeCLIClient(model="fictional", claude_binary=sys.executable, workspace=tmp_path)
     with pytest.raises(OSError, match="fictional spawn"):
-        await client.chat("question", session_id="fictional", system_prompt="Presence", cli_tools=_scoped_tools())
-    assert list(client._prompt_dir.iterdir()) == []
+        await client.chat("question", session_id="fictional", system_prompt="Presence",
+                          workspace=tmp_path, cli_tools=_scoped_tools())
+    assert list((client._workspace / ".prompts").iterdir()) == []
 
 
 @pytest.mark.asyncio
-async def test_scoped_relative_workspace_and_terminal_callback_deadline(monkeypatch, tmp_path, stream_child):
-    monkeypatch.chdir(tmp_path)
+async def test_scoped_terminal_delivery_does_not_relabel_completed_reply_as_timeout(tmp_path, stream_child):
     calls = stream_child(f"import sys,json;sys.stdin.buffer.read();print(json.dumps({_result_envelope()!r}))")
     client = ClaudeCLIClient(model="fictional", claude_binary=sys.executable, workspace=tmp_path,
                              timeout_seconds=0.2)
-    async def stalled_terminal(_event):
-        await asyncio.sleep(30)
-    with pytest.raises(TimeoutError):
-        await client.chat("question", session_id="fictional", system_prompt="Presence",
-                          workspace="relative", cli_tools=_scoped_tools(), on_event=stalled_terminal)
-    assert calls[0]["cwd"] == tmp_path / "relative"
+    async def delayed_terminal(_event):
+        await asyncio.sleep(0.25)
+    assert (await client.chat("question", session_id="fictional", system_prompt="Presence",
+                              workspace=tmp_path, cli_tools=_scoped_tools(), on_event=delayed_terminal))[0] == "reply"
+    assert calls[0]["cwd"] == tmp_path
     cmd = calls[0]["cmd"]
     assert Path(cmd[cmd.index("--system-prompt-file")+1]).is_absolute()
     assert Path(cmd[cmd.index("--mcp-config")+1]).is_absolute()
-    assert list((tmp_path / "relative" / ".prompts").iterdir()) == []
+    assert list((tmp_path / ".prompts").iterdir()) == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("workspace", [None, "relative-workspace"])
+async def test_scoped_workspace_must_be_explicit_and_absolute(tmp_path, workspace):
+    client = ClaudeCLIClient(model="fictional", claude_binary=sys.executable, workspace=tmp_path)
+    with pytest.raises(ValueError, match="explicit absolute workspace"):
+        await client.chat("question", session_id="fictional", system_prompt="Presence",
+                          workspace=workspace, cli_tools=_scoped_tools())
 
 
 @pytest.mark.asyncio
@@ -483,7 +506,8 @@ async def test_scoped_errors_redact_mcp_credentials(tmp_path, stream_child, chan
     stream_child(code)
     client = ClaudeCLIClient(model="fictional", claude_binary=sys.executable, workspace=tmp_path)
     with pytest.raises(RuntimeError) as error:
-        await client.chat("question", session_id="fictional", system_prompt="Presence", cli_tools=_scoped_tools())
+        await client.chat("question", session_id="fictional", system_prompt="Presence",
+                          workspace=tmp_path, cli_tools=_scoped_tools())
     assert "fictional-secret" not in str(error.value)
     assert "[redacted]" in str(error.value)
 
@@ -496,27 +520,49 @@ async def test_scoped_timeout_reaps_inherited_pipe_group(tmp_path, stream_child)
                              timeout_seconds=0.2)
     with pytest.raises(TimeoutError, match="Claude CLI timed out"):
         await asyncio.wait_for(client.chat("question", session_id="fictional", system_prompt="Presence",
-                                           cli_tools=_scoped_tools()), 2)
+                                           workspace=tmp_path, cli_tools=_scoped_tools()), 2)
     assert calls[0]["process"].returncode is not None
-    assert list(client._prompt_dir.iterdir()) == []
+    assert list((client._workspace / ".prompts").iterdir()) == []
 
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(os.name != "posix", reason="POSIX process groups")
-async def test_scoped_success_does_not_leave_owned_background_child(tmp_path, stream_child):
-    marker = tmp_path / "descendant-survived"
-    descendant = f"import pathlib,time;time.sleep(1);pathlib.Path({str(marker)!r}).touch()"
-    stream_child(
-        "import subprocess,sys,json;sys.stdin.buffer.read();"
-        f"subprocess.Popen([sys.executable,'-c',{descendant!r}],"
+async def test_scoped_success_does_not_leave_owned_background_child(monkeypatch, tmp_path, stream_child):
+    pid_file = tmp_path / "descendant.pid"
+    calls = stream_child(
+        "import subprocess,sys,json,pathlib;sys.stdin.buffer.read();"
+        "child=subprocess.Popen([sys.executable,'-c','import time;time.sleep(30)'],"
         "stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL);"
+        f"pathlib.Path({str(pid_file)!r}).write_text(str(child.pid));"
         f"print(json.dumps({_result_envelope()!r}))"
     )
+    kill_group = os.killpg
+    killed = []
+    def capture_kill(pgid, sig):
+        assert os.getpgid(int(pid_file.read_text())) == pgid
+        killed.append(pgid)
+        kill_group(pgid, sig)
+    monkeypatch.setattr(os, "killpg", capture_kill)
     client = ClaudeCLIClient(model="fictional", claude_binary=sys.executable, workspace=tmp_path)
-    assert (await client.chat("question", session_id="fictional", system_prompt="Presence",
-                               cli_tools=_scoped_tools()))[0] == "reply"
-    await asyncio.sleep(1.1)
-    assert not marker.exists()
+    try:
+        assert (await client.chat("question", session_id="fictional", system_prompt="Presence",
+                                   workspace=tmp_path, cli_tools=_scoped_tools()))[0] == "reply"
+        assert killed == [calls[0]["process"].pid]
+    finally:
+        if calls:
+            try:
+                kill_group(calls[0]["process"].pid, claude_cli.signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+
+
+@pytest.mark.asyncio
+async def test_scoped_large_input_keeps_early_launch_failure_reason(tmp_path, stream_child):
+    stream_child("import sys;sys.stderr.write('fictional launch rejected');sys.exit(1)")
+    client = ClaudeCLIClient(model="fictional", claude_binary=sys.executable, workspace=tmp_path)
+    with pytest.raises(RuntimeError, match="fictional launch rejected"):
+        await client.chat("x" * 500000, session_id="fictional", system_prompt="Presence",
+                          workspace=tmp_path, cli_tools=_scoped_tools())
 
 
 @pytest.mark.asyncio
@@ -567,7 +613,7 @@ async def test_claude_cli_envelope_fails_before_parser(monkeypatch, tmp_path, mo
     assert errors[0][1].status == "error"
     assert after == parsed == []
     assert client._last_call_monotonic == 0
-    assert list(client._prompt_dir.iterdir()) == []
+    assert list((client._workspace / ".prompts").iterdir()) == []
 
 
 @pytest.mark.asyncio
@@ -599,7 +645,7 @@ async def test_claude_cli_stops_real_child_through_wrapper(monkeypatch, tmp_path
         async with asyncio.timeout(3):
             while not ready.exists():
                 await asyncio.sleep(0.005)
-        assert list(client._prompt_dir.iterdir())
+        assert list((client._workspace / ".prompts").iterdir())
         if stop == "cancel":
             task.cancel()
             with pytest.raises(asyncio.CancelledError):
@@ -613,7 +659,7 @@ async def test_claude_cli_stops_real_child_through_wrapper(monkeypatch, tmp_path
         assert process is not None
         assert process.returncode is not None
         assert await asyncio.wait_for(process.wait(), 1) != 0
-        assert list(client._prompt_dir.iterdir()) == []
+        assert list((client._workspace / ".prompts").iterdir()) == []
         assert client._last_call_monotonic == 0
     finally:
         if not task.done():
@@ -664,4 +710,4 @@ async def test_claude_cli_real_child_preserves_text_semantics(monkeypatch, tmp_p
         assert raw["exit_code"] == expected.returncode
         assert raw["usage"] == {"input_tokens": 1, "output_tokens": 2}
         assert raw["stop_reason"] == "end_turn"
-    assert list(client._prompt_dir.iterdir()) == []
+    assert list((client._workspace / ".prompts").iterdir()) == []
