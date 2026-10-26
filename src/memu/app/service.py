@@ -24,7 +24,7 @@ from memu.blob.local_fs import LocalFS
 from memu.database.factory import build_database
 from memu.database.interfaces import Database
 from memu.embedding import HTTPEmbeddingClient
-from memu.llm.claude_cli import ClaudeCLIClient
+from memu.llm.claude_cli import ClaudeCLIClient, ClaudeCLIEventHandler, ClaudeCLITools
 from memu.llm.http_client import HTTPLLMClient
 from memu.llm.wrapper import (
     LLMCallMetadata,
@@ -213,6 +213,9 @@ class MemoryService(DossierMixin, GraphMixin, MemorizeMixin, RetrieveMixin):
         trace_id: str | None = None,
         session_id: str | None = None,
         resume_session_id: str | None = None,
+        on_event: ClaudeCLIEventHandler | None = None,
+        cli_tools: ClaudeCLITools | None = None,
+        workspace: str | Path | None = None,
     ) -> Any:
         session_id_clean = str(session_id or "").strip() or None
         resume_session_id_clean = str(resume_session_id or "").strip() or None
@@ -220,6 +223,12 @@ class MemoryService(DossierMixin, GraphMixin, MemorizeMixin, RetrieveMixin):
             raise ValueError("session_id and resume_session_id are mutually exclusive")
         if (session_id_clean or resume_session_id_clean) and not self._claude_code:
             raise ValueError("Claude session arguments require claude_code=True")
+        cli_kwargs = {
+            key: value for key, value in {"on_event": on_event, "cli_tools": cli_tools, "workspace": workspace}.items()
+            if value is not None
+        }
+        if cli_kwargs and not self._claude_code:
+            raise ValueError("CLI options require claude_code=True")
         trace_id_clean = str(trace_id or "").strip()
         step_context = {"operation": op, "step_id": step} if (op or step or trace_id_clean) else None
         if step_context is not None and trace_id_clean:
@@ -227,7 +236,7 @@ class MemoryService(DossierMixin, GraphMixin, MemorizeMixin, RetrieveMixin):
         if self._claude_code:
             claude_client = (
                 self._get_claude_cli_client()
-                if (session_id_clean or resume_session_id_clean)
+                if (session_id_clean or resume_session_id_clean or cli_tools is not None)
                 else self._get_claude_cli_internal_client()
             )
             client = self._wrap_llm_client(
@@ -245,6 +254,7 @@ class MemoryService(DossierMixin, GraphMixin, MemorizeMixin, RetrieveMixin):
             response_format=response_format,
             session_id=session_id_clean,
             resume_session_id=resume_session_id_clean,
+            **cli_kwargs,
         )
 
     async def embed(self, texts: list[str], *, profile: str | None = None) -> Any:

@@ -10,7 +10,10 @@ from copy import deepcopy
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from memu.llm.claude_cli import ClaudeCLIEventHandler, ClaudeCLITools
 
 logger = logging.getLogger(__name__)
 
@@ -285,7 +288,16 @@ class LLMClientWrapper:
         response_format: dict[str, Any] | None = None,
         session_id: str | None = None,
         resume_session_id: str | None = None,
+        on_event: ClaudeCLIEventHandler | None = None,
+        cli_tools: ClaudeCLITools | None = None,
+        workspace: str | Path | None = None,
     ) -> Any:
+        cli_kwargs = {
+            key: value for key, value in {"on_event": on_event, "cli_tools": cli_tools, "workspace": workspace}.items()
+            if value is not None
+        }
+        if cli_kwargs and (self._provider or getattr(self._client, "provider", None)) != "claude_code":
+            raise ValueError("CLI options require the claude_code backend")
         if self._input_budget is not None:
             from memu.app.dossier_revision import estimate_prompt_tokens
 
@@ -322,6 +334,7 @@ class LLMClientWrapper:
                 kwargs["session_id"] = session_id
             if resume_session_id:
                 kwargs["resume_session_id"] = resume_session_id
+            kwargs.update(cli_kwargs)
             return await self._client.chat(prompt, **kwargs)
 
         return await self._invoke(

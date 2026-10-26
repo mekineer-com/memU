@@ -86,6 +86,37 @@ def test_claude_code_does_not_change_embedding_client(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_service_forwards_scoped_options_without_logging_or_mutating_client(monkeypatch, tmp_path):
+    monkeypatch.setattr(service_module, "ClaudeCLIClient", _FakeClaudeCLIClient)
+    service = _service(claude_code=True, claude_code_workspace=str(tmp_path / "shared"))
+    async def callback(_event):
+        pass
+    tools = {"mcp_servers": {}, "allowed_tools": []}
+    try:
+        assert await service.chat("hello", session_id="fictional", system_prompt="Presence",
+                                  on_event=callback, cli_tools=tools, workspace=tmp_path / "birch") == "hello"
+        client = service._get_claude_cli_client()
+        assert client.last_chat_kwargs["on_event"] is callback
+        assert client.last_chat_kwargs["cli_tools"] is tools
+        assert client.last_chat_kwargs["workspace"] == tmp_path / "birch"
+        assert client.workspace == str(tmp_path / "shared")
+    finally:
+        service.database.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("options", [{"cli_tools": {"mcp_servers": {}, "allowed_tools": []}},
+                                      {"workspace": "/fictional"}])
+async def test_api_service_rejects_cli_only_options(options):
+    service = _service(claude_code=False)
+    try:
+        with pytest.raises(ValueError, match="CLI options"):
+            await service.chat("hello", **options)
+    finally:
+        service.database.close()
+
+
+@pytest.mark.asyncio
 async def test_service_chat_without_session_uses_neutral_workspace(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(service_module, "ClaudeCLIClient", _FakeClaudeCLIClient)
     monkeypatch.setenv("HOME", str(tmp_path))

@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import json
 import locale
+import os
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -288,6 +290,233 @@ async def test_claude_cli_envelope_preserves_success(monkeypatch, tmp_path, mock
     assert response.content == result
     assert usage.status == "success"
     assert list(client._prompt_dir.iterdir()) == []
+
+
+@pytest.fixture
+def stream_child(monkeypatch, tmp_path):
+    def install(code):
+        script = tmp_path / "fictional-child.py"
+        script.write_text(code, encoding="utf-8")
+        spawn_real = asyncio.create_subprocess_exec
+        calls = []
+
+        async def spawn(*cmd, **kwargs):
+            mcp_path = Path(cmd[cmd.index("--mcp-config") + 1])
+            call = {
+                "cmd": cmd, "cwd": kwargs["cwd"], "env": kwargs["env"],
+                "mcp": json.loads(mcp_path.read_text()), "mode": stat.S_IMODE(mcp_path.stat().st_mode),
+                "prompt": Path(cmd[cmd.index("--system-prompt-file") + 1]).read_text()
+                if "--system-prompt-file" in cmd else None,
+            }
+            process = await spawn_real(sys.executable, str(script), **kwargs)
+            call["process"] = process
+            calls.append(call)
+            return process
+
+        monkeypatch.setattr(claude_cli.asyncio, "create_subprocess_exec", spawn)
+        return calls
+
+    return install
+
+
+def _scoped_tools():
+    return {
+        "mcp_servers": {"atomic": {"type": "http", "url": "http://127.0.0.1:1/mcp",
+                                   "headers": {"Authorization": "Bearer fictional-secret"}}},
+        "allowed_tools": ["mcp__atomic__search_atoms"],
+    }
+
+
+@pytest.mark.asyncio
+async def test_scoped_stream_large_split_events_final_usage_and_isolated_calls(tmp_path, stream_child):
+    code = '''import sys,json,time
+prompt=sys.stdin.buffer.read().decode("utf-8")
+events=[
+ {"type":"stream_event","event":{"type":"message_start","message":{"id":"previous","usage":{"input_tokens":900,"output_tokens":1}}}},
+ {"type":"stream_event","event":{"type":"message_stop"}},
+ {"type":"stream_event","event":{"type":"message_start","message":{"id":"primary","usage":{"input_tokens":2,"cache_read_input_tokens":30,"output_tokens":0}}}},
+ {"type":"stream_event","parent_tool_use_id":"nested","event":{"type":"message_start","message":{"id":"nested","usage":{"input_tokens":999}}}},
+ {"type":"assistant","message":{"content":[{"type":"text","text":"caf\\u00e9"+"x"*100000}],"usage":{"output_tokens":8}}},
+ {"type":"stream_event","event":{"type":"message_delta","usage":{"output_tokens":16}}},
+ {"type":"stream_event","event":{"type":"message_stop"}},
+ {"type":"result","subtype":"success","is_error":False,"result":prompt,"stop_reason":"end_turn","usage":{"input_tokens":9999}}]
+sys.stderr.buffer.write(b"x"*150000);sys.stderr.flush()
+for e in events:
+ raw=(json.dumps(e,ensure_ascii=False)+"\\n").encode()
+ cut=raw.index(b"\\xc3")+1 if b"\\xc3" in raw else len(raw)//2
+ sys.stdout.buffer.write(raw[:cut]);sys.stdout.flush();time.sleep(.001)
+ sys.stdout.buffer.write(raw[cut:]);sys.stdout.flush()
+'''
+    calls = stream_child(code)
+    client = ClaudeCLIClient(model="fictional", claude_binary=sys.executable,
+                             workspace=tmp_path / "shared", min_call_gap_seconds=0,
+                             permission_mode="bypassPermissions", settings="unwanted-settings.json")
+    registry = LLMInterceptorRegistry()
+    logged = []
+    registry.register_after(lambda _ctx, request, _response, _usage: logged.append(request.metadata))
+    wrapped = LLMClientWrapper(client, registry=registry)
+    events = {"birch": [], "cedar": []}
+
+    async def turn(name):
+        async def capture(event):
+            events[name].append(event)
+            if event["type"] == "result":
+                assert list((tmp_path / name / ".prompts").iterdir()) == []
+                assert all(call["process"].returncode is not None for call in calls if call["cwd"] == tmp_path / name)
+        return await wrapped.chat(name, session_id=name, system_prompt="Presence:"+name,
+                                  workspace=tmp_path / name, cli_tools=_scoped_tools(), on_event=capture)
+
+    assert await asyncio.gather(turn("birch"), turn("cedar")) == ["birch", "cedar"]
+    assert client._workspace == tmp_path / "shared"
+    assert len(calls) == 2
+    for call in calls:
+        cmd = call["cmd"]
+        assert "--safe-mode" not in cmd and "unwanted-settings.json" not in cmd
+        assert cmd[cmd.index("--settings")+1] == "{}"
+        assert cmd[cmd.index("--permission-mode")+1] == "default"
+        assert cmd[cmd.index("--system-prompt-snapshot")+1] == "on"
+        assert cmd[cmd.index("--tools")+1] == ""
+        assert cmd[cmd.index("--allowedTools")+1] == "mcp__atomic__search_atoms"
+        assert call["env"]["DISABLE_AUTO_COMPACT"] == "1"
+        assert call["mode"] == 0o600
+        assert call["mcp"]["mcpServers"]["atomic"]["headers"]["Authorization"] == "Bearer fictional-secret"
+        assert call["prompt"] == "Presence:" + call["cwd"].name
+    for received in events.values():
+        snapshots = [e for e in received if e["type"] == "context_usage"]
+        assert [e["message_id"] for e in snapshots] == ["previous", "primary"]
+        assert snapshots[-1] == {"type": "context_usage", "message_id": "primary",
+                                 "usage": {"input_tokens": 2, "cache_read_input_tokens": 30, "output_tokens": 16}}
+        assert received[-1]["type"] == "result"
+    assert "fictional-secret" not in repr(logged)
+    assert "cli_tools" not in repr(logged) and "on_event" not in repr(logged)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["nonzero", "malformed", "missing", "callback", "timeout", "stdin_timeout", "refusal"])
+async def test_scoped_stream_failure_reaps_child_and_removes_files(tmp_path, stream_child, failure):
+    terminal = _result_envelope(stop_reason="refusal") if failure == "refusal" else _result_envelope()
+    code = "import sys,json,time;sys.stdin.buffer.read();"
+    if failure == "stdin_timeout":
+        code = "import time;time.sleep(30)"
+    elif failure == "malformed":
+        code += "print('{broken',flush=True);time.sleep(30)"
+    elif failure in {"callback", "timeout"}:
+        code += "print(json.dumps({'type':'system','subtype':'init'}),flush=True);time.sleep(30)"
+    elif failure == "missing":
+        code += "print(json.dumps({'type':'system','subtype':'init'}))"
+    else:
+        code += f"print(json.dumps({terminal!r}),flush=True);sys.exit({7 if failure == 'nonzero' else 0})"
+    calls = stream_child(code)
+    client = ClaudeCLIClient(model="fictional", claude_binary=sys.executable, workspace=tmp_path,
+                             timeout_seconds=0.1 if failure in {"timeout", "stdin_timeout"} else 3)
+    hooks = []
+    registry = LLMInterceptorRegistry()
+    registry.register_before(lambda *_args: hooks.append("before"))
+    registry.register_after(lambda *_args: hooks.append("after"))
+    registry.register_on_error(lambda *_args: hooks.append("error"))
+    wrapped = LLMClientWrapper(client, registry=registry)
+    events = []
+    async def capture(event):
+        events.append(event)
+        if failure == "callback":
+            raise RuntimeError("fictional callback failure")
+    with pytest.raises((RuntimeError, TimeoutError)):
+        await wrapped.chat("x" * 500000 if failure == "stdin_timeout" else "question",
+                          session_id="fictional-session", system_prompt="fictional Presence",
+                          cli_tools=_scoped_tools(), on_event=capture)
+    assert calls[0]["process"].returncode is not None
+    assert hooks == ["before", "error"]
+    assert not any(e["type"] == "result" for e in events)
+    assert list(client._prompt_dir.iterdir()) == []
+
+
+@pytest.mark.asyncio
+async def test_scoped_resume_is_tool_free_and_does_not_resend_presence(tmp_path, stream_child):
+    calls = stream_child(f"import sys,json;sys.stdin.buffer.read();print(json.dumps({_result_envelope()!r}))")
+    client = ClaudeCLIClient(model="fictional", claude_binary=sys.executable, workspace=tmp_path)
+    assert (await client.chat("recap", resume_session_id="fictional-session",
+                              cli_tools={"mcp_servers": {}, "allowed_tools": []}))[0] == "reply"
+    assert calls[0]["prompt"] is None
+    assert calls[0]["mcp"] == {"mcpServers": {}}
+    assert calls[0]["cmd"][calls[0]["cmd"].index("--allowedTools")+1] == ""
+    assert list(client._prompt_dir.iterdir()) == []
+
+
+@pytest.mark.asyncio
+async def test_scoped_stream_spawn_failure_cleans_files(monkeypatch, tmp_path):
+    async def fail_spawn(*_cmd, **_kwargs):
+        raise OSError("fictional spawn failure")
+    monkeypatch.setattr(claude_cli.asyncio, "create_subprocess_exec", fail_spawn)
+    client = ClaudeCLIClient(model="fictional", claude_binary=sys.executable, workspace=tmp_path)
+    with pytest.raises(OSError, match="fictional spawn"):
+        await client.chat("question", session_id="fictional", system_prompt="Presence", cli_tools=_scoped_tools())
+    assert list(client._prompt_dir.iterdir()) == []
+
+
+@pytest.mark.asyncio
+async def test_scoped_relative_workspace_and_terminal_callback_deadline(monkeypatch, tmp_path, stream_child):
+    monkeypatch.chdir(tmp_path)
+    calls = stream_child(f"import sys,json;sys.stdin.buffer.read();print(json.dumps({_result_envelope()!r}))")
+    client = ClaudeCLIClient(model="fictional", claude_binary=sys.executable, workspace=tmp_path,
+                             timeout_seconds=0.2)
+    async def stalled_terminal(_event):
+        await asyncio.sleep(30)
+    with pytest.raises(TimeoutError):
+        await client.chat("question", session_id="fictional", system_prompt="Presence",
+                          workspace="relative", cli_tools=_scoped_tools(), on_event=stalled_terminal)
+    assert calls[0]["cwd"] == tmp_path / "relative"
+    cmd = calls[0]["cmd"]
+    assert Path(cmd[cmd.index("--system-prompt-file")+1]).is_absolute()
+    assert Path(cmd[cmd.index("--mcp-config")+1]).is_absolute()
+    assert list((tmp_path / "relative" / ".prompts").iterdir()) == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("channel", ["stderr", "result"])
+async def test_scoped_errors_redact_mcp_credentials(tmp_path, stream_child, channel):
+    if channel == "stderr":
+        code = "import sys;sys.stdin.buffer.read();sys.stderr.write('Bearer fictional-secret');sys.exit(1)"
+    else:
+        envelope = _result_envelope(subtype="error_during_execution", is_error=True,
+                                    errors=["Bearer fictional-secret"])
+        code = f"import sys,json;sys.stdin.buffer.read();print(json.dumps({envelope!r}))"
+    stream_child(code)
+    client = ClaudeCLIClient(model="fictional", claude_binary=sys.executable, workspace=tmp_path)
+    with pytest.raises(RuntimeError) as error:
+        await client.chat("question", session_id="fictional", system_prompt="Presence", cli_tools=_scoped_tools())
+    assert "fictional-secret" not in str(error.value)
+    assert "[redacted]" in str(error.value)
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name != "posix", reason="POSIX process groups")
+async def test_scoped_timeout_reaps_inherited_pipe_group(tmp_path, stream_child):
+    calls = stream_child("import subprocess,sys;subprocess.Popen([sys.executable,'-c','import time;time.sleep(30)'])")
+    client = ClaudeCLIClient(model="fictional", claude_binary=sys.executable, workspace=tmp_path,
+                             timeout_seconds=0.2)
+    with pytest.raises(TimeoutError, match="Claude CLI timed out"):
+        await asyncio.wait_for(client.chat("question", session_id="fictional", system_prompt="Presence",
+                                           cli_tools=_scoped_tools()), 2)
+    assert calls[0]["process"].returncode is not None
+    assert list(client._prompt_dir.iterdir()) == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name != "posix", reason="POSIX process groups")
+async def test_scoped_success_does_not_leave_owned_background_child(tmp_path, stream_child):
+    marker = tmp_path / "descendant-survived"
+    descendant = f"import pathlib,time;time.sleep(1);pathlib.Path({str(marker)!r}).touch()"
+    stream_child(
+        "import subprocess,sys,json;sys.stdin.buffer.read();"
+        f"subprocess.Popen([sys.executable,'-c',{descendant!r}],"
+        "stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL);"
+        f"print(json.dumps({_result_envelope()!r}))"
+    )
+    client = ClaudeCLIClient(model="fictional", claude_binary=sys.executable, workspace=tmp_path)
+    assert (await client.chat("question", session_id="fictional", system_prompt="Presence",
+                               cli_tools=_scoped_tools()))[0] == "reply"
+    await asyncio.sleep(1.1)
+    assert not marker.exists()
 
 
 @pytest.mark.asyncio
