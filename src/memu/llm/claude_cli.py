@@ -411,7 +411,12 @@ class ClaudeCLIClient:
                 elif delta.get("type") == "message_delta" and message_id is not None:
                     usage.update(delta.get("usage") or {})
                 elif delta.get("type") == "message_stop" and message_id is not None:
-                    await emit({"type": "context_usage", "message_id": message_id, "usage": dict(usage)})
+                    # Cache counts may be omitted/null. Unknown input/output is
+                    # not zero usage; leave the last known snapshot intact.
+                    if all(usage.get(key) is not None for key in ("input_tokens", "output_tokens")):
+                        counts = {key: 0 if usage.get(key) is None else usage[key] for key in (
+                            "input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "output_tokens")}
+                        await emit({"type": "context_usage", "message_id": message_id, "usage": counts})
                     message_id = None
 
         try:
