@@ -448,7 +448,7 @@ class ClaudeCLIClient:
                 ) from exc
             known_error = (terminal is not None and terminal.get("is_error") is True
                            and isinstance(terminal.get("subtype"), str)
-                           and terminal["subtype"].startswith("error_"))
+                           and (terminal["subtype"] == "success" or terminal["subtype"].startswith("error_")))
             if process.returncode != 0:
                 details = stderr_tail.decode("utf-8", errors="replace").strip()
                 if terminal is not None:

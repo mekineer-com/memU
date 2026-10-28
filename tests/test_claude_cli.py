@@ -451,11 +451,13 @@ for e in events:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("failure", ["nonzero", "native_error", "malformed", "malformed_diagnostic", "missing", "callback", "timeout", "stdin_timeout", "refusal"])
+@pytest.mark.parametrize("failure", ["nonzero", "native_error", "native_api_error", "malformed", "malformed_diagnostic", "missing", "callback", "timeout", "stdin_timeout", "refusal"])
 async def test_scoped_stream_failure_reaps_child_and_removes_files(tmp_path, stream_child, failure):
     terminal = _result_envelope(stop_reason="refusal") if failure == "refusal" else _result_envelope()
     if failure == "native_error":
         terminal = _result_envelope(subtype="error_max_turns", is_error=True, errors=["fictional-secret quota exhausted"])
+    elif failure == "native_api_error":
+        terminal = _result_envelope(result="fictional rate limit", is_error=True, api_error_status=429)
     code = "import sys,json,time;sys.stdin.buffer.read();"
     if failure == "stdin_timeout":
         code = "import time;time.sleep(30)"
@@ -495,10 +497,12 @@ async def test_scoped_stream_failure_reaps_child_and_removes_files(tmp_path, str
         assert "parse detail" in str(error.value) and "fictional-secret" not in str(error.value)
     assert calls[0]["process"].returncode is not None
     assert hooks == ["before", "error"]
-    assert any(e["type"] == "result" for e in events) == (failure == "native_error")
-    if failure == "native_error":
+    assert any(e["type"] == "result" for e in events) == (failure in {"native_error", "native_api_error"})
+    if failure in {"native_error", "native_api_error"}:
         assert events[-1]["is_error"] is True
         assert events[-2]["state"] == "reaped"
+    if failure == "native_api_error":
+        assert events[-1]["subtype"] == "success" and events[-1]["api_error_status"] == 429
     assert list((client._workspace / ".prompts").iterdir()) == []
 
 
