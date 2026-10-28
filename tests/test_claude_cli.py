@@ -382,12 +382,13 @@ async def test_scoped_stream_large_split_events_final_usage_and_isolated_calls(t
     code = '''import sys,json,time
 prompt=sys.stdin.buffer.read().decode("utf-8")
 events=[
- {"type":"stream_event","event":{"type":"message_start","message":{"id":"previous","usage":{"input_tokens":900,"output_tokens":1}}}},
+ {"type":"stream_event","event":{"type":"message_start","message":{"id":"previous","usage":{"input_tokens":900,"cache_creation_input_tokens":None,"output_tokens":1}}}},
  {"type":"stream_event","event":{"type":"message_stop"}},
- {"type":"stream_event","event":{"type":"message_start","message":{"id":"primary","usage":{"input_tokens":2,"cache_creation_input_tokens":None,"cache_read_input_tokens":30,"output_tokens":0}}}},
+ {"type":"stream_event","event":{"type":"message_start","message":{"id":"primary","usage":{"input_tokens":2,"cache_creation_input_tokens":5,"cache_read_input_tokens":30,"output_tokens":0}}}},
  {"type":"stream_event","parent_tool_use_id":"nested","event":{"type":"message_start","message":{"id":"nested","usage":{"input_tokens":999}}}},
  {"type":"assistant","message":{"content":[{"type":"text","text":"caf\\u00e9"+"x"*100000}],"usage":{"output_tokens":8}}},
- {"type":"stream_event","event":{"type":"message_delta","usage":{"output_tokens":16}}},
+ {"type":"stream_event","event":{"type":"message_delta","usage":{"input_tokens":None,"cache_creation_input_tokens":0,"cache_read_input_tokens":None,"output_tokens":16}}},
+ {"type":"stream_event","event":{"type":"message_delta","usage":{"output_tokens":None}}},
  {"type":"stream_event","event":{"type":"message_stop"}},
  {"type":"stream_event","event":{"type":"message_start","message":{"id":"unknown-input","usage":{"input_tokens":None}}}},
  {"type":"stream_event","event":{"type":"message_stop"}},
@@ -447,6 +448,7 @@ for e in events:
         assert reaped < completed
         snapshots = [e for e in received if e["type"] == "context_usage"]
         assert [e["message_id"] for e in snapshots] == ["previous", "primary"]
+        assert snapshots[0]["usage"]["cache_creation_input_tokens"] == 0
         assert snapshots[-1] == {"type": "context_usage", "message_id": "primary",
                                  "usage": {"input_tokens": 2, "cache_creation_input_tokens":0, "cache_read_input_tokens": 30, "output_tokens": 16}}
         assert received[-1]["type"] == "result"

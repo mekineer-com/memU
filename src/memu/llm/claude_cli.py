@@ -409,7 +409,7 @@ class ClaudeCLIClient:
                     message_id = message["id"]
                     usage = dict(message.get("usage") or {})
                 elif delta.get("type") == "message_delta" and message_id is not None:
-                    usage.update(delta.get("usage") or {})
+                    usage.update({key: value for key, value in (delta.get("usage") or {}).items() if value is not None})
                 elif delta.get("type") == "message_stop" and message_id is not None:
                     # Cache counts may be omitted/null. Unknown input/output is
                     # not zero usage; leave the last known snapshot intact.
