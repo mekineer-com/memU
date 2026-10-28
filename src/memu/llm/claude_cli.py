@@ -11,6 +11,7 @@ import shutil
 import signal
 import subprocess
 import time
+import unicodedata
 import uuid
 from collections.abc import Awaitable, Callable
 from pathlib import Path
@@ -25,14 +26,37 @@ class ClaudeCLITools(TypedDict):
 ClaudeCLIEventHandler = Callable[[dict[str, Any]], Awaitable[None]]
 
 
+def _claude_project_name(workspace: str) -> str:
+    # Match Claude Code 2.1.280: JavaScript UTF-16 units, 200-char key and hash.
+    encoded = workspace.encode("utf-16-le", errors="surrogatepass")
+    units = [encoded[i] | encoded[i + 1] << 8 for i in range(0, len(encoded), 2)]
+    project = re.sub(r"[^a-zA-Z0-9]", "-", "".join(chr(unit) for unit in units))
+    if len(project) > 200:
+        hashed = 0
+        for unit in units:
+            hashed = (31 * hashed + unit) & 0xFFFFFFFF
+        hashed = abs(hashed if hashed < 0x80000000 else hashed - 0x100000000)
+        suffix = ""
+        while hashed:
+            hashed, digit = divmod(hashed, 36)
+            suffix = "0123456789abcdefghijklmnopqrstuvwxyz"[digit] + suffix
+        project = f"{project[:200]}-{suffix or '0'}"
+    return project
+
+
 def claude_session_path(workspace: str | Path, session_id: str) -> Path:
     """Resolve Claude's canonical transcript using the same home as the child."""
     uuid.UUID(session_id)
     workspace = Path(workspace).expanduser().resolve()
-    home = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude").expanduser()
+    config_dir = os.environ.get("CLAUDE_CONFIG_DIR")
+    home = Path(unicodedata.normalize("NFC", config_dir if config_dir is not None else str(Path.home() / ".claude")))
     if not home.is_absolute():
         home = workspace / home
-    project = re.sub(r"[^a-zA-Z0-9]", "-", str(workspace))
+    project = _claude_project_name(str(workspace))
+    override = os.environ.get("CLAUDE_CODE_PROJECT_DIR_NAME", "")
+    if (config_dir and re.fullmatch(r"[A-Za-z0-9_-]{1,64}", override)
+            and not re.fullmatch(r"con|prn|aux|nul|com[0-9]|lpt[0-9]", override, flags=re.IGNORECASE)):
+        project = override
     return home / "projects" / project / f"{session_id}.jsonl"
 
 
@@ -309,6 +333,7 @@ class ClaudeCLIClient:
         process = None
         tasks: list[asyncio.Task[Any]] = []
         terminal: dict[str, Any] | None = None
+        reported_error: RuntimeError | None = None
         stderr_tail = bytearray()
         deadline = asyncio.get_running_loop().time() + self.timeout_seconds
         secrets = set()
@@ -421,15 +446,27 @@ class ClaudeCLIClient:
                 raise TimeoutError(
                     f"Claude CLI timed out after {self.timeout_seconds}s for model={self.chat_model}"
                 ) from exc
+            known_error = (terminal is not None and terminal.get("is_error") is True
+                           and isinstance(terminal.get("subtype"), str)
+                           and terminal["subtype"].startswith("error_"))
             if process.returncode != 0:
                 details = stderr_tail.decode("utf-8", errors="replace").strip()
                 if terminal is not None:
                     details = f"{terminal.get('subtype')}: {terminal.get('errors') or terminal.get('result') or ''}\n{details}"
                 details = redact(details.strip()) or "(no subprocess output)"
-                raise RuntimeError(f"Claude CLI failed (exit {process.returncode}) for model={self.chat_model}: {details}")
-            if terminal is None:
+                error = RuntimeError(f"Claude CLI failed (exit {process.returncode}) for model={self.chat_model}: {details}")
+                if not known_error:
+                    raise error
+                reported_error = error
+            elif terminal is None:
                 raise RuntimeError("Claude CLI stream missing result envelope")
-            result, raw = self._result(redact(terminal), process.returncode, session_id, resume_session_id)
+            else:
+                try:
+                    result, raw = self._result(redact(terminal), process.returncode, session_id, resume_session_id)
+                except RuntimeError as error:
+                    if not known_error:
+                        raise
+                    reported_error = error
         finally:
             for task in tasks:
                 if not task.done():
@@ -447,6 +484,8 @@ class ClaudeCLIClient:
         # This in-process hook hands off a completed result, not another model
         # operation. B2 queues delivery; do not relabel success as model timeout.
         await emit(redact(terminal))
+        if reported_error is not None:
+            raise reported_error
         return result, raw
 
     async def embed(self, inputs: list[str]) -> tuple[list[list[float]], dict[str, Any]]:

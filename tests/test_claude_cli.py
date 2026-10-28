@@ -26,6 +26,7 @@ def _result_envelope(result="reply", **changes):
 
 
 def test_claude_session_path_uses_effective_home_and_workspace(monkeypatch, tmp_path):
+    monkeypatch.delenv("CLAUDE_CODE_PROJECT_DIR_NAME", raising=False)
     home = tmp_path / "native-home"
     workspace = (tmp_path / "Soul space" / "under_score").resolve()
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(home))
@@ -36,6 +37,18 @@ def test_claude_session_path_uses_effective_home_and_workspace(monkeypatch, tmp_
     assert claude_cli.claude_session_path(workspace, native_id) == workspace / "relative-home" / "projects" / escaped / f"{native_id}.jsonl"
     with pytest.raises(ValueError):
         claude_cli.claude_session_path(workspace, "../another-session")
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "native-cafe\u0301"))
+    monkeypatch.setenv("CLAUDE_CODE_PROJECT_DIR_NAME", "Fixed_Key")
+    assert claude_cli.claude_session_path(workspace, native_id) == tmp_path / "native-caf\u00e9" / "projects" / "Fixed_Key" / f"{native_id}.jsonl"
+
+
+@pytest.mark.parametrize("workspace,expected", [
+    ("/tmp/" + "a" * 195, "-tmp-" + "a" * 195),
+    ("/tmp/" + "a" * 196, "-tmp-" + "a" * 195 + "-r0traf"),
+    ("/tmp/caf\u00e9/\U0001f600", "-tmp-caf----"),
+])
+def test_claude_project_key_matches_vendor_fixtures(workspace, expected):
+    assert claude_cli._claude_project_name(workspace) == expected
 
 
 @pytest.fixture
@@ -341,17 +354,26 @@ def _scoped_tools():
 
 
 @pytest.mark.asyncio
-async def test_scoped_input_checkpoint_failure_prevents_input_delivery(tmp_path, stream_child):
+async def test_scoped_input_checkpoint_failure_prevents_input_delivery(monkeypatch, tmp_path, stream_child):
     marker = tmp_path / "input-observed"
     calls = stream_child("import sys,pathlib; data=sys.stdin.read(); pathlib.Path(" + repr(str(marker)) + ").write_text(data)")
     client = ClaudeCLIClient(model="fictional", claude_binary=sys.executable, workspace=tmp_path)
+    writes = []
     async def checkpoint(event):
+        if event.get("state") == "started":
+            writer = calls[0]["process"].stdin
+            write = writer.write
+            def observed(data):
+                writes.append(data)
+                return write(data)
+            monkeypatch.setattr(writer, "write", observed)
         if event.get("state") == "input_started":
             raise RuntimeError("fictional checkpoint failure")
     with pytest.raises(RuntimeError, match="checkpoint failure"):
         await client.chat("must not arrive", session_id="fictional", system_prompt="Presence",
                           workspace=tmp_path, cli_tools=_scoped_tools(), on_event=checkpoint)
     assert not marker.exists()
+    assert writes == [], "even a fast cleanup must not hide premature stdin writes"
     assert calls[0]["process"].returncode is not None
 
 
@@ -473,7 +495,10 @@ async def test_scoped_stream_failure_reaps_child_and_removes_files(tmp_path, str
         assert "parse detail" in str(error.value) and "fictional-secret" not in str(error.value)
     assert calls[0]["process"].returncode is not None
     assert hooks == ["before", "error"]
-    assert not any(e["type"] == "result" for e in events)
+    assert any(e["type"] == "result" for e in events) == (failure == "native_error")
+    if failure == "native_error":
+        assert events[-1]["is_error"] is True
+        assert events[-2]["state"] == "reaped"
     assert list((client._workspace / ".prompts").iterdir()) == []
 
 
@@ -506,8 +531,9 @@ async def test_scoped_terminal_delivery_does_not_relabel_completed_reply_as_time
     calls = stream_child(f"import sys,json;sys.stdin.buffer.read();print(json.dumps({_result_envelope()!r}))")
     client = ClaudeCLIClient(model="fictional", claude_binary=sys.executable, workspace=tmp_path,
                              timeout_seconds=0.2)
-    async def delayed_terminal(_event):
-        await asyncio.sleep(0.25)
+    async def delayed_terminal(event):
+        if event["type"] == "result":
+            await asyncio.sleep(0.25)
     assert (await client.chat("question", session_id="fictional", system_prompt="Presence",
                               workspace=tmp_path, cli_tools=_scoped_tools(), on_event=delayed_terminal))[0] == "reply"
     assert calls[0]["cwd"] == tmp_path
@@ -580,6 +606,18 @@ async def test_scoped_success_does_not_leave_owned_background_child(monkeypatch,
         assert (await client.chat("question", session_id="fictional", system_prompt="Presence",
                                    workspace=tmp_path, cli_tools=_scoped_tools()))[0] == "reply"
         assert killed == [calls[0]["process"].pid]
+        if sys.platform.startswith("linux"):
+            status = Path(f"/proc/{int(pid_file.read_text())}/status")
+            for _ in range(100):
+                try:
+                    state = next(line.split()[1] for line in status.read_text().splitlines() if line.startswith("State:"))
+                except FileNotFoundError:
+                    break
+                if state in {"Z", "X"}:  # A zombie cannot keep writing before init reaps it.
+                    break
+                await asyncio.sleep(0.01)
+            else:
+                pytest.fail("owned background child survived cleanup")
     finally:
         if calls:
             try:
