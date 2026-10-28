@@ -25,6 +25,19 @@ def _result_envelope(result="reply", **changes):
     }
 
 
+def test_claude_session_path_uses_effective_home_and_workspace(monkeypatch, tmp_path):
+    home = tmp_path / "native-home"
+    workspace = (tmp_path / "Soul space" / "under_score").resolve()
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(home))
+    native_id = "11111111-2222-4333-8444-555555555555"
+    escaped = claude_cli.re.sub(r"[^a-zA-Z0-9]", "-", str(workspace))
+    assert claude_cli.claude_session_path(workspace, native_id) == home / "projects" / escaped / f"{native_id}.jsonl"
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", "relative-home")
+    assert claude_cli.claude_session_path(workspace, native_id) == workspace / "relative-home" / "projects" / escaped / f"{native_id}.jsonl"
+    with pytest.raises(ValueError):
+        claude_cli.claude_session_path(workspace, "../another-session")
+
+
 @pytest.fixture
 def mock_cli_spawn(monkeypatch):
     def install(run):
@@ -328,6 +341,21 @@ def _scoped_tools():
 
 
 @pytest.mark.asyncio
+async def test_scoped_input_checkpoint_failure_prevents_input_delivery(tmp_path, stream_child):
+    marker = tmp_path / "input-observed"
+    calls = stream_child("import sys,pathlib; data=sys.stdin.read(); pathlib.Path(" + repr(str(marker)) + ").write_text(data)")
+    client = ClaudeCLIClient(model="fictional", claude_binary=sys.executable, workspace=tmp_path)
+    async def checkpoint(event):
+        if event.get("state") == "input_started":
+            raise RuntimeError("fictional checkpoint failure")
+    with pytest.raises(RuntimeError, match="checkpoint failure"):
+        await client.chat("must not arrive", session_id="fictional", system_prompt="Presence",
+                          workspace=tmp_path, cli_tools=_scoped_tools(), on_event=checkpoint)
+    assert not marker.exists()
+    assert calls[0]["process"].returncode is not None
+
+
+@pytest.mark.asyncio
 async def test_scoped_stream_large_split_events_final_usage_and_isolated_calls(tmp_path, stream_child):
     code = '''import sys,json,time
 prompt=sys.stdin.buffer.read().decode("utf-8")
@@ -387,6 +415,10 @@ for e in events:
         assert call["mcp"]["mcpServers"]["atomic"]["headers"]["Authorization"] == "Bearer fictional-secret"
         assert call["prompt"] == "Presence:" + call["cwd"].name
     for received in events.values():
+        assert received[0]["type"] == "process" and received[0]["state"] == "started"
+        reaped = next(i for i, event in enumerate(received) if event.get("state") == "reaped")
+        completed = next(i for i, event in enumerate(received) if event["type"] == "result")
+        assert reaped < completed
         snapshots = [e for e in received if e["type"] == "context_usage"]
         assert [e["message_id"] for e in snapshots] == ["previous", "primary"]
         assert snapshots[-1] == {"type": "context_usage", "message_id": "primary",

@@ -25,6 +25,17 @@ class ClaudeCLITools(TypedDict):
 ClaudeCLIEventHandler = Callable[[dict[str, Any]], Awaitable[None]]
 
 
+def claude_session_path(workspace: str | Path, session_id: str) -> Path:
+    """Resolve Claude's canonical transcript using the same home as the child."""
+    uuid.UUID(session_id)
+    workspace = Path(workspace).expanduser().resolve()
+    home = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude").expanduser()
+    if not home.is_absolute():
+        home = workspace / home
+    project = re.sub(r"[^a-zA-Z0-9]", "-", str(workspace))
+    return home / "projects" / project / f"{session_id}.jsonl"
+
+
 class ClaudeCLIClient:
     """Claude Code CLI adapter with HTTPLLMClient-compatible chat surface."""
 
@@ -323,6 +334,7 @@ class ClaudeCLIClient:
 
         async def write_input() -> None:
             try:
+                await emit({"type": "process", "state": "input_started", "pid": process.pid})
                 process.stdin.write(prompt.encode("utf-8"))
                 await process.stdin.drain()
                 process.stdin.close()
@@ -400,6 +412,8 @@ class ClaudeCLIClient:
                 stderr=asyncio.subprocess.PIPE, limit=8 * 1024 * 1024,
                 start_new_session=os.name == "posix",
             )
+            # The owner persists child identity before we deliver any input.
+            await emit({"type": "process", "state": "started", "pid": process.pid})
             tasks = [asyncio.create_task(fn()) for fn in (write_input, read_events, drain_stderr, process.wait)]
             try:
                 await asyncio.wait_for(asyncio.gather(*tasks), max(0, deadline - asyncio.get_running_loop().time()))
@@ -425,6 +439,7 @@ class ClaudeCLIClient:
             try:
                 if process is not None:
                     await self._kill_and_reap(process, process_group=True)
+                    await emit({"type": "process", "state": "reaped", "pid": process.pid})
             finally:
                 if prompt_file is not None:
                     prompt_file.unlink(missing_ok=True)
