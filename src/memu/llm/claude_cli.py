@@ -407,6 +407,7 @@ class ClaudeCLIClient:
                 if delta.get("type") == "message_start":
                     message = delta["message"]
                     message_id = message["id"]
+                    await emit({"type": "context_start", "message_id": message_id})
                     usage = dict(message.get("usage") or {})
                 elif delta.get("type") == "message_delta" and message_id is not None:
                     usage.update({key: value for key, value in (delta.get("usage") or {}).items() if value is not None})

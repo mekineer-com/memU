@@ -447,6 +447,8 @@ for e in events:
         completed = next(i for i, event in enumerate(received) if event["type"] == "result")
         assert reaped < completed
         snapshots = [e for e in received if e["type"] == "context_usage"]
+        starts = [e["message_id"] for e in received if e["type"] == "context_start"]
+        assert starts == ["previous", "primary", "unknown-input", "unknown-output"]
         assert [e["message_id"] for e in snapshots] == ["previous", "primary"]
         assert snapshots[0]["usage"]["cache_creation_input_tokens"] == 0
         assert snapshots[-1] == {"type": "context_usage", "message_id": "primary",
