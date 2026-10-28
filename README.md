@@ -23,7 +23,7 @@ Based on [memU v1.4.0](https://github.com/NevaMind-AI/memU/blob/v1.4.0/README.md
 
 Pipeline-owned types (not extracted from conversation): `subconscious` (APImw background thoughts), `reflection` (consolidation), `episode` (summaries).
 
-**Batch extraction:** Episodes are routed individually (exclusion model — all types included by default), then combined into one LLM call per type with `<episode_ref>` provenance. Conversations marked `memorize_chat=false` become background context (inline summaries for routing/extraction) rather than primary extraction targets.
+**Routing and extraction:** Each conversation segment is routed once. The router splits it into titled episodes with summaries and may exclude memory types that do not apply (all types are kept by default). Each remaining type then gets its own extraction call over the segment, guided by those episode summaries. Conversations marked `memorize_chat=false` become background context (inline summaries for routing/extraction) rather than primary extraction targets.
 
 **Three-layer storage:**
 
@@ -56,7 +56,7 @@ Each entry reads as internalized professional knowledge — no framework names o
 
 - Python 3.12
 - SQLite
-- An LLM provider API key (OpenAI-compatible)
+- An OpenAI-compatible LLM and embedding provider (chat can optionally run through the Claude Code CLI; embeddings cannot)
 
 ---
 
