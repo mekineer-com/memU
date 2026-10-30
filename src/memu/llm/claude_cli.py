@@ -263,7 +263,17 @@ class ClaudeCLIClient:
         return cmd
 
     @staticmethod
-    async def _kill_and_reap(process: asyncio.subprocess.Process, *, process_group: bool = False) -> None:
+    async def _kill_and_reap(
+        process: asyncio.subprocess.Process, *, process_group: bool = False, windows_job: Any = None,
+    ) -> bool:
+        deadline = asyncio.get_running_loop().time() + 5
+        termination_error = None
+        if windows_job is not None:
+            try:
+                windows_job.terminate()
+            except OSError as exc:
+                # Still reap the root (possibly suspended and not yet assigned).
+                termination_error = exc
         if process_group and os.name == "posix":
             try:
                 os.killpg(process.pid, signal.SIGKILL)
@@ -280,6 +290,10 @@ class ClaudeCLIClient:
         except TimeoutError:
             process._transport.close()
             await process.wait()
+        if termination_error is not None:
+            raise termination_error
+        return (await windows_job.wait_empty(deadline) and process.returncode is not None
+                if windows_job is not None else False)
 
     def _result(
         self, envelope: dict[str, Any], exit_code: int,
@@ -331,6 +345,7 @@ class ClaudeCLIClient:
         prompt_file = prompt_dir / f"system-prompt-{uuid.uuid4().hex}.txt" if session_id else None
         mcp_file = prompt_dir / f"mcp-{uuid.uuid4().hex}.json"
         process = None
+        windows_job = None
         tasks: list[asyncio.Task[Any]] = []
         terminal: dict[str, Any] | None = None
         reported_error: RuntimeError | None = None
@@ -437,14 +452,23 @@ class ClaudeCLIClient:
                 "--max-turns", "10",
             ])
             # Provisional API-loop parity; native round semantics remain a D check.
+            spawn_options = {}
+            if os.name == "nt":
+                from memu.llm.claude_cli_windows import WindowsJob
+
+                windows_job = WindowsJob()
+                spawn_options["creationflags"] = 4  # CREATE_SUSPENDED
             process = await asyncio.create_subprocess_exec(
                 *cmd, cwd=cwd, env={**os.environ, "DISABLE_AUTO_COMPACT": "1"},
                 stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE, limit=8 * 1024 * 1024,
                 start_new_session=os.name == "posix",
+                **spawn_options,
             )
             # The owner persists child identity before we deliver any input.
             await emit({"type": "process", "state": "started", "pid": process.pid})
+            if windows_job is not None:
+                windows_job.assign_and_resume(process.pid)
             tasks = [asyncio.create_task(fn()) for fn in (write_input, read_events, drain_stderr, process.wait)]
             try:
                 await asyncio.wait_for(asyncio.gather(*tasks), max(0, deadline - asyncio.get_running_loop().time()))
@@ -481,9 +505,14 @@ class ClaudeCLIClient:
                 await asyncio.gather(*tasks, return_exceptions=True)
             try:
                 if process is not None:
-                    await self._kill_and_reap(process, process_group=True)
-                    await emit({"type": "process", "state": "reaped", "pid": process.pid})
+                    tree_exited = await self._kill_and_reap(process, process_group=True, windows_job=windows_job)
+                    event = {"type": "process", "state": "reaped", "pid": process.pid}
+                    if windows_job is not None:
+                        event["tree_exited"] = tree_exited
+                    await emit(event)
             finally:
+                if windows_job is not None:
+                    windows_job.close()
                 if prompt_file is not None:
                     prompt_file.unlink(missing_ok=True)
                 mcp_file.unlink(missing_ok=True)
