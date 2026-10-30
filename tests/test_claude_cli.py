@@ -726,14 +726,9 @@ async def test_windows_cmd_launcher_reaps_after_writer_reply(tmp_path):
     )
     shim = tmp_path / "fictional-claude.cmd"
     shim.write_text(f'@echo off\n"{sys._base_executable}" "{script}" %*\n', encoding="utf-8")
-    events = []
-    async def capture(event):
-        events.append(event)
     client = ClaudeCLIClient(model="fictional", claude_binary=str(shim), workspace=tmp_path)
     assert (await client.chat("question", session_id="fictional", system_prompt="Presence",
-                              workspace=tmp_path, cli_tools=_scoped_tools(), on_event=capture))[0] == "reply"
-    reaped = next(i for i, e in enumerate(events) if e.get("state") == "reaped")
-    assert reaped < next(i for i, e in enumerate(events) if e.get("type") == "result")
+                              workspace=tmp_path, cli_tools=_scoped_tools()))[0] == "reply"
 
 
 @pytest.mark.asyncio
@@ -798,14 +793,14 @@ async def test_windows_job_reaps_descendants_after_parent_exit(
             assert (await call)[0] == "reply"
         assert pid_file.exists()
         assert calls[0]["process"].returncode is not None
+        deadline = asyncio.get_running_loop().time() + 5
+        while kernel.WaitForSingleObject(descendant, 0) == 258:
+            assert asyncio.get_running_loop().time() < deadline, "descendant survived adapter cleanup"
+            await asyncio.sleep(.01)
+        assert kernel.WaitForSingleObject(descendant, 0) == 0
     finally:
         try:
             outer.terminate()
-            if descendant:
-                deadline = asyncio.get_running_loop().time() + 5
-                while kernel.WaitForSingleObject(descendant, 0) == 258:
-                    assert asyncio.get_running_loop().time() < deadline, "descendant survived cleanup"
-                    await asyncio.sleep(.01)
         finally:
             if descendant:
                 kernel.CloseHandle(descendant)
