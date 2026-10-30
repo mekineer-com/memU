@@ -330,6 +330,7 @@ def stream_child(monkeypatch, tmp_path):
             mcp_path = Path(cmd[cmd.index("--mcp-config") + 1])
             call = {
                 "cmd": cmd, "cwd": kwargs["cwd"], "env": kwargs["env"],
+                "creationflags": kwargs.get("creationflags", 0),
                 "mcp": json.loads(mcp_path.read_text()), "mode": stat.S_IMODE(mcp_path.stat().st_mode),
                 "prompt": Path(cmd[cmd.index("--system-prompt-file") + 1]).read_text()
                 if "--system-prompt-file" in cmd else None,
@@ -596,7 +597,7 @@ async def test_scoped_timeout_reaps_inherited_pipe_group(tmp_path, stream_child)
 
 
 @pytest.mark.asyncio
-async def test_scoped_started_checkpoint_failure_reaps_before_execution(monkeypatch, tmp_path, stream_child):
+async def test_scoped_started_checkpoint_failure_reaps_root(tmp_path, stream_child):
     marker = tmp_path / "ran"
     calls = stream_child(f"import pathlib;pathlib.Path({str(marker)!r}).touch()")
     events = []
@@ -610,8 +611,9 @@ async def test_scoped_started_checkpoint_failure_reaps_before_execution(monkeypa
                           workspace=tmp_path, cli_tools=_scoped_tools(), on_event=capture)
     assert calls[0]["process"].returncode is not None
     if os.name == "nt":
+        assert calls[0]["creationflags"] == 4  # Do not rely on beating a running child to its marker.
         assert not marker.exists()
-        assert events[-1]["tree_exited"] is False  # Never assigned, so no tree proof.
+        assert events[-1]["tree_exited"] is True  # Reaped without ever being resumed.
     assert list((tmp_path / ".prompts").iterdir()) == []
 
 
@@ -635,7 +637,10 @@ async def test_windows_job_failures_close_handles_and_reap(monkeypatch, tmp_path
     if failure == "assign":
         monkeypatch.setattr(windows._kernel, "AssignProcessToJobObject", lambda *_: 0)
     elif failure == "resume":
-        monkeypatch.setattr(windows._kernel, "ResumeThread", lambda *_: 0xFFFFFFFF)
+        def fail_resume(*_):
+            windows.ctypes.set_last_error(5)  # ERROR_ACCESS_DENIED
+            return 0xFFFFFFFF
+        monkeypatch.setattr(windows._kernel, "ResumeThread", fail_resume)
     elif failure == "spawn":
         async def fail(*args, **kwargs):
             raise OSError("fictional spawn failure")
@@ -662,7 +667,9 @@ async def test_windows_job_failures_close_handles_and_reap(monkeypatch, tmp_path
     if calls:
         assert calls[0]["process"].returncode is not None
     if failure in {"assign", "resume"}:
-        assert events[-1]["tree_exited"] is (failure == "resume")
+        assert events[-1]["tree_exited"] is True
+    if failure == "resume":
+        assert error.value.winerror == 5
     if failure == "terminate":
         assert "termination failure" in str(error.value)
         assert not any(event.get("tree_exited") for event in events)
@@ -671,8 +678,10 @@ async def test_windows_job_failures_close_handles_and_reap(monkeypatch, tmp_path
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(os.name != "nt", reason="Windows job ownership")
-@pytest.mark.parametrize("inherit_pipes", [False, True])
-async def test_windows_job_reaps_descendants_after_parent_exit(monkeypatch, tmp_path, stream_child, inherit_pipes):
+@pytest.mark.parametrize("inherit_pipes,leave_alive", [(False, False), (True, False), (False, True)])
+async def test_windows_job_reaps_descendants_after_parent_exit(
+    monkeypatch, tmp_path, stream_child, inherit_pipes, leave_alive,
+):
     from memu.llm import claude_cli_windows as windows
 
     pid_file = tmp_path / "descendant.pid"
@@ -681,6 +690,7 @@ async def test_windows_job_reaps_descendants_after_parent_exit(monkeypatch, tmp_
         "child=subprocess.Popen([sys.executable,'-c','import time;time.sleep(30)']"
         + ("" if inherit_pipes else ",stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL")
         + f");pathlib.Path({str(pid_file)!r}).write_text(str(child.pid));"
+        + "print(json.dumps({'type':'system','subtype':'descendant_started'}),flush=True);"
         + f"print(json.dumps({_result_envelope()!r}))"
     )
     jobs = []
@@ -690,18 +700,35 @@ async def test_windows_job_reaps_descendants_after_parent_exit(monkeypatch, tmp_
         handle = windows._check(windows._kernel.OpenProcess(0x0101, False, pid))
         try:
             windows._check(windows._kernel.AssignProcessToJobObject(outer.handle, handle))
-            outer.assigned = True
         finally:
             windows._kernel.CloseHandle(handle)
         assign(job, pid)
+        if leave_alive:
+            monkeypatch.setattr(job, "terminate", lambda: None)
         jobs.append(job)
     monkeypatch.setattr(windows.WindowsJob, "assign_and_resume", nested)
     events = []
+    descendant = None
+    # Independent evidence: a held process handle cannot alias a reused PID.
+    kernel = windows.ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.OpenProcess.argtypes = [windows.wintypes.DWORD, windows.wintypes.BOOL, windows.wintypes.DWORD]
+    kernel.OpenProcess.restype = windows.wintypes.HANDLE
+    kernel.WaitForSingleObject.argtypes = [windows.wintypes.HANDLE, windows.wintypes.DWORD]
+    kernel.WaitForSingleObject.restype = windows.wintypes.DWORD
+    kernel.CloseHandle.argtypes = [windows.wintypes.HANDLE]
+    kernel.CloseHandle.restype = windows.wintypes.BOOL
     async def capture(event):
+        nonlocal descendant
         events.append(event)
+        if event.get("subtype") == "descendant_started":
+            descendant = kernel.OpenProcess(0x100000, False, int(pid_file.read_text()))  # SYNCHRONIZE
+            assert descendant, windows.ctypes.WinError(windows.ctypes.get_last_error())
+            assert kernel.WaitForSingleObject(descendant, 0) == 258  # WAIT_TIMEOUT: alive
         if event.get("state") == "reaped":
-            assert await outer.wait_empty(asyncio.get_running_loop().time() + 1) is True
-            assert await jobs[0].wait_empty(asyncio.get_running_loop().time()) is True
+            assert descendant
+            assert kernel.WaitForSingleObject(descendant, 0) == (258 if leave_alive else 0)
+            assert event["tree_exited"] is not leave_alive
+            assert await jobs[0].wait_empty(asyncio.get_running_loop().time()) is not leave_alive
     client = ClaudeCLIClient(model="fictional", claude_binary=sys.executable, workspace=tmp_path,
                              timeout_seconds=2)
     try:
@@ -714,10 +741,14 @@ async def test_windows_job_reaps_descendants_after_parent_exit(monkeypatch, tmp_
             assert (await call)[0] == "reply"
         assert pid_file.exists()
         assert calls[0]["process"].returncode is not None
-        assert next(e for e in events if e.get("state") == "reaped")["tree_exited"] is True
     finally:
-        outer.terminate()
-        outer.close()
+        try:
+            outer.terminate()
+            assert await outer.wait_empty(asyncio.get_running_loop().time() + 5)
+        finally:
+            if descendant:
+                kernel.CloseHandle(descendant)
+            outer.close()
 
 
 @pytest.mark.asyncio

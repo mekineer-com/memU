@@ -54,13 +54,11 @@ class WindowsJob:
     def __init__(self):
         # No kill-on-close: losing the server must not cancel active model work.
         self.handle = _check(_kernel.CreateJobObjectW(None, None))
-        self.assigned = False
 
     def assign_and_resume(self, pid: int) -> None:
         process = _check(_kernel.OpenProcess(0x0101, False, pid))  # SET_QUOTA | TERMINATE
         try:
             _check(_kernel.AssignProcessToJobObject(self.handle, process))
-            self.assigned = True
         finally:
             _kernel.CloseHandle(process)
 
@@ -85,7 +83,10 @@ class WindowsJob:
             raise RuntimeError("Suspended Claude process has no unique initial thread")
         thread = _check(_kernel.OpenThread(2, False, threads[0]))  # THREAD_SUSPEND_RESUME
         try:
-            if _kernel.ResumeThread(thread) != 1:
+            previous_count = _kernel.ResumeThread(thread)
+            if previous_count == 0xFFFFFFFF:
+                raise ctypes.WinError(ctypes.get_last_error())
+            if previous_count != 1:
                 raise RuntimeError("Claude initial thread was not suspended exactly once")
         finally:
             _kernel.CloseHandle(thread)
@@ -100,7 +101,9 @@ class WindowsJob:
                 self.handle, 1, ctypes.byref(accounting), ctypes.sizeof(accounting), None,
             ))
             if accounting.active == 0:
-                return self.assigned
+                # An unassigned root is still suspended; its reap (by the
+                # caller) also proves there could not be any descendants.
+                return True
             remaining = deadline - asyncio.get_running_loop().time()
             if remaining <= 0:
                 return False

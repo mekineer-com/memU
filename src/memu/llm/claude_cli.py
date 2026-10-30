@@ -292,8 +292,7 @@ class ClaudeCLIClient:
             await process.wait()
         if termination_error is not None:
             raise termination_error
-        return (await windows_job.wait_empty(deadline) and process.returncode is not None
-                if windows_job is not None else False)
+        return await windows_job.wait_empty(deadline) if windows_job is not None else False
 
     def _result(
         self, envelope: dict[str, Any], exit_code: int,
@@ -452,18 +451,16 @@ class ClaudeCLIClient:
                 "--max-turns", "10",
             ])
             # Provisional API-loop parity; native round semantics remain a D check.
-            spawn_options = {}
             if os.name == "nt":
                 from memu.llm.claude_cli_windows import WindowsJob
 
                 windows_job = WindowsJob()
-                spawn_options["creationflags"] = 4  # CREATE_SUSPENDED
             process = await asyncio.create_subprocess_exec(
                 *cmd, cwd=cwd, env={**os.environ, "DISABLE_AUTO_COMPACT": "1"},
                 stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE, limit=8 * 1024 * 1024,
                 start_new_session=os.name == "posix",
-                **spawn_options,
+                creationflags=4 if os.name == "nt" else 0,  # CREATE_SUSPENDED
             )
             # The owner persists child identity before we deliver any input.
             await emit({"type": "process", "state": "started", "pid": process.pid})
