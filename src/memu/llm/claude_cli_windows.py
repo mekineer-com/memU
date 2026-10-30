@@ -16,21 +16,11 @@ class _ThreadEntry(ctypes.Structure):
     ]
 
 
-class _Accounting(ctypes.Structure):
-    _fields_ = [
-        ("times", ctypes.c_longlong * 4), ("page_faults", wintypes.DWORD),
-        ("total", wintypes.DWORD), ("active", wintypes.DWORD),
-        ("terminated", wintypes.DWORD),
-    ]
-
-
 for _name, _args, _result in [
     ("CreateJobObjectW", [wintypes.LPVOID, wintypes.LPCWSTR], wintypes.HANDLE),
     ("OpenProcess", [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD], wintypes.HANDLE),
     ("AssignProcessToJobObject", [wintypes.HANDLE, wintypes.HANDLE], wintypes.BOOL),
     ("TerminateJobObject", [wintypes.HANDLE, wintypes.UINT], wintypes.BOOL),
-    ("QueryInformationJobObject", [wintypes.HANDLE, wintypes.INT, wintypes.LPVOID,
-                                   wintypes.DWORD, wintypes.LPVOID], wintypes.BOOL),
     ("CreateToolhelp32Snapshot", [wintypes.DWORD, wintypes.DWORD], wintypes.HANDLE),
     ("Thread32First", [wintypes.HANDLE, ctypes.POINTER(_ThreadEntry)], wintypes.BOOL),
     ("Thread32Next", [wintypes.HANDLE, ctypes.POINTER(_ThreadEntry)], wintypes.BOOL),
@@ -92,16 +82,6 @@ class WindowsJob:
 
     def terminate(self) -> None:
         _check(_kernel.TerminateJobObject(self.handle, 1))
-
-    def tree_exited(self) -> bool:
-        """Called after root reap; any descendant makes complete exit unknown."""
-        accounting = _Accounting()
-        _check(_kernel.QueryInformationJobObject(
-            self.handle, 1, ctypes.byref(accounting), ctypes.sizeof(accounting), None,
-        ))
-        # ActiveProcesses can reach zero before pending exit/I/O finishes.
-        # Lifetime count proves there were no other writers to wait for.
-        return accounting.total <= 1
 
     def close(self) -> None:
         _kernel.CloseHandle(self.handle)

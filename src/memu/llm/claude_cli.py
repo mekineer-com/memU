@@ -265,7 +265,7 @@ class ClaudeCLIClient:
     @staticmethod
     async def _kill_and_reap(
         process: asyncio.subprocess.Process, *, process_group: bool = False, windows_job: Any = None,
-    ) -> bool:
+    ) -> None:
         termination_error = None
         if windows_job is not None:
             try:
@@ -291,7 +291,6 @@ class ClaudeCLIClient:
             await process.wait()
         if termination_error is not None:
             raise termination_error
-        return windows_job.tree_exited() if windows_job is not None else False
 
     def _result(
         self, envelope: dict[str, Any], exit_code: int,
@@ -501,11 +500,8 @@ class ClaudeCLIClient:
                 await asyncio.gather(*tasks, return_exceptions=True)
             try:
                 if process is not None:
-                    tree_exited = await self._kill_and_reap(process, process_group=True, windows_job=windows_job)
-                    event = {"type": "process", "state": "reaped", "pid": process.pid}
-                    if windows_job is not None:
-                        event["tree_exited"] = tree_exited
-                    await emit(event)
+                    await self._kill_and_reap(process, process_group=True, windows_job=windows_job)
+                    await emit({"type": "process", "state": "reaped", "pid": process.pid})
             finally:
                 if windows_job is not None:
                     windows_job.close()
