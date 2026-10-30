@@ -1,6 +1,5 @@
 """Windows ownership for one scoped Claude invocation (import only on Windows)."""
 
-import asyncio
 import ctypes
 from ctypes import wintypes
 
@@ -94,20 +93,15 @@ class WindowsJob:
     def terminate(self) -> None:
         _check(_kernel.TerminateJobObject(self.handle, 1))
 
-    async def wait_empty(self, deadline: float) -> bool:
-        while True:
-            accounting = _Accounting()
-            _check(_kernel.QueryInformationJobObject(
-                self.handle, 1, ctypes.byref(accounting), ctypes.sizeof(accounting), None,
-            ))
-            if accounting.active == 0:
-                # An unassigned root is still suspended; its reap (by the
-                # caller) also proves there could not be any descendants.
-                return True
-            remaining = deadline - asyncio.get_running_loop().time()
-            if remaining <= 0:
-                return False
-            await asyncio.sleep(min(0.01, remaining))
+    def tree_exited(self) -> bool:
+        """Called after root reap; any descendant makes complete exit unknown."""
+        accounting = _Accounting()
+        _check(_kernel.QueryInformationJobObject(
+            self.handle, 1, ctypes.byref(accounting), ctypes.sizeof(accounting), None,
+        ))
+        # ActiveProcesses can reach zero before pending exit/I/O finishes.
+        # Lifetime count proves there were no other writers to wait for.
+        return accounting.total <= 1
 
     def close(self) -> None:
         _kernel.CloseHandle(self.handle)

@@ -266,7 +266,6 @@ class ClaudeCLIClient:
     async def _kill_and_reap(
         process: asyncio.subprocess.Process, *, process_group: bool = False, windows_job: Any = None,
     ) -> bool:
-        deadline = asyncio.get_running_loop().time() + 5
         termination_error = None
         if windows_job is not None:
             try:
@@ -292,7 +291,7 @@ class ClaudeCLIClient:
             await process.wait()
         if termination_error is not None:
             raise termination_error
-        return await windows_job.wait_empty(deadline) if windows_job is not None else False
+        return windows_job.tree_exited() if windows_job is not None else False
 
     def _result(
         self, envelope: dict[str, Any], exit_code: int,
