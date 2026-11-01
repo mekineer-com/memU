@@ -798,16 +798,22 @@ def apply_dynamic_category_review(
 
         normalized_categories: dict[str, MemoryCategory] = {}
         ordinary: list[MemoryCategory] = []
+        collision = None
         for category in all_categories.values():
             normalized = normalize_category_name(category.name)
+            # Anchors keep exact identity titles outside ordinary dossier-name invariants.
+            if category.anchor_role is not None:
+                if normalized == normalized_name:
+                    collision = category
+                continue
             if normalized is None:
                 raise ValueError(f"Dossier {category.id} title must contain letters or digits")
             if normalized in normalized_categories:
                 raise ValueError(f"Duplicate normalized dossier title in scope: {normalized}")
             normalized_categories[normalized] = category
-            if category.kind in DOSSIER_KINDS and category.anchor_role is None:
+            if category.kind in DOSSIER_KINDS:
                 ordinary.append(category)
-        collision = normalized_categories.get(normalized_name)
+        collision = collision or normalized_categories.get(normalized_name)
         if collision is None and ordinary:
             corpus: list[tuple[str, list[float]]] = []
             for category in ordinary:

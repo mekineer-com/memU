@@ -716,8 +716,12 @@ async def test_dynamic_category_review_generation_is_strict_and_bundle_bound(tmp
 
 
 @pytest.mark.asyncio
-async def test_dynamic_category_review_apply_is_atomic_and_collision_safe(tmp_path) -> None:
+@pytest.mark.parametrize("anchor_names", [None, ("Test Soul", "Test_Soul"), ("!", "?")])
+async def test_dynamic_category_review_apply_is_atomic_and_collision_safe(tmp_path, anchor_names) -> None:
     store = _store(tmp_path)
+    if anchor_names:
+        for role, name in zip(("soul", "user"), anchor_names, strict=True):
+            _category(store, SCOPE, name, kind="lore", anchor_role=role)
     items = [_item(store, SCOPE, f"memory {index}") for index in range(2)]
     for item in items:
         store.dossier_candidate_repo.add_candidate(proposed_name="new topic", item_id=item.id, where=SCOPE)
@@ -758,6 +762,16 @@ async def test_dynamic_category_review_apply_is_atomic_and_collision_safe(tmp_pa
     assert result["target_dossier"].approved_description is None
     assert all(category.name != "Created Topic" for category in store.memory_category_repo.list_categories(SCOPE).values())
     assert all(row.last_considered_at is None for row in store.dossier_candidate_repo.list_candidates(SCOPE))
+
+    if anchor_names == ("Test Soul", "Test_Soul"):
+        with store._sessions.session() as session:
+            reserved = memorize_categories.apply_dynamic_category_review(
+                store=store, where=SCOPE, bundle=bundle, decision={**decision, "name": "Test Soul"},
+                proposed_embedding=[1.0, 0.0], session=session,
+            )
+            assert reserved["status"] == "collision" and reserved["target_dossier"].anchor_role is not None
+            assert reserved["relations"] == []
+            session.rollback()
 
     existing = _category(store, SCOPE, "Near Duplicate", kind="topic")
     store.memory_category_repo.update_category(category_id=existing.id, embedding=[1.0, 0.0])
@@ -830,6 +844,9 @@ async def test_dynamic_category_review_apply_is_atomic_and_collision_safe(tmp_pa
             session=session,
         )
     assert replay["status"] == "existing"
+    if anchor_names:
+        assert {category.anchor_role: category.name for category in store.memory_category_repo.list_categories(SCOPE).values()
+                if category.anchor_role is not None} == dict(zip(("soul", "user"), anchor_names, strict=True))
 
 
 @pytest.mark.asyncio
