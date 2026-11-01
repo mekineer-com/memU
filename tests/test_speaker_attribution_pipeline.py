@@ -260,7 +260,7 @@ def test_replacement_selection_keeps_speaker_identity_barrier(identity) -> None:
     assert old[2].id in active and new.id in active
 
 
-@pytest.mark.parametrize("bad_vector", [[], ["not-a-number"], [0.0, 0.0, 0.0]])
+@pytest.mark.parametrize("bad_vector", [[], ["not-a-number"], [0.0, 0.0, 0.0], [1e-46, 0.0, 0.0]])
 def test_invalid_replacement_embedding_saves_nothing_and_can_retry(bad_vector) -> None:
     service = _service()
     store = service.database
