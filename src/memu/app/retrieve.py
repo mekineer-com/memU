@@ -526,6 +526,7 @@ class RetrieveMixin:
             fts_top_k=item_cfg.fts_top_k,
             rrf_k=item_cfg.rrf_k,
             include_superseded=include_superseded,
+            exclude_prompt_only=True,
         )
         if temporal_start is not None or temporal_end is not None:
 

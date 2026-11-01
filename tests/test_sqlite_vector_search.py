@@ -100,6 +100,29 @@ def test_hybrid_search_and_embedding_free_materialization(store: SQLiteStore, mo
     assert "memory_items.embedding" not in statements[-1]
 
 
+def test_recall_exclusion_precedes_keyword_quota(store: SQLiteStore) -> None:
+    scope = {"user_id": "keyword_quota", "soul_id": "TestSoul"}
+    hidden, lexical, nearest, _ = [store.memory_item_repo.create_item(
+        memory_type="knowledge", summary=summary, embedding=embedding,
+        extra={"apimw_subconscious_insight": prompt_only}, user_data=scope,
+    ) for summary, embedding, prompt_only in [
+        ("platypus", [0.0, 1.0], True),
+        ("platypus habitat beside a fictional river", [0.1, 0.9], False),
+        ("unrelated nearest", [1.0, 0.0], False),
+        ("unrelated runner up", [0.9, 0.1], False),
+    ]]
+    assert store.memory_item_repo.fts_search_items("platypus", 1)[0][0] == hidden.id
+    ordinary_search = store.memory_item_repo.vector_search_items(
+        [1.0, 0.0], 2, scope, fts_enabled=True, fts_query="platypus", fts_top_k=1,
+    )
+    assert [item_id for item_id, _ in ordinary_search] == [nearest.id, hidden.id]
+    hits = store.memory_item_repo.vector_search_items(
+        [1.0, 0.0], 2, scope, fts_enabled=True, fts_query="platypus", fts_top_k=1,
+        exclude_prompt_only=True,
+    )
+    assert [item_id for item_id, _ in hits] == [nearest.id, lexical.id]
+
+
 def test_superseded_salience_uses_actual_metadata(store: SQLiteStore, monkeypatch) -> None:
     scope = {"user_id": "u", "soul_id": "s"}
     old = store.memory_item_repo.create_item(

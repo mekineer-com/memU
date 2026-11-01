@@ -150,6 +150,7 @@ class MemoryItemRepo(Protocol):
         fts_top_k: int = 20,
         rrf_k: int = 60,
         include_superseded: bool = False,
+        exclude_prompt_only: bool = False,
     ) -> list[tuple[str, float]]: ...
 
     def refresh_model_score_calibration(self, *, model: str, session: Any | None = None) -> dict[str, int]: ...

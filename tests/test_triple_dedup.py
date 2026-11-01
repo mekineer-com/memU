@@ -92,6 +92,45 @@ async def test_connected_recall_relations_point_from_neighbor_to_seed(store, pre
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("memory_type,prompt_only", [
+    ("narrative_self", True), ("subconscious", True), ("subconscious", False),
+])
+@pytest.mark.parametrize("fts_enabled,ranking,temporal", [
+    (False, "similarity", False), (True, "similarity", False),
+    (True, "salience", False), (False, "similarity", True),
+])
+async def test_vector_limit_counts_only_visible_memories(store, memory_type, prompt_only, fts_enabled, ranking, temporal):
+    scope = {"user_id": f"vector_quota_{memory_type}_{prompt_only}_{fts_enabled}_{ranking}_{temporal}",
+             "soul_id": "TestSoul"}
+    first = store.memory_item_repo.create_item(
+        memory_type=memory_type, summary="Fictional garden", embedding=[1.0, 0.0],
+        extra={"apimw_subconscious_insight": prompt_only} if memory_type == "subconscious" else {},
+        user_data=scope,
+    )
+    visible = store.memory_item_repo.create_item(
+        memory_type="knowledge", summary="Fictional garden discovery by the old stone wall",
+        embedding=[0.8, 0.2], user_data=scope,
+    )
+    # Dedupe and dossier search share this repository and still see internal rows.
+    assert store.memory_item_repo.vector_search_items([1.0, 0.0], 1, scope)[0][0] == first.id
+    mixin = RetrieveMixin()
+    mixin.retrieve_config = SimpleNamespace(
+        item=SimpleNamespace(top_k=1, ranking=ranking, recency_decay_days=30,
+                             fts_enabled=fts_enabled, fts_top_k=1, rrf_k=60),
+        graph=SimpleNamespace(enabled=False),
+    )
+    mixin._model_dump_without_embeddings = lambda row: row.model_dump(exclude={"embedding"})
+    state = await mixin._rag_recall_items({
+        "needs_retrieval": True, "proceed_to_items": True, "new_message": "Fictional garden",
+        "active_query": "Fictional garden", "query_vector": [1.0, 0.0],
+        "store": store, "where": scope,
+        "temporal_start": datetime(2026, 1, 1).date() if temporal else None,
+    }, None)
+    response = mixin._rag_build_context(state, None)["response"]
+    assert [item["id"] for item in response["items"]] == [visible.id if prompt_only else first.id]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("kind,historical", [
     ("narrative_self", False), ("subconscious", False), ("merged", False),
     ("superseded", False), ("superseded", True), ("knowledge", False),

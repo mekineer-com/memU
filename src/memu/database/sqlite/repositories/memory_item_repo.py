@@ -1097,6 +1097,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?)
         fts_top_k: int = 20,
         rrf_k: int = 60,
         include_superseded: bool = False,
+        exclude_prompt_only: bool = False,
     ) -> list[tuple[str, float]]:
         """Vector similarity search with optional FTS5 hybrid fusion.
 
@@ -1114,6 +1115,14 @@ VALUES (?, ?, ?, ?, ?, ?, ?)
         )
         if active_filter is not None:
             filters.append(active_filter)
+        if exclude_prompt_only:
+            # Apply before both vector and FTS limits; these rows have their own prompt paths.
+            filters.extend([
+                self._memory_item_model.memory_type != "narrative_self",
+                func.coalesce(func.json_extract(
+                    self._memory_item_model.extra, "$.apimw_subconscious_insight"
+                ), False).is_(False),
+            ])
 
         with self._sessions.session() as session:
             dimensions = dict(
