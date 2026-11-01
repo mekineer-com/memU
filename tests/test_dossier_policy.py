@@ -220,7 +220,7 @@ async def test_display_names_share_owner_scope_without_rebinding_anchors(tmp_pat
         assert {row.name for row in service.list_active_dossiers(scope)} == {soul_id, user_name}
         assert service.prepare_anchor_revision("user", scope, [item.id])["dossier"].name == user_name
         bundle = service.prepare_dossier_revision(anchors["user"].id, scope)
-        assert bundle["user_name"] == user_name
+        assert bundle["dossier"].name == user_name
         assert item.speaker_id == scope["user_id"]
         assert "user_name" not in service.user_model.model_fields
 
@@ -1094,18 +1094,10 @@ async def test_deferred_citation_repair_includes_unsegmented_successors(tmp_path
     assert service.list_due_dossiers(SCOPE) == []
 
 
-def test_prepare_dossier_revision_bounds_actionable_evidence(tmp_path) -> None:
+def test_prepare_dossier_revision_bounds_actionable_evidence(tmp_path, monkeypatch) -> None:
     service = _service(tmp_path, retrieve_config={"item": {"top_k": 1}})
     store = service.database
-    anchors = _seed_anchors(service)
-    store.memory_category_repo.update_category(
-        category_id=anchors["soul"].id,
-        summary="I remember a bond [M999] with care.",
-    )
-    store.memory_category_repo.update_category(
-        category_id=anchors["user"].id,
-        summary="My human values patience [M998].",
-    )
+    _seed_anchors(service)
     category = _category(service, "Health", kind="goal", embedding=[1.0, 0.0])
     cited = store.memory_item_repo.create_item(
         memory_type="knowledge", summary="cited", embedding=[0.0, 1.0], user_data=SCOPE
@@ -1154,13 +1146,9 @@ def test_prepare_dossier_revision_bounds_actionable_evidence(tmp_path) -> None:
         user_data=SCOPE,
     )
 
-    bundle = service.prepare_dossier_revision(
-        category.id,
-        SCOPE,
-        narrative_self="  Curious {and} attentive <always>.  ",
-        active_life_goals=["  active goal  "],
-        removed_life_goals=["removed goal"],
-    )
+    monkeypatch.setattr(service, "build_dossier_index", lambda *_args, **_kwargs: pytest.fail(
+        "Each revision bundle must not rebuild the shared prompt's dossier index"))
+    bundle = service.prepare_dossier_revision(category.id, SCOPE)
 
     assert service.extract_memory_refs("[Speaker] [M] [M2] [M2]") == [2]
     assert service.extract_memory_refs("bad [M0]") == []
@@ -1178,13 +1166,6 @@ def test_prepare_dossier_revision_bounds_actionable_evidence(tmp_path) -> None:
     assert [item.id for item in bundle["cleanup_items"]] == [cleanup.id]
     assert [item.id for item in bundle["candidate_items"]] == [candidate.id]
     assert bundle["untouched_item_ids"] == [untouched.id]
-    assert bundle["active_life_goals"] == ["active goal"]
-    assert bundle["removed_life_goals"] == ["removed goal"]
-    assert bundle["narrative_self"] == "Curious {and} attentive <always>."
-    assert "[M999]" not in bundle["soul_presence"]
-    assert "[M998]" not in bundle["soul_presence"]
-    assert "# Your dossier" in bundle["soul_presence"]
-    assert "# Your human's dossier" in bundle["soul_presence"]
     assert bundle["target_words"] == 300
 
 
@@ -1227,7 +1208,7 @@ def test_revision_status_precedence_is_disjoint() -> None:
     } == {"cited": [2], "search": [4], "purged": [1], "pending": [3]}
 
 
-def test_prepare_dossier_revision_requires_refs_and_goal_kind(tmp_path) -> None:
+def test_prepare_dossier_revision_requires_refs(tmp_path) -> None:
     service = _service(tmp_path, retrieve_config={"item": {"top_k": 0}})
     store = service.database
     _seed_anchors(service)
@@ -1243,14 +1224,7 @@ def test_prepare_dossier_revision_requires_refs_and_goal_kind(tmp_path) -> None:
         service.prepare_dossier_revision(category.id, SCOPE)
 
     store.memory_item_repo.backfill_memory_refs(SCOPE)
-    bundle = service.prepare_dossier_revision(
-        category.id,
-        SCOPE,
-        active_life_goals=["active goal"],
-        removed_life_goals=["removed goal"],
-    )
-    assert bundle["active_life_goals"] == []
-    assert bundle["removed_life_goals"] == []
+    assert service.prepare_dossier_revision(category.id, SCOPE)["pending_items"][0].id == item.id
 
 
 def _revision_case(tmp_path, *, summary: str = "", kind: str = "topic"):
@@ -1280,11 +1254,7 @@ def _revision_case(tmp_path, *, summary: str = "", kind: str = "topic"):
     )
     refs = {pending.id: pending.memory_ref, candidate.id: candidate.memory_ref}
     store.category_item_repo.link_item_category(pending.id, category.id, SCOPE)
-    bundle = service.prepare_dossier_revision(
-        category.id,
-        SCOPE,
-        narrative_self="Warm {and} steady <voice>.",
-    )
+    bundle = service.prepare_dossier_revision(category.id, SCOPE)
     return service, store, anchors, category, pending, candidate, refs, bundle
 
 
@@ -2020,7 +1990,7 @@ async def test_apply_dossier_revision_rotates_description_without_prose_journal(
     assert journal == []
 
 
-def test_prepare_anchor_revision_omits_duplicate_presence_and_uses_500_words(tmp_path) -> None:
+def test_prepare_anchor_revision_uses_500_words(tmp_path) -> None:
     service = _service(tmp_path, retrieve_config={"item": {"top_k": 0}})
     store = service.database
     anchors = _seed_anchors(service)
@@ -2032,8 +2002,6 @@ def test_prepare_anchor_revision_omits_duplicate_presence_and_uses_500_words(tmp
 
     bundle = service.prepare_dossier_revision(anchors["soul"].id, SCOPE)
 
-    assert "# Your dossier" not in bundle["soul_presence"]
-    assert "# Your human's dossier" in bundle["soul_presence"]
     assert bundle["target_words"] == 500
 
 

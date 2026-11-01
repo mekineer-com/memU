@@ -13,7 +13,6 @@ from memu.app.dossier_revision import (
     label_sections,
     render_memory_records,
     revision_status_items,
-    strip_memory_citations,
 )
 from memu.database.models import CategoryItem, DossierKind, MemoryCategory, MemoryItem
 from memu.database.vector import cosine_topk, reciprocal_rank_fusion
@@ -459,9 +458,6 @@ class DossierMixin:
         category_id: str,
         where: Mapping[str, Any],
         *,
-        narrative_self: str | None = None,
-        active_life_goals: Sequence[str] = (),
-        removed_life_goals: Sequence[str] = (),
         segment_ids: Sequence[str] | None = None,
         excluded_segment_ids: Sequence[str] = (),
     ) -> dict[str, Any]:
@@ -606,32 +602,6 @@ class DossierMixin:
                 set(linked_items) - pending_ids - set(cited_items) - cleanup_inactive_ids
             ),
             "excluded_review_item_ids": sorted(excluded_evidence),
-            "active_life_goals": [
-                goal.strip() for goal in active_life_goals if category.kind == "goal" and goal.strip()
-            ],
-            "removed_life_goals": [
-                goal.strip() for goal in removed_life_goals if category.kind == "goal" and goal.strip()
-            ],
-            "soul_name": scope["soul_id"],
-            "user_name": anchors["user"].name,
-            "narrative_self": narrative_self.strip() if narrative_self and narrative_self.strip() else None,
-            "dossier_index": self.build_dossier_index(scope),
-            "soul_presence": "\n\n".join(
-                block
-                for role, block in (
-                    (
-                        "soul",
-                        "# Your dossier\n"
-                        + strip_memory_citations(anchors["soul"].summary or anchors["soul"].description),
-                    ),
-                    (
-                        "user",
-                        "# Your human's dossier\n"
-                        + strip_memory_citations(anchors["user"].summary or anchors["user"].description),
-                    ),
-                )
-                if category.anchor_role != role
-            ),
             "target_words": (
                 500
                 if category.anchor_role is not None
