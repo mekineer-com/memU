@@ -3,7 +3,6 @@ from __future__ import annotations
 import logging
 import math
 import re
-from array import array
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
@@ -494,7 +493,7 @@ async def _find_supersede_targets(
 
     for (idx, entry), raw_vector in zip(replace_requests, replace_vectors, strict=True):
         vector = _normalize_embedding_vector(raw_vector)
-        if vector is None or not any(array("f", vector)):
+        if vector is None or not any(vector):
             raise ValueError("Invalid replacement text embedding")
         where = dict(user or {})
         where["memory_type"] = entry.memory_type
