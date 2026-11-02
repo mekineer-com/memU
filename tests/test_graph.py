@@ -1549,6 +1549,78 @@ def test_graph_search_drops_unrelated_vector_only_hits():
     assert out["nodes"] == []
 
 
+@pytest.mark.parametrize("mode", ["keyword", "semantic", "hybrid"])
+def test_graph_search_threshold_filters_only_cosine_hits(mode):
+    service = MemoryService(
+        database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
+        user_config={"model": GraphScope},
+    )
+    store = service._get_database()
+    scope = {"user_id": "threshold_owner", "soul_id": "threshold_soul"}
+    items = {
+        name: store.memory_item_repo.create_item(
+            memory_type="knowledge", summary=summary, embedding=embedding, user_data=scope,
+        )
+        for name, summary, embedding in [
+            ("high", "Meaningful vector evidence", [0.8, 0.6]),
+            ("low", "Weak vector evidence", [0.2, 0.98]),
+            ("lexical", "needle", [-1.0, 0.0]),
+            ("lexical_long", "needle with enough extra words to rank second", [-1.0, 0.0]),
+        ]
+    }
+    categories = {
+        name: store.memory_category_repo.get_or_create_category(
+            name=title, description="", embedding=embedding, user_data=scope,
+        )
+        for name, title, embedding in [
+            ("high", "Meaningful category", [0.8, 0.6]),
+            ("low", "Weak category", [0.2, 0.98]),
+            ("lexical", "needle category", [-1.0, 0.0]),
+        ]
+    }
+    embed_calls = []
+
+    class _Embedder:
+        async def embed(self, texts):
+            embed_calls.append(texts)
+            return [[1.0, 0.0]]
+
+    service._select_embedding_client = lambda _ctx: _Embedder()  # type: ignore[method-assign]
+    baseline = asyncio.run(service.graph_search("needle", where=scope, mode=mode, limit=20))
+    explicit_default = asyncio.run(
+        service.graph_search("needle", where=scope, mode=mode, limit=20, threshold=None)
+    )
+    filtered = asyncio.run(
+        service.graph_search("needle", where=scope, mode=mode, limit=20, threshold=0.75)
+    )
+    assert explicit_default == baseline
+    expected = {
+        "keyword": {"lexical", "lexical_long"},
+        "semantic": {"high"},
+        "hybrid": {"high", "lexical", "lexical_long"},
+    }[mode]
+    assert {node["id"] for node in filtered["nodes"]} == (
+        {f"memory:{items[name].id}" for name in expected}
+        | {f"category:{categories[name].id}" for name in expected if name in categories}
+    )
+    if mode == "keyword":
+        assert filtered == baseline
+        assert embed_calls == []
+    else:
+        assert f"memory:{items['low'].id}" in {node["id"] for node in baseline["nodes"]}
+        assert f"category:{categories['low'].id}" in {node["id"] for node in baseline["nodes"]}
+    if mode in {"keyword", "hybrid"}:
+        lexical = next(node for node in filtered["nodes"] if node["id"] == f"memory:{items['lexical_long'].id}")
+        assert lexical["score"] < 0.75
+
+    calls_before_exact = len(embed_calls)
+    exact = asyncio.run(service.graph_search(
+        service.format_memory_ref(items["low"]), where=scope, mode=mode, threshold=1.0,
+    ))
+    assert [node["memory_id"] for node in exact["nodes"]] == [items["low"].id]
+    assert len(embed_calls) == calls_before_exact
+
+
 def test_graph_search_mode_controls_keyword_vs_semantic():
     now = datetime(2026, 7, 1, tzinfo=UTC)
     item = _item("m1", "sushi keyword", now)

@@ -1681,6 +1681,7 @@ class GraphMixin:
         where: Mapping[str, Any] | None = None,
         limit: int = 5,
         mode: str = "hybrid",
+        threshold: float | None = None,
         since_days: int | None = None,
         memory_only: bool = False,
         exclude_entity_id: str | None = None,
@@ -1775,7 +1776,7 @@ class GraphMixin:
         if mode in {"semantic", "hybrid"}:
             query_vec = (await self._select_embedding_client(None).embed([query]))[0]
             for item_id, score in cosine_topk(query_vec, ((item.id, item.embedding) for item in pool.values()), k=limit):
-                if score <= 0:
+                if score <= 0 or (threshold is not None and score < threshold):
                     continue
                 scores[item_id] = max(scores.get(item_id, 0.0), float(score))
             for category_id, score in cosine_topk(
@@ -1783,7 +1784,7 @@ class GraphMixin:
                 ((category.id, category.embedding) for category in search_categories.values()),
                 k=limit,
             ):
-                if score <= 0:
+                if score <= 0 or (threshold is not None and score < threshold):
                     continue
                 category_scores[category_id] = max(category_scores.get(category_id, 0.0), float(score))
 
