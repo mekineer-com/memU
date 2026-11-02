@@ -739,8 +739,6 @@ class RetrieveMixin:
                     }
             lanes = state.get("resource_candidate_lanes") or {}
             resources_pool = state.get("resource_pool") or {}
-            if any(lanes.values()) and not resources_pool:
-                resources_pool = store.resource_repo.list_resources(where_filters)
             response["resource_candidates"] = self._materialize_resource_candidates(lanes, resources_pool)
         state["response"] = response
         return state
