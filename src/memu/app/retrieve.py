@@ -629,7 +629,11 @@ class RetrieveMixin:
         return state
 
     async def _rag_recall_resources(self, state: WorkflowState, step_context: Any) -> WorkflowState:
-        if not state.get("needs_retrieval") or not state.get("proceed_to_resources"):
+        if (
+            not state.get("needs_retrieval")
+            or not state.get("proceed_to_resources")
+            or self.retrieve_config.resource.top_k == 0
+        ):
             state["resource_candidate_lanes"] = {}
             return state
 
@@ -696,7 +700,6 @@ class RetrieveMixin:
                 include_superseded=include_superseded,
                 include_embeddings=False,
             )
-            resources_pool = state.get("resource_pool") or store.resource_repo.list_resources(where_filters)
             response["categories"] = self._materialize_hits(
                 state.get("category_hits", []),
                 categories_pool,
@@ -734,10 +737,11 @@ class RetrieveMixin:
                         "extra": seed.extra,
                         "superseded_at": self._find_superseded_at(store, seed.id, where_filters),
                     }
-            response["resource_candidates"] = self._materialize_resource_candidates(
-                state.get("resource_candidate_lanes"),
-                resources_pool,
-            )
+            lanes = state.get("resource_candidate_lanes") or {}
+            resources_pool = state.get("resource_pool") or {}
+            if any(lanes.values()) and not resources_pool:
+                resources_pool = store.resource_repo.list_resources(where_filters)
+            response["resource_candidates"] = self._materialize_resource_candidates(lanes, resources_pool)
         state["response"] = response
         return state
 
