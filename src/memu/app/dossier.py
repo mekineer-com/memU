@@ -1052,7 +1052,6 @@ class DossierMixin:
         anchors = {cast(str, category.anchor_role): category for category in anchor_rows}
         _validate_anchors(anchors, self._expected_anchor_names(scope))
 
-        links_by_category: dict[str, set[str]] = {}
         related_items = store.memory_item_repo.list_items_by_ids(
             {relation.item_id for relation in relations},
             scope,
@@ -1062,7 +1061,6 @@ class DossierMixin:
         for relation in relations:
             if relation.category_id not in categories or relation.item_id not in related_items:
                 raise ValueError(f"Dossier cutover found dangling or cross-scope relation: {relation.id}")
-            links_by_category.setdefault(relation.category_id, set()).add(relation.item_id)
 
     async def select_memorize_dossier_context(
         self,
