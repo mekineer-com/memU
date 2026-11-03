@@ -16,6 +16,14 @@ XML_TOKEN = re.compile(
 )
 
 
+def has_xml_comments_or_instructions(text: str) -> bool:
+    """CDATA is literal prose, not a comment or processing instruction."""
+    return any(
+        token.lastgroup == "opaque" and token.group(0).startswith(("<!--", "<?"))
+        for token in XML_TOKEN.finditer(text)
+    )
+
+
 def escape_xml_prose(text: str, prose_tags: Collection[str]) -> str:
     """Escape bare punctuation in prose, leaving markup and entities to validation."""
     prose_depth = 0

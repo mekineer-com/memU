@@ -922,22 +922,12 @@ class GraphMixin:
         attached: bool,
         expected_displayed_summary: str,
         where: Mapping[str, Any],
-        session: Any | None = None,
-    ) -> dict[str, Any] | MemoryCategory:
+        session: Any,
+    ) -> MemoryCategory:
         scope = {key: str(where.get(key) or "").strip() for key in ("user_id", "soul_id")}
         if not all(scope.values()):
             raise ValueError("category membership requires user_id and soul_id")
         store = self._get_database()
-        if session is None:
-            with store._sessions.session() as managed_session:
-                managed_session.connection().exec_driver_sql("BEGIN IMMEDIATE")
-                category = self.graph_set_category_membership(
-                    category_id, memory_id, attached=attached,
-                    expected_displayed_summary=expected_displayed_summary,
-                    where=where, session=managed_session,
-                )
-                managed_session.commit()
-            return self.finish_category_review(category, where, refresh_memberships=True)
         category = store.memory_category_repo.list_categories(scope, session=session).get(category_id)
         if category is None:
             raise KeyError(f"category not found in scope: {category_id}")
@@ -1460,29 +1450,6 @@ class GraphMixin:
             raise KeyError(f"category not found in scope: {category.id}")
         return detail
 
-    async def graph_update_category_summary(
-        self,
-        item_id: str,
-        *,
-        summary: str | None = None,
-        title: str | None = None,
-        description: str | None = None,
-        category_kind: DossierKind | None = None,
-        where: Mapping[str, Any] | None = None,
-        edited_by: str | None = None,
-        approved: bool = False,
-    ) -> dict[str, Any] | None:
-        prepared = await self.prepare_graph_category_update(
-            item_id, summary=summary, title=title, description=description,
-            category_kind=category_kind, where=where, edited_by=edited_by, approved=approved,
-        )
-        store = self._get_database()
-        with store._sessions.session() as session:
-            session.connection().exec_driver_sql("BEGIN IMMEDIATE")
-            category, journal = self.write_graph_category_update(prepared, where or {}, session=session)
-            session.commit()
-        return self.finish_category_review(category, where or {}, journal=journal)
-
     def graph_list_pending(self, *, where: Mapping[str, Any] | None = None) -> dict[str, Any]:
         store = self._get_database()
         items = store.memory_item_repo.list_items(where, include_embeddings=False)
@@ -1579,19 +1546,16 @@ class GraphMixin:
             return None
         return self.graph_memory(f"memory:{raw_id}", where=where)
 
-    def graph_approve_category(self, item_id: str, *, where: Mapping[str, Any] | None = None, session: Any | None = None) -> dict[str, Any] | MemoryCategory | None:
+    def graph_approve_category(self, item_id: str, *, where: Mapping[str, Any] | None = None, session: Any) -> MemoryCategory | None:
         kind, _, raw_id = str(item_id or "").partition(":")
         if not raw_id:
             kind, raw_id = "category", kind
         if kind != "category" or not raw_id:
             raise ValueError("only category approvals are supported")
         try:
-            category = self._get_database().memory_category_repo.approve_category_summary(raw_id, where=where, session=session)
+            return self._get_database().memory_category_repo.approve_category_summary(raw_id, where=where, session=session)
         except KeyError:
             return None
-        if session is not None:
-            return category
-        return self.graph_memory(f"category:{raw_id}", where=where)
 
     def graph_delete_memories(
         self,

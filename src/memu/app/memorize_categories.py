@@ -26,7 +26,7 @@ from memu.utils.taxonomy import (
     embedding_vector,
     normalize_category_name,
 )
-from memu.utils.xml import escape_xml_prose
+from memu.utils.xml import escape_xml_prose, has_xml_comments_or_instructions
 
 logger = logging.getLogger(__name__)
 
@@ -509,8 +509,7 @@ def parse_dynamic_category_review(raw: str, bundle: Mapping[str, Any]) -> dict[s
     if (
         not text.startswith("<dynamic_dossier_review")
         or not text.endswith("</dynamic_dossier_review>")
-        or "<!--" in text
-        or "<?" in text
+        or has_xml_comments_or_instructions(text)
     ):
         raise ValueError("Expected exact dynamic_dossier_review XML")
     try:

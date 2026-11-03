@@ -30,6 +30,23 @@ class GraphScope(BaseModel):
     soul_id: str | None = None
 
 
+async def _review_category_update(service, item_id, **kwargs):
+    prepared = await service.prepare_graph_category_update(item_id, **kwargs)
+    with service.database._sessions.session() as session:
+        session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+        category, journal = service.write_graph_category_update(prepared, kwargs["where"], session=session)
+        session.commit()
+    return service.finish_category_review(category, kwargs["where"], journal=journal)
+
+
+def _review_category_membership(service, category_id, memory_id, **kwargs):
+    with service.database._sessions.session() as session:
+        session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+        category = service.graph_set_category_membership(category_id, memory_id, **kwargs, session=session)
+        session.commit()
+    return service.finish_category_review(category, kwargs["where"], refresh_memberships=True)
+
+
 class _Repo:
     def __init__(self, value):
         self.value = value
@@ -2273,7 +2290,7 @@ def test_graph_category_membership_is_atomic_idempotent_and_citation_guarded():
         (inactive.id, "Inactive", False),
     ]
 
-    attached = service.graph_set_category_membership(
+    attached = _review_category_membership(service,
         category.id,
         target.id,
         attached=True,
@@ -2287,7 +2304,7 @@ def test_graph_category_membership_is_atomic_idempotent_and_citation_guarded():
     assert saved.last_revised_at == category.last_revised_at
     updated_at = saved.updated_at
 
-    service.graph_set_category_membership(
+    _review_category_membership(service,
         category.id,
         target.id,
         attached=True,
@@ -2296,7 +2313,7 @@ def test_graph_category_membership_is_atomic_idempotent_and_citation_guarded():
     )
     assert store.memory_category_repo.list_categories(scope)[category.id].updated_at == updated_at
 
-    detached = service.graph_set_category_membership(
+    detached = _review_category_membership(service,
         category.id,
         target.id,
         attached=False,
@@ -2305,7 +2322,7 @@ def test_graph_category_membership_is_atomic_idempotent_and_citation_guarded():
     )
     assert target.id not in {member["memory_id"] for member in detached["members"]}
     with pytest.raises(DossierMembershipConflictError, match="remove .* from dossier text"):
-        service.graph_set_category_membership(
+        _review_category_membership(service,
             category.id,
             cited.id,
             attached=False,
@@ -2313,7 +2330,7 @@ def test_graph_category_membership_is_atomic_idempotent_and_citation_guarded():
             where=scope,
         )
     with pytest.raises(DossierRevisionStaleError):
-        service.graph_set_category_membership(
+        _review_category_membership(service,
             category.id,
             target.id,
             attached=True,
@@ -2321,7 +2338,7 @@ def test_graph_category_membership_is_atomic_idempotent_and_citation_guarded():
             where=scope,
         )
     with pytest.raises(ValueError, match="only active"):
-        service.graph_set_category_membership(
+        _review_category_membership(service,
             category.id,
             inactive.id,
             attached=True,
@@ -2337,7 +2354,7 @@ def test_graph_category_membership_is_atomic_idempotent_and_citation_guarded():
         anchor_role="soul",
     )
     with pytest.raises(DossierMembershipConflictError, match="consolidation-owned"):
-        service.graph_set_category_membership(
+        _review_category_membership(service,
             anchor.id,
             target.id,
             attached=True,
@@ -2378,7 +2395,7 @@ def test_graph_category_membership_rolls_back_and_serializes_concurrent_writers(
 
     monkeypatch.setattr(store.memory_category_repo, "update_category", fail_update)
     with pytest.raises(RuntimeError, match="injected"):
-        service.graph_set_category_membership(
+        _review_category_membership(service,
             category.id,
             first.id,
             attached=True,
@@ -2425,7 +2442,7 @@ def test_graph_category_membership_rolls_back_and_serializes_concurrent_writers(
     monkeypatch.setattr(store.memory_category_repo, "list_categories", gated_list_categories)
 
     def attach(memory_id: str) -> None:
-        service.graph_set_category_membership(
+        _review_category_membership(service,
             category.id,
             memory_id,
             attached=True,
@@ -2808,7 +2825,7 @@ def test_graph_delete_replacement_group_preflight_and_rollback(monkeypatch, fail
 
 
 @pytest.mark.parametrize("summary", ["new category summary", "Literal [M0] and [M12x] remain text."])
-def test_graph_update_category_summary_commits_identity_and_prose_then_journals(monkeypatch, tmp_path, summary):
+def test_graph_category_update_commits_identity_and_prose_then_journals(monkeypatch, tmp_path, summary):
     monkeypatch.setattr(category_summary_journal, "JOURNAL_DIR", tmp_path)
     service = MemoryService(
         database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
@@ -2831,8 +2848,7 @@ def test_graph_update_category_summary_commits_identity_and_prose_then_journals(
     service._select_embedding_client = lambda _ctx: _Embedder()  # type: ignore[method-assign]
 
     updated = asyncio.run(
-        service.graph_update_category_summary(
-            f"category:{category.id}",
+        _review_category_update(service, f"category:{category.id}",
             summary=f" {summary} ",
             title="Friends",
             description="People I care about",
@@ -2905,7 +2921,7 @@ def test_graph_category_citations_resolve_in_the_write_transaction(tmp_path, mon
         assert store.memory_item_repo.get_item_by_memory_ref(ref, scope) is not None
 
 
-def test_graph_update_category_summary_approved_noop_blesses_without_journal(monkeypatch, tmp_path):
+def test_graph_category_update_approved_noop_blesses_without_journal(monkeypatch, tmp_path):
     monkeypatch.setattr(category_summary_journal, "JOURNAL_DIR", tmp_path)
     service = MemoryService(
         database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
@@ -2922,8 +2938,7 @@ def test_graph_update_category_summary_approved_noop_blesses_without_journal(mon
     store.memory_category_repo.update_category(category_id=category.id, summary="same")
 
     updated = asyncio.run(
-        service.graph_update_category_summary(
-            category.id,
+        _review_category_update(service, category.id,
             summary=" same ",
             where=scope,
             approved=True,
@@ -2956,8 +2971,7 @@ def test_graph_update_category_kind_does_not_revise_or_journal(monkeypatch, tmp_
     revised_before = store.memory_category_repo.list_categories(scope)[category.id].last_revised_at
 
     updated = asyncio.run(
-        service.graph_update_category_summary(
-            category.id,
+        _review_category_update(service, category.id,
             category_kind="topic",
             where=scope,
         )
@@ -2970,7 +2984,7 @@ def test_graph_update_category_kind_does_not_revise_or_journal(monkeypatch, tmp_
     assert list(tmp_path.iterdir()) == []
 
 
-def test_graph_update_category_summary_out_of_scope_does_not_journal(monkeypatch, tmp_path):
+def test_graph_category_update_out_of_scope_does_not_journal(monkeypatch, tmp_path):
     monkeypatch.setattr(category_summary_journal, "JOURNAL_DIR", tmp_path)
     service = MemoryService(
         database_config={"metadata_store": {"provider": "sqlite", "dsn": "sqlite:///:memory:"}},
@@ -2987,8 +3001,7 @@ def test_graph_update_category_summary_out_of_scope_does_not_journal(monkeypatch
 
     with pytest.raises(KeyError):
         asyncio.run(
-            service.graph_update_category_summary(
-                category.id,
+            _review_category_update(service, category.id,
                 summary="new",
                 where={"user_id": "wrong", "soul_id": "s"},
             )
@@ -2998,7 +3011,7 @@ def test_graph_update_category_summary_out_of_scope_does_not_journal(monkeypatch
     assert list(tmp_path.iterdir()) == []
 
 
-def test_graph_update_category_summary_journal_failure_keeps_db_update(monkeypatch, tmp_path):
+def test_graph_category_update_journal_failure_keeps_db_update(monkeypatch, tmp_path):
     blocked = tmp_path / "blocked"
     blocked.write_text("", encoding="utf-8")
     monkeypatch.setattr(category_summary_journal, "JOURNAL_DIR", blocked)
@@ -3016,7 +3029,7 @@ def test_graph_update_category_summary_journal_failure_keeps_db_update(monkeypat
     )
     store.memory_category_repo.update_category(category_id=category.id, summary="old")
 
-    asyncio.run(service.graph_update_category_summary(category.id, summary="new", where=scope))
+    asyncio.run(_review_category_update(service, category.id, summary="new", where=scope))
 
     saved = store.memory_category_repo.list_categories(scope)[category.id]
     assert saved.summary == "## unlabeled\nnew"

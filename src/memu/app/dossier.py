@@ -11,8 +11,6 @@ from memu.app.category_summary_journal import append_category_summary_journal
 from memu.app.dossier_revision import (
     MEMORY_REF_PATTERN,
     label_sections,
-    render_memory_records,
-    revision_status_items,
 )
 from memu.database.models import CategoryItem, DossierKind, MemoryCategory, MemoryItem
 from memu.database.vector import cosine_topk, reciprocal_rank_fusion
@@ -560,15 +558,6 @@ class DossierMixin:
 
         active_shown_ids = store.memory_item_repo.list_items_by_ids(set(all_shown_items), scope).keys()
         shown_inactive_ids = set(all_shown_items) - active_shown_ids
-        cleanup = [
-            {
-                "item_id": item_id,
-                "memory_ref": linked_items[item_id].memory_ref,
-                "lineage_state": "merged" if linked_items[item_id].merged_into else "superseded",
-                "merged_into": linked_items[item_id].merged_into,
-            }
-            for item_id in sorted(cleanup_inactive_ids)
-        ]
         return {
             "dossier": category,
             "category_updated_at": category.updated_at,
@@ -592,15 +581,11 @@ class DossierMixin:
             "pending_items": sorted(
                 (linked_items[item_id] for item_id in pending_ids), key=_item_sort_key
             ),
-            "cleanup_memberships": cleanup,
             "cleanup_items": sorted(
                 (all_shown_items[item_id] for item_id in shown_inactive_ids - excluded_evidence),
                 key=_item_sort_key,
             ),
             "candidate_items": sorted(candidate_items.values(), key=_item_sort_key),
-            "untouched_item_ids": sorted(
-                set(linked_items) - pending_ids - set(cited_items) - cleanup_inactive_ids
-            ),
             "excluded_review_item_ids": sorted(excluded_evidence),
             "target_words": (
                 500
@@ -855,7 +840,8 @@ class DossierMixin:
         if cleanup_ids != linked_inactive_ids - excluded_inactive_ids:
             raise ValueError("Dossier cleanup decisions do not match inactive memberships")
         linked_active_ids = set(linked_items) - linked_inactive_ids
-        if not remove_ids <= (shown_ids & linked_active_ids):
+        removable_ids = (linked_active_ids | set(bundle["cited_unlinked_item_ids"])) & active_shown_ids
+        if not remove_ids <= (shown_ids & removable_ids):
             raise ValueError("Dossier removal includes an unshown or inactive membership")
         allowed_add_ids = {
             item.id for item in bundle["candidate_items"]
@@ -954,15 +940,9 @@ class DossierMixin:
         self, bundle: Mapping[str, Any], committed: MemoryCategory, where: Mapping[str, Any],
         *, _journal_actor: str = "dossier_revision",
     ) -> MemoryCategory:
-        store = self._get_database()
         scope = _scope(where)
         prose_before = str(bundle["dossier"].summary or "")
         prose_changed = str(committed.summary or "") != prose_before
-        fresh = committed
-        try:
-            fresh = store.memory_category_repo.list_categories(scope)[committed.id]
-        except Exception:
-            logger.exception("Failed to refresh dossier revision caches for %s", committed.id)
         if prose_changed:
             try:
                 append_category_summary_journal(
@@ -974,7 +954,7 @@ class DossierMixin:
                 )
             except Exception:
                 logger.exception("Failed to journal committed dossier revision %s", committed.id)
-        return fresh
+        return committed
 
     async def prepare_anchor_revision_apply(
         self,

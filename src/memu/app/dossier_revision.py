@@ -5,13 +5,13 @@ import re
 from collections.abc import Mapping, Sequence
 from datetime import datetime
 from typing import Any
-from xml.etree.ElementTree import Element, tostring
+from xml.etree.ElementTree import Element
 
 from defusedxml import ElementTree
 
 from memu.database.models import MemoryItem
 from memu.utils.conversation import format_relative_time_label, parse_happened_at
-from memu.utils.xml import escape_xml_prose
+from memu.utils.xml import escape_xml_prose, has_xml_comments_or_instructions
 
 _HEADING = re.compile(r"(?m)^## [^\r\n]+\r?$")
 # Only exact [M#] tokens are citations; malformed prose remains literal.
@@ -125,26 +125,9 @@ def revision_status_items(bundle: Mapping[str, Any]) -> dict[str, list[MemoryIte
 
 
 def parse_dossier_revision(
-    raw: str,
+    root: Element,
     bundle: Mapping[str, Any],
 ) -> dict[str, Any]:
-    text = str(raw or "").strip()
-    start = text.find("<dossier_revision")
-    end = text.find("</dossier_revision>", start) + len("</dossier_revision>")
-    if (
-        start < 0
-        or end < len("</dossier_revision>")
-        or text.find("<dossier_revision", start + 1) >= 0
-        or text.find("</dossier_revision>", end) >= 0
-    ):
-        raise ValueError("Expected exact dossier_revision XML")
-    text = text[start:end]
-    if "<!--" in text or "<?" in text:
-        raise ValueError("Expected exact dossier_revision XML")
-    try:
-        root = ElementTree.fromstring(escape_xml_prose(text, _PROSE_TAGS))
-    except Exception as exc:
-        raise ValueError("Invalid dossier revision XML") from exc
     if root.tag != "dossier_revision" or set(root.attrib) != {"dossier_id"}:
         raise ValueError("Expected exact dossier_revision root")
 
@@ -222,8 +205,7 @@ def parse_dossier_revision_batch(
     if (
         not text.startswith("<dossier_revisions>")
         or not text.endswith("</dossier_revisions>")
-        or "<!--" in text
-        or "<?" in text
+        or has_xml_comments_or_instructions(text)
     ):
         raise ValueError("Expected exact dossier_revisions XML")
     try:
@@ -249,9 +231,8 @@ def parse_dossier_revision_batch(
             raise ValueError(f"Unexpected dossier revision id: {dossier_id}")
         if dossier_id in parsed:
             raise ValueError(f"Duplicate dossier revision id: {dossier_id}")
-        child.tail = None
         parsed[dossier_id] = parse_dossier_revision(
-            tostring(child, encoding="unicode"),
+            child,
             by_id[dossier_id],
         )
 

@@ -958,7 +958,7 @@ async def test_reviewed_membership_does_not_hide_later_evidence(tmp_path, monkey
     )
     assert [item.id for item in bundle["pending_items"]] == [first.id]
     assert future_candidate.id not in {item.id for item in bundle["candidate_items"]}
-    assert later.id in bundle["untouched_item_ids"]
+    assert later.id not in {token[0] for token in bundle["shown_item_tokens"]}
     monkeypatch.setattr("memu.app.dossier.append_category_summary_journal", lambda **_kw: None)
     revised = await service.apply_dossier_revision(bundle, {
         "dossier_id": category.id, "description": category.description,
@@ -1157,15 +1157,9 @@ def test_prepare_dossier_revision_bounds_actionable_evidence(tmp_path, monkeypat
     assert {item.id for item in bundle["cited_items"]} == {cited.id, cited_unlinked.id}
     assert bundle["cited_unlinked_item_ids"] == [cited_unlinked.id]
     assert [item.id for item in bundle["pending_items"]] == [pending.id]
-    assert bundle["cleanup_memberships"] == [{
-        "item_id": cleanup.id,
-        "memory_ref": refs[cleanup.id],
-        "lineage_state": "superseded",
-        "merged_into": None,
-    }]
     assert [item.id for item in bundle["cleanup_items"]] == [cleanup.id]
     assert [item.id for item in bundle["candidate_items"]] == [candidate.id]
-    assert bundle["untouched_item_ids"] == [untouched.id]
+    assert untouched.id not in {token[0] for token in bundle["shown_item_tokens"]}
     assert bundle["target_words"] == 300
 
 
@@ -1259,7 +1253,8 @@ def _revision_case(tmp_path, *, summary: str = "", kind: str = "topic"):
 
 
 @pytest.mark.asyncio
-async def test_batch_dossier_revision_preserves_xml_prose_and_applies_result(tmp_path) -> None:
+@pytest.mark.parametrize("literal", ["<care>", "<!-- note --> <?example?>"])
+async def test_batch_dossier_revision_preserves_xml_prose_and_applies_result(tmp_path, literal) -> None:
     comparison = "tea<coffee; Fictional A's and Fictional B's view -> settled. a<b!; x<y? ok; Guest<Other's car; a<b\"yes\""
     service, store, _anchors, category, pending, candidate, refs, bundle = _revision_case(
         tmp_path,
@@ -1268,7 +1263,7 @@ async def test_batch_dossier_revision_preserves_xml_prose_and_applies_result(tmp
     response = f"""<dossier_revisions><dossier_revision dossier_id="{category.id}">
   <description>R&D, a<b; &amp; &lt; &#60; &#x3c; &amp;amp;. {comparison}</description>
   <prose_action>patch</prose_action>
-  <prose_patches><section ref="S1" action="replace"><body>## Health\nA living account [M{refs[pending.id]}] [M{refs[candidate.id]}]. R&D, a<b; <![CDATA[literal &amp; <care>]]> {comparison}</body></section></prose_patches>
+  <prose_patches><section ref="S1" action="replace"><body>## Health\nA living account [M{refs[pending.id]}] [M{refs[candidate.id]}]. R&D, a<b; <![CDATA[literal &amp; {literal}]]> {comparison}</body></section></prose_patches>
   <decisions>
     <decision ref="[M{refs[pending.id]}]" action="add" />
     <decision ref="[M{refs[candidate.id]}]" action="add" />
@@ -1288,7 +1283,7 @@ async def test_batch_dossier_revision_preserves_xml_prose_and_applies_result(tmp
     assert result["cited_item_ids"] == sorted([pending.id, candidate.id])
     assert store.category_item_repo.list_relations(SCOPE) == before
     assert result["description"] == f"R&D, a<b; & < < < &amp;. {comparison}"
-    expected = f"## Health\nA living account [M{refs[pending.id]}] [M{refs[candidate.id]}]. R&D, a<b; literal &amp; <care> {comparison}"
+    expected = f"## Health\nA living account [M{refs[pending.id]}] [M{refs[candidate.id]}]. R&D, a<b; literal &amp; {literal} {comparison}"
     assert result["resulting_prose"] == expected
     embed = FakeEmbedClient()
     revised = await service.apply_dossier_revision(bundle, result, SCOPE, embedding_client=embed)
@@ -1481,6 +1476,8 @@ def test_batch_dossier_revision_validates_decisions_and_xml(tmp_path) -> None:
     )
     valid = valid.replace("Account.</body>", f"Account [M{refs[pending.id]}].</body>")
     for before, after, error in [
+        ("Brief.", "<!-- note -->", "Expected exact dossier_revisions XML"),
+        ("Brief.", "<?example?>", "Expected exact dossier_revisions XML"),
         ("Brief.", "&unknown;", "Invalid dossier revision"),
         ("Brief.", "&#x110000;", "Invalid dossier revision"),
         ("Brief.", "<b>R&D</b>", "Expected plain text"),
@@ -1553,8 +1550,9 @@ async def test_dynamic_review_refreshes_dossiers_after_creation(tmp_path, monkey
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("literal", ["<care>", "<!-- note --> <?example?>"])
 async def test_generate_dynamic_category_review_reuses_profile_and_preflights(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, literal
 ) -> None:
     service = _service(tmp_path)
     item = MemoryItem(
@@ -1588,7 +1586,7 @@ async def test_generate_dynamic_category_review_reuses_profile_and_preflights(
   <action>create</action>
   <accepted_candidate_ids><candidate_id>{candidate.id}</candidate_id></accepted_candidate_ids>
   <rejected_candidate_ids></rejected_candidate_ids>
-  <title>Garden Magic & R&D</title><description>A bright ritual: a<b; &amp; &lt; &amp;amp; <![CDATA[<care> &amp;]]>. a<b!; x<y? ok; Guest<Other's car; a<b"yes"</description><kind>lore</kind>
+  <title>Garden Magic & R&D</title><description>A bright ritual: a<b; &amp; &lt; &amp;amp; <![CDATA[{literal} &amp;]]>. a<b!; x<y? ok; Guest<Other's car; a<b"yes"</description><kind>lore</kind>
 </dynamic_dossier_review>"""
     client = FakeChatClient(response)
     selected: list[tuple[object, object]] = []
@@ -1606,7 +1604,7 @@ async def test_generate_dynamic_category_review_reuses_profile_and_preflights(
     decision = await service.generate_dynamic_category_review(bundle)
 
     assert decision["name"] == "Garden Magic & R&D"
-    assert decision["description"] == "A bright ritual: a<b; & < &amp; <care> &amp;. a<b!; x<y? ok; Guest<Other's car; a<b\"yes\""
+    assert decision["description"] == f"A bright ritual: a<b; & < &amp; {literal} &amp;. a<b!; x<y? ok; Guest<Other's car; a<b\"yes\""
     literals = "[Mom] [Monday] [M0] [M12x] [Mnope]"
     literal_response = response.replace("Garden Magic & R&D", literals).replace("A bright ritual:", literals + " A bright ritual:")
     literal_decision = await service.generate_dynamic_category_review(bundle, chat_client=FakeChatClient(literal_response))
@@ -1720,6 +1718,35 @@ def test_batch_dossier_revision_repairs_cited_unlinked_and_purges_lineage(
     assert result["add_item_ids"] == [cited_unlinked.id]
     assert result["cleanup_item_ids"] == [purged.id]
     assert result["cited_item_ids"] == [cited_unlinked.id]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("keep_citation", [False, True])
+async def test_revision_can_remove_a_cited_unlinked_memory(tmp_path, monkeypatch, keep_citation) -> None:
+    service, store, _anchors, category, pending, unlinked, refs, _bundle = _revision_case(tmp_path)
+    store.memory_category_repo.update_category(
+        category_id=category.id, where=SCOPE,
+        summary=f"## Health\nAn independently cited fact [M{refs[unlinked.id]}].",
+    )
+    bundle = service.prepare_dossier_revision(category.id, SCOPE)
+    assert bundle["cited_unlinked_item_ids"] == [unlinked.id]
+    citation = f" [M{refs[unlinked.id]}]" if keep_citation else ""
+    response = f"""<dossier_revisions><dossier_revision dossier_id="{category.id}">
+<description>A living account.</description><prose_action>patch</prose_action>
+<prose_patches><section ref="S1" action="replace"><body>## Health\nRetained [M{refs[pending.id]}]{citation}.</body></section></prose_patches>
+<decisions><decision ref="[M{refs[unlinked.id]}]" action="remove"/><decision ref="[M{refs[pending.id]}]" action="add"/></decisions>
+</dossier_revision></dossier_revisions>"""
+    if keep_citation:
+        with pytest.raises(ValueError, match="removed or unlinked"):
+            parse_dossier_revision_batch(response, [bundle])
+        return
+    [decision] = parse_dossier_revision_batch(response, [bundle])
+    assert decision["remove_item_ids"] == [unlinked.id]
+    monkeypatch.setattr("memu.app.dossier.append_category_summary_journal", lambda **_kw: None)
+    revised = await service.apply_dossier_revision(bundle, decision, SCOPE, embedding_client=FakeEmbedClient())
+    assert revised.summary == f"## Health\nRetained [M{refs[pending.id]}]."
+    assert {row.item_id for row in store.category_item_repo.list_relations({**SCOPE, "category_id": category.id})} == {pending.id}
+    assert unlinked.id in store.memory_item_repo.list_items(SCOPE)
 
 
 @pytest.mark.asyncio
