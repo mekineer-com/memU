@@ -301,7 +301,7 @@ class ClaudeCLIClient:
             raise RuntimeError(
                 f"Claude CLI failed for model={self.chat_model} "
                 f"(subtype={envelope.get('subtype')!r}, is_error={envelope.get('is_error')!r}): "
-                f"{envelope.get('errors') or '(no error details)'}"
+                f"{envelope.get('errors') or envelope.get('result') or '(no error details)'}"
             )
         if envelope.get("stop_reason") == "max_tokens":
             raise RuntimeError("Claude CLI response truncated at the output token limit")
@@ -449,7 +449,6 @@ class ClaudeCLIClient:
                 "--output-format", "stream-json", "--include-partial-messages", "--verbose",
                 "--max-turns", "10",
             ])
-            # Provisional API-loop parity; native round semantics remain a D check.
             if os.name == "nt":
                 from memu.llm.claude_cli_windows import WindowsJob
 
@@ -461,7 +460,7 @@ class ClaudeCLIClient:
                 start_new_session=os.name == "posix",
                 creationflags=4 if os.name == "nt" else 0,  # CREATE_SUSPENDED
             )
-            # The owner persists child identity before we deliver any input.
+            # Recovery treats no identity + not_submitted as unused: checkpoint before stdin.
             await emit({"type": "process", "state": "started", "pid": process.pid})
             if windows_job is not None:
                 windows_job.assign_and_resume(process.pid)

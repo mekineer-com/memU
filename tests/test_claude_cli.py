@@ -516,6 +516,7 @@ async def test_scoped_stream_failure_reaps_child_and_removes_files(tmp_path, str
         assert events[-2]["state"] == "reaped"
     if failure == "native_api_error":
         assert events[-1]["subtype"] == "success" and events[-1]["api_error_status"] == 429
+        assert "fictional rate limit" in str(error.value)
     assert list((client._workspace / ".prompts").iterdir()) == []
 
 
