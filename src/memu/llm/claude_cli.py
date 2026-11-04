@@ -52,6 +52,7 @@ def claude_session_path(workspace: str | Path, session_id: str) -> Path:
     home = Path(unicodedata.normalize("NFC", config_dir if config_dir is not None else str(Path.home() / ".claude")))
     if not home.is_absolute():
         home = workspace / home
+    home = Path(os.path.abspath(home))
     project = _claude_project_name(str(workspace))
     override = os.environ.get("CLAUDE_CODE_PROJECT_DIR_NAME", "")
     if (config_dir and re.fullmatch(r"[A-Za-z0-9_-]{1,64}", override)

@@ -33,8 +33,9 @@ def test_claude_session_path_uses_effective_home_and_workspace(monkeypatch, tmp_
     native_id = "11111111-2222-4333-8444-555555555555"
     escaped = claude_cli.re.sub(r"[^a-zA-Z0-9]", "-", str(workspace))
     assert claude_cli.claude_session_path(workspace, native_id) == home / "projects" / escaped / f"{native_id}.jsonl"
-    monkeypatch.setenv("CLAUDE_CONFIG_DIR", "relative-home")
-    assert claude_cli.claude_session_path(workspace, native_id) == workspace / "relative-home" / "projects" / escaped / f"{native_id}.jsonl"
+    for config_dir in ("relative-home", "nested/../relative-home", str(workspace / "nested" / ".." / "relative-home")):
+        monkeypatch.setenv("CLAUDE_CONFIG_DIR", config_dir)
+        assert claude_cli.claude_session_path(workspace, native_id) == workspace / "relative-home" / "projects" / escaped / f"{native_id}.jsonl"
     with pytest.raises(ValueError):
         claude_cli.claude_session_path(workspace, "../another-session")
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "native-cafe\u0301"))
