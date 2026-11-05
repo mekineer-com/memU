@@ -81,6 +81,7 @@ class TripleRepo(Protocol):
         max_per_source: int = 3,
         where: Mapping[str, Any] | None = None,
         as_of: datetime | None = None,
+        eligible_ids: set[str] | None = None,
     ) -> list[tuple[str, str, str]]:
         """Return ``(connected_id, predicate, seed_id)`` tuples for memories
         linked to any of ``memory_ids`` via one of ``predicates``.  seed_id
@@ -88,5 +89,6 @@ class TripleRepo(Protocol):
         For the five semantic recall predicates, the returned predicate reads
         connected-to-seed (outgoing asymmetric edges use inverse labels).
         ``predicates`` filters stored labels, not the returned inverse labels.
+        When supplied, only ``eligible_ids`` count toward the neighbor quota.
         """
         ...

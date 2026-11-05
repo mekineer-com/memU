@@ -332,6 +332,7 @@ class SQLiteTripleRepo(SQLiteRepoBase, TripleRepo):
         max_per_source: int = 3,
         where: Mapping[str, Any] | None = None,
         as_of: datetime | None = None,
+        eligible_ids: set[str] | None = None,
     ) -> list[tuple[str, str, str]]:
         if not memory_ids:
             return []
@@ -382,6 +383,8 @@ class SQLiteTripleRepo(SQLiteRepoBase, TripleRepo):
                 for connected_id, predicate in out_edges + in_edges:
                     if count >= max_per_source:
                         break
+                    if eligible_ids is not None and connected_id not in eligible_ids:
+                        continue
                     if connected_id not in seen and connected_id not in memory_ids:
                         seen.add(connected_id)
                         result.append((connected_id, predicate, mid))

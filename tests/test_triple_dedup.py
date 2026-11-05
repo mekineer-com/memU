@@ -150,26 +150,29 @@ async def test_vector_limit_counts_only_visible_memories(store, memory_type, pro
 ])
 async def test_graph_limit_counts_only_visible_neighbors(store, kind, historical):
     scope = {"user_id": f"quota_{kind}_{historical}", "soul_id": "TestSoul"}
-    seed, first, visible = [store.memory_item_repo.create_item(
+    seed, *hidden, visible = [store.memory_item_repo.create_item(
         memory_type=memory_type, summary=summary, embedding=embedding,
         extra={"apimw_subconscious_insight": True} if memory_type == "subconscious" else {},
         user_data=scope,
     ) for memory_type, summary, embedding in [
         ("knowledge", "Fictional garden discovery", [1.0, 0.0]),
-        (kind if kind in {"narrative_self", "subconscious"} else "knowledge",
-         "Fictional first neighbor", [0.0, 1.0]),
+        *[(kind if kind in {"narrative_self", "subconscious"} else "knowledge",
+           f"Fictional hidden neighbor {index}", [0.0, 1.0]) for index in range(3)],
         ("knowledge", "Fictional visible neighbor", [0.0, 1.0]),
     ]]
-    for subject, obj in [(seed, first), (visible, seed)]:
+    first = hidden[0]
+    for subject, obj in [(seed, item) for item in hidden] + [(visible, seed)]:
         edge = _triple(subject.id, "evokes", obj.id)
         edge.valid_from = datetime(2026, 1, 1, tzinfo=UTC)
         store.triple_repo.add(edge, user_data=scope)
     if kind == "merged":
-        store.memory_item_repo.update_item(item_id=first.id, merged_into=visible.id)
+        for item in hidden:
+            store.memory_item_repo.update_item(item_id=item.id, merged_into=visible.id)
     elif kind == "superseded":
-        edge = _triple(first.id, "evolved_into", visible.id)
-        edge.valid_from = datetime(2026, 1, 2, tzinfo=UTC)
-        store.triple_repo.add(edge, user_data=scope)
+        for item in hidden:
+            edge = _triple(item.id, "evolved_into", visible.id)
+            edge.valid_from = datetime(2026, 1, 2, tzinfo=UTC)
+            store.triple_repo.add(edge, user_data=scope)
 
     mixin = RetrieveMixin()
     mixin.retrieve_config = SimpleNamespace(

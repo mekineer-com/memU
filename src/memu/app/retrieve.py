@@ -550,6 +550,10 @@ class RetrieveMixin:
         graph_edges: dict[str, tuple[str, str]] = {}
 
         if graph_cfg.enabled:
+            eligible_graph_ids = {
+                mid for mid, item in items_pool.items()
+                if item.memory_type != "narrative_self" and not (item.extra or {}).get("apimw_subconscious_insight")
+            }
             entity_seed_ids: list[str] = []
             expanded_ids: list[str] = []
             matched_entities = self._find_entity_matches(state["active_query"], store, where_filters)
@@ -590,6 +594,7 @@ class RetrieveMixin:
                     max_per_source=3,
                     where=where_filters,
                     as_of=state.get("as_of"),
+                    eligible_ids=eligible_graph_ids,
                 )
                 expanded_ids = [mid for (mid, _, _) in expanded_edges]
                 for mid, predicate, seed_id in expanded_edges:
@@ -600,9 +605,7 @@ class RetrieveMixin:
             graph_only = [
                 mid for mid in (entity_seed_ids + expanded_ids)
                 if mid not in vector_id_set
-                and mid in items_pool
-                and items_pool[mid].memory_type != "narrative_self"
-                and not (items_pool[mid].extra or {}).get("apimw_subconscious_insight")
+                and mid in eligible_graph_ids
             ]
             seen: set[str] = set()
             deduped: list[str] = []
