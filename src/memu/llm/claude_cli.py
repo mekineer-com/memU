@@ -4,7 +4,6 @@ import asyncio
 import copy
 import contextvars
 import json
-import locale
 import os
 import re
 import shutil
@@ -198,8 +197,8 @@ class ClaudeCLIClient:
                 cmd.extend(["--permission-mode", self.permission_mode])
             if self.settings:
                 cmd.extend(["--settings", self.settings])
-            # Match subprocess.run(text=True): locale encoding and newline translation.
-            encoding = locale.getpreferredencoding(False)
+            # CLI pipes use UTF-8 independently of the host code page.
+            encoding = "utf-8"
             input_bytes = prompt.replace("\n", os.linesep).encode(encoding)
             process = await asyncio.create_subprocess_exec(
                 *cmd,

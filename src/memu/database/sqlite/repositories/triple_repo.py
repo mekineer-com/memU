@@ -357,7 +357,6 @@ class SQLiteTripleRepo(SQLiteRepoBase, TripleRepo):
                     stmt_out = stmt_out.where(*filters)
                 if predicates:
                     stmt_out = stmt_out.where(self._triple_model.predicate.in_(predicates))
-                stmt_out = stmt_out.limit(max_per_source)
                 # Recall annotates the connected memory, pointing back to its seed.
                 out_edges = [(connected_id, INVERSE_PREDICATES.get(predicate, predicate))
                              for connected_id, predicate in session.exec(stmt_out).all()]
@@ -377,7 +376,6 @@ class SQLiteTripleRepo(SQLiteRepoBase, TripleRepo):
                     stmt_in = stmt_in.where(*filters)
                 if predicates:
                     stmt_in = stmt_in.where(self._triple_model.predicate.in_(predicates))
-                stmt_in = stmt_in.limit(max_per_source)
                 in_edges = list(session.exec(stmt_in).all())
 
                 count = 0

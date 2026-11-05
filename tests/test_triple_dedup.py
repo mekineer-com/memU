@@ -47,6 +47,19 @@ def _triple(subject_id: str, predicate: str, object_id: str) -> Triple:
     )
 
 
+def test_connected_limit_counts_unique_nonseed_neighbors(store):
+    scope = {"user_id": "quota-user", "soul_id": "TestSoul"}
+    items = [store.memory_item_repo.create_item(
+        memory_type="knowledge", summary=f"Fictional row {index}", embedding=[1.0, 0.0], user_data=scope,
+    ) for index in range(7)]
+    seeds = [item.id for item in items[:4]]
+    for item in items[1:]:
+        store.triple_repo.add(_triple(seeds[0], "evokes", item.id), user_data=scope)
+    store.triple_repo.add(_triple(seeds[0], "shaped_by", items[4].id), user_data=scope)
+    edges = store.triple_repo.get_connected_memory_edges(seeds, max_per_source=3, where=scope)
+    assert {neighbor for neighbor, _predicate, _seed in edges} == {item.id for item in items[4:]}
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("predicate,inverse", [
     ("caused_by", "causes"), ("shaped_by", "shapes"), ("evokes", "evoked_by"),

@@ -48,10 +48,22 @@ def normalize_category_name(raw: str) -> str | None:
     return value if any(character.isalnum() for character in value) else None
 
 
+def format_category_summary_line(category_name: str, category_summary: str) -> str:
+    name = str(category_name or "").strip() or "category"
+    summary = str(category_summary or "").strip()
+    if not summary:
+        return f"[{name}]"
+    heading = re.match(r"^#{1,6}[ \t]+(.+?)(?:[ \t]+#+)?$", summary.splitlines()[0])
+    if heading and heading.group(1).strip() == name:
+        return summary
+    return f"[{name}] {summary}"
+
+
 __all__ = [
     "DOSSIER_KINDS",
     "category_identity_text",
     "dossier_scope",
     "embedding_vector",
     "normalize_category_name",
+    "format_category_summary_line",
 ]

@@ -52,15 +52,20 @@ def test_format_query_context_rejects_legacy_string_entries():
         mixin._format_query_context([{"role": "history", "content": {"text": "ok"}}, "legacy"])  # type: ignore[list-item]
 
 
-def test_format_category_content_uses_summary_text_without_wrapper():
+@pytest.mark.parametrize("summary,expected", [
+    ("# Relationships\nClose bonds matter.", "# Relationships\nClose bonds matter."),
+    ("## Notes\nClose bonds matter.", "[Relationships] ## Notes\nClose bonds matter."),
+    ("## unlabeled\nClose bonds matter.", "[Relationships] ## unlabeled\nClose bonds matter."),
+])
+def test_format_category_content_uses_summary_text_without_wrapper(summary, expected):
     mixin = RetrieveMixin()
     out = mixin._format_category_content(
         [("relationships", 0.7)],
-        {"relationships": "# Relationships\nClose bonds matter."},
+        {"relationships": summary},
         categories={"relationships": SimpleNamespace(name="Relationships", summary="")},
     )
 
-    assert out == "# Relationships\nClose bonds matter."
+    assert out == expected
     assert "Category:" not in out
     assert "Summary:" not in out
     assert "Score:" not in out

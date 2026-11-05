@@ -19,6 +19,7 @@ from memu.utils.taxonomy import (
     category_identity_text,
     dossier_scope as _scope,
     embedding_vector as _embedding_vector,
+    normalize_category_name,
 )
 
 if TYPE_CHECKING:
@@ -34,6 +35,19 @@ logger = logging.getLogger(__name__)
 
 class DossierRevisionStaleError(RuntimeError):
     pass
+
+
+def _validate_dossier_rename(current: MemoryCategory, name: str, categories: Mapping[str, MemoryCategory]) -> None:
+    if current.anchor_role is not None:
+        if name != current.name:
+            raise ValueError("Dossier anchors cannot be renamed")
+        return
+    normalized = normalize_category_name(name)
+    if normalized is None:
+        raise ValueError("Dossier title must contain letters or digits")
+    if any(category.id != current.id and category.anchor_role is None
+           and normalize_category_name(category.name) == normalized for category in categories.values()):
+        raise ValueError(f"Duplicate normalized dossier title in scope: {normalized}")
 
 
 def _activity_key(category: MemoryCategory) -> tuple[int, float, str, str]:
@@ -286,13 +300,16 @@ class DossierMixin:
     ) -> dict[str, Any]:
         scope = _scope(where)
         store = self._get_database()
-        current = store.memory_category_repo.list_categories(scope).get(category_id)
+        categories = store.memory_category_repo.list_categories(scope)
+        current = categories.get(category_id)
         if current is None:
             raise KeyError(f"Dossier with id {category_id} not found in scope")
 
         final_name = current.name if name is None else name.strip()
         if not final_name:
             raise ValueError("Dossier title is required")
+        if name is not None:
+            _validate_dossier_rename(current, final_name, categories)
         final_description = current.description if description is None else description.strip()
         final_summary = summary.strip() if summary is not None else None
         if final_summary and label_sections(final_summary) is None:
@@ -301,8 +318,6 @@ class DossierMixin:
         if final_kind is not None and final_kind not in DOSSIER_KINDS:
             raise ValueError(f"Invalid dossier kind: {final_kind}")
         if current.anchor_role is not None:
-            if final_name != current.name:
-                raise ValueError("Dossier anchors cannot be renamed")
             if final_kind != "lore":
                 raise ValueError("Dossier anchors must remain Lore dossiers")
 
@@ -336,7 +351,9 @@ class DossierMixin:
     ) -> tuple[MemoryCategory, MemoryCategory]:
         scope = _scope(where)
         store = self._get_database()
-        current = store.memory_category_repo.list_categories({**scope, "id": category_id}, session=session).get(category_id)
+        category_filter = scope if prepared["name"] is not None else {**scope, "id": category_id}
+        categories = store.memory_category_repo.list_categories(category_filter, session=session)
+        current = categories.get(category_id)
         if current is None:
             raise KeyError(f"Dossier with id {category_id} not found in scope")
         description = prepared["description"]
@@ -345,6 +362,8 @@ class DossierMixin:
             or current.summary != prepared["source_summary"]
         ):
             raise DossierRevisionStaleError("summary_snapshot_stale")
+        if prepared["name"] is not None:
+            _validate_dossier_rename(current, prepared["name"], categories)
         if prepared["summary"] is not None:
             refs = set(self.extract_memory_refs(prepared["summary"]))
             cited = store.memory_item_repo.list_items(

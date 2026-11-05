@@ -370,6 +370,39 @@ async def test_prepare_and_write_dossier_update_refreshes_identity_and_derived_i
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("name", ["!!!", " beta ", "BETA", "work_topics"])
+async def test_invalid_dossier_rename_fails_before_embedding(tmp_path, name):
+    service = _service(tmp_path)
+    current = _category(service, "Alpha", kind="topic")
+    _category(service, "Beta", kind="topic")
+    _category(service, "Work Topics", kind="lore")
+    client = FakeEmbedClient()
+    with pytest.raises(ValueError, match="letters or digits|Duplicate normalized"):
+        await service.prepare_dossier_update(current.id, SCOPE, name=name, embedding_client=client)
+    assert client.calls == []
+    assert service.database.memory_category_repo.list_categories(SCOPE)[current.id].name == "Alpha"
+
+
+@pytest.mark.asyncio
+async def test_dossier_rename_rechecks_collisions_in_write_transaction(tmp_path):
+    service = _service(tmp_path)
+    current = _category(service, "!!!", kind="topic")
+    prepared = await service.prepare_dossier_update(current.id, SCOPE, name="Health", embedding_client=FakeEmbedClient())
+    collision = _category(service, "HEALTH", kind="goal")
+    with service.database._sessions.session() as session:
+        session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+        with pytest.raises(ValueError, match="Duplicate normalized"):
+            service.write_dossier_update(current.id, SCOPE, prepared, session=session)
+        session.rollback()
+    service.database.memory_category_repo.update_category(category_id=collision.id, name="Other", where=SCOPE)
+    with service.database._sessions.session() as session:
+        session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+        updated, _ = service.write_dossier_update(current.id, SCOPE, prepared, session=session)
+        session.commit()
+    assert updated.name == "Health"
+
+
+@pytest.mark.asyncio
 async def test_identity_and_content_search_boundaries_and_cache(tmp_path) -> None:
     service = _service(tmp_path)
     client = FakeEmbedClient()

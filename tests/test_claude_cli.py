@@ -60,11 +60,9 @@ def mock_cli_spawn(monkeypatch):
             process = SimpleNamespace(returncode=None)
 
             async def communicate(data):
-                completed = await run(list(cmd), cwd=cwd, input=data.decode(locale.getpreferredencoding(False)))
+                completed = await run(list(cmd), cwd=cwd, input=data.decode("utf-8"))
                 process.returncode = completed.returncode
-                return completed.stdout.encode(locale.getpreferredencoding(False)), completed.stderr.encode(
-                    locale.getpreferredencoding(False)
-                )
+                return completed.stdout.encode("utf-8"), completed.stderr.encode("utf-8")
 
             process.communicate = communicate
             return process
@@ -972,19 +970,20 @@ async def test_claude_cli_stops_real_child_through_wrapper(monkeypatch, tmp_path
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("exit_code", [0, 7])
-async def test_claude_cli_real_child_preserves_text_semantics(monkeypatch, tmp_path: Path, exit_code) -> None:
+@pytest.mark.parametrize("preferred_encoding", ["utf-8", "cp1252"])
+async def test_claude_cli_real_child_preserves_text_semantics(monkeypatch, tmp_path: Path, exit_code, preferred_encoding) -> None:
     code = (
-        "import sys,json,locale; data=sys.stdin.buffer.read(); "
-        "result=(data+b'\\r\\nlast\\rline\\n').decode(locale.getpreferredencoding(False)); "
+        "import sys,json; data=sys.stdin.buffer.read(); "
+        "result=(data+b'\\r\\nlast\\rline\\n').decode('utf-8'); "
         f"envelope={_result_envelope()!r}; envelope['result']=result; "
-        "sys.stdout.write(json.dumps(envelope)+'\\r\\n'); "
+        "sys.stdout.buffer.write((json.dumps(envelope,ensure_ascii=False)+'\\r\\n').encode('utf-8')); "
         "sys.stderr.buffer.write(b'error\\r\\ndetail\\rline\\n'); "
         f"sys.exit({exit_code})"
     )
-    prompt = "caf\u00e9\nsecond\r\nthird\rfourth"
+    prompt = "caf\u00e9\nsecond\r\nthird\rfourth\U0001f642\u6f22"
     expected = subprocess.run(
         [sys.executable, "-c", code], cwd=tmp_path, input=prompt,
-        text=True, capture_output=True, timeout=3, check=False,
+        text=True, encoding="utf-8", capture_output=True, timeout=3, check=False,
     )
     real_spawn = asyncio.create_subprocess_exec
 
@@ -993,6 +992,7 @@ async def test_claude_cli_real_child_preserves_text_semantics(monkeypatch, tmp_p
         return await real_spawn(sys.executable, "-c", code, **kwargs)
 
     monkeypatch.setattr(claude_cli.asyncio, "create_subprocess_exec", spawn)
+    monkeypatch.setattr(locale, "getpreferredencoding", lambda *_args: preferred_encoding)
     client = ClaudeCLIClient(
         model="fictional", claude_binary=sys.executable, workspace=tmp_path, timeout_seconds=3,
     )

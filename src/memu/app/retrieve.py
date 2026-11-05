@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, cast
 from pydantic import BaseModel
 
 from memu.database.models import entity_is_ignored
+from memu.utils.taxonomy import format_category_summary_line
 from memu.database.vector import (
     autocut_first_cluster,
     cosine_topk,
@@ -969,7 +970,7 @@ class RetrieveMixin:
             text = str(summary or "").strip()
             if not text:
                 text = f"# {cat.name}"
-            lines.append(text)
+            lines.append(format_category_summary_line(cat.name, text))
         return "\n\n".join(lines).strip()
 
     def _resource_visual_corpus(
